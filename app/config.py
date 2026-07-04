@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from urllib.parse import quote_plus
 
 class  Settings(BaseSettings):
     app_name: str = "StellaHaven"
@@ -14,7 +15,7 @@ class  Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql://{self.postgres_user}:{quote_plus(self.postgres_password)}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
     
