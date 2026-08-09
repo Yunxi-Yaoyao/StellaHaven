@@ -37,7 +37,12 @@ const content = ref("");
 const savedTitle = ref("");
 const savedContent = ref("");
 const reading = ref(false); // false=编辑（双栏） true=阅览（纯预览）
-const statusText = ref("");
+
+// 常驻状态条数据：保存时间 + 草稿暂存标记 + 相对时间 ticker
+const savedAt = ref<string | null>(null);
+const draftSynced = ref(false);
+const nowTick = ref(Date.now());
+let tickTimer: ReturnType<typeof setInterval> | null = null;
 
 // 草稿提示条
 const draftBanner = ref<{ device: string | null; updatedAt: string } | null>(null);
@@ -60,6 +65,29 @@ function isDismissed(docId: string, draftUpdatedAt: string): boolean {
 const dirty = computed(() => title.value !== savedTitle.value || content.value !== savedContent.value);
 const rendered = computed(() => marked.parse(content.value || "") as string);
 
+// 字数：CJK 每字算 1，拉丁/数字按词算
+const wordCount = computed(() => {
+  const cjk = (content.value.match(/[一-鿿]/g) || []).length;
+  const latin = (content.value.replace(/[一-鿿]/g, " ").match(/[a-zA-Z0-9]+/g) || []).length;
+  return cjk + latin;
+});
+
+// 「保存于几分钟前」（nowTick 每 30s 刷新一次，相对时间会自己走）
+const savedAgo = computed(() => {
+  if (!savedAt.value) return "";
+  const min = Math.floor((nowTick.value - new Date(savedAt.value).getTime()) / 60000);
+  if (min < 1) return "刚刚";
+  if (min < 60) return `${min} 分钟前`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} 小时前`;
+  return new Date(savedAt.value).toLocaleDateString("zh-CN");
+});
+
+const statusLeft = computed(() => {
+  if (dirty.value) return draftSynced.value ? "编辑中 · 草稿已暂存" : "编辑中…";
+  return savedAt.value ? `保存于 ${savedAgo.value}` : "";
+});
+
 // ── 加载文档 ──
 async function load(id: string) {
   doc.value = await getDoc(id);
@@ -67,7 +95,8 @@ async function load(id: string) {
   content.value = doc.value.content || "";
   savedTitle.value = doc.value.title;
   savedContent.value = doc.value.content || "";
-  statusText.value = "";
+  savedAt.value = doc.value.updated_at;
+  draftSynced.value = false;
   draftPreview.value = null;
   draftBanner.value =
     doc.value.has_draft && !isDismissed(doc.value.id, doc.value.draft_updated_at!)
@@ -105,7 +134,7 @@ watch([content, title], () => {
     // 回调触发时世界可能已变：文档换了就不能发（防止交叉污染）
     if (dirty.value && doc.value?.id === forDoc) {
       sendDraft(content.value);
-      statusText.value = "编辑中 · 草稿已暂存（未保存）";
+      draftSynced.value = true;
     }
   }, 2500);
 });
@@ -115,7 +144,6 @@ function onRemoteSaved() {
   if (!doc.value) return;
   if (!dirty.value) {
     load(props.docId);
-    statusText.value = "已同步另一设备的保存 ✓";
   } else {
     toast("另一台设备保存了这篇笔记的新版本");
   }
@@ -135,17 +163,18 @@ async function save() {
     doc.value = updated;
     savedTitle.value = updated.title;
     savedContent.value = updated.content || "";
+    savedAt.value = updated.updated_at;
+    draftSynced.value = false;
     draftBanner.value = null; // 保存成功草稿槽已清
-    statusText.value = "已保存 ✓ " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
     toast("已自动保存 ✓");
     emit("saved");
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
       // 乐观锁兜底：静默重拉 DB（老婆定的：不弹打扰式提示）
       await load(props.docId);
-      statusText.value = "版本冲突，已刷新为最新 ✓";
+      toast("版本冲突，已刷新为最新");
     } else {
-      statusText.value = "保存失败，稍后再试";
+      toast("保存失败，稍后再试");
     }
   }
 }
@@ -197,8 +226,14 @@ function onKey(e: KeyboardEvent) {
     save();
   }
 }
-onMounted(() => window.addEventListener("keydown", onKey));
-onUnmounted(() => window.removeEventListener("keydown", onKey));
+onMounted(() => {
+  window.addEventListener("keydown", onKey);
+  tickTimer = setInterval(() => (nowTick.value = Date.now()), 30000); // 「几分钟前」自己走
+});
+onUnmounted(() => {
+  window.removeEventListener("keydown", onKey);
+  if (tickTimer) clearInterval(tickTimer);
+});
 
 function fmtDraftTime(iso: string) {
   return new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -233,11 +268,6 @@ function fmtDraftTime(iso: string) {
       </div>
     </div>
 
-    <div class="status-line">
-      <span>{{ statusText }}</span>
-      <span class="device" title="点击给这台设备起名" @click="renameDevice">{{ deviceLabel }}</span>
-    </div>
-
     <div class="panes" :class="reading ? 'preview-only' : 'split'">
       <textarea
         v-show="!reading"
@@ -246,6 +276,13 @@ function fmtDraftTime(iso: string) {
         placeholder="开始写…（打字存草稿 · 切换笔记自动保存 · Ctrl+S 手动保存）"
       />
       <div class="preview markdown-body" v-html="rendered" />
+    </div>
+
+    <!-- 常驻状态条：保存于几分钟前 · 字数 · 来源 -->
+    <div class="status-bar">
+      <span class="state">{{ statusLeft }}</span>
+      <span class="right">{{ wordCount }} 字 · </span>
+      <span class="device" title="点击给这个来源起名" @click="renameDevice">{{ deviceLabel }}</span>
     </div>
   </div>
 </template>
@@ -330,15 +367,19 @@ function fmtDraftTime(iso: string) {
 }
 .del-btn:hover { border-color: var(--pink); color: var(--pink); }
 
-.status-line {
+.status-bar {
   display: flex;
-  justify-content: space-between;
-  padding: 4px 16px;
+  align-items: center;
+  padding: 7px 16px;
   font-size: 11px;
   color: var(--text-faint);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--bg-base);
 }
-.status-line .device { cursor: pointer; }
-.status-line .device:hover { color: var(--accent); }
+.status-bar .state { color: var(--text-lo); }
+.status-bar .right { margin-left: auto; }
+.status-bar .device { cursor: pointer; }
+.status-bar .device:hover { color: var(--accent); }
 
 .panes { flex: 1; display: flex; overflow: hidden; }
 .input {
