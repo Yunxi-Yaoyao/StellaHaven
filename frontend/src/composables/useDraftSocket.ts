@@ -24,6 +24,15 @@ interface IpInfo {
 const IP_CACHE_KEY = "stella_ipinfo";
 const IP_CACHE_TTL = 24 * 3600 * 1000;
 
+// 私网/本地地址 → 地区显示「局域网」，不查地区库
+function isPrivateIp(ip: string): boolean {
+  return (
+    /^(10\.|192\.168\.|127\.|169\.254\.)/.test(ip) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    /^(fc|fd|fe80)/i.test(ip) // IPv6 ULA / link-local
+  );
+}
+
 export async function getIpInfo(): Promise<IpInfo | null> {
   try {
     const cached = JSON.parse(localStorage.getItem(IP_CACHE_KEY) || "null") as IpInfo | null;
@@ -37,11 +46,13 @@ export async function getIpInfo(): Promise<IpInfo | null> {
     try {
       const resp = await fetch(url, { signal: AbortSignal.timeout(4000) });
       const d = await resp.json();
-      // region == city 时去重（直辖市常见：Shanghai Shanghai → Shanghai）
-      const region = d.region === d.city
-        ? d.region
-        : [d.region, d.city].filter(Boolean).join(" ") || d.country || "";
       if (d.ip) {
+        // 私网地址不查地区，直接标「局域网」（老婆定的）
+        const region = isPrivateIp(d.ip)
+          ? "局域网"
+          : d.region === d.city
+            ? d.region
+            : [d.region, d.city].filter(Boolean).join(" ") || d.country || "";
         const info: IpInfo = { ip: d.ip, region, at: Date.now() };
         localStorage.setItem(IP_CACHE_KEY, JSON.stringify(info));
         return info;
