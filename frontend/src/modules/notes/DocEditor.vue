@@ -5,18 +5,31 @@ import {
   getDoc, updateDoc, getDraft, type Doc,
 } from "../../api/notes";
 import { ApiError } from "../../api/client";
-import { useDraftSocket, getDeviceName, setDeviceName } from "../../composables/useDraftSocket";
+import { useDraftSocket, getDeviceName, setDeviceName, getIpInfo } from "../../composables/useDraftSocket";
 import { useNotesStore } from "../../stores/notes";
 
 const props = defineProps<{ docId: string }>();
 const emit = defineEmits<{ saved: []; deleted: [] }>();
 
-const deviceName = ref(getDeviceName());
+// 设备标签 = 设备名 · 公网IP · 地区（IP/地区异步查到后补上，缓存24h）
+const deviceLabel = ref(getDeviceName());
+function deviceNameOnly() {
+  return deviceLabel.value.split(" · ")[0];
+}
+async function refreshDeviceLabel() {
+  const info = await getIpInfo();
+  deviceLabel.value = info
+    ? `${deviceNameOnly()} · ${info.ip} · ${info.region}`
+    : deviceNameOnly();
+}
+refreshDeviceLabel();
+
 function renameDevice() {
-  const name = prompt("给这台设备起个名字（会显示在草稿提示里）", deviceName.value);
+  const name = prompt("给这台设备起个名字（会显示在草稿提示里）", deviceNameOnly());
   if (name?.trim()) {
     setDeviceName(name.trim());
-    deviceName.value = name.trim();
+    deviceLabel.value = name.trim();
+    refreshDeviceLabel(); // 重新组合 IP+地区
   }
 }
 
@@ -90,7 +103,7 @@ function onRemoteSaved() {
   }
 }
 
-const { sendDraft } = useDraftSocket(toRef(props, "docId"), onRemoteSaved);
+const { sendDraft } = useDraftSocket(toRef(props, "docId"), deviceLabel, onRemoteSaved);
 
 // ── 保存（手动，乐观锁）──
 async function save() {
@@ -211,7 +224,7 @@ function fmtDraftTime(iso: string) {
 
     <div class="status-line">
       <span>{{ statusText }}</span>
-      <span class="device" title="点击给这台设备起名" @click="renameDevice">{{ deviceName }}</span>
+      <span class="device" title="点击给这台设备起名" @click="renameDevice">{{ deviceLabel }}</span>
     </div>
 
     <div class="panes" :class="mode">
