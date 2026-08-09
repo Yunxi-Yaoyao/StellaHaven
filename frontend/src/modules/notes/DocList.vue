@@ -38,8 +38,11 @@ function onSearchInput() {
         @click="emit('open', doc.id)"
       >
         <div class="title">
-          {{ doc.title }}
-          <span v-if="doc.has_draft" class="draft-dot" title="有未保存草稿">●</span>
+          <span class="text">{{ doc.title }}</span>
+          <span class="indicators">
+            <span v-if="doc.is_favorite" class="star" title="星标">⭐</span>
+            <span v-if="doc.has_draft" class="draft-dot" title="有未保存草稿">●</span>
+          </span>
         </div>
       </div>
       <div v-if="docs.length === 0" class="empty">
@@ -110,12 +113,26 @@ function onSearchInput() {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .title {
+  display: flex;
+  align-items: center;
   font-size: 13.5px;
+}
+.title .text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
-.draft-dot { color: var(--pink); font-size: 10px; margin-left: 4px; }
+.indicators {
+  margin-left: auto;
+  padding-left: 8px;
+  flex-shrink: 0;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.star { font-size: 11px; }
+.draft-dot { color: var(--pink); font-size: 10px; }
 .empty {
   padding: 24px 12px;
   text-align: center;

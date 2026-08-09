@@ -106,3 +106,6 @@ export const listTrash = (wsId: string) =>
   api<Doc[]>(`/documents/trash?workspace_id=${wsId}`);
 
 export const getDraft = (id: string) => api<Draft>(`/documents/${id}/draft`);
+
+export const toggleFavorite = (id: string) =>
+  api<Doc>(`/documents/${id}/favorite`, { method: "POST" });

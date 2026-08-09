@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted, toRef } from "vue";
 import { marked } from "marked";
 import {
-  getDoc, updateDoc, getDraft, type Doc,
+  getDoc, updateDoc, getDraft, toggleFavorite, type Doc,
 } from "../../api/notes";
 import { ApiError } from "../../api/client";
 import { useDraftSocket, getDeviceName, setDeviceName, getIpInfo } from "../../composables/useDraftSocket";
@@ -212,6 +212,15 @@ function dismissDraft() {
   draftPreview.value = null;
 }
 
+// ── 星标切换（轻量端点，不动 updated_at 不碰正在编辑的内容）──
+async function toggleFav() {
+  if (!doc.value) return;
+  const updated = await toggleFavorite(doc.value.id);
+  // 只更新星标状态和令牌，本地的 title/content 编辑现场不动
+  doc.value = { ...updated };
+  useNotesStore().refreshList();
+}
+
 // ── 删除 ──
 async function remove() {
   if (!doc.value) return;
@@ -261,6 +270,14 @@ function fmtDraftTime(iso: string) {
     <div class="toolbar">
       <input v-model="title" class="title-input" placeholder="无标题" />
       <div class="actions">
+        <button
+          class="star-btn"
+          :class="{ fav: doc.is_favorite }"
+          :title="doc.is_favorite ? '取消星标' : '设为星标'"
+          @click="toggleFav"
+        >
+          {{ doc.is_favorite ? "⭐" : "☆" }}
+        </button>
         <button class="mode-toggle" @click="reading = !reading">
           {{ reading ? "✏️ 编辑" : "📖 阅览" }}
         </button>
@@ -345,6 +362,18 @@ function fmtDraftTime(iso: string) {
   font-weight: 600;
 }
 .actions { display: flex; gap: 8px; align-items: center; }
+.star-btn {
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 15px;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: all var(--transition);
+}
+.star-btn:hover { opacity: 0.9; background: var(--bg-raised); }
+.star-btn.fav { opacity: 1; }
 .mode-toggle {
   padding: 6px 16px;
   border: 1px solid var(--accent-dim);

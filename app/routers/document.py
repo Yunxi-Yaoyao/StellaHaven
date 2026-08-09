@@ -100,6 +100,20 @@ def update_one(doc_id: UUID, data: DocumentUpdate, request: Request, db: Session
 
 
 
+@router.post("/{doc_id}/favorite", response_model=DocumentRead)
+def toggle_favorite(doc_id: UUID, db: Session = Depends(get_db)):
+    """星标切换。轻量端点：只翻 is_favorite，不碰 updated_at（点赞不是保存正文，
+    不该让笔记跳列表顶），不走乐观锁（单用户场景无冲突语义）"""
+    doc = get_document(db, doc_id)
+    if doc is None or doc.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    doc.is_favorite = not doc.is_favorite
+    db.commit()
+    db.refresh(doc)
+    notify_list(doc.workspace_id, doc.id)
+    return doc
+
+
 @router.post("/{doc_id}/restore", response_model=DocumentRead)
 def restore_one(doc_id: UUID, db: Session = Depends(get_db)):
     """从回收站还原"""

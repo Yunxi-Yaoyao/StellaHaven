@@ -101,3 +101,17 @@ def test_delete_document(client, workspace_id):
     doc = make_doc(client, workspace_id).json()
     response = client.delete(f"/documents/{doc['id']}")
     assert response.status_code in (200, 204)
+
+
+def test_favorite_toggle_keeps_updated_at(client, workspace_id):
+    """星标切换：翻转 is_favorite，但不动 updated_at（点赞不是保存正文）"""
+    doc = make_doc(client, workspace_id).json()
+    assert doc["is_favorite"] is False
+
+    r = client.post(f"/documents/{doc['id']}/favorite")
+    assert r.status_code == 200
+    assert r.json()["is_favorite"] is True
+    assert r.json()["updated_at"] == doc["updated_at"]  # 关键：不许变
+
+    r2 = client.post(f"/documents/{doc['id']}/favorite")
+    assert r2.json()["is_favorite"] is False
