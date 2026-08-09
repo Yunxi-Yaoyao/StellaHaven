@@ -4,6 +4,7 @@ import {
   ensureWorkspace, saveBootstrap, listDocs, searchDocs, listTrash, listRecent,
   listWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace,
   createDoc, deleteDoc, restoreDoc, updateDoc, emptyTrash as emptyTrashApi,
+  clearAllDocs as clearAllDocsApi,
   type Doc, type Bootstrap,
 } from "../api/notes";
 import { toast } from "../composables/useToast";
@@ -187,6 +188,13 @@ export const useNotesStore = defineStore("notes", () => {
     return r.purged;
   }
 
+  /** 清空笔记：全部移入回收站（可还原），返回篇数 */
+  async function clearAll(): Promise<number> {
+    const r = await clearAllDocsApi(workspaceId.value);
+    await Promise.all([refreshList(), refreshTrash()]);
+    return r.trashed;
+  }
+
   /** 移动到：改 parent_id。循环防护后端兜底，前端先过滤候选 */
   async function moveTo(doc: Doc, newParentId: string | null): Promise<boolean> {
     try {
@@ -204,6 +212,6 @@ export const useNotesStore = defineStore("notes", () => {
     workspaceId, userId, workspaces, docs, trash, recent, searchQuery, searching, pendingDelete,
     bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces,
     switchWorkspace, addWorkspace, renameCurrentWorkspace, deleteCurrentWorkspace,
-    childCount, createNew, requestDelete, doDelete, restore, purge, emptyAllTrash, moveTo,
+    childCount, createNew, requestDelete, doDelete, restore, purge, emptyAllTrash, clearAll, moveTo,
   };
 });

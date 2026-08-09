@@ -131,3 +131,32 @@ def test_empty_trash(client, db_session):
     for i in ids:
         assert client.get(f"/documents/{i}").status_code == 404
     assert client.get(f"/documents/{keep['id']}").status_code == 200  # 正常的还在
+
+
+def test_clear_all_docs(client, db_session):
+    """清空笔记：全部进回收站（可还原），层级保留，返回篇数"""
+    user = User(id=uuid4(), username=f"u{uuid4().hex[:6]}", display_name="清空笔记测试")
+    db_session.add(user)
+    db_session.commit()
+    ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "待清区"}).json()
+
+    parent = client.post("/documents/", json={
+        "title": "父", "file_path": "/p.md", "workspace_id": ws["id"], "content": "",
+    }).json()
+    child = client.post("/documents/", json={
+        "title": "子", "file_path": "/c.md", "workspace_id": ws["id"], "content": "",
+        "parent_id": parent["id"],
+    }).json()
+
+    r = client.post(f"/documents/clear-all?workspace_id={ws['id']}")
+    assert r.status_code == 200
+    assert r.json()["trashed"] == 2
+
+    # 都进回收站了，层级还在
+    assert client.get(f"/documents/?workspace_id={ws['id']}").json() == []
+    trash = client.get(f"/documents/trash?workspace_id={ws['id']}").json()
+    assert len(trash) == 2
+    # 级联还原能整体回来
+    rr = client.post(f"/documents/{parent['id']}/restore?cascade=true")
+    assert rr.json()["restored"] == 2
+    assert client.get(f"/documents/{child['id']}").json()["parent_id"] == parent["id"]

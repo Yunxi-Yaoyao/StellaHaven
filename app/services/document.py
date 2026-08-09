@@ -195,6 +195,19 @@ def empty_trash(db: Session, workspace_id: UUID) -> int:
     return n
 
 
+def clear_workspace_docs(db: Session, workspace_id: UUID) -> int:
+    """清空笔记：工作区所有正常文档移入回收站（软删可还原，层级结构保留），返回篇数"""
+    docs = db.query(Document).filter(
+        Document.workspace_id == workspace_id,
+        Document.deleted_at.is_(None),
+    ).all()
+    now = datetime.now()
+    for d in docs:
+        d.deleted_at = now
+    db.commit()
+    return len(docs)
+
+
 def list_trash_documents(db: Session, workspace_id: UUID) -> list[Document]:
     """看回收站 = 惰性清理时机：先顺手清掉过期的，再返回剩下的"""
     purge_expired_trash(db, TRASH_RETENTION_DAYS)

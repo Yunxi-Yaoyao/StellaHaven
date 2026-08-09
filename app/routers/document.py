@@ -7,7 +7,7 @@ from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentRead, D
 from app.services.document import (
     get_document, list_documents, create_document, update_document, delete_document,
     restore_document, list_trash_documents, search_documents,
-    touch_view, list_recent_documents, get_backlinks, empty_trash,
+    touch_view, list_recent_documents, get_backlinks, empty_trash, clear_workspace_docs,
     is_draft_fresh, get_fresh_draft,
 )
 
@@ -43,6 +43,14 @@ def empty_trash_endpoint(workspace_id: UUID, db: Session = Depends(get_db)):
     n = empty_trash(db, workspace_id)
     notify_list(workspace_id, workspace_id)  # 通知列表频道刷新
     return {"purged": n}
+
+
+@router.post("/clear-all")
+def clear_all_endpoint(workspace_id: UUID, db: Session = Depends(get_db)):
+    """清空笔记：工作区全部笔记移入回收站（可还原），前端二次确认"""
+    n = clear_workspace_docs(db, workspace_id)
+    notify_list(workspace_id, workspace_id)
+    return {"trashed": n}
 
 
 @router.get("/{doc_id}", response_model=DocumentRead)

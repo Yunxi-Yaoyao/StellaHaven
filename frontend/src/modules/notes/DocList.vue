@@ -49,8 +49,20 @@ async function onDeleteWs() {
   wsDeleteStep.value = "confirm"; // 第一次确认（点菜单=第一次，弹窗=第二次）
 }
 
-// 工作区删除弹窗状态：confirm 普通确认 / force 回收站警告 / none 关闭
-const wsDeleteStep = ref<"none" | "confirm" | "force">("none");
+// 工作区删除弹窗状态：confirm 普通确认 / force 回收站警告 / clear 清空笔记 / none 关闭
+const wsDeleteStep = ref<"none" | "confirm" | "force" | "clear">("none");
+
+function onClearDocs() {
+  wsMenuOpen.value = false;
+  wsDeleteStep.value = "clear";
+}
+
+async function confirmClearDocs() {
+  const n = await store.clearAll();
+  wsDeleteStep.value = "none";
+  toast(n > 0 ? `${n} 篇笔记已移入回收站` : "本来就是空的");
+  emit("switched");
+}
 
 async function confirmDeleteWs(force: boolean) {
   const result = await store.deleteCurrentWorkspace(force);
@@ -122,6 +134,7 @@ function onSearchInput() {
         <div class="ws-opt action" @click="onNewWs">＋ 新建工作区</div>
         <div class="ws-opt action" @click="onRenameWs">✎ 重命名当前</div>
         <div class="ws-opt action danger" @click="onDeleteWs">🗑 删除当前工作区</div>
+        <div class="ws-opt action" @click="onClearDocs">🧹 清空笔记（全部进回收站）</div>
       </div>
     </div>
 
@@ -220,6 +233,14 @@ function onSearchInput() {
           <div class="body">工作区本身删除后不可恢复。里面有笔记的话会被拦下。</div>
           <div class="btns">
             <button class="danger" @click="confirmDeleteWs(false)">确认删除</button>
+            <button class="cancel" @click="wsDeleteStep = 'none'">取消</button>
+          </div>
+        </template>
+        <template v-else-if="wsDeleteStep === 'clear'">
+          <div class="head">清空「{{ currentWsName }}」的笔记？</div>
+          <div class="body">当前共 {{ store.docs.length }} 篇笔记将<strong>全部移入回收站</strong>（可还原，不会永久删除）。</div>
+          <div class="btns">
+            <button class="danger" @click="confirmClearDocs">移入回收站（{{ store.docs.length }} 篇）</button>
             <button class="cancel" @click="wsDeleteStep = 'none'">取消</button>
           </div>
         </template>
