@@ -3,6 +3,7 @@ import { ref, computed } from "vue";
 import { storeToRefs } from "pinia";
 import { useNotesStore, buildTree, type TreeNode } from "../../stores/notes";
 import DocTreeNode from "./DocTreeNode.vue";
+import Icon from "../../shell/Icon.vue";
 
 const emit = defineEmits<{
   open: [id: string];
@@ -10,11 +11,54 @@ const emit = defineEmits<{
   newChild: [node: TreeNode | null];
   move: [node: TreeNode];
   del: [node: TreeNode];
+  switched: [];
 }>();
 const props = defineProps<{ currentId: string | null; trashOpen: boolean }>();
 
 const store = useNotesStore();
-const { docs, recent, searchQuery, searching } = storeToRefs(store);
+const { docs, recent, searchQuery, searching, workspaces, workspaceId } = storeToRefs(store);
+
+// ── 工作区切换器 ──
+const wsMenuOpen = ref(false);
+const currentWsName = computed(() =>
+  workspaces.value.find((w) => w.id === workspaceId.value)?.name ?? "…"
+);
+async function switchWs(id: string) {
+  wsMenuOpen.value = false;
+  await store.switchWorkspace(id);
+  emit("switched");
+}
+async function onNewWs() {
+  const name = prompt("新工作区名字", "");
+  if (name?.trim()) {
+    wsMenuOpen.value = false;
+    await store.addWorkspace(name.trim());
+    emit("switched");
+  }
+}
+async function onRenameWs() {
+  const name = prompt("重命名工作区", currentWsName.value);
+  if (name?.trim()) {
+    wsMenuOpen.value = false;
+    await store.renameCurrentWorkspace(name.trim());
+  }
+}
+async function onDeleteWs() {
+  if (!confirm(`确定删除工作区「${currentWsName.value}」？（里面有笔记会删不掉）`)) return;
+  wsMenuOpen.value = false;
+  if (await store.deleteCurrentWorkspace()) emit("switched");
+}
+
+// ── 区块折叠：⭐ 默认折叠 / 🕘 最近查看默认展开 / 全部笔记默认展开 ──
+const LS_SECTIONS = "stella_sections";
+const sections = ref<Record<string, boolean>>({
+  ...{ fav: false, recent: true, tree: true },  // 默认值
+  ...JSON.parse(localStorage.getItem(LS_SECTIONS) || "{}"),
+});
+function toggleSection(key: string) {
+  sections.value[key] = !sections.value[key];
+  localStorage.setItem(LS_SECTIONS, JSON.stringify(sections.value));
+}
 
 // 树：客户端从平铺列表构建
 const tree = computed(() => buildTree(docs.value));
@@ -40,6 +84,27 @@ function onSearchInput() {
 
 <template>
   <div class="doc-list">
+    <!-- 工作区切换器 -->
+    <div class="ws-switcher">
+      <button class="ws-current" @click="wsMenuOpen = !wsMenuOpen">
+        <span class="ws-name">{{ currentWsName }}</span>
+        <span class="ws-caret" :class="{ open: wsMenuOpen }">▾</span>
+      </button>
+      <div v-if="wsMenuOpen" class="ws-menu">
+        <div
+          v-for="w in workspaces"
+          :key="w.id"
+          class="ws-opt"
+          :class="{ on: w.id === workspaceId }"
+          @click="switchWs(w.id)"
+        >{{ w.name }}</div>
+        <div class="ws-divider" />
+        <div class="ws-opt action" @click="onNewWs">＋ 新建工作区</div>
+        <div class="ws-opt action" @click="onRenameWs">✎ 重命名当前</div>
+        <div class="ws-opt action danger" @click="onDeleteWs">🗑 删除当前工作区</div>
+      </div>
+    </div>
+
     <div class="search-box">
       <input
         v-model="searchQuery"
@@ -48,7 +113,7 @@ function onSearchInput() {
       />
     </div>
 
-    <button class="new-btn" @click="emit('newChild', null)">＋ 新建笔记</button>
+    <button class="new-btn" @click="emit('newChild', null)"><Icon name="plus" :size="13" /> 新建笔记</button>
     <div v-if="searching" class="search-hint">搜索「{{ searchQuery }}」的结果（平铺显示）</div>
 
     <div class="items">
@@ -66,53 +131,65 @@ function onSearchInput() {
       </template>
 
       <template v-else>
-        <!-- ⭐ 星标区块 -->
+        <!-- ⭐ 星标区块（默认折叠） -->
         <div v-if="favorites.length" class="section">
-          <div class="section-title">⭐ 星标</div>
-          <div
-            v-for="doc in favorites"
-            :key="doc.id"
-            class="flat-item fav"
-            :class="{ active: doc.id === props.currentId }"
-            @click="emit('open', doc.id)"
-          >{{ doc.title }}</div>
+          <div class="section-title clickable" @click="toggleSection('fav')">
+            <span class="sec-caret" :class="{ open: sections.fav }">▸</span> <Icon name="star" :size="12" /> 星标
+          </div>
+          <template v-if="sections.fav">
+            <div
+              v-for="doc in favorites"
+              :key="doc.id"
+              class="flat-item fav"
+              :class="{ active: doc.id === props.currentId }"
+              @click="emit('open', doc.id)"
+            >{{ doc.title }}</div>
+          </template>
         </div>
 
-        <!-- 🕘 最近查看区块 -->
+        <!-- 🕘 最近查看区块（默认展开，最近 5 条） -->
         <div v-if="recent.length" class="section">
-          <div class="section-title">🕘 最近查看</div>
-          <div
-            v-for="doc in recent.slice(0, 5)"
-            :key="doc.id"
-            class="flat-item"
-            :class="{ active: doc.id === props.currentId }"
-            @click="emit('open', doc.id)"
-          >{{ doc.title }}</div>
+          <div class="section-title clickable" @click="toggleSection('recent')">
+            <span class="sec-caret" :class="{ open: sections.recent }">▸</span> <Icon name="clock" :size="12" /> 最近查看
+          </div>
+          <template v-if="sections.recent">
+            <div
+              v-for="doc in recent.slice(0, 5)"
+              :key="doc.id"
+              class="flat-item"
+              :class="{ active: doc.id === props.currentId }"
+              @click="emit('open', doc.id)"
+            >{{ doc.title }}</div>
+          </template>
         </div>
 
         <!-- 目录树 -->
         <div class="section">
-          <div class="section-title">📒 全部笔记</div>
-          <DocTreeNode
-            v-for="node in tree"
-            :key="node.id"
-            :node="node"
-            :depth="0"
-            :current-id="props.currentId"
-            :expanded="expanded"
-            @open="emit('open', $event)"
-            @toggle="toggle"
-            @new-child="emit('newChild', $event)"
-            @move="emit('move', $event)"
-            @del="emit('del', $event)"
-          />
-          <div v-if="tree.length === 0" class="empty">还没有笔记，点上面新建一篇吧</div>
+          <div class="section-title clickable" @click="toggleSection('tree')">
+            <span class="sec-caret" :class="{ open: sections.tree }">▸</span> <Icon name="book" :size="12" /> 全部笔记
+          </div>
+          <template v-if="sections.tree">
+            <DocTreeNode
+              v-for="node in tree"
+              :key="node.id"
+              :node="node"
+              :depth="0"
+              :current-id="props.currentId"
+              :expanded="expanded"
+              @open="emit('open', $event)"
+              @toggle="toggle"
+              @new-child="emit('newChild', $event)"
+              @move="emit('move', $event)"
+              @del="emit('del', $event)"
+            />
+            <div v-if="tree.length === 0" class="empty">还没有笔记，点上面新建一篇吧</div>
+          </template>
         </div>
       </template>
     </div>
 
     <div class="trash-entry" :class="{ active: props.trashOpen }" @click="emit('showTrash')">
-      🗑 回收站
+      <Icon name="trash" :size="13" /> 回收站
     </div>
   </div>
 </template>
@@ -163,6 +240,59 @@ function onSearchInput() {
   letter-spacing: 1px;
   padding: 6px 10px 4px;
 }
+.section-title.clickable { cursor: pointer; user-select: none; }
+.section-title.clickable:hover { color: var(--text-lo); }
+.sec-caret {
+  display: inline-block;
+  font-size: 9px;
+  transition: transform var(--transition);
+}
+.sec-caret.open { transform: rotate(90deg); }
+
+/* 工作区切换器 */
+.ws-switcher { position: relative; padding: 10px 12px 2px; }
+.ws-current {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text-hi);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ws-caret { transition: transform var(--transition); color: var(--text-faint); }
+.ws-caret.open { transform: rotate(180deg); }
+.ws-menu {
+  position: absolute;
+  top: 48px;
+  left: 12px;
+  right: 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  z-index: 30;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.ws-opt {
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--text-lo);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-opt:hover { background: var(--bg-panel); color: var(--text-hi); }
+.ws-opt.on { color: var(--accent); }
+.ws-opt.action { font-size: 12px; }
+.ws-opt.danger:hover { color: var(--pink); }
+.ws-divider { height: 1px; background: var(--bg-panel); margin: 4px 0; }
 .flat-item {
   padding: 7px 10px;
   border-radius: var(--radius-sm);

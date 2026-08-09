@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { type TreeNode } from "../../stores/notes";
+import Icon from "../../shell/Icon.vue";
 
 const props = defineProps<{
   node: TreeNode;
@@ -35,14 +36,14 @@ const hasKids = computed(() => props.node.children.length > 0);
       >{{ hasKids ? "▸" : "·" }}</span>
       <span class="text">{{ node.title }}</span>
       <span class="indicators">
-        <span v-if="node.is_favorite" class="star">⭐</span>
+        <Icon v-if="node.is_favorite" name="star" :size="11" class="star" />
         <span v-if="node.has_draft" class="draft-dot" title="有未保存草稿">●</span>
       </span>
       <!-- hover 才出现的操作 -->
       <span class="actions">
-        <button title="新建子页面" @click.stop="emit('newChild', node)">＋</button>
-        <button title="移动到…" @click.stop="emit('move', node)">⇢</button>
-        <button title="删除" @click.stop="emit('del', node)">🗑</button>
+        <button title="新建子页面" @click.stop="emit('newChild', node)"><Icon name="plus" :size="12" /></button>
+        <button title="移动到…" @click.stop="emit('move', node)"><Icon name="move" :size="12" /></button>
+        <button title="删除" @click.stop="emit('del', node)"><Icon name="trash" :size="12" /></button>
       </span>
     </div>
     <template v-if="hasKids && isOpen">
@@ -105,7 +106,7 @@ const hasKids = computed(() => props.node.children.length > 0);
   gap: 5px;
   align-items: center;
 }
-.star { font-size: 11px; }
+.star { color: var(--accent); }
 .draft-dot { color: var(--pink); font-size: 10px; }
 .actions {
   display: none;

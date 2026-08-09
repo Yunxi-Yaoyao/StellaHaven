@@ -20,3 +20,27 @@ def create(db: Session, data: WorkspaceCreate) -> Workspace:
     db.commit()
     db.refresh(ws)
     return ws
+
+
+def rename(db: Session, ws_id: UUID, name: str) -> Workspace | None:
+    ws = get_by_id(db, ws_id)
+    if ws is None:
+        return None
+    ws.name = name
+    db.commit()
+    db.refresh(ws)
+    return ws
+
+
+def delete(db: Session, ws_id: UUID) -> str:
+    """删除工作区：里面还有文档就不给删（防手滑，先清空再说）"""
+    from app.models.document import Document
+    ws = get_by_id(db, ws_id)
+    if ws is None:
+        return "not_found"
+    n = db.query(Document).filter(Document.workspace_id == ws_id).count()
+    if n > 0:
+        return "not_empty"
+    db.delete(ws)
+    db.commit()
+    return "deleted"

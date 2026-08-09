@@ -45,3 +45,39 @@ def test_list_workspaces(client, db_session):
     assert len(data) == 2
     names = {ws["name"] for ws in data}
     assert names == {"工作区A", "工作区B"}
+
+
+def test_rename_workspace(client, db_session):
+    """重命名工作区"""
+    user = User(id=uuid4(), username=f"u{uuid4().hex[:6]}", display_name="改名测试")
+    db_session.add(user)
+    db_session.commit()
+    ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "旧名字"}).json()
+
+    r = client.put(f"/workspaces/{ws['id']}?name=新名字")
+    assert r.status_code == 200
+    assert r.json()["name"] == "新名字"
+
+
+def test_delete_workspace_empty_ok(client, db_session):
+    """空工作区可删"""
+    user = User(id=uuid4(), username=f"u{uuid4().hex[:6]}", display_name="删区测试")
+    db_session.add(user)
+    db_session.commit()
+    ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "空区"}).json()
+
+    assert client.delete(f"/workspaces/{ws['id']}").status_code == 204
+
+
+def test_delete_workspace_not_empty_blocked(client, db_session):
+    """有笔记的工作区 → 409 不给删"""
+    user = User(id=uuid4(), username=f"u{uuid4().hex[:6]}", display_name="非空测试")
+    db_session.add(user)
+    db_session.commit()
+    ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "有货的区"}).json()
+    client.post("/documents/", json={
+        "title": "一篇", "file_path": "/x.md", "workspace_id": ws["id"], "content": "",
+    })
+
+    r = client.delete(f"/workspaces/{ws['id']}")
+    assert r.status_code == 409

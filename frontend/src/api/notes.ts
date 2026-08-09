@@ -42,11 +42,15 @@ interface WorkspaceRead {
 // ── 引导：默认用户 + 默认工作区（M2 阶段单用户，auth 后面补）──
 const LS_KEY = "stella_bootstrap";
 
-export async function ensureWorkspace(): Promise<string> {
-  const cached = localStorage.getItem(LS_KEY);
-  if (cached) return JSON.parse(cached).workspaceId as string;
+export interface Bootstrap {
+  userId: string;
+  workspaceId: string;
+}
 
-  // 找或建默认用户
+export async function ensureUser(): Promise<string> {
+  const cached = localStorage.getItem(LS_KEY);
+  if (cached) return JSON.parse(cached).userId as string;
+
   const users = await api<UserRead[]>("/users/?limit=100");
   let user = users.find((u) => u.username === "yunxi");
   if (!user) {
@@ -55,20 +59,50 @@ export async function ensureWorkspace(): Promise<string> {
       body: JSON.stringify({ username: "yunxi", display_name: "云曦" }),
     });
   }
+  return user.id;
+}
 
-  // 找或建默认工作区
-  const wss = await api<WorkspaceRead[]>(`/workspaces/?user_id=${user.id}`);
+export async function ensureWorkspace(): Promise<Bootstrap> {
+  const cached = localStorage.getItem(LS_KEY);
+  if (cached) {
+    const b = JSON.parse(cached);
+    if (b.userId && b.workspaceId) return b;
+  }
+
+  const userId = await ensureUser();
+  const wss = await api<WorkspaceRead[]>(`/workspaces/?user_id=${userId}&limit=100`);
   let ws = wss.find((w) => w.name === "云曦的笔记本");
   if (!ws) {
     ws = await api<WorkspaceRead>("/workspaces/", {
       method: "POST",
-      body: JSON.stringify({ user_id: user.id, name: "云曦的笔记本" }),
+      body: JSON.stringify({ user_id: userId, name: "云曦的笔记本" }),
     });
   }
 
-  localStorage.setItem(LS_KEY, JSON.stringify({ workspaceId: ws.id }));
-  return ws.id;
+  const b: Bootstrap = { userId, workspaceId: ws.id };
+  localStorage.setItem(LS_KEY, JSON.stringify(b));
+  return b;
 }
+
+export function saveBootstrap(b: Bootstrap) {
+  localStorage.setItem(LS_KEY, JSON.stringify(b));
+}
+
+// ── 工作区管理 ──
+export const listWorkspaces = (userId: string) =>
+  api<WorkspaceRead[]>(`/workspaces/?user_id=${userId}&limit=100`);
+
+export const createWorkspace = (userId: string, name: string) =>
+  api<WorkspaceRead>("/workspaces/", {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId, name }),
+  });
+
+export const renameWorkspace = (id: string, name: string) =>
+  api<WorkspaceRead>(`/workspaces/${id}?name=${encodeURIComponent(name)}`, { method: "PUT" });
+
+export const deleteWorkspace = (id: string) =>
+  api<void>(`/workspaces/${id}`, { method: "DELETE" });
 
 // ── 文档接口 ──
 export const listDocs = (wsId: string) =>

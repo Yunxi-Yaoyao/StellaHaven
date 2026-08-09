@@ -1,8 +1,9 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import {
-  ensureWorkspace, listDocs, searchDocs, listTrash, listRecent,
-  createDoc, deleteDoc, restoreDoc, updateDoc, type Doc,
+  ensureWorkspace, saveBootstrap, listDocs, searchDocs, listTrash, listRecent,
+  listWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace,
+  createDoc, deleteDoc, restoreDoc, updateDoc, type Doc, type Bootstrap,
 } from "../api/notes";
 import { toast } from "../composables/useToast";
 import { ApiError } from "../api/client";
@@ -52,6 +53,8 @@ export function collectDescendants(roots: TreeNode[], id: string): Set<string> {
 
 export const useNotesStore = defineStore("notes", () => {
   const workspaceId = ref<string>("");
+  const userId = ref<string>("");
+  const workspaces = ref<{ id: string; name: string; user_id: string }[]>([]);
   const docs = ref<Doc[]>([]);
   const trash = ref<Doc[]>([]);
   const recent = ref<Doc[]>([]);
@@ -62,8 +65,57 @@ export const useNotesStore = defineStore("notes", () => {
   const pendingDelete = ref<{ doc: Doc; childCount: number } | null>(null);
 
   async function bootstrap() {
-    workspaceId.value = await ensureWorkspace();
-    await Promise.all([refreshList(), refreshRecent()]);
+    const b: Bootstrap = await ensureWorkspace();
+    userId.value = b.userId;
+    workspaceId.value = b.workspaceId;
+    await Promise.all([refreshList(), refreshRecent(), refreshWorkspaces()]);
+  }
+
+  async function refreshWorkspaces() {
+    workspaces.value = await listWorkspaces(userId.value);
+  }
+
+  /** 切换工作区：记住选择 + 全量重载（列表频道由页面监听 workspaceId 重连） */
+  async function switchWorkspace(id: string) {
+    if (id === workspaceId.value) return;
+    workspaceId.value = id;
+    saveBootstrap({ userId: userId.value, workspaceId: id });
+    searchQuery.value = "";
+    await Promise.all([refreshList(), refreshRecent(), refreshTrash()]);
+  }
+
+  async function addWorkspace(name: string) {
+    const ws = await createWorkspace(userId.value, name);
+    await refreshWorkspaces();
+    await switchWorkspace(ws.id);
+    toast(`已建工作区「${name}」`);
+  }
+
+  async function renameCurrentWorkspace(name: string) {
+    await renameWorkspace(workspaceId.value, name);
+    await refreshWorkspaces();
+    toast("已重命名 ✓");
+  }
+
+  /** 删除当前工作区：非空被后端 409 拦；删除后切到剩下的第一个 */
+  async function deleteCurrentWorkspace(): Promise<boolean> {
+    try {
+      await deleteWorkspace(workspaceId.value);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) toast("工作区里还有笔记，先清空再删");
+      return false;
+    }
+    await refreshWorkspaces();
+    const next = workspaces.value[0];
+    if (next) {
+      await switchWorkspace(next.id);
+    } else {
+      // 一个都没了 → 重建默认
+      localStorage.removeItem("stella_bootstrap");
+      await bootstrap();
+    }
+    toast("工作区已删除");
+    return true;
   }
 
   async function refreshList() {
@@ -140,8 +192,9 @@ export const useNotesStore = defineStore("notes", () => {
   }
 
   return {
-    workspaceId, docs, trash, recent, searchQuery, searching, pendingDelete,
-    bootstrap, refreshList, refreshTrash, refreshRecent,
+    workspaceId, userId, workspaces, docs, trash, recent, searchQuery, searching, pendingDelete,
+    bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces,
+    switchWorkspace, addWorkspace, renameCurrentWorkspace, deleteCurrentWorkspace,
     childCount, createNew, requestDelete, doDelete, restore, purge, moveTo,
   };
 });

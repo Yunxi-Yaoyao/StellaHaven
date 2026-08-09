@@ -21,6 +21,7 @@ let listWsDead = false;
 
 function connectListWs() {
   if (!store.workspaceId || listWsDead) return;
+  if (listWs && listWs.readyState <= WebSocket.OPEN) return; // 已有活连接不重复开
   const proto = location.protocol === "https:" ? "wss" : "ws";
   listWs = new WebSocket(`${proto}://${location.host}/ws/list/${store.workspaceId}`);
   listWs.onmessage = (ev) => {
@@ -52,6 +53,15 @@ onUnmounted(() => {
   if (listWsTimer) clearTimeout(listWsTimer);
   listWs?.close();
 });
+
+// 切换工作区 → 列表频道重连 + 打开新工作区的第一篇
+async function onWsSwitched() {
+  listWs?.close();
+  listWs = null;
+  connectListWs();
+  trashOpen.value = false;
+  currentId.value = store.docs[0]?.id ?? null;
+}
 
 async function onOpen(id: string) {
   trashOpen.value = false;
@@ -93,6 +103,7 @@ function onDeleted() {
       @new-child="onNewChild"
       @move="onMove"
       @del="onDel"
+      @switched="onWsSwitched"
     />
     <TrashPanel v-if="trashOpen" @close="trashOpen = false" />
     <DocEditor

@@ -9,6 +9,7 @@ import { ApiError } from "../../api/client";
 import { useDraftSocket, getDeviceName, setDeviceName, getIpInfo } from "../../composables/useDraftSocket";
 import { useNotesStore } from "../../stores/notes";
 import { toast } from "../../composables/useToast";
+import Icon from "../../shell/Icon.vue";
 
 const props = defineProps<{ docId: string }>();
 const emit = defineEmits<{ saved: []; deleted: []; open: [id: string] }>();
@@ -376,10 +377,10 @@ function fmtDraftTime(iso: string) {
           :title="doc.is_favorite ? '取消星标' : '设为星标'"
           @click="toggleFav"
         >
-          {{ doc.is_favorite ? "⭐" : "☆" }}
+          <Icon name="star" :size="15" />
         </button>
         <button class="mode-toggle" @click="reading = !reading">
-          {{ reading ? "✏️ 编辑" : "📖 阅览" }}
+          <Icon :name="reading ? 'edit' : 'eye'" :size="13" /> {{ reading ? "编辑" : "阅览" }}
         </button>
         <button class="del-btn" @click="remove">删除</button>
       </div>
@@ -410,7 +411,7 @@ function fmtDraftTime(iso: string) {
 
     <!-- 反链：哪些页面链接到了这篇 -->
     <div v-if="backlinks.length" class="children-strip">
-      <span class="label">🔗 被引用</span>
+      <span class="label"><Icon name="link" :size="11" /> 被引用</span>
       <span
         v-for="b in backlinks"
         :key="b.id"
@@ -421,7 +422,7 @@ function fmtDraftTime(iso: string) {
 
     <!-- 子页面区块：有子页面 = 这篇就是目录页 -->
     <div v-if="childDocs.length" class="children-strip">
-      <span class="label">📑 子页面</span>
+      <span class="label"><Icon name="folder" :size="11" /> 子页面</span>
       <span
         v-for="kid in childDocs"
         :key="kid.id"
@@ -502,13 +503,14 @@ function fmtDraftTime(iso: string) {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  font-size: 15px;
   cursor: pointer;
-  opacity: 0.45;
+  color: var(--text-faint);
   transition: all var(--transition);
+  display: inline-flex;
+  align-items: center;
 }
-.star-btn:hover { opacity: 0.9; background: var(--bg-raised); }
-.star-btn.fav { opacity: 1; }
+.star-btn:hover { color: var(--text-hi); background: var(--bg-raised); }
+.star-btn.fav { color: var(--pink); }
 .mode-toggle {
   padding: 6px 16px;
   border: 1px solid var(--accent-dim);

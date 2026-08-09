@@ -26,6 +26,10 @@
   --radius-sm: 8px;
   --blur: blur(12px);
 
+  /* 字体（参考 Outline：Inter + 中文系统栈） */
+  --font-ui: "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
+
   /* 动效 */
   --transition: 200ms ease;
 
@@ -41,7 +45,7 @@ html, body, #app { height: 100%; }
 body {
   background: var(--bg-base);
   color: var(--text-hi);
-  font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;

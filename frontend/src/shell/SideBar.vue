@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // 侧边栏：Stella 的门面。三段式——名片区 / 导航区 / 扩展区
+import Icon from "./Icon.vue";
+
 const navItems = [
-  { to: "/", icon: "🏠", label: "个人主页" },
-  { to: "/notes", icon: "📝", label: "笔记" },
-  { to: "/gallery", icon: "🖼", label: "图库" },
-  { to: "/status", icon: "📊", label: "服务器状态" },
+  { to: "/", icon: "home", label: "个人主页" },
+  { to: "/notes", icon: "note", label: "笔记" },
+  { to: "/gallery", icon: "image", label: "图库" },
+  { to: "/status", icon: "activity", label: "服务器状态" },
 ];
 </script>
 
@@ -30,7 +32,7 @@ const navItems = [
         class="nav-item"
         :class="{ active: $route.path === item.to }"
       >
-        <span class="icon">{{ item.icon }}</span>
+        <span class="icon"><Icon :name="item.icon" :size="16" /></span>
         <span class="label">{{ item.label }}</span>
       </RouterLink>
     </nav>
@@ -123,7 +125,7 @@ const navItems = [
   color: var(--accent);
   box-shadow: inset 2px 0 0 var(--accent);
 }
-.icon { font-size: 16px; width: 22px; text-align: center; }
+.icon { width: 22px; text-align: center; display: inline-flex; align-items: center; justify-content: center; }
 .label { font-size: 13.5px; letter-spacing: 0.5px; }
 
 .spacer { flex: 1; }
