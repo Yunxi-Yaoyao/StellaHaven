@@ -10,7 +10,9 @@ class Document(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     title: Mapped[str] = mapped_column(nullable=False)
-    file_path: Mapped[str] = mapped_column(nullable=False)
+    file_path: Mapped[str] = mapped_column(nullable=False)  # 纯逻辑路径，展示用
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)  # 正文，进 DB
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 回收站标记
     frontmatter: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     is_folder: Mapped[bool] = mapped_column(Boolean, default=False)
     visibility: Mapped[str] = mapped_column(default="private")

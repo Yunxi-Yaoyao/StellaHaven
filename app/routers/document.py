@@ -6,6 +6,7 @@ from app.database import get_db
 from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentRead, DraftRead
 from app.services.document import (
     get_document, list_documents, create_document, update_document, delete_document,
+    restore_document, list_trash_documents, search_documents,
     is_draft_fresh, get_fresh_draft,
 )
 
@@ -14,10 +15,25 @@ from app.routers.ws import notify_sync
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
+# ⚠️ /search 和 /trash 必须声明在 /{doc_id} 之前——否则 "search" 会被当成 UUID 解析直接 422
+
+
+@router.get("/search", response_model=list[DocumentRead])
+def search_docs(q: str, workspace_id: UUID, limit: int = 50, db: Session = Depends(get_db)):
+    """全文搜索：标题 + 正文子串匹配（pg_trgm 索引加速），不含回收站"""
+    return search_documents(db, workspace_id, q, limit)
+
+
+@router.get("/trash", response_model=list[DocumentRead])
+def read_trash(workspace_id: UUID, db: Session = Depends(get_db)):
+    """回收站列表。访问时顺手惰性清理超过保留期的（默认 30 天）"""
+    return list_trash_documents(db, workspace_id)
+
+
 @router.get("/{doc_id}", response_model=DocumentRead)
 def read_one(doc_id: UUID, db: Session = Depends(get_db)):
     doc = get_document(db, doc_id)
-    if doc is None:
+    if doc is None or doc.deleted_at is not None:
         raise HTTPException(status_code=404, detail="文档不存在")
     # 草稿新鲜度在读取这一刻惰性判断（10 分钟规则）
     doc.has_draft = is_draft_fresh(doc)
@@ -73,6 +89,19 @@ def update_one(doc_id: UUID, data: DocumentUpdate, request: Request, db: Session
 
 
 
+@router.post("/{doc_id}/restore", response_model=DocumentRead)
+def restore_one(doc_id: UUID, db: Session = Depends(get_db)):
+    """从回收站还原"""
+    try:
+        return restore_document(db, doc_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="回收站里没有这篇文档")
+
+
 @router.delete("/{doc_id}", status_code=204)
 def delete_one(doc_id: UUID, db: Session = Depends(get_db)):
-    delete_document(db, doc_id)
+    """两级删除：正常文档 → 进回收站；回收站里的 → 物理删除"""
+    try:
+        delete_document(db, doc_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="文档不存在")

@@ -8,6 +8,7 @@ class DocumentCreate(BaseModel):
     file_path: str
     workspace_id: UUID
     parent_id: UUID | None = None
+    content: str | None = None  # 正文；传了服务端会自动算 content_hash
     frontmatter: dict | None = None
     is_folder: bool = False
     visibility: str = "private"
@@ -15,12 +16,13 @@ class DocumentCreate(BaseModel):
     is_favorite: bool = False
     status: str = "draft"
     word_count: int | None = None
-    content_hash: str
+    content_hash: str | None = None  # 兼容旧调用；有 content 时被服务端覆盖
 
 
 class DocumentUpdate(BaseModel):
     updated_at: datetime
     title: str | None = None
+    content: str | None = None  # 传了 → 服务端重算 content_hash
     content_hash: str | None = None
     frontmatter: dict | None = None
     is_folder: bool | None = None
@@ -46,6 +48,7 @@ class DocumentRead(BaseModel):
     status: str
     word_count: int | None
     content_hash: str
+    content: str | None = None  # 正文
     created_at: datetime
     updated_at: datetime
     # 草稿元信息（内容不随文档返回，要看走 /documents/{id}/draft）
