@@ -10,6 +10,10 @@ export function getDeviceName(): string {
   return d;
 }
 
+export function setDeviceName(name: string) {
+  localStorage.setItem("stella_device", name);
+}
+
 /**
  * 草稿上行管道 composable：
  * - 打开文档时连 WS，切换/关闭时断开

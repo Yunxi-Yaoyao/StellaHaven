@@ -5,11 +5,20 @@ import {
   getDoc, updateDoc, getDraft, type Doc,
 } from "../../api/notes";
 import { ApiError } from "../../api/client";
-import { useDraftSocket, getDeviceName } from "../../composables/useDraftSocket";
+import { useDraftSocket, getDeviceName, setDeviceName } from "../../composables/useDraftSocket";
 import { useNotesStore } from "../../stores/notes";
 
 const props = defineProps<{ docId: string }>();
 const emit = defineEmits<{ saved: []; deleted: [] }>();
+
+const deviceName = ref(getDeviceName());
+function renameDevice() {
+  const name = prompt("给这台设备起个名字（会显示在草稿提示里）", deviceName.value);
+  if (name?.trim()) {
+    setDeviceName(name.trim());
+    deviceName.value = name.trim();
+  }
+}
 
 const doc = ref<Doc | null>(null);
 const title = ref("");
@@ -24,6 +33,20 @@ const conflictHint = ref("");
 const draftBanner = ref<{ device: string | null; updatedAt: string } | null>(null);
 const draftPreview = ref<string | null>(null);
 
+// 「忽略」持久化：按 文档+草稿时间戳 记住「这一版草稿别再提醒了」
+// 草稿更新（新时间戳）后会重新提醒——忽略的是这一版，不是永远
+const DISMISS_KEY = "stella_draft_dismissed";
+function getDismissed(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(DISMISS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+function isDismissed(docId: string, draftUpdatedAt: string): boolean {
+  return getDismissed()[docId] === draftUpdatedAt;
+}
+
 const dirty = computed(() => title.value !== savedTitle.value || content.value !== savedContent.value);
 const rendered = computed(() => marked.parse(content.value || "") as string);
 
@@ -37,9 +60,10 @@ async function load(id: string) {
   statusText.value = "";
   conflictHint.value = "";
   draftPreview.value = null;
-  draftBanner.value = doc.value.has_draft
-    ? { device: doc.value.draft_device, updatedAt: doc.value.draft_updated_at! }
-    : null;
+  draftBanner.value =
+    doc.value.has_draft && !isDismissed(doc.value.id, doc.value.draft_updated_at!)
+      ? { device: doc.value.draft_device, updatedAt: doc.value.draft_updated_at! }
+      : null;
 }
 
 watch(() => props.docId, (id) => id && load(id), { immediate: true });
@@ -118,6 +142,12 @@ async function adoptDraft() {
 }
 
 function dismissDraft() {
+  // 记住「这版草稿我忽略了」——下次打开不再提醒，草稿更新后重新提醒
+  if (doc.value?.draft_updated_at) {
+    const m = getDismissed();
+    m[doc.value.id] = doc.value.draft_updated_at;
+    localStorage.setItem(DISMISS_KEY, JSON.stringify(m));
+  }
   draftBanner.value = null;
   draftPreview.value = null;
 }
@@ -181,7 +211,7 @@ function fmtDraftTime(iso: string) {
 
     <div class="status-line">
       <span>{{ statusText }}</span>
-      <span class="device">{{ getDeviceName() }}</span>
+      <span class="device" title="点击给这台设备起名" @click="renameDevice">{{ deviceName }}</span>
     </div>
 
     <div class="panes" :class="mode">
@@ -302,6 +332,8 @@ function fmtDraftTime(iso: string) {
   font-size: 11px;
   color: var(--text-faint);
 }
+.status-line .device { cursor: pointer; }
+.status-line .device:hover { color: var(--accent); }
 
 .panes { flex: 1; display: flex; overflow: hidden; }
 .input {
