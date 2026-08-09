@@ -1,0 +1,57 @@
+/* ============================================================
+   Stella Design Tokens — 高级二次元 · 暗夜系
+   全站只引用变量，不写死色值。改这里 = 全站换肤。
+   ============================================================ */
+
+:root {
+  /* 底色：深夜蓝黑三层 */
+  --bg-base: #0d0f14;        /* 最底层 */
+  --bg-panel: #14171f;       /* 侧边栏 / 卡片 */
+  --bg-raised: #1b1f2a;      /* 悬浮 / 输入框 / hover */
+
+  /* 主色：月白银 */
+  --accent: #c9d4e8;
+  --accent-dim: #8a94ab;
+
+  /* 点缀：一点樱粉（克制使用） */
+  --pink: #e8a0bf;
+
+  /* 文字 */
+  --text-hi: #e8ecf4;
+  --text-lo: #9aa3b5;
+  --text-faint: #5c6474;
+
+  /* 形状 */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --blur: blur(12px);
+
+  /* 动效 */
+  --transition: 200ms ease;
+
+  /* 布局 */
+  --sidebar-w: 232px;
+  --sidebar-w-fold: 64px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #app { height: 100%; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-hi);
+  font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: none; }
+
+::selection { background: var(--accent-dim); color: var(--bg-base); }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--bg-raised); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
