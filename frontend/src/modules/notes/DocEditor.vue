@@ -655,4 +655,11 @@ function fmtDraftTime(iso: string) {
 }
 .markdown-body :deep(ul), .markdown-body :deep(ol) { padding-left: 22px; margin: 8px 0; }
 .markdown-body :deep(a) { color: var(--pink); }
+.markdown-body :deep(img) {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  margin: 10px 0;
+  display: block;
+}
 </style>
