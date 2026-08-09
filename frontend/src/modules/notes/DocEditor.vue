@@ -124,6 +124,36 @@ function pickLink(target: Doc) {
   });
 }
 
+// ── 粘贴图片：上传 → 光标处插入引用 ──
+async function onPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const imgItem = [...items].find((i) => i.type.startsWith("image/"));
+  if (!imgItem) return; // 不是图片就走默认粘贴
+  e.preventDefault();
+  const file = imgItem.getAsFile();
+  if (!file || !doc.value) return;
+
+  const el = inputEl.value;
+  const insertAt = el?.selectionStart ?? content.value.length;
+  const placeholder = `![上传中…]()`;
+  // 先插占位符，上传完替换成真链接
+  content.value = content.value.slice(0, insertAt) + placeholder + content.value.slice(insertAt);
+
+  const form = new FormData();
+  form.append("file", file, file.name || "paste.png");
+  try {
+    const resp = await fetch(`/attachments/${doc.value.id}`, { method: "POST", body: form });
+    if (!resp.ok) throw new Error(String(resp.status));
+    const { url, filename } = await resp.json();
+    content.value = content.value.replace(placeholder, `![${filename}](${url})`);
+    toast("图片已上传 ✓");
+  } catch {
+    content.value = content.value.replace(placeholder, "");
+    toast("图片上传失败");
+  }
+}
+
 // ── 反链 ──
 const backlinks = ref<Doc[]>([]);
 async function loadBacklinks() {
@@ -394,6 +424,7 @@ function fmtDraftTime(iso: string) {
           class="input"
           placeholder="开始写…（打字存草稿 · 切换笔记自动保存 · [[标题]] 建双链）"
           @input="onInputForLinks"
+          @paste="onPaste"
           @blur="suggestPos = null"
         />
         <!-- [[ 自动补全下拉 -->

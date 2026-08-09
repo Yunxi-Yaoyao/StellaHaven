@@ -71,6 +71,9 @@ def update_document(db: Session, doc_id: UUID, data: DocumentUpdate) -> Document
     # 正文保存 → 同步双链（[[标题]] → document_links）
     if data.content is not None:
         sync_wikilinks(db, result, result.content or "")
+        # 老婆的规则：正文不再引用的附件，连文件带记录删除
+        from app.routers.attachment import cleanup_unreferenced
+        cleanup_unreferenced(db, result, result.content or "")
     return result
 
 
@@ -171,15 +174,17 @@ def list_recent_documents(db: Session, workspace_id: UUID, limit: int = 8) -> li
 
 
 def _physical_delete(db: Session, doc: Document) -> None:
-    """物理删除一篇文档 + 清理关联（标签/双链/版本），不留孤儿"""
+    """物理删除一篇文档 + 清理关联（标签/双链/版本/附件），不留孤儿"""
     from app.models.doc_tag import DocTag
     from app.models.document_link import DocumentLink
     from app.models.document_version import DocumentVersion
+    from app.routers.attachment import delete_attachments_of
     db.query(DocTag).filter(DocTag.doc_id == doc.id).delete(synchronize_session=False)
     db.query(DocumentLink).filter(
         (DocumentLink.source_id == doc.id) | (DocumentLink.target_id == doc.id)
     ).delete(synchronize_session=False)
     db.query(DocumentVersion).filter(DocumentVersion.doc_id == doc.id).delete(synchronize_session=False)
+    delete_attachments_of(db, doc.id)
     delete(db, doc)
 
 

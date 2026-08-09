@@ -10,3 +10,4 @@ from app.models.document import Document
 from app.models.doc_tag import DocTag
 from app.models.document_link import DocumentLink
 from app.models.document_version import DocumentVersion
+from app.models.attachment import Attachment
