@@ -62,6 +62,10 @@ export const useNotesStore = defineStore("notes", () => {
   const recent = ref<Doc[]>([]);
   const searchQuery = ref("");
   const searching = ref(false);
+  // 标签：全量标签表 + 全量关联（个人规模一次拉全）
+  const tags = ref<{ id: string; name: string; color: string | null }[]>([]);
+  const docTags = ref<{ doc_id: string; tag_id: string }[]>([]);
+  const filterTagId = ref<string | null>(null); // 列表按标签筛选
 
   // 删除确认弹窗状态（有下挂时由 NotesPage 弹三选框）
   const pendingDelete = ref<{ doc: Doc; childCount: number } | null>(null);
@@ -70,7 +74,34 @@ export const useNotesStore = defineStore("notes", () => {
     const b: Bootstrap = await ensureWorkspace();
     userId.value = b.userId;
     workspaceId.value = b.workspaceId;
-    await Promise.all([refreshList(), refreshRecent(), refreshWorkspaces()]);
+    await Promise.all([refreshList(), refreshRecent(), refreshWorkspaces(), refreshTags()]);
+  }
+
+  async function refreshTags() {
+    const { listTags, listAllDocTags } = await import("../api/notes");
+    [tags.value, docTags.value] = await Promise.all([listTags(), listAllDocTags()]);
+  }
+
+  /** 文档的标签对象列表 */
+  function tagsOf(docId: string) {
+    const ids = new Set(docTags.value.filter((r) => r.doc_id === docId).map((r) => r.tag_id));
+    return tags.value.filter((t) => ids.has(t.id));
+  }
+
+  /** 打标签：没有就新建 */
+  async function tagDoc(docId: string, name: string) {
+    const { createTag, addDocTag } = await import("../api/notes");
+    let tag = tags.value.find((t) => t.name === name);
+    if (!tag) tag = await createTag(name);
+    if (docTags.value.some((r) => r.doc_id === docId && r.tag_id === tag!.id)) return;
+    await addDocTag(docId, tag.id);
+    await refreshTags();
+  }
+
+  async function untagDoc(docId: string, tagId: string) {
+    const { removeDocTag } = await import("../api/notes");
+    await removeDocTag(docId, tagId);
+    await refreshTags();
   }
 
   async function refreshWorkspaces() {
@@ -210,7 +241,9 @@ export const useNotesStore = defineStore("notes", () => {
 
   return {
     workspaceId, userId, workspaces, docs, trash, recent, searchQuery, searching, pendingDelete,
-    bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces,
+    tags, docTags, filterTagId,
+    bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces, refreshTags,
+    tagsOf, tagDoc, untagDoc,
     switchWorkspace, addWorkspace, renameCurrentWorkspace, deleteCurrentWorkspace,
     childCount, createNew, requestDelete, doDelete, restore, purge, emptyAllTrash, clearAll, moveTo,
   };

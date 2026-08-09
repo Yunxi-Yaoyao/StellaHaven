@@ -10,7 +10,11 @@ router = APIRouter(prefix="/document-links", tags=["document_links"])
 
 
 @router.get("/", response_model=list[DocumentLinkRead])
-def read_for_doc(doc_id: UUID, db: Session = Depends(get_db)):
+def read_for_doc(doc_id: UUID | None = None, db: Session = Depends(get_db)):
+    """带 doc_id 查该文档的链接（双向）；不带 → 全量（图谱用）"""
+    if doc_id is None:
+        from app.models.document_link import DocumentLink
+        return db.query(DocumentLink).all()
     return get_links(db, doc_id)
 
 

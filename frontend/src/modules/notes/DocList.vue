@@ -10,15 +10,33 @@ const emit = defineEmits<{
   open: [id: string];
   showTrash: [];
   showAttachments: [];
+  showGraph: [];
   newChild: [node: TreeNode | null];
   move: [node: TreeNode];
   del: [node: TreeNode];
   switched: [];
 }>();
-const props = defineProps<{ currentId: string | null; trashOpen: boolean; attachOpen: boolean }>();
+const props = defineProps<{ currentId: string | null; trashOpen: boolean; attachOpen: boolean; graphOpen: boolean }>();
 
 const store = useNotesStore();
-const { docs, recent, searchQuery, searching, workspaces, workspaceId } = storeToRefs(store);
+const { docs, recent, searchQuery, searching, workspaces, workspaceId, tags, docTags, filterTagId } = storeToRefs(store);
+
+// 有在用的标签（挂在某篇笔记上的才显示）
+const usedTags = computed(() => {
+  const used = new Set(docTags.value.map((r) => r.tag_id));
+  return tags.value.filter((t) => used.has(t.id));
+});
+
+// 标签筛选中的文档
+const tagFilteredDocs = computed(() => {
+  if (!filterTagId.value) return [];
+  const ids = new Set(docTags.value.filter((r) => r.tag_id === filterTagId.value).map((r) => r.doc_id));
+  return docs.value.filter((d) => ids.has(d.id));
+});
+
+function toggleTagFilter(id: string) {
+  filterTagId.value = filterTagId.value === id ? null : id;
+}
 
 // ── 工作区切换器 ──
 const wsMenuOpen = ref(false);
@@ -150,9 +168,33 @@ function onSearchInput() {
     <button class="new-btn" @click="emit('newChild', null)"><Icon name="plus" :size="13" /> 新建笔记</button>
     <div v-if="searching" class="search-hint">搜索「{{ searchQuery }}」的结果（平铺显示）</div>
 
+    <!-- 标签筛选行 -->
+    <div v-if="usedTags.length" class="tag-row">
+      <span
+        v-for="t in usedTags"
+        :key="t.id"
+        class="ftag"
+        :class="{ on: filterTagId === t.id }"
+        @click="toggleTagFilter(t.id)"
+      >{{ t.name }}</span>
+    </div>
+
     <div class="items">
+      <!-- 标签筛选中：平铺结果 -->
+      <template v-if="filterTagId">
+        <div class="search-hint">标签「{{ tags.find(t => t.id === filterTagId)?.name }}」的笔记</div>
+        <div
+          v-for="doc in tagFilteredDocs"
+          :key="doc.id"
+          class="flat-item"
+          :class="{ active: doc.id === props.currentId }"
+          @click="emit('open', doc.id)"
+        >{{ doc.title }}</div>
+        <div v-if="!tagFilteredDocs.length" class="empty">这个标签下没有笔记</div>
+      </template>
+
       <!-- 搜索中：平铺结果 -->
-      <template v-if="searching">
+      <template v-else-if="searching">
         <div
           v-for="doc in docs"
           :key="doc.id"
@@ -228,6 +270,9 @@ function onSearchInput() {
       </div>
       <div class="trash-entry" :class="{ active: props.trashOpen }" @click="emit('showTrash')">
         <Icon name="trash" :size="13" /> 回收站
+      </div>
+      <div class="trash-entry" :class="{ active: props.graphOpen }" @click="emit('showGraph')">
+        <Icon name="link" :size="13" /> 图谱
       </div>
     </div>
 
@@ -362,6 +407,25 @@ function onSearchInput() {
 .ws-opt.action { font-size: 12px; }
 .ws-opt.danger:hover { color: var(--pink); }
 .ws-divider { height: 1px; background: var(--bg-panel); margin: 4px 0; }
+
+/* 标签筛选行 */
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 12px 8px;
+}
+.ftag {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  font-size: 11px;
+  color: var(--text-lo);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.ftag:hover { color: var(--text-hi); }
+.ftag.on { background: var(--accent-dim); color: var(--bg-base); }
 
 /* 工作区删除弹窗 */
 .mask {

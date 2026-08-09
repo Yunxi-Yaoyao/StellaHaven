@@ -6,6 +6,7 @@ import DocList from "./DocList.vue";
 import DocEditor from "./DocEditor.vue";
 import TrashPanel from "./TrashPanel.vue";
 import AttachmentsPanel from "./AttachmentsPanel.vue";
+import GraphPanel from "./GraphPanel.vue";
 import MoveDialog from "./MoveDialog.vue";
 
 const store = useNotesStore();
@@ -13,6 +14,7 @@ const { pendingDelete } = storeToRefs(store);
 const currentId = ref<string | null>(null);
 const trashOpen = ref(false);
 const attachOpen = ref(false);
+const graphOpen = ref(false);
 const ready = ref(false);
 const moving = ref<TreeNode | null>(null);
 
@@ -68,6 +70,7 @@ async function onWsSwitched() {
 async function onOpen(id: string) {
   trashOpen.value = false;
   attachOpen.value = false;
+  graphOpen.value = false;
   currentId.value = id;
   // 打开 → 服务端已戳 last_viewed_at，稍后刷新最近查看
   setTimeout(() => store.refreshRecent(), 300);
@@ -102,15 +105,18 @@ function onDeleted() {
       :current-id="currentId"
       :trash-open="trashOpen"
       :attach-open="attachOpen"
+      :graph-open="graphOpen"
       @open="onOpen"
-      @show-trash="trashOpen = true; attachOpen = false"
-      @show-attachments="attachOpen = true; trashOpen = false"
+      @show-trash="trashOpen = true; attachOpen = false; graphOpen = false"
+      @show-attachments="attachOpen = true; trashOpen = false; graphOpen = false"
+      @show-graph="graphOpen = true; trashOpen = false; attachOpen = false"
       @new-child="onNewChild"
       @move="onMove"
       @del="onDel"
       @switched="onWsSwitched"
     />
-    <AttachmentsPanel v-if="attachOpen" @close="attachOpen = false" @open="onOpen" />
+    <GraphPanel v-if="graphOpen" @close="graphOpen = false" @open="onOpen" />
+    <AttachmentsPanel v-else-if="attachOpen" @close="attachOpen = false" @open="onOpen" />
     <TrashPanel v-else-if="trashOpen" @close="trashOpen = false" />
     <DocEditor
       v-else-if="currentId"

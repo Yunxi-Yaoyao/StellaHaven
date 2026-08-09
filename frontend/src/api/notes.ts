@@ -166,3 +166,27 @@ export const getDraft = (id: string) => api<Draft>(`/documents/${id}/draft`);
 
 export const toggleFavorite = (id: string) =>
   api<Doc>(`/documents/${id}/favorite`, { method: "POST" });
+
+// ── 标签 ──
+export interface Tag {
+  id: string;
+  name: string;
+  color: string | null;
+}
+export interface DocTag {
+  doc_id: string;
+  tag_id: string;
+}
+
+export const listTags = () => api<Tag[]>("/tags/?limit=200");
+export const createTag = (name: string) =>
+  api<Tag>("/tags/", { method: "POST", body: JSON.stringify({ name }) });
+export const listAllDocTags = () => api<DocTag[]>("/doc-tags/");
+export const getDocTags = (docId: string) => api<DocTag[]>(`/doc-tags/?doc_id=${docId}`);
+export const addDocTag = (docId: string, tagId: string) =>
+  api<DocTag>("/doc-tags/", { method: "POST", body: JSON.stringify({ doc_id: docId, tag_id: tagId }) });
+export const removeDocTag = (docId: string, tagId: string) =>
+  api<void>(`/doc-tags/?doc_id=${docId}&tag_id=${tagId}`, { method: "DELETE" });
+
+export const listAllLinks = () =>
+  api<{ source_id: string; target_id: string; link_type: string }[]>("/document-links/");

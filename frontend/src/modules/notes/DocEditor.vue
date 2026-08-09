@@ -10,6 +10,7 @@ import { useDraftSocket, getDeviceName, setDeviceName, getIpInfo } from "../../c
 import { useNotesStore } from "../../stores/notes";
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
+import TagBar from "./TagBar.vue";
 
 const props = defineProps<{ docId: string }>();
 const emit = defineEmits<{ saved: []; deleted: []; open: [id: string] }>();
@@ -435,6 +436,9 @@ function fmtDraftTime(iso: string) {
         <button class="del-btn" @click="remove">删除</button>
       </div>
     </div>
+
+    <!-- 标签栏：当前笔记的标签 + 添加 -->
+    <TagBar :doc-id="docId" />
 
     <div class="panes" :class="reading ? 'preview-only' : 'split'">
       <div v-show="!reading" class="input-wrap">
