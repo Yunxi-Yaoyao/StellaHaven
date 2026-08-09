@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.config import settings
 
-engine = create_engine(settings.database_url)
+engine = create_engine(settings.database_url, pool_pre_ping=True)
 
 sessionLocal = sessionmaker(bind=engine, autoflush=False)
 
@@ -15,4 +15,4 @@ def get_db():
     try:
         yield db
     finally:
-        db.close
+        db.close()  # ← 曾经漏了 () 写成 db.close，连接从来不释放，压测即池尽

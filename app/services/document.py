@@ -94,6 +94,7 @@ def save_draft(db: Session, doc_id: UUID, content: str, device: str) -> Document
     """覆写草稿槽。不追加、不留历史，永远只有最新一份。"""
     doc = get_by_id(db, doc_id)
     if doc is None:
+        db.rollback()  # ⚠️ 必须显式收尾：SELECT 会占着事务/连接，不 rollback 连接就泄漏（WS 长连接场景池子会被榨干）
         return None
     doc.draft_content = content
     doc.draft_updated_at = datetime.now()
