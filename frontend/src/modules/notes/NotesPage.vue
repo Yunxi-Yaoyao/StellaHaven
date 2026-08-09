@@ -5,12 +5,14 @@ import { useNotesStore, type TreeNode } from "../../stores/notes";
 import DocList from "./DocList.vue";
 import DocEditor from "./DocEditor.vue";
 import TrashPanel from "./TrashPanel.vue";
+import AttachmentsPanel from "./AttachmentsPanel.vue";
 import MoveDialog from "./MoveDialog.vue";
 
 const store = useNotesStore();
 const { pendingDelete } = storeToRefs(store);
 const currentId = ref<string | null>(null);
 const trashOpen = ref(false);
+const attachOpen = ref(false);
 const ready = ref(false);
 const moving = ref<TreeNode | null>(null);
 
@@ -65,6 +67,7 @@ async function onWsSwitched() {
 
 async function onOpen(id: string) {
   trashOpen.value = false;
+  attachOpen.value = false;
   currentId.value = id;
   // 打开 → 服务端已戳 last_viewed_at，稍后刷新最近查看
   setTimeout(() => store.refreshRecent(), 300);
@@ -98,14 +101,17 @@ function onDeleted() {
     <DocList
       :current-id="currentId"
       :trash-open="trashOpen"
+      :attach-open="attachOpen"
       @open="onOpen"
-      @show-trash="trashOpen = true"
+      @show-trash="trashOpen = true; attachOpen = false"
+      @show-attachments="attachOpen = true; trashOpen = false"
       @new-child="onNewChild"
       @move="onMove"
       @del="onDel"
       @switched="onWsSwitched"
     />
-    <TrashPanel v-if="trashOpen" @close="trashOpen = false" />
+    <AttachmentsPanel v-if="attachOpen" @close="attachOpen = false" @open="onOpen" />
+    <TrashPanel v-else-if="trashOpen" @close="trashOpen = false" />
     <DocEditor
       v-else-if="currentId"
       :key="currentId"

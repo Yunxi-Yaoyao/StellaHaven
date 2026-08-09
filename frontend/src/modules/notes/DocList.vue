@@ -9,12 +9,13 @@ import { toast } from "../../composables/useToast";
 const emit = defineEmits<{
   open: [id: string];
   showTrash: [];
+  showAttachments: [];
   newChild: [node: TreeNode | null];
   move: [node: TreeNode];
   del: [node: TreeNode];
   switched: [];
 }>();
-const props = defineProps<{ currentId: string | null; trashOpen: boolean }>();
+const props = defineProps<{ currentId: string | null; trashOpen: boolean; attachOpen: boolean }>();
 
 const store = useNotesStore();
 const { docs, recent, searchQuery, searching, workspaces, workspaceId } = storeToRefs(store);
@@ -221,8 +222,13 @@ function onSearchInput() {
       </template>
     </div>
 
-    <div class="trash-entry" :class="{ active: props.trashOpen }" @click="emit('showTrash')">
-      <Icon name="trash" :size="13" /> 回收站
+    <div class="bottom-entries">
+      <div class="trash-entry" :class="{ active: props.attachOpen }" @click="emit('showAttachments')">
+        <Icon name="image" :size="13" /> 附件
+      </div>
+      <div class="trash-entry" :class="{ active: props.trashOpen }" @click="emit('showTrash')">
+        <Icon name="trash" :size="13" /> 回收站
+      </div>
     </div>
 
     <!-- 工作区删除：二次确认弹窗 -->
@@ -407,12 +413,16 @@ function onSearchInput() {
 .empty { padding: 24px 12px; text-align: center; color: var(--text-faint); font-size: 12px; }
 
 .trash-entry {
+  flex: 1;
   padding: 12px 16px;
   font-size: 12.5px;
   color: var(--text-lo);
   cursor: pointer;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
   transition: all var(--transition);
+}
+.bottom-entries {
+  display: flex;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 .trash-entry:hover, .trash-entry.active { color: var(--text-hi); background: var(--bg-raised); }
 

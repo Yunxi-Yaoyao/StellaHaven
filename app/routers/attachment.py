@@ -22,6 +22,32 @@ ATTACH_REF_RE = re.compile(r"/attachments/([0-9a-f-]{36})")
 MAX_SIZE = 10 * 1024 * 1024  # 10MB
 
 
+@router.get("/")
+def list_attachments(workspace_id: UUID, db: Session = Depends(get_db)):
+    """列出工作区所有附件（含所属笔记标题；回收站里的笔记的附件也列出并标记）"""
+    rows = (
+        db.query(Attachment, Document)
+        .join(Document, Attachment.doc_id == Document.id)
+        .filter(Document.workspace_id == workspace_id)
+        .order_by(Attachment.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": str(a.id),
+            "url": f"/attachments/{a.id}",
+            "filename": a.filename,
+            "mime": a.mime,
+            "size": a.size,
+            "created_at": a.created_at.isoformat(),
+            "doc_id": str(d.id),
+            "doc_title": d.title,
+            "doc_in_trash": d.deleted_at is not None,
+        }
+        for a, d in rows
+    ]
+
+
 @router.post("/{doc_id}")
 async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db)):
     """上传附件：粘贴图片时前端调这里。返回引用路径"""
