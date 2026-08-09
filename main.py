@@ -1,6 +1,18 @@
-def main():
-    print("Hello from stella!")
+from fastapi import FastAPI
+from app.routers import (
+    workspace_router, user_router, tag_router, document_router,
+    doc_tag_router, document_link_router, document_version_router,
+    ws_router
+)
 
+app = FastAPI(title="StellaHaven")
 
-if __name__ == "__main__":
-    main()
+app.include_router(workspace_router)
+app.include_router(user_router)
+app.include_router(tag_router)
+app.include_router(document_router)
+app.include_router(doc_tag_router)
+app.include_router(document_link_router)
+app.include_router(document_version_router)
+app.include_router(ws_router)
+

@@ -1,0 +1,25 @@
+from datetime import datetime
+from sqlalchemy import ForeignKey, Boolean, DateTime
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.sql import func
+from app.models import Base, Mapped, mapped_column, UUID, uuid4
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    title: Mapped[str] = mapped_column(nullable=False)
+    file_path: Mapped[str] = mapped_column(nullable=False)
+    frontmatter: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    is_folder: Mapped[bool] = mapped_column(Boolean, default=False)
+    visibility: Mapped[str] = mapped_column(default="private")
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(default="draft")
+    word_count: Mapped[int | None] = mapped_column(nullable=True)
+    content_hash: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"))
+    parent_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)

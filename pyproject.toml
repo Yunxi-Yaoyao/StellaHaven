@@ -11,4 +11,11 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "sqlalchemy>=2.0.51",
     "uvicorn>=0.50.0",
+    "websockets>=16.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
 ]
