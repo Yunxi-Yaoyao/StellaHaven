@@ -54,9 +54,19 @@ def read_all(workspace_id: UUID, parent_id: UUID | None = None, skip: int = 0, l
     return list_documents(db, workspace_id, parent_id, skip, limit)
 
 
+def notify_list(workspace_id: UUID, doc_id: UUID):
+    """往列表频道广播：这篇文档有变动，前端刷新左侧列表"""
+    try:
+        notify_sync(f"list:{workspace_id}", {"type": "list_changed", "doc_id": str(doc_id)})
+    except Exception:
+        pass
+
+
 @router.post("/", response_model=DocumentRead, status_code=201)
 def create_one(data: DocumentCreate, db: Session = Depends(get_db)):
-    return create_document(db, data)
+    doc = create_document(db, data)
+    notify_list(doc.workspace_id, doc.id)
+    return doc
 
 
 @router.put("/{doc_id}")
@@ -72,7 +82,7 @@ def update_one(doc_id: UUID, data: DocumentUpdate, request: Request, db: Session
             }
         })
 
-    # 保存成功 → 通知其他设备
+    # 保存成功 → 通知其他设备（文档频道）+ 列表频道
     try:
         notify_sync(doc_id, {
             "type": "doc_saved",
@@ -84,6 +94,7 @@ def update_one(doc_id: UUID, data: DocumentUpdate, request: Request, db: Session
         })
     except Exception:
         pass
+    notify_list(result.workspace_id, doc_id)
 
     return result
 
@@ -93,15 +104,19 @@ def update_one(doc_id: UUID, data: DocumentUpdate, request: Request, db: Session
 def restore_one(doc_id: UUID, db: Session = Depends(get_db)):
     """从回收站还原"""
     try:
-        return restore_document(db, doc_id)
+        doc = restore_document(db, doc_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="回收站里没有这篇文档")
+    notify_list(doc.workspace_id, doc.id)
+    return doc
 
 
 @router.delete("/{doc_id}", status_code=204)
 def delete_one(doc_id: UUID, db: Session = Depends(get_db)):
     """两级删除：正常文档 → 进回收站；回收站里的 → 物理删除"""
-    try:
-        delete_document(db, doc_id)
-    except ValueError:
+    doc = get_document(db, doc_id)
+    if doc is None:
         raise HTTPException(status_code=404, detail="文档不存在")
+    workspace_id = doc.workspace_id
+    delete_document(db, doc_id)
+    notify_list(workspace_id, doc_id)

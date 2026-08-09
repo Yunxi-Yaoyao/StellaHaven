@@ -18,7 +18,7 @@ _notification_queue: asyncio.Queue = asyncio.Queue()
 _worker_started = False
 
 
-def notify_sync(doc_id: UUID, message: dict):
+def notify_sync(doc_id, message: dict):  # doc_id 或 "list:{workspace_id}" 字符串键
     """线程安全：从任何地方（同步/异步）推消息到队列"""
     try:
         _notification_queue.put_nowait((doc_id, message))
@@ -26,7 +26,7 @@ def notify_sync(doc_id: UUID, message: dict):
         pass
 
 
-async def broadcast(doc_id: UUID, message: dict):
+async def broadcast(doc_id, message: dict):
     """给这篇文档的所有连接群发消息"""
     if doc_id not in connections:
         return
@@ -47,6 +47,32 @@ async def _process_notifications():
     while True:
         doc_id, message = await _notification_queue.get()
         await broadcast(doc_id, message)
+
+
+@router.websocket("/ws/list/{workspace_id}")
+async def list_ws(ws: WebSocket, workspace_id: UUID):
+    """列表频道：任何文档变动（保存/新建/删除/还原）→ 广播 list_changed，
+    前端收到就刷新左侧列表。连接按 "list:{workspace_id}" 为 key 进连接池。"""
+    global _worker_started
+    await ws.accept()
+
+    if not _worker_started:
+        _worker_started = True
+        asyncio.create_task(_process_notifications())
+
+    key = f"list:{workspace_id}"
+    connections.setdefault(key, []).append(ws)
+
+    try:
+        while True:
+            await ws.receive_text()  # 客户端不发消息，纯接收
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if key in connections:
+            connections[key] = [w for w in connections[key] if w is not ws]
+            if not connections[key]:
+                del connections[key]
 
 
 @router.websocket("/ws/{doc_id}")

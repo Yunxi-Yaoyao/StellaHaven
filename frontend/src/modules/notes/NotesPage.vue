@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useNotesStore } from "../../stores/notes";
 import DocList from "./DocList.vue";
 import DocEditor from "./DocEditor.vue";
@@ -10,11 +10,45 @@ const currentId = ref<string | null>(null);
 const trashOpen = ref(false);
 const ready = ref(false);
 
+// 列表频道：任何文档变动（保存/新建/删除/还原）→ 刷新列表 + 回收站
+// 别的设备改了标题，这边左侧实时跟上，不用手动刷新
+let listWs: WebSocket | null = null;
+let listWsTimer: ReturnType<typeof setTimeout> | null = null;
+let listWsDead = false; // 主动关闭标记：组件卸载后不再重连
+
+function connectListWs() {
+  if (!store.workspaceId || listWsDead) return;
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  listWs = new WebSocket(`${proto}://${location.host}/ws/list/${store.workspaceId}`);
+  listWs.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "list_changed") {
+        store.refreshList();
+        store.refreshTrash();
+      }
+    } catch {
+      /* 忽略坏消息 */
+    }
+  };
+  listWs.onclose = () => {
+    listWs = null;
+    if (!listWsDead) listWsTimer = setTimeout(connectListWs, 3000); // 断线重连
+  };
+}
+
 onMounted(async () => {
   await store.bootstrap(); // 默认用户+工作区，首次自动建好
   ready.value = true;
+  connectListWs();
   // 默认打开最新一篇
   if (store.docs.length > 0) currentId.value = store.docs[0].id;
+});
+
+onUnmounted(() => {
+  listWsDead = true;
+  if (listWsTimer) clearTimeout(listWsTimer);
+  listWs?.close();
 });
 
 async function onOpen(id: string) {
