@@ -3,7 +3,8 @@ import { ref } from "vue";
 import {
   ensureWorkspace, saveBootstrap, listDocs, searchDocs, listTrash, listRecent,
   listWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace,
-  createDoc, deleteDoc, restoreDoc, updateDoc, type Doc, type Bootstrap,
+  createDoc, deleteDoc, restoreDoc, updateDoc, emptyTrash as emptyTrashApi,
+  type Doc, type Bootstrap,
 } from "../api/notes";
 import { toast } from "../composables/useToast";
 import { ApiError } from "../api/client";
@@ -179,6 +180,13 @@ export const useNotesStore = defineStore("notes", () => {
     await refreshTrash();
   }
 
+  /** 一键清空回收站，返回清了几篇 */
+  async function emptyAllTrash(): Promise<number> {
+    const r = await emptyTrashApi(workspaceId.value);
+    await refreshTrash();
+    return r.purged;
+  }
+
   /** 移动到：改 parent_id。循环防护后端兜底，前端先过滤候选 */
   async function moveTo(doc: Doc, newParentId: string | null): Promise<boolean> {
     try {
@@ -196,6 +204,6 @@ export const useNotesStore = defineStore("notes", () => {
     workspaceId, userId, workspaces, docs, trash, recent, searchQuery, searching, pendingDelete,
     bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces,
     switchWorkspace, addWorkspace, renameCurrentWorkspace, deleteCurrentWorkspace,
-    childCount, createNew, requestDelete, doDelete, restore, purge, moveTo,
+    childCount, createNew, requestDelete, doDelete, restore, purge, emptyAllTrash, moveTo,
   };
 });

@@ -94,7 +94,7 @@ def delete_document(db: Session, doc_id: UUID, cascade: bool = True) -> str:
         doc.deleted_at = now
         db.commit()
         return "trashed"
-    delete(db, doc)
+    _physical_delete(db, doc)
     return "purged"
 
 
@@ -168,6 +168,31 @@ def touch_view(db: Session, doc_id: UUID) -> None:
 
 def list_recent_documents(db: Session, workspace_id: UUID, limit: int = 8) -> list[Document]:
     return list_recent(db, workspace_id, limit)
+
+
+def _physical_delete(db: Session, doc: Document) -> None:
+    """物理删除一篇文档 + 清理关联（标签/双链/版本），不留孤儿"""
+    from app.models.doc_tag import DocTag
+    from app.models.document_link import DocumentLink
+    from app.models.document_version import DocumentVersion
+    db.query(DocTag).filter(DocTag.doc_id == doc.id).delete(synchronize_session=False)
+    db.query(DocumentLink).filter(
+        (DocumentLink.source_id == doc.id) | (DocumentLink.target_id == doc.id)
+    ).delete(synchronize_session=False)
+    db.query(DocumentVersion).filter(DocumentVersion.doc_id == doc.id).delete(synchronize_session=False)
+    delete(db, doc)
+
+
+def empty_trash(db: Session, workspace_id: UUID) -> int:
+    """一键清空回收站：物理删除该工作区所有已软删文档，返回清了几篇"""
+    doomed = db.query(Document).filter(
+        Document.workspace_id == workspace_id,
+        Document.deleted_at.isnot(None),
+    ).all()
+    n = len(doomed)
+    for d in doomed:
+        _physical_delete(db, d)
+    return n
 
 
 def list_trash_documents(db: Session, workspace_id: UUID) -> list[Document]:

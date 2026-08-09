@@ -7,7 +7,7 @@ from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentRead, D
 from app.services.document import (
     get_document, list_documents, create_document, update_document, delete_document,
     restore_document, list_trash_documents, search_documents,
-    touch_view, list_recent_documents, get_backlinks,
+    touch_view, list_recent_documents, get_backlinks, empty_trash,
     is_draft_fresh, get_fresh_draft,
 )
 
@@ -35,6 +35,14 @@ def recent_docs(workspace_id: UUID, limit: int = 8, db: Session = Depends(get_db
 def read_trash(workspace_id: UUID, db: Session = Depends(get_db)):
     """回收站列表。访问时顺手惰性清理超过保留期的（默认 30 天）"""
     return list_trash_documents(db, workspace_id)
+
+
+@router.post("/trash/empty")
+def empty_trash_endpoint(workspace_id: UUID, db: Session = Depends(get_db)):
+    """一键清空回收站（前端有二次确认弹窗）。返回清了几篇"""
+    n = empty_trash(db, workspace_id)
+    notify_list(workspace_id, workspace_id)  # 通知列表频道刷新
+    return {"purged": n}
 
 
 @router.get("/{doc_id}", response_model=DocumentRead)

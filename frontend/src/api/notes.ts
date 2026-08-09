@@ -156,6 +156,9 @@ export const listTrash = (wsId: string) =>
 export const listRecent = (wsId: string) =>
   api<Doc[]>(`/documents/recent?workspace_id=${wsId}`);
 
+export const emptyTrash = (wsId: string) =>
+  api<{ purged: number }>(`/documents/trash/empty?workspace_id=${wsId}`, { method: "POST" });
+
 export const getDraft = (id: string) => api<Draft>(`/documents/${id}/draft`);
 
 export const toggleFavorite = (id: string) =>

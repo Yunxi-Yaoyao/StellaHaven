@@ -102,3 +102,32 @@ def test_delete_workspace_trash_only(client, db_session):
     assert r2.status_code == 204
     # 回收站内容也物理清了
     assert client.get(f"/documents/{doc['id']}").status_code == 404
+
+
+def test_empty_trash(client, db_session):
+    """一键清空回收站：全部物理删除，返回清了几篇"""
+    user = User(id=uuid4(), username=f"u{uuid4().hex[:6]}", display_name="清空测试")
+    db_session.add(user)
+    db_session.commit()
+    ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "清空区"}).json()
+
+    ids = []
+    for i in range(3):
+        d = client.post("/documents/", json={
+            "title": f"垃圾{i}", "file_path": f"/t{i}.md", "workspace_id": ws["id"], "content": "",
+        }).json()
+        client.delete(f"/documents/{d['id']}")
+        ids.append(d["id"])
+    # 留一篇正常的，不能被误伤
+    keep = client.post("/documents/", json={
+        "title": "正常的", "file_path": "/keep.md", "workspace_id": ws["id"], "content": "",
+    }).json()
+
+    r = client.post(f"/documents/trash/empty?workspace_id={ws['id']}")
+    assert r.status_code == 200
+    assert r.json()["purged"] == 3
+
+    assert client.get(f"/documents/trash?workspace_id={ws['id']}").json() == []
+    for i in ids:
+        assert client.get(f"/documents/{i}").status_code == 404
+    assert client.get(f"/documents/{keep['id']}").status_code == 200  # 正常的还在
