@@ -78,3 +78,16 @@ def test_attachment_follows_doc_physical_delete(client, doc_id):
 
     client.delete(f"/documents/{doc_id}")  # 物理删
     assert client.get(url).status_code == 404
+
+
+def test_non_image_file_upload(client, doc_id):
+    """非图片文件（任意附件）也能上传下载"""
+    r = client.post(
+        f"/attachments/{doc_id}",
+        files={"file": ("笔记导出.txt", io.BytesIO("你好 Stella".encode()), "text/plain")},
+    )
+    assert r.status_code == 200
+    url = r.json()["url"]
+    g = client.get(url)
+    assert g.status_code == 200
+    assert g.content.decode() == "你好 Stella"

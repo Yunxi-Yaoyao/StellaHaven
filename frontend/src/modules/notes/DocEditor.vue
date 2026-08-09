@@ -124,33 +124,53 @@ function pickLink(target: Doc) {
   });
 }
 
-// ── 粘贴图片：上传 → 光标处插入引用 ──
-async function onPaste(e: ClipboardEvent) {
-  const items = e.clipboardData?.items;
-  if (!items) return;
-  const imgItem = [...items].find((i) => i.type.startsWith("image/"));
-  if (!imgItem) return; // 不是图片就走默认粘贴
-  e.preventDefault();
-  const file = imgItem.getAsFile();
-  if (!file || !doc.value) return;
-
-  const el = inputEl.value;
-  const insertAt = el?.selectionStart ?? content.value.length;
-  const placeholder = `![上传中…]()`;
-  // 先插占位符，上传完替换成真链接
+// ── 粘贴/拖拽上传：图片插 ![]()，其他文件插链接 []() ──
+async function uploadOne(file: File, insertAt: number) {
+  if (!doc.value) return;
+  const isImg = file.type.startsWith("image/");
+  const name = file.name || "paste.png";
+  const placeholder = isImg ? `![上传中 ${name}…]()` : `[上传中 ${name}…]()`;
   content.value = content.value.slice(0, insertAt) + placeholder + content.value.slice(insertAt);
 
   const form = new FormData();
-  form.append("file", file, file.name || "paste.png");
+  form.append("file", file, name);
   try {
     const resp = await fetch(`/attachments/${doc.value.id}`, { method: "POST", body: form });
     if (!resp.ok) throw new Error(String(resp.status));
     const { url, filename } = await resp.json();
-    content.value = content.value.replace(placeholder, `![${filename}](${url})`);
-    toast("图片已上传 ✓");
+    content.value = content.value.replace(
+      placeholder,
+      isImg ? `![${filename}](${url})` : `[${filename}](${url})`
+    );
+    toast(isImg ? "图片已上传 ✓" : `「${filename}」已上传 ✓`);
   } catch {
     content.value = content.value.replace(placeholder, "");
-    toast("图片上传失败");
+    toast("上传失败");
+  }
+}
+
+async function onPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const fileItem = [...items].find((i) => i.kind === "file");
+  if (!fileItem) return; // 不是文件就走默认粘贴
+  e.preventDefault();
+  const file = fileItem.getAsFile();
+  if (!file) return;
+  const el = inputEl.value;
+  await uploadOne(file, el?.selectionStart ?? content.value.length);
+}
+
+function onDragOver(e: DragEvent) {
+  if (e.dataTransfer?.types.includes("Files")) e.preventDefault(); // 允许落下
+}
+
+async function onDrop(e: DragEvent) {
+  const files = e.dataTransfer?.files;
+  if (!files?.length) return;
+  e.preventDefault();
+  for (const file of files) {
+    await uploadOne(file, content.value.length); // 追加到末尾
   }
 }
 
@@ -425,6 +445,8 @@ function fmtDraftTime(iso: string) {
           placeholder="开始写…（打字存草稿 · 切换笔记自动保存 · [[标题]] 建双链）"
           @input="onInputForLinks"
           @paste="onPaste"
+          @dragover="onDragOver"
+          @drop="onDrop"
           @blur="suggestPos = null"
         />
         <!-- [[ 自动补全下拉 -->
