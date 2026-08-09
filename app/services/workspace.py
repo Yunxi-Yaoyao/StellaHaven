@@ -24,5 +24,5 @@ def rename_workspace(db: Session, ws_id: UUID, name: str) -> Workspace | None:
     return rename(db, ws_id, name)
 
 
-def delete_workspace(db: Session, ws_id: UUID) -> str:
-    return delete(db, ws_id)
+def delete_workspace(db: Session, ws_id: UUID, force: bool = False) -> str:
+    return delete(db, ws_id, force)

@@ -38,11 +38,13 @@ def rename_one(ws_id: UUID, name: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/{ws_id}", status_code=204)
-def delete_one(ws_id: UUID, db: Session = Depends(get_db)):
-    """删除工作区：非空不给删（防手滑）"""
+def delete_one(ws_id: UUID, force: bool = False, db: Session = Depends(get_db)):
+    """删除工作区：有正常笔记 409；只有回收站 → 需 force=true（连回收站永久删）"""
     from fastapi import HTTPException
-    result = delete_workspace(db, ws_id)
+    result = delete_workspace(db, ws_id, force)
     if result == "not_found":
         raise HTTPException(status_code=404, detail="工作区不存在")
     if result == "not_empty":
-        raise HTTPException(status_code=409, detail="工作区里还有笔记，先清空再删")
+        raise HTTPException(status_code=409, detail={"code": "not_empty", "message": "工作区里还有笔记，先清空再删"})
+    if result == "has_trash":
+        raise HTTPException(status_code=409, detail={"code": "has_trash", "message": "回收站里还有笔记，删除工作区会把它们一起永久删除"})

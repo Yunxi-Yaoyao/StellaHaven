@@ -81,3 +81,24 @@ def test_delete_workspace_not_empty_blocked(client, db_session):
 
     r = client.delete(f"/workspaces/{ws['id']}")
     assert r.status_code == 409
+
+
+def test_delete_workspace_trash_only(client, db_session):
+    """只有回收站有货：不 force → 409 has_trash；force=true → 连回收站一起永久删"""
+    user = User(id=uuid4(), username=f"u{uuid4().hex[:6]}", display_name="回收站区测试")
+    db_session.add(user)
+    db_session.commit()
+    ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "只有回收站的区"}).json()
+    doc = client.post("/documents/", json={
+        "title": "垃圾", "file_path": "/t.md", "workspace_id": ws["id"], "content": "",
+    }).json()
+    client.delete(f"/documents/{doc['id']}")  # 进回收站
+
+    r = client.delete(f"/workspaces/{ws['id']}")
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "has_trash"
+
+    r2 = client.delete(f"/workspaces/{ws['id']}?force=true")
+    assert r2.status_code == 204
+    # 回收站内容也物理清了
+    assert client.get(f"/documents/{doc['id']}").status_code == 404

@@ -108,8 +108,8 @@ export const createWorkspace = (userId: string, name: string) =>
 export const renameWorkspace = (id: string, name: string) =>
   api<WorkspaceRead>(`/workspaces/${id}?name=${encodeURIComponent(name)}`, { method: "PUT" });
 
-export const deleteWorkspace = (id: string) =>
-  api<void>(`/workspaces/${id}`, { method: "DELETE" });
+export const deleteWorkspace = (id: string, force = false) =>
+  api<void>(`/workspaces/${id}?force=${force}`, { method: "DELETE" });
 
 // ── 文档接口 ──
 export const listDocs = (wsId: string) =>

@@ -4,6 +4,7 @@ import { storeToRefs } from "pinia";
 import { useNotesStore, buildTree, type TreeNode } from "../../stores/notes";
 import DocTreeNode from "./DocTreeNode.vue";
 import Icon from "../../shell/Icon.vue";
+import { toast } from "../../composables/useToast";
 
 const emit = defineEmits<{
   open: [id: string];
@@ -44,9 +45,28 @@ async function onRenameWs() {
   }
 }
 async function onDeleteWs() {
-  if (!confirm(`确定删除工作区「${currentWsName.value}」？（里面有笔记会删不掉）`)) return;
   wsMenuOpen.value = false;
-  if (await store.deleteCurrentWorkspace()) emit("switched");
+  wsDeleteStep.value = "confirm"; // 第一次确认（点菜单=第一次，弹窗=第二次）
+}
+
+// 工作区删除弹窗状态：confirm 普通确认 / force 回收站警告 / none 关闭
+const wsDeleteStep = ref<"none" | "confirm" | "force">("none");
+
+async function confirmDeleteWs(force: boolean) {
+  const result = await store.deleteCurrentWorkspace(force);
+  if (result === "has_trash") {
+    wsDeleteStep.value = "force"; // 升级成回收站警告
+  } else if (result === "not_empty") {
+    wsDeleteStep.value = "none";
+    toast("工作区里还有笔记，先清空再删");
+  } else if (result === "deleted") {
+    wsDeleteStep.value = "none";
+    toast("工作区已删除");
+    emit("switched");
+  } else {
+    wsDeleteStep.value = "none";
+    toast("删除失败，稍后再试");
+  }
 }
 
 // ── 区块折叠：⭐ 默认折叠 / 🕘 最近查看默认展开 / 全部笔记默认展开 ──
@@ -191,6 +211,28 @@ function onSearchInput() {
     <div class="trash-entry" :class="{ active: props.trashOpen }" @click="emit('showTrash')">
       <Icon name="trash" :size="13" /> 回收站
     </div>
+
+    <!-- 工作区删除：二次确认弹窗 -->
+    <div v-if="wsDeleteStep !== 'none'" class="mask" @click.self="wsDeleteStep = 'none'">
+      <div class="dialog">
+        <template v-if="wsDeleteStep === 'confirm'">
+          <div class="head">删除工作区「{{ currentWsName }}」？</div>
+          <div class="body">工作区本身删除后不可恢复。里面有笔记的话会被拦下。</div>
+          <div class="btns">
+            <button class="danger" @click="confirmDeleteWs(false)">确认删除</button>
+            <button class="cancel" @click="wsDeleteStep = 'none'">取消</button>
+          </div>
+        </template>
+        <template v-else>
+          <div class="head danger-text">回收站里还有 {{ store.trash.length }} 篇笔记</div>
+          <div class="body">删除工作区会把回收站里的内容<strong>一起永久删除，不可恢复</strong>。确定吗？</div>
+          <div class="btns">
+            <button class="danger" @click="confirmDeleteWs(true)">永久删除（含回收站）</button>
+            <button class="cancel" @click="wsDeleteStep = 'none'">取消</button>
+          </div>
+        </template>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -293,6 +335,41 @@ function onSearchInput() {
 .ws-opt.action { font-size: 12px; }
 .ws-opt.danger:hover { color: var(--pink); }
 .ws-divider { height: 1px; background: var(--bg-panel); margin: 4px 0; }
+
+/* 工作区删除弹窗 */
+.mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+}
+.dialog {
+  width: 380px;
+  background: var(--bg-panel);
+  border: 1px solid var(--bg-raised);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.dialog .head { padding: 14px 18px; font-size: 14px; font-weight: 600; }
+.dialog .head.danger-text { color: var(--pink); }
+.dialog .body { padding: 0 18px 14px; font-size: 13px; color: var(--text-lo); }
+.dialog .body strong { color: var(--pink); }
+.btns { display: flex; flex-direction: column; gap: 8px; padding: 0 18px 16px; }
+.btns button {
+  padding: 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-dim);
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.btns button:hover { background: var(--bg-raised); }
+.btns button.danger { border-color: var(--pink); color: var(--pink); }
+.btns button.cancel { border-color: var(--text-faint); color: var(--text-faint); }
 .flat-item {
   padding: 7px 10px;
   border-radius: var(--radius-sm);

@@ -97,25 +97,26 @@ export const useNotesStore = defineStore("notes", () => {
     toast("已重命名 ✓");
   }
 
-  /** 删除当前工作区：非空被后端 409 拦；删除后切到剩下的第一个 */
-  async function deleteCurrentWorkspace(): Promise<boolean> {
+  /** 删除当前工作区：返回结果码让 UI 决定弹什么（deleted / not_empty / has_trash） */
+  async function deleteCurrentWorkspace(force = false): Promise<string> {
     try {
-      await deleteWorkspace(workspaceId.value);
+      await deleteWorkspace(workspaceId.value, force);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) toast("工作区里还有笔记，先清空再删");
-      return false;
+      if (e instanceof ApiError && e.status === 409) {
+        const code = (e.detail as any)?.code;
+        return code === "has_trash" ? "has_trash" : "not_empty";
+      }
+      return "error";
     }
     await refreshWorkspaces();
     const next = workspaces.value[0];
     if (next) {
       await switchWorkspace(next.id);
     } else {
-      // 一个都没了 → 重建默认
       localStorage.removeItem("stella_bootstrap");
       await bootstrap();
     }
-    toast("工作区已删除");
-    return true;
+    return "deleted";
   }
 
   async function refreshList() {
