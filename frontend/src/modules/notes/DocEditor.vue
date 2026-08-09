@@ -11,25 +11,22 @@ import { useNotesStore } from "../../stores/notes";
 const props = defineProps<{ docId: string }>();
 const emit = defineEmits<{ saved: []; deleted: [] }>();
 
-// 设备标签 = 设备名 · 公网IP · 地区（IP/地区异步查到后补上，缓存24h）
+// 设备标签 = 「IP-地区 来源」（来源 = 起过的名字或浏览器名；IP/地区异步查到后补上，缓存24h）
 const deviceLabel = ref(getDeviceName());
-function deviceNameOnly() {
-  return deviceLabel.value.split(" · ")[0];
-}
 async function refreshDeviceLabel() {
+  const name = getDeviceName();
   const info = await getIpInfo();
   deviceLabel.value = info
-    ? `${deviceNameOnly()} · ${info.ip} · ${info.region}`
-    : deviceNameOnly();
+    ? `${info.ip}-${info.region} ${name}`
+    : name;
 }
 refreshDeviceLabel();
 
 function renameDevice() {
-  const name = prompt("给这台设备起个名字（会显示在草稿提示里）", deviceNameOnly());
+  const name = prompt("给这个来源起个名字（如：苏菲 / 台式机）", localStorage.getItem("stella_device") || "");
   if (name?.trim()) {
     setDeviceName(name.trim());
-    deviceLabel.value = name.trim();
-    refreshDeviceLabel(); // 重新组合 IP+地区
+    refreshDeviceLabel(); // 重新组合标签
   }
 }
 
@@ -38,9 +35,8 @@ const title = ref("");
 const content = ref("");
 const savedTitle = ref("");
 const savedContent = ref("");
-const mode = ref<"edit" | "split" | "preview">("split");
+const reading = ref(false); // false=编辑（双栏） true=阅览（纯预览）
 const statusText = ref("");
-const conflictHint = ref("");
 
 // 草稿提示条
 const draftBanner = ref<{ device: string | null; updatedAt: string } | null>(null);
@@ -71,7 +67,6 @@ async function load(id: string) {
   savedTitle.value = doc.value.title;
   savedContent.value = doc.value.content || "";
   statusText.value = "";
-  conflictHint.value = "";
   draftPreview.value = null;
   draftBanner.value =
     doc.value.has_draft && !isDismissed(doc.value.id, doc.value.draft_updated_at!)
@@ -87,48 +82,41 @@ watch(() => props.docId, (newId, oldId) => {
 
 onBeforeUnmount(() => flushDraft());
 
-// ── 草稿：输入 debounce 2.5s → WS 覆写草稿槽 ──
-// 只在「脏了」（有未保存修改）时才同步——加载文档触发的 content 变化不算
-// 定时器记录调度时的 docId，触发时若已切换文档则丢弃（防止 A 的内容发进 B 的槽）
-let draftTimer: ReturnType<typeof setTimeout> | null = null;
+// ── 自动保存：打字停 3 秒且脏了 → 直接落正文（老婆的定稿：草稿系统退役为崩溃保险）──
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 function flushDraft() {
-  /** 切走/销毁前：有未保存修改就直接保存落正文（老婆的定稿：切换=保存，草稿只做崩溃保险） */
-  if (draftTimer) clearTimeout(draftTimer);
-  draftTimer = null;
+  /** 切走/销毁前：有未保存修改就直接保存落正文（切换=保存） */
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
   if (doc.value && dirty.value) {
     // fire-and-forget：组件可能正在销毁，emit 会丢，直接刷 store
     save().then(() => useNotesStore().refreshList()).catch(() => {});
   }
 }
 
-watch(content, () => {
-  if (!doc.value) return;
-  const forDoc = doc.value.id;
-  if (draftTimer) clearTimeout(draftTimer);
-  draftTimer = setTimeout(() => {
-    // 回调触发时世界可能已变：文档换了就不能发（防止交叉污染）
-    if (dirty.value && doc.value?.id === forDoc) sendDraft(content.value);
-  }, 2500);
+watch([content, title], () => {
+  if (!doc.value || !dirty.value) return;
+  statusText.value = "编辑中…（停下 3 秒自动保存）";
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => save(), 3000);
 });
 
-// 别的设备保存了 → 静默重拉（本地没脏改才直接覆盖，脏了提示）
+// 别的设备保存了：本地干净就静默重拉；本地在打字就无视（我的自动保存马上覆盖，不是冲突）
 function onRemoteSaved() {
   if (!doc.value) return;
   if (!dirty.value) {
     load(props.docId);
-    statusText.value = "已从另一设备同步 ✓";
-  } else {
-    conflictHint.value = "另一设备保存了新版本，你有未保存的修改";
+    statusText.value = "已同步另一设备的保存 ✓";
   }
 }
 
-const { sendDraft } = useDraftSocket(toRef(props, "docId"), deviceLabel, onRemoteSaved);
+useDraftSocket(toRef(props, "docId"), deviceLabel, onRemoteSaved);
 
-// ── 保存（手动，乐观锁）──
+// ── 保存（乐观锁 PUT；自动保存和 Ctrl+S 都走这里）──
 async function save() {
   if (!doc.value || !dirty.value) return;
-  if (draftTimer) clearTimeout(draftTimer); // 保存成功后不再需要挂起的草稿同步
+  if (saveTimer) clearTimeout(saveTimer);
   try {
     const updated = await updateDoc(doc.value.id, doc.value.updated_at, {
       title: title.value,
@@ -138,8 +126,7 @@ async function save() {
     savedTitle.value = updated.title;
     savedContent.value = updated.content || "";
     draftBanner.value = null; // 保存成功草稿槽已清
-    statusText.value = "已保存 ✓ " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-    conflictHint.value = "";
+    statusText.value = "已自动保存 ✓ " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
     emit("saved");
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
@@ -225,18 +212,11 @@ function fmtDraftTime(iso: string) {
     </div>
 
     <!-- 冲突提示（本地脏时远端保存了） -->
-    <div v-if="conflictHint" class="conflict-banner">⚠ {{ conflictHint }}</div>
-
     <div class="toolbar">
       <input v-model="title" class="title-input" placeholder="无标题" />
       <div class="actions">
-        <div class="mode-switch">
-          <button :class="{ on: mode === 'edit' }" @click="mode = 'edit'">编辑</button>
-          <button :class="{ on: mode === 'split' }" @click="mode = 'split'">双栏</button>
-          <button :class="{ on: mode === 'preview' }" @click="mode = 'preview'">预览</button>
-        </div>
-        <button class="save-btn" :disabled="!dirty" @click="save">
-          {{ dirty ? "保存" : "已保存" }}
+        <button class="mode-toggle" @click="reading = !reading">
+          {{ reading ? "✏️ 编辑" : "📖 阅览" }}
         </button>
         <button class="del-btn" @click="remove">删除</button>
       </div>
@@ -247,14 +227,14 @@ function fmtDraftTime(iso: string) {
       <span class="device" title="点击给这台设备起名" @click="renameDevice">{{ deviceLabel }}</span>
     </div>
 
-    <div class="panes" :class="mode">
+    <div class="panes" :class="reading ? 'preview-only' : 'split'">
       <textarea
-        v-show="mode !== 'preview'"
+        v-show="!reading"
         v-model="content"
         class="input"
-        placeholder="开始写…（切换笔记自动保存 · Ctrl+S 手动保存 · 草稿只是崩溃保险）"
+        placeholder="开始写…（停下 3 秒自动保存 · 切换笔记也会保存 · 📖 切阅览）"
       />
-      <div v-show="mode !== 'edit'" class="preview markdown-body" v-html="rendered" />
+      <div class="preview markdown-body" v-html="rendered" />
     </div>
   </div>
 </template>
@@ -300,13 +280,6 @@ function fmtDraftTime(iso: string) {
 .dp-head button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; }
 .draft-preview pre { white-space: pre-wrap; font-size: 12.5px; color: var(--text-lo); }
 
-.conflict-banner {
-  padding: 8px 16px;
-  background: rgba(232, 160, 191, 0.1);
-  color: var(--pink);
-  font-size: 12.5px;
-}
-
 .toolbar {
   display: flex;
   align-items: center;
@@ -324,29 +297,17 @@ function fmtDraftTime(iso: string) {
   font-weight: 600;
 }
 .actions { display: flex; gap: 8px; align-items: center; }
-.mode-switch { display: flex; background: var(--bg-raised); border-radius: var(--radius-sm); padding: 2px; }
-.mode-switch button {
-  padding: 4px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-lo);
-  font-size: 12px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.mode-switch button.on { background: var(--bg-panel); color: var(--accent); }
-.save-btn {
-  padding: 6px 18px;
-  border: none;
+.mode-toggle {
+  padding: 6px 16px;
+  border: 1px solid var(--accent-dim);
   border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: var(--bg-base);
+  background: transparent;
+  color: var(--accent);
   font-size: 12.5px;
-  font-weight: 600;
   cursor: pointer;
-  transition: opacity var(--transition);
+  transition: all var(--transition);
 }
-.save-btn:disabled { opacity: 0.35; cursor: default; }
+.mode-toggle:hover { background: var(--bg-raised); }
 .del-btn {
   padding: 6px 12px;
   border: 1px solid var(--text-faint);

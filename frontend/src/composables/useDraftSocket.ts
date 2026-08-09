@@ -1,13 +1,18 @@
 import { watch, onUnmounted, type Ref } from "vue";
 
-// 设备名：草稿槽要记录「哪台设备留下的」
+// 设备名：没起过名就用浏览器名（UA 解析），不再生成「设备-xxxx」随机占位
+export function detectBrowser(): string {
+  const ua = navigator.userAgent;
+  if (ua.includes("Edg/")) return "Edge";
+  if (ua.includes("OPR/")) return "Opera";
+  if (ua.includes("Chrome/")) return "Chrome";
+  if (ua.includes("Firefox/")) return "Firefox";
+  if (ua.includes("Safari/")) return "Safari";
+  return "浏览器";
+}
+
 export function getDeviceName(): string {
-  let d = localStorage.getItem("stella_device");
-  if (!d) {
-    d = "设备-" + Math.random().toString(36).slice(2, 6);
-    localStorage.setItem("stella_device", d);
-  }
-  return d;
+  return localStorage.getItem("stella_device") || detectBrowser();
 }
 
 export function setDeviceName(name: string) {
