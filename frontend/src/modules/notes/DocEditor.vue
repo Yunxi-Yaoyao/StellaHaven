@@ -87,43 +87,83 @@ function onPreviewClick(e: MouseEvent) {
   else toast(`没有找到「${t}」这篇笔记`);
 }
 
-// ── [[ 自动补全 ──
-const inputEl = ref<HTMLTextAreaElement | null>(null);
-const linkSuggests = ref<Doc[]>([]);
-const suggestPos = ref<{ start: number; query: string } | null>(null);
+// ── [[ 双链补全 + / 斜杠命令（统一建议状态机）──
+import type { EditorView } from "@codemirror/view";
+import CmEditor from "./CmEditor.vue";
 
-function onInputForLinks() {
-  const el = inputEl.value;
-  if (!el) return;
-  const before = content.value.slice(0, el.selectionStart);
-  const m = before.match(/\[\[([^\[\]]*)$/);
-  if (!m) {
-    suggestPos.value = null;
-    linkSuggests.value = [];
+const cmRef = ref<InstanceType<typeof CmEditor> | null>(null);
+const suggestMode = ref<"link" | "cmd" | null>(null);
+const linkSuggests = ref<Doc[]>([]);
+const curQuery = ref(""); // 当前 [[ 或 / 后面的查询词
+
+const SLASH_CMDS = [
+  { key: "h1", label: "标题 1", insert: "# " },
+  { key: "h2", label: "标题 2", insert: "## " },
+  { key: "h3", label: "标题 3", insert: "### " },
+  { key: "ul", label: "无序列表", insert: "- " },
+  { key: "todo", label: "待办事项", insert: "- [ ] " },
+  { key: "ol", label: "有序列表", insert: "1. " },
+  { key: "quote", label: "引用", insert: "> " },
+  { key: "code", label: "代码块", insert: "```\n\n```" },
+  { key: "hr", label: "分割线", insert: "\n---\n" },
+];
+const cmdSuggests = computed(() => {
+  const q = curQuery.value.toLowerCase();
+  return SLASH_CMDS.filter((c) => c.label.includes(q) || c.key.includes(q));
+});
+
+function onCmChange(view: EditorView) {
+  const pos = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(pos);
+  const lineText = line.text.slice(0, pos - line.from);
+
+  // / 斜杠命令：行首以 / 开头
+  const sm = lineText.match(/^\/(\S*)$/);
+  if (sm) {
+    suggestMode.value = "cmd";
+    curQuery.value = sm[1];
     return;
   }
-  const q = m[1];
-  suggestPos.value = { start: el.selectionStart - m[0].length, query: q };
-  linkSuggests.value = store.docs
-    .filter((d) => d.id !== props.docId && d.title.toLowerCase().includes(q.toLowerCase()))
-    .slice(0, 6);
+  // [[ 双链
+  const before = view.state.doc.sliceString(Math.max(0, pos - 60), pos);
+  const m = before.match(/\[\[([^\[\]]*)$/);
+  if (m) {
+    suggestMode.value = "link";
+    curQuery.value = m[1];
+    linkSuggests.value = store.docs
+      .filter((d) => d.id !== props.docId && d.title.toLowerCase().includes(m[1].toLowerCase()))
+      .slice(0, 6);
+    return;
+  }
+  suggestMode.value = null;
 }
 
 function pickLink(target: Doc) {
-  const el = inputEl.value;
-  if (!el || !suggestPos.value) return;
-  const { start } = suggestPos.value;
-  const afterCaret = content.value.slice(el.selectionStart);
-  content.value = content.value.slice(0, start) + `[[${target.title}]]` + afterCaret;
-  suggestPos.value = null;
-  linkSuggests.value = [];
-  // 光标归位到链接后
-  const pos = start + target.title.length + 4;
-  requestAnimationFrame(() => {
-    el.focus();
-    el.setSelectionRange(pos, pos);
-  });
+  cmRef.value?.deleteBefore(2 + curQuery.value.length);
+  cmRef.value?.insertText(`[[${target.title}]]`);
+  suggestMode.value = null;
 }
+
+function pickCommand(cmd: (typeof SLASH_CMDS)[number]) {
+  cmRef.value?.deleteBefore(1 + curQuery.value.length);
+  cmRef.value?.insertText(cmd.insert);
+  suggestMode.value = null;
+}
+
+// ── 工具栏 ──
+const toolbar = [
+  { text: "B", title: "加粗", action: () => cmRef.value?.wrapSelection("**", "**", "粗体") },
+  { text: "I", title: "斜体", action: () => cmRef.value?.wrapSelection("*", "*", "斜体") },
+  { text: "</>", title: "行内代码", action: () => cmRef.value?.wrapSelection("`", "`", "代码") },
+  { text: "H1", title: "标题 1", action: () => cmRef.value?.linePrefix("# ") },
+  { text: "H2", title: "标题 2", action: () => cmRef.value?.linePrefix("## ") },
+  { text: "•", title: "无序列表", action: () => cmRef.value?.linePrefix("- ") },
+  { text: "☑", title: "待办", action: () => cmRef.value?.linePrefix("- [ ] ") },
+  { text: "❝", title: "引用", action: () => cmRef.value?.linePrefix("> ") },
+  { text: "🔗", title: "链接", action: () => cmRef.value?.wrapSelection("[", "](https://)", "链接文字") },
+  { text: "🖼", title: "图片", action: () => cmRef.value?.insertText("![描述](图片链接)") },
+  { text: "—", title: "分割线", action: () => cmRef.value?.insertText("\n\n---\n\n") },
+];
 
 // ── 粘贴/拖拽上传：图片插 ![]()，其他文件插链接 []() ──
 async function uploadOne(file: File, insertAt: number) {
@@ -158,12 +198,7 @@ async function onPaste(e: ClipboardEvent) {
   e.preventDefault();
   const file = fileItem.getAsFile();
   if (!file) return;
-  const el = inputEl.value;
-  await uploadOne(file, el?.selectionStart ?? content.value.length);
-}
-
-function onDragOver(e: DragEvent) {
-  if (e.dataTransfer?.types.includes("Files")) e.preventDefault(); // 允许落下
+  await uploadOne(file, cmRef.value?.getCursor() ?? content.value.length);
 }
 
 async function onDrop(e: DragEvent) {
@@ -440,27 +475,43 @@ function fmtDraftTime(iso: string) {
     <!-- 标签栏：当前笔记的标签 + 添加 -->
     <TagBar :doc-id="docId" />
 
+    <!-- 工具栏（不记得语法也能写） -->
+    <div v-show="!reading" class="editor-toolbar">
+      <button
+        v-for="t in toolbar"
+        :key="t.text"
+        class="tb-btn"
+        :title="t.title"
+        @mousedown.prevent="t.action()"
+      >{{ t.text }}</button>
+    </div>
+
     <div class="panes" :class="reading ? 'preview-only' : 'split'">
       <div v-show="!reading" class="input-wrap">
-        <textarea
-          ref="inputEl"
+        <CmEditor
+          ref="cmRef"
           v-model="content"
-          class="input"
-          placeholder="开始写…（打字存草稿 · 切换笔记自动保存 · [[标题]] 建双链）"
-          @input="onInputForLinks"
+          @change="onCmChange"
           @paste="onPaste"
-          @dragover="onDragOver"
           @drop="onDrop"
-          @blur="suggestPos = null"
         />
-        <!-- [[ 自动补全下拉 -->
-        <div v-if="suggestPos && linkSuggests.length" class="suggests">
+        <!-- [[ 双链补全 -->
+        <div v-if="suggestMode === 'link' && linkSuggests.length" class="suggests">
           <div
             v-for="s in linkSuggests"
             :key="s.id"
             class="sug"
             @mousedown.prevent="pickLink(s)"
           >{{ s.title }}</div>
+        </div>
+        <!-- / 斜杠命令 -->
+        <div v-else-if="suggestMode === 'cmd' && cmdSuggests.length" class="suggests">
+          <div
+            v-for="c in cmdSuggests"
+            :key="c.key"
+            class="sug"
+            @mousedown.prevent="pickCommand(c)"
+          >{{ c.label }}</div>
         </div>
       </div>
       <div class="preview markdown-body" v-html="rendered" @click="onPreviewClick" />
@@ -641,6 +692,25 @@ function fmtDraftTime(iso: string) {
 .children-strip .chip:hover { background: var(--accent-dim); color: var(--bg-base); }
 .chip.backlink { color: var(--pink); }
 .input-wrap { position: relative; flex: 1; display: flex; }
+.editor-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  flex-wrap: wrap;
+}
+.tb-btn {
+  min-width: 28px;
+  padding: 4px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-lo);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.tb-btn:hover { background: var(--bg-raised); color: var(--accent); }
 .suggests {
   position: absolute;
   top: 44px;
