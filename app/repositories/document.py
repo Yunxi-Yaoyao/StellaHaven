@@ -11,6 +11,37 @@ def get_by_id(db: Session, doc_id: UUID) -> Document | None:
     return db.query(Document).filter(Document.id == doc_id).first()
 
 
+def children_of(db: Session, doc_id: UUID, include_deleted: bool = False) -> list[Document]:
+    q = db.query(Document).filter(Document.parent_id == doc_id)
+    if not include_deleted:
+        q = q.filter(Document.deleted_at.is_(None))
+    return q.all()
+
+
+def descendants_of(db: Session, doc_id: UUID, only_deleted: bool = False) -> list[Document]:
+    """BFS 收集所有后代（不含自己）。only_deleted=True 用于级联还原"""
+    result = []
+    queue = [doc_id]
+    while queue:
+        cur = queue.pop(0)
+        q = db.query(Document).filter(Document.parent_id == cur)
+        if only_deleted:
+            q = q.filter(Document.deleted_at.isnot(None))
+        kids = q.all()
+        result.extend(kids)
+        queue.extend(k.id for k in kids)
+    return result
+
+
+def list_recent(db: Session, workspace_id: UUID, limit: int = 8) -> list[Document]:
+    """最近查看：按 last_viewed_at 倒序，没看过的不要"""
+    return db.query(Document).filter(
+        Document.workspace_id == workspace_id,
+        Document.deleted_at.is_(None),
+        Document.last_viewed_at.isnot(None),
+    ).order_by(Document.last_viewed_at.desc()).limit(limit).all()
+
+
 def list_by_workspace(db: Session, workspace_id: UUID, parent_id: UUID | None = None, skip: int = 0, limit: int = 20) -> list[Document]:
     """正常列表：不含回收站里的"""
     q = db.query(Document).filter(

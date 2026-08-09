@@ -1,21 +1,69 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import {
-  ensureWorkspace, listDocs, searchDocs, listTrash,
-  createDoc, deleteDoc, restoreDoc, type Doc,
+  ensureWorkspace, listDocs, searchDocs, listTrash, listRecent,
+  createDoc, deleteDoc, restoreDoc, updateDoc, type Doc,
 } from "../api/notes";
+import { toast } from "../composables/useToast";
+import { ApiError } from "../api/client";
 
-// 笔记模块的全局状态：工作区、文档列表、回收站
+// 树节点：Doc + 子节点数组（客户端从平铺列表建树，个人规模 200 篇全量构建无压力）
+export interface TreeNode extends Doc {
+  children: TreeNode[];
+}
+
+export function buildTree(docs: Doc[]): TreeNode[] {
+  const map = new Map<string, TreeNode>();
+  const roots: TreeNode[] = [];
+  for (const d of docs) map.set(d.id, { ...d, children: [] });
+  for (const n of map.values()) {
+    if (n.parent_id && map.has(n.parent_id)) {
+      map.get(n.parent_id)!.children.push(n);
+    } else {
+      roots.push(n); // 父级不在列表里（回收站等）也按根级显示，防孤儿消失
+    }
+  }
+  // 兄弟间按更新时间倒序（老婆定的：默认排序即可）
+  const sortRec = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    nodes.forEach((n) => sortRec(n.children));
+  };
+  sortRec(roots);
+  return roots;
+}
+
+// 收集某节点的所有后代 id（移动/删除时排除用）
+export function collectDescendants(roots: TreeNode[], id: string): Set<string> {
+  const result = new Set<string>();
+  const walk = (nodes: TreeNode[]) => {
+    for (const n of nodes) {
+      if (n.id === id) {
+        const grab = (x: TreeNode) => { result.add(x.id); x.children.forEach(grab); };
+        grab(n);
+        return true;
+      }
+      if (walk(n.children)) return true;
+    }
+    return false;
+  };
+  walk(roots);
+  return result;
+}
+
 export const useNotesStore = defineStore("notes", () => {
   const workspaceId = ref<string>("");
   const docs = ref<Doc[]>([]);
   const trash = ref<Doc[]>([]);
+  const recent = ref<Doc[]>([]);
   const searchQuery = ref("");
   const searching = ref(false);
 
+  // 删除确认弹窗状态（有下挂时由 NotesPage 弹三选框）
+  const pendingDelete = ref<{ doc: Doc; childCount: number } | null>(null);
+
   async function bootstrap() {
     workspaceId.value = await ensureWorkspace();
-    await refreshList();
+    await Promise.all([refreshList(), refreshRecent()]);
   }
 
   async function refreshList() {
@@ -23,12 +71,11 @@ export const useNotesStore = defineStore("notes", () => {
     if (searchQuery.value.trim()) {
       searching.value = true;
       docs.value = await searchDocs(workspaceId.value, searchQuery.value.trim());
+      docs.value.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     } else {
       searching.value = false;
       docs.value = await listDocs(workspaceId.value);
     }
-    // 新的排前面
-    docs.value.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
 
   async function refreshTrash() {
@@ -36,30 +83,65 @@ export const useNotesStore = defineStore("notes", () => {
     trash.value = await listTrash(workspaceId.value);
   }
 
-  async function createNew(): Promise<Doc> {
-    const doc = await createDoc(workspaceId.value, "未命名笔记");
+  async function refreshRecent() {
+    if (!workspaceId.value) return;
+    recent.value = await listRecent(workspaceId.value);
+  }
+
+  function childCount(id: string): number {
+    return docs.value.filter((d) => d.parent_id === id).length;
+  }
+
+  async function createNew(parentId?: string): Promise<Doc> {
+    const doc = await createDoc(workspaceId.value, "未命名笔记", parentId);
     await refreshList();
     return doc;
   }
 
-  async function remove(id: string) {
-    await deleteDoc(id); // 软删 → 进回收站
+  /** 点删除：有下挂 → 弹三选框；没有 → 直接删 */
+  function requestDelete(doc: Doc) {
+    const n = childCount(doc.id);
+    if (n > 0) {
+      pendingDelete.value = { doc, childCount: n };
+    } else {
+      doDelete(doc.id, true);
+    }
+  }
+
+  async function doDelete(id: string, cascade: boolean) {
+    pendingDelete.value = null;
+    await deleteDoc(id, cascade);
     await Promise.all([refreshList(), refreshTrash()]);
   }
 
-  async function restore(id: string) {
-    await restoreDoc(id);
+  async function restore(id: string, cascade: boolean) {
+    const r = await restoreDoc(id, cascade);
     await Promise.all([refreshList(), refreshTrash()]);
+    if (r.reattached) toast("父页面不在了，已挂回根级");
+    else if (r.restored > 1) toast(`已还原 ${r.restored} 篇（含下挂）`);
   }
 
   async function purge(id: string) {
-    // 回收站里的再删一次 = 物理删除（后端两级删除语义）
-    await deleteDoc(id);
+    await deleteDoc(id); // 回收站里的再删 = 物理删除
     await refreshTrash();
   }
 
+  /** 移动到：改 parent_id。循环防护后端兜底，前端先过滤候选 */
+  async function moveTo(doc: Doc, newParentId: string | null): Promise<boolean> {
+    try {
+      await updateDoc(doc.id, doc.updated_at, { parent_id: newParentId });
+      await refreshList();
+      toast("已移动 ✓");
+      return true;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) toast("不能移动到它自己或它的子页面下面");
+      return false;
+    }
+  }
+
   return {
-    workspaceId, docs, trash, searchQuery, searching,
-    bootstrap, refreshList, refreshTrash, createNew, remove, restore, purge,
+    workspaceId, docs, trash, recent, searchQuery, searching, pendingDelete,
+    bootstrap, refreshList, refreshTrash, refreshRecent,
+    childCount, createNew, requestDelete, doDelete, restore, purge, moveTo,
   };
 });

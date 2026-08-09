@@ -54,6 +54,10 @@ def test_restore_from_trash(client, workspace_id):
 
     r = client.post(f"/documents/{doc['id']}/restore")
     assert r.status_code == 200
+    body = r.json()
+    assert body["doc"]["id"] == doc["id"]
+    assert body["reattached"] is False
+    assert body["restored"] == 1
 
     assert client.get(f"/documents/{doc['id']}").status_code == 200
 

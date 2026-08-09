@@ -79,7 +79,7 @@ export const searchDocs = (wsId: string, q: string) =>
 
 export const getDoc = (id: string) => api<Doc>(`/documents/${id}`);
 
-export const createDoc = (wsId: string, title: string) =>
+export const createDoc = (wsId: string, title: string, parentId?: string) =>
   api<Doc>("/documents/", {
     method: "POST",
     body: JSON.stringify({
@@ -87,23 +87,33 @@ export const createDoc = (wsId: string, title: string) =>
       file_path: `/notes/${Date.now()}.md`,
       workspace_id: wsId,
       content: "",
+      parent_id: parentId ?? null,
     }),
   });
 
-export const updateDoc = (id: string, updatedAt: string, fields: { title?: string; content?: string }) =>
+export const updateDoc = (id: string, updatedAt: string, fields: { title?: string; content?: string; parent_id?: string | null }) =>
   api<Doc>(`/documents/${id}`, {
     method: "PUT",
     body: JSON.stringify({ updated_at: updatedAt, ...fields }),
   });
 
-export const deleteDoc = (id: string) =>
-  api<void>(`/documents/${id}`, { method: "DELETE" });
+export const deleteDoc = (id: string, cascade = true) =>
+  api<void>(`/documents/${id}?cascade=${cascade}`, { method: "DELETE" });
 
-export const restoreDoc = (id: string) =>
-  api<Doc>(`/documents/${id}/restore`, { method: "POST" });
+export interface RestoreResult {
+  doc: Doc;
+  reattached: boolean; // 父页面不在，已挂回根级
+  restored: number;    // 一共还原了几篇（级联）
+}
+
+export const restoreDoc = (id: string, cascade = false) =>
+  api<RestoreResult>(`/documents/${id}/restore?cascade=${cascade}`, { method: "POST" });
 
 export const listTrash = (wsId: string) =>
   api<Doc[]>(`/documents/trash?workspace_id=${wsId}`);
+
+export const listRecent = (wsId: string) =>
+  api<Doc[]>(`/documents/recent?workspace_id=${wsId}`);
 
 export const getDraft = (id: string) => api<Draft>(`/documents/${id}/draft`);
 

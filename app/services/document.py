@@ -3,12 +3,19 @@ from hashlib import sha256
 from uuid import UUID
 from sqlalchemy.orm import Session
 
+import re
+
 from app.repositories.document import (
     get_by_id, list_by_workspace, list_trash, purge_expired_trash, search,
     create, update, delete,
+    children_of, descendants_of, list_recent,
 )
+from app.repositories import document_link as link_repo
 from app.schemas.document import DocumentCreate, DocumentUpdate
+from app.schemas.document_link import DocumentLinkCreate
 from app.models.document import Document
+
+WIKILINK_RE = re.compile(r"\[\[([^\[\]]+)\]\]")
 
 # 草稿新鲜度：超过 10 分钟没再编辑的草稿视为不存在（惰性判断，不做物理删除）
 DRAFT_TTL_SECONDS = 600
@@ -42,6 +49,13 @@ def update_document(db: Session, doc_id: UUID, data: DocumentUpdate) -> Document
     doc = get_by_id(db, doc_id)
     if doc is None:
         raise ValueError("Document not found")
+    # 循环引用防护：新父级不能是自己或自己的后代（A挂B下、B挂A下 → 树成环）
+    if data.parent_id is not None:
+        cur = get_by_id(db, data.parent_id)
+        while cur is not None:
+            if cur.id == doc_id:
+                raise ValueError("Circular parent")
+            cur = get_by_id(db, cur.parent_id) if cur.parent_id else None
     # 正文变了 → 服务端重算 hash，不信前端算的
     if data.content is not None:
         data.content_hash = _hash_content(data.content)
@@ -54,30 +68,106 @@ def update_document(db: Session, doc_id: UUID, data: DocumentUpdate) -> Document
     result.draft_device = None
     db.commit()
     db.refresh(result)
+    # 正文保存 → 同步双链（[[标题]] → document_links）
+    if data.content is not None:
+        sync_wikilinks(db, result, result.content or "")
     return result
 
 
-def delete_document(db: Session, doc_id: UUID) -> str:
-    """两级删除：正常文档 → 软删进回收站；已在回收站的 → 物理删除"""
+def delete_document(db: Session, doc_id: UUID, cascade: bool = True) -> str:
+    """两级删除 + 级联策略（老婆定的规则）：
+    - 正常文档 → 软删。cascade=True：下挂一起进回收站；cascade=False：子页上移一级再删
+    - 已在回收站的 → 物理删除（只删自己）
+    """
     doc = get_by_id(db, doc_id)
     if doc is None:
         raise ValueError("Document not found")
     if doc.deleted_at is None:
-        doc.deleted_at = datetime.now()
+        now = datetime.now()
+        if cascade:
+            for d in descendants_of(db, doc_id):
+                d.deleted_at = now
+        else:
+            # 子页上移一级（挂到被删页面的父级下）
+            for kid in children_of(db, doc_id):
+                kid.parent_id = doc.parent_id
+        doc.deleted_at = now
         db.commit()
         return "trashed"
     delete(db, doc)
     return "purged"
 
 
-def restore_document(db: Session, doc_id: UUID) -> Document:
+def restore_document(db: Session, doc_id: UUID, cascade: bool = False) -> dict:
+    """还原（老婆定的规则）：
+    - 父页面不在了/也在回收站 → 挂回根级，标记 reattached
+    - cascade=True：下挂的一起还原
+    """
     doc = get_by_id(db, doc_id)
     if doc is None or doc.deleted_at is None:
         raise ValueError("Document not found in trash")
+
+    reattached = False
+    if doc.parent_id is not None:
+        parent = get_by_id(db, doc.parent_id)
+        if parent is None or parent.deleted_at is not None:
+            doc.parent_id = None
+            reattached = True
+
     doc.deleted_at = None
+    restored = 1
+    if cascade:
+        for d in descendants_of(db, doc_id, only_deleted=True):
+            d.deleted_at = None
+            restored += 1
     db.commit()
     db.refresh(doc)
-    return doc
+    return {"doc": doc, "reattached": reattached, "restored": restored}
+
+
+def sync_wikilinks(db: Session, doc: Document, content: str) -> None:
+    """保存时同步双链：扫 [[标题]] → 全量替换该文档的出链（个人规模朴素重建即可）"""
+    titles = [t.strip() for t in WIKILINK_RE.findall(content)]
+    # 清掉旧出链
+    for old in link_repo.get_links_for_doc(db, doc.id):
+        if old.source_id == doc.id:
+            link_repo.remove(db, old.source_id, old.target_id)
+    # 按标题解析目标（同工作区、未删除、不是自己、同名取最新保存的）
+    for title in dict.fromkeys(titles):  # 去重保序
+        target = db.query(Document).filter(
+            Document.workspace_id == doc.workspace_id,
+            Document.title == title,
+            Document.deleted_at.is_(None),
+            Document.id != doc.id,
+        ).order_by(Document.updated_at.desc()).first()
+        if target:
+            link_repo.create(db, DocumentLinkCreate(
+                source_id=doc.id, target_id=target.id, link_type="wiki",
+            ))
+
+
+def get_backlinks(db: Session, doc_id: UUID) -> list[Document]:
+    """反链：哪些页面链接到了我"""
+    links = link_repo.get_links_for_doc(db, doc_id)
+    result = []
+    for l in links:
+        if l.target_id == doc_id:
+            src = get_by_id(db, l.source_id)
+            if src and src.deleted_at is None:
+                result.append(src)
+    return result
+
+
+def touch_view(db: Session, doc_id: UUID) -> None:
+    """打开页面 → 戳最近查看"""
+    doc = get_by_id(db, doc_id)
+    if doc is not None:
+        doc.last_viewed_at = datetime.now()
+        db.commit()
+
+
+def list_recent_documents(db: Session, workspace_id: UUID, limit: int = 8) -> list[Document]:
+    return list_recent(db, workspace_id, limit)
 
 
 def list_trash_documents(db: Session, workspace_id: UUID) -> list[Document]:

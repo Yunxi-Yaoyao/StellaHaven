@@ -1,13 +1,34 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { ref, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useNotesStore } from "../../stores/notes";
+import type { Doc } from "../../api/notes";
 
 const emit = defineEmits<{ close: [] }>();
 const store = useNotesStore();
 const { trash } = storeToRefs(store);
 
+// 有下挂的还原前要先选：确认中的条目 id
+const confirming = ref<string | null>(null);
+
 onMounted(() => store.refreshTrash());
+
+function trashedChildren(doc: Doc): Doc[] {
+  return trash.value.filter((d) => d.parent_id === doc.id);
+}
+
+function onRestore(doc: Doc) {
+  if (trashedChildren(doc).length > 0) {
+    confirming.value = doc.id; // 有下挂 → 先选
+  } else {
+    store.restore(doc.id, false);
+  }
+}
+
+function confirmRestore(doc: Doc, cascade: boolean) {
+  confirming.value = null;
+  store.restore(doc.id, cascade);
+}
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -28,8 +49,17 @@ function fmtTime(iso: string) {
           <div class="title">{{ doc.title }}</div>
           <div class="meta">删于 {{ fmtTime((doc as any).deleted_at || doc.updated_at) }}</div>
         </div>
-        <button class="restore" @click="store.restore(doc.id)">还原</button>
-        <button class="purge" @click="store.purge(doc.id)">彻底删除</button>
+
+        <!-- 有下挂：先选范围 -->
+        <template v-if="confirming === doc.id">
+          <button class="restore" @click="confirmRestore(doc, true)">全部还原（含 {{ trashedChildren(doc).length }} 篇下挂）</button>
+          <button class="restore" @click="confirmRestore(doc, false)">仅此篇</button>
+          <button class="purge" @click="confirming = null">取消</button>
+        </template>
+        <template v-else>
+          <button class="restore" @click="onRestore(doc)">还原</button>
+          <button class="purge" @click="store.purge(doc.id)">彻底删除</button>
+        </template>
       </div>
       <div v-if="trash.length === 0" class="empty">回收站是空的 ✨</div>
     </div>
@@ -73,8 +103,9 @@ function fmtTime(iso: string) {
   border-radius: var(--radius-sm);
   background: var(--bg-raised);
   margin-bottom: 8px;
+  flex-wrap: wrap;
 }
-.info { flex: 1; min-width: 0; }
+.info { flex: 1; min-width: 120px; }
 .title { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .meta { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
 .restore, .purge {

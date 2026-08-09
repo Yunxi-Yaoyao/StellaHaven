@@ -4,13 +4,14 @@ import { marked } from "marked";
 import {
   getDoc, updateDoc, getDraft, toggleFavorite, type Doc,
 } from "../../api/notes";
+import { api } from "../../api/client";
 import { ApiError } from "../../api/client";
 import { useDraftSocket, getDeviceName, setDeviceName, getIpInfo } from "../../composables/useDraftSocket";
 import { useNotesStore } from "../../stores/notes";
 import { toast } from "../../composables/useToast";
 
 const props = defineProps<{ docId: string }>();
-const emit = defineEmits<{ saved: []; deleted: [] }>();
+const emit = defineEmits<{ saved: []; deleted: []; open: [id: string] }>();
 
 // 设备标签 = 「IP-地区 来源」（来源 = 起过的名字或浏览器名；IP/地区异步查到后补上，缓存24h）
 const deviceLabel = ref(getDeviceName());
@@ -63,7 +64,70 @@ function isDismissed(docId: string, draftUpdatedAt: string): boolean {
 }
 
 const dirty = computed(() => title.value !== savedTitle.value || content.value !== savedContent.value);
-const rendered = computed(() => marked.parse(content.value || "") as string);
+
+// 渲染时把 [[标题]] 转成可点链接
+const rendered = computed(() => {
+  let html = marked.parse(content.value || "") as string;
+  html = html.replace(
+    /\[\[([^\[\]]+)\]\]/g,
+    '<a class="wikilink" data-title="$1">$1</a>'
+  );
+  return html;
+});
+
+// 点预览里的 wikilink → 跳目标页
+function onPreviewClick(e: MouseEvent) {
+  const a = (e.target as HTMLElement).closest(".wikilink") as HTMLElement | null;
+  if (!a) return;
+  const t = a.dataset.title;
+  const target = store.docs.find((d) => d.title === t);
+  if (target) emit("open", target.id);
+  else toast(`没有找到「${t}」这篇笔记`);
+}
+
+// ── [[ 自动补全 ──
+const inputEl = ref<HTMLTextAreaElement | null>(null);
+const linkSuggests = ref<Doc[]>([]);
+const suggestPos = ref<{ start: number; query: string } | null>(null);
+
+function onInputForLinks() {
+  const el = inputEl.value;
+  if (!el) return;
+  const before = content.value.slice(0, el.selectionStart);
+  const m = before.match(/\[\[([^\[\]]*)$/);
+  if (!m) {
+    suggestPos.value = null;
+    linkSuggests.value = [];
+    return;
+  }
+  const q = m[1];
+  suggestPos.value = { start: el.selectionStart - m[0].length, query: q };
+  linkSuggests.value = store.docs
+    .filter((d) => d.id !== props.docId && d.title.toLowerCase().includes(q.toLowerCase()))
+    .slice(0, 6);
+}
+
+function pickLink(target: Doc) {
+  const el = inputEl.value;
+  if (!el || !suggestPos.value) return;
+  const { start } = suggestPos.value;
+  const afterCaret = content.value.slice(el.selectionStart);
+  content.value = content.value.slice(0, start) + `[[${target.title}]]` + afterCaret;
+  suggestPos.value = null;
+  linkSuggests.value = [];
+  // 光标归位到链接后
+  const pos = start + target.title.length + 4;
+  requestAnimationFrame(() => {
+    el.focus();
+    el.setSelectionRange(pos, pos);
+  });
+}
+
+// ── 反链 ──
+const backlinks = ref<Doc[]>([]);
+async function loadBacklinks() {
+  backlinks.value = await api<Doc[]>(`/documents/${props.docId}/backlinks`);
+}
 
 // 字数：CJK 每字算 1，拉丁/数字按词算
 const wordCount = computed(() => {
@@ -88,6 +152,27 @@ const statusLeft = computed(() => {
   return savedAt.value ? `保存于 ${savedAgo.value}` : "";
 });
 
+// ── 面包屑 + 子页面（目录页 = 有子页面的文章页，同一个东西）──
+const store = useNotesStore();
+
+const breadcrumb = computed(() => {
+  // 从 parent_id 一路向上走，拼出祖先链
+  const chain: { id: string; title: string }[] = [];
+  let cur = doc.value;
+  let guard = 0;
+  while (cur?.parent_id && guard++ < 20) {
+    const parent = store.docs.find((d) => d.id === cur!.parent_id);
+    if (!parent) break;
+    chain.unshift({ id: parent.id, title: parent.title });
+    cur = parent;
+  }
+  return chain;
+});
+
+const childDocs = computed(() =>
+  store.docs.filter((d) => d.parent_id === props.docId)
+);
+
 // ── 加载文档 ──
 async function load(id: string) {
   doc.value = await getDoc(id);
@@ -98,6 +183,7 @@ async function load(id: string) {
   savedAt.value = doc.value.updated_at;
   draftSynced.value = false;
   draftPreview.value = null;
+  loadBacklinks();
   draftBanner.value =
     doc.value.has_draft && !isDismissed(doc.value.id, doc.value.draft_updated_at!)
       ? { device: doc.value.draft_device, updatedAt: doc.value.draft_updated_at! }
@@ -166,6 +252,7 @@ async function save() {
     savedAt.value = updated.updated_at;
     draftSynced.value = false;
     draftBanner.value = null; // 保存成功草稿槽已清
+    loadBacklinks(); // 双链可能变了
     toast("已自动保存 ✓");
     emit("saved");
   } catch (e) {
@@ -221,11 +308,16 @@ async function toggleFav() {
   useNotesStore().refreshList();
 }
 
-// ── 删除 ──
+// ── 删除（有下挂走 NotesPage 的三选弹窗）──
 async function remove() {
   if (!doc.value) return;
-  await useNotesStore().remove(doc.value.id);
-  emit("deleted");
+  const store = useNotesStore();
+  if (store.childCount(doc.value.id) > 0) {
+    store.requestDelete(doc.value); // 弹窗接管，后续由 NotesPage 收尾
+  } else {
+    await store.doDelete(doc.value.id, true);
+    emit("deleted");
+  }
 }
 
 // Ctrl+S
@@ -266,7 +358,15 @@ function fmtDraftTime(iso: string) {
       <pre>{{ draftPreview }}</pre>
     </div>
 
-    <!-- 冲突提示（本地脏时远端保存了） -->
+    <!-- 面包屑：祖先路径，可点击跳转 -->
+    <div v-if="breadcrumb.length" class="breadcrumb">
+      <template v-for="b in breadcrumb" :key="b.id">
+        <span class="crumb" @click="emit('open', b.id)">{{ b.title }}</span>
+        <span class="sep">/</span>
+      </template>
+      <span class="crumb current">{{ doc.title }}</span>
+    </div>
+
     <div class="toolbar">
       <input v-model="title" class="title-input" placeholder="无标题" />
       <div class="actions">
@@ -286,13 +386,48 @@ function fmtDraftTime(iso: string) {
     </div>
 
     <div class="panes" :class="reading ? 'preview-only' : 'split'">
-      <textarea
-        v-show="!reading"
-        v-model="content"
-        class="input"
-        placeholder="开始写…（打字存草稿 · 切换笔记自动保存 · Ctrl+S 手动保存）"
-      />
-      <div class="preview markdown-body" v-html="rendered" />
+      <div v-show="!reading" class="input-wrap">
+        <textarea
+          ref="inputEl"
+          v-model="content"
+          class="input"
+          placeholder="开始写…（打字存草稿 · 切换笔记自动保存 · [[标题]] 建双链）"
+          @input="onInputForLinks"
+          @blur="suggestPos = null"
+        />
+        <!-- [[ 自动补全下拉 -->
+        <div v-if="suggestPos && linkSuggests.length" class="suggests">
+          <div
+            v-for="s in linkSuggests"
+            :key="s.id"
+            class="sug"
+            @mousedown.prevent="pickLink(s)"
+          >{{ s.title }}</div>
+        </div>
+      </div>
+      <div class="preview markdown-body" v-html="rendered" @click="onPreviewClick" />
+    </div>
+
+    <!-- 反链：哪些页面链接到了这篇 -->
+    <div v-if="backlinks.length" class="children-strip">
+      <span class="label">🔗 被引用</span>
+      <span
+        v-for="b in backlinks"
+        :key="b.id"
+        class="chip backlink"
+        @click="emit('open', b.id)"
+      >{{ b.title }}</span>
+    </div>
+
+    <!-- 子页面区块：有子页面 = 这篇就是目录页 -->
+    <div v-if="childDocs.length" class="children-strip">
+      <span class="label">📑 子页面</span>
+      <span
+        v-for="kid in childDocs"
+        :key="kid.id"
+        class="chip"
+        @click="emit('open', kid.id)"
+      >{{ kid.title }}</span>
     </div>
 
     <!-- 常驻状态条：保存于几分钟前 · 字数 · 来源 -->
@@ -411,6 +546,66 @@ function fmtDraftTime(iso: string) {
 .status-bar .device:hover { color: var(--accent); }
 
 .panes { flex: 1; display: flex; overflow: hidden; }
+
+.breadcrumb {
+  padding: 8px 16px 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.crumb { cursor: pointer; transition: color var(--transition); }
+.crumb:hover { color: var(--accent); }
+.crumb.current { color: var(--text-lo); cursor: default; }
+.sep { opacity: 0.4; }
+
+.children-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.children-strip .label { font-size: 11px; color: var(--text-faint); letter-spacing: 1px; }
+.children-strip .chip {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.children-strip .chip:hover { background: var(--accent-dim); color: var(--bg-base); }
+.chip.backlink { color: var(--pink); }
+.input-wrap { position: relative; flex: 1; display: flex; }
+.suggests {
+  position: absolute;
+  top: 44px;
+  left: 16px;
+  min-width: 200px;
+  background: var(--bg-raised);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  z-index: 20;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.sug {
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-lo);
+  cursor: pointer;
+}
+.sug:hover { background: var(--bg-panel); color: var(--accent); }
+.markdown-body :deep(.wikilink) {
+  color: var(--accent);
+  border-bottom: 1px dashed var(--accent-dim);
+  cursor: pointer;
+}
 .input {
   flex: 1;
   resize: none;
