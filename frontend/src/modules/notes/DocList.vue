@@ -13,11 +13,6 @@ function onSearchInput() {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => store.refreshList(), 300);
 }
-
-function fmtTime(iso: string) {
-  const d = new Date(iso);
-  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
 </script>
 
 <template>
@@ -46,7 +41,6 @@ function fmtTime(iso: string) {
           {{ doc.title }}
           <span v-if="doc.has_draft" class="draft-dot" title="有未保存草稿">●</span>
         </div>
-        <div class="meta">{{ fmtTime(doc.updated_at) }}</div>
       </div>
       <div v-if="docs.length === 0" class="empty">
         {{ searching ? "没有命中" : "还没有笔记，点上面新建一篇吧" }}
@@ -122,7 +116,6 @@ function fmtTime(iso: string) {
   text-overflow: ellipsis;
 }
 .draft-dot { color: var(--pink); font-size: 10px; margin-left: 4px; }
-.meta { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
 .empty {
   padding: 24px 12px;
   text-align: center;
