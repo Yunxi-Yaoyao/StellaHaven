@@ -49,7 +49,14 @@ export interface Bootstrap {
 
 export async function ensureUser(): Promise<string> {
   const cached = localStorage.getItem(LS_KEY);
-  if (cached) return JSON.parse(cached).userId as string;
+  if (cached) {
+    try {
+      const id = JSON.parse(cached).userId;
+      if (id) return id as string; // 旧格式缓存没有 userId → 继续往下重建
+    } catch {
+      /* 缓存坏了往下走 */
+    }
+  }
 
   const users = await api<UserRead[]>("/users/?limit=100");
   let user = users.find((u) => u.username === "yunxi");
