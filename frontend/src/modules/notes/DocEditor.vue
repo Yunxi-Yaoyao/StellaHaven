@@ -7,6 +7,7 @@ import {
 import { ApiError } from "../../api/client";
 import { useDraftSocket, getDeviceName, setDeviceName, getIpInfo } from "../../composables/useDraftSocket";
 import { useNotesStore } from "../../stores/notes";
+import { toast } from "../../composables/useToast";
 
 const props = defineProps<{ docId: string }>();
 const emit = defineEmits<{ saved: []; deleted: [] }>();
@@ -82,13 +83,14 @@ watch(() => props.docId, (newId, oldId) => {
 
 onBeforeUnmount(() => flushDraft());
 
-// ── 自动保存：打字停 3 秒且脏了 → 直接落正文（老婆的定稿：草稿系统退役为崩溃保险）──
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
+// ── 编辑中：打字停 2.5s → 草稿槽（正文不动，草稿是影子）──
+// ── 行为边界（切换/离开/Ctrl+S）→ 才落正文 + 弹 toast ──
+let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
 function flushDraft() {
-  /** 切走/销毁前：有未保存修改就直接保存落正文（切换=保存） */
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = null;
+  /** 切走/销毁前：有未保存修改 → 保存落正文（toast 在 save() 里弹） */
+  if (draftTimer) clearTimeout(draftTimer);
+  draftTimer = null;
   if (doc.value && dirty.value) {
     // fire-and-forget：组件可能正在销毁，emit 会丢，直接刷 store
     save().then(() => useNotesStore().refreshList()).catch(() => {});
@@ -97,26 +99,34 @@ function flushDraft() {
 
 watch([content, title], () => {
   if (!doc.value || !dirty.value) return;
-  statusText.value = "编辑中…（停下 3 秒自动保存）";
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => save(), 3000);
+  const forDoc = doc.value.id;
+  if (draftTimer) clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    // 回调触发时世界可能已变：文档换了就不能发（防止交叉污染）
+    if (dirty.value && doc.value?.id === forDoc) {
+      sendDraft(content.value);
+      statusText.value = "编辑中 · 草稿已暂存（未保存）";
+    }
+  }, 2500);
 });
 
-// 别的设备保存了：本地干净就静默重拉；本地在打字就无视（我的自动保存马上覆盖，不是冲突）
+// 别的设备保存了：本地干净就静默重拉；本地在编辑就弹个轻提示（不警告不动作）
 function onRemoteSaved() {
   if (!doc.value) return;
   if (!dirty.value) {
     load(props.docId);
     statusText.value = "已同步另一设备的保存 ✓";
+  } else {
+    toast("另一台设备保存了这篇笔记的新版本");
   }
 }
 
-useDraftSocket(toRef(props, "docId"), deviceLabel, onRemoteSaved);
+const { sendDraft } = useDraftSocket(toRef(props, "docId"), deviceLabel, onRemoteSaved);
 
-// ── 保存（乐观锁 PUT；自动保存和 Ctrl+S 都走这里）──
+// ── 保存（乐观锁 PUT；切换保存和 Ctrl+S 都走这里）──
 async function save() {
   if (!doc.value || !dirty.value) return;
-  if (saveTimer) clearTimeout(saveTimer);
+  if (draftTimer) clearTimeout(draftTimer);
   try {
     const updated = await updateDoc(doc.value.id, doc.value.updated_at, {
       title: title.value,
@@ -126,7 +136,8 @@ async function save() {
     savedTitle.value = updated.title;
     savedContent.value = updated.content || "";
     draftBanner.value = null; // 保存成功草稿槽已清
-    statusText.value = "已自动保存 ✓ " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    statusText.value = "已保存 ✓ " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    toast("已自动保存 ✓");
     emit("saved");
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
@@ -232,7 +243,7 @@ function fmtDraftTime(iso: string) {
         v-show="!reading"
         v-model="content"
         class="input"
-        placeholder="开始写…（停下 3 秒自动保存 · 切换笔记也会保存 · 📖 切阅览）"
+        placeholder="开始写…（打字存草稿 · 切换笔记自动保存 · Ctrl+S 手动保存）"
       />
       <div class="preview markdown-body" v-html="rendered" />
     </div>
