@@ -57,11 +57,15 @@ def create(db: Session, data: DocumentCreate) -> Document:
 
 
 def update(db: Session, doc_id: UUID, data: DocumentUpdate) -> Document | None:
-    """乐观锁更新：WHERE updated_at = 前端传的旧值，中间有人改过就拒"""
+    """乐观锁更新：WHERE updated_at = 前端传的旧值，中间有人改过就拒。
+    updated_at 由这里显式推进（不用 onupdate——草稿同步不该动它）"""
     result = db.execute(
         sql_update(Document)
         .where(Document.id == doc_id, Document.updated_at == data.updated_at)
-        .values(**data.model_dump(exclude={"updated_at"}, exclude_unset=True))
+        .values(
+            **data.model_dump(exclude={"updated_at"}, exclude_unset=True),
+            updated_at=datetime.now(),
+        )
     )
     db.commit()
     if result.rowcount == 0:

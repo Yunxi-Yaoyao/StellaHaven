@@ -102,6 +102,24 @@ def test_manual_save_clears_draft(client, db_session, doc_id):
     assert doc2["draft_updated_at"] is None
 
 
+def test_draft_sync_does_not_break_save_token(client, db_session, doc_id):
+    """回归测试：草稿同步后，编辑器手里的 updated_at 依然有效（保存不 409）。
+
+    真实使用流：打开文档(拿到令牌T) → 打字(草稿同步) → 保存(带T)。
+    曾经 onupdate=func.now() 让草稿同步把 updated_at 推进了 → 保存必 409。
+    """
+    doc = client.get(f"/documents/{doc_id}").json()
+    token = doc["updated_at"]  # 编辑器此刻手里的令牌
+
+    send_draft(client, doc_id, "打了一些字，草稿上槽了")
+
+    r = client.put(f"/documents/{doc_id}", json={
+        "updated_at": token,
+        "content": "打了一些字，草稿上槽了",
+    })
+    assert r.status_code == 200  # 草稿同步不该让这枚令牌失效
+
+
 def test_draft_no_doc(client):
     """给不存在的文档推草稿 → 不炸，安静忽略"""
     send_draft(client, uuid4(), "幽灵草稿")  # 不断言异常，只要不 500

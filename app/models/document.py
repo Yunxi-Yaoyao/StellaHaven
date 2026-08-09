@@ -22,7 +22,9 @@ class Document(Base):
     word_count: Mapped[int | None] = mapped_column(nullable=True)
     content_hash: Mapped[str] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    # updated_at 只代表「正文最后保存时间」——由 repo 显式赋值，不用 onupdate 魔法
+    # （onupdate 会在草稿同步时也刷新它，导致编辑器手里的乐观锁令牌失效 → 保存必 409）
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"))
     parent_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
 

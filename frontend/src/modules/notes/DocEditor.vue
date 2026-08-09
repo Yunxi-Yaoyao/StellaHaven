@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, toRef } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted, toRef } from "vue";
 import { marked } from "marked";
 import {
   getDoc, updateDoc, getDraft, type Doc,
@@ -79,16 +79,36 @@ async function load(id: string) {
       : null;
 }
 
-watch(() => props.docId, (id) => id && load(id), { immediate: true });
+watch(() => props.docId, (newId, oldId) => {
+  // 切走前先把旧文档的挂起草稿冲出去（此 watcher 注册早于 WS 重连，socket 还连着旧文档）
+  if (oldId && oldId !== newId) flushDraft();
+  if (newId) load(newId);
+}, { immediate: true });
+
+onBeforeUnmount(() => flushDraft());
 
 // ── 草稿：输入 debounce 2.5s → WS 覆写草稿槽 ──
 // 只在「脏了」（有未保存修改）时才同步——加载文档触发的 content 变化不算
+// 定时器记录调度时的 docId，触发时若已切换文档则丢弃（防止 A 的内容发进 B 的槽）
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushDraft() {
+  /** 切走/销毁前：有未保存修改就直接保存落正文（老婆的定稿：切换=保存，草稿只做崩溃保险） */
+  if (draftTimer) clearTimeout(draftTimer);
+  draftTimer = null;
+  if (doc.value && dirty.value) {
+    // fire-and-forget：组件可能正在销毁，emit 会丢，直接刷 store
+    save().then(() => useNotesStore().refreshList()).catch(() => {});
+  }
+}
+
 watch(content, () => {
   if (!doc.value) return;
+  const forDoc = doc.value.id;
   if (draftTimer) clearTimeout(draftTimer);
   draftTimer = setTimeout(() => {
-    if (dirty.value) sendDraft(content.value);
+    // 回调触发时世界可能已变：文档换了就不能发（防止交叉污染）
+    if (dirty.value && doc.value?.id === forDoc) sendDraft(content.value);
   }, 2500);
 });
 
@@ -232,7 +252,7 @@ function fmtDraftTime(iso: string) {
         v-show="mode !== 'preview'"
         v-model="content"
         class="input"
-        placeholder="开始写…（输入停 2.5 秒自动存草稿，Ctrl+S 保存）"
+        placeholder="开始写…（切换笔记自动保存 · Ctrl+S 手动保存 · 草稿只是崩溃保险）"
       />
       <div v-show="mode !== 'edit'" class="preview markdown-body" v-html="rendered" />
     </div>
