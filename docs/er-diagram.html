@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0d0d14;
+  color: #e0e0e0;
+  font-family: system-ui, -apple-system, sans-serif;
+  padding: 32px;
+  min-width: 1750px;
+}
+.top-row, .bottom-row {
+  display: flex;
+  gap: 5px;
+  align-items: flex-start;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.arrow-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  font-size: 11px;
+  min-width: 42px;
+  height: 240px;
+  flex-direction: column;
+  gap: 2px;
+  text-align: center;
+}
+.arrow-short { height: 130px; }
+.arrow-tall { height: 290px; }
+.arrow-vtall { height: 300px; }
+.table {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  min-width: 200px;
+}
+.table-title {
+  background: rgba(255,255,255,0.06);
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.table-title small { color: #888; font-weight: 400; margin-left: 4px; }
+.row {
+  padding: 4px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  line-height: 1.6;
+}
+.row:last-child { border-bottom: none; }
+.col { display: flex; gap: 5px; align-items: baseline; }
+.col-name { min-width: 100px; }
+.col-type { min-width: 80px; font-size: 10px; }
+.col-note { color: #666; font-size: 10px; margin-left: auto; }
+.pk { color: #ffd700; }
+.fk { color: #ff6b9d; }
+.type { color: #6a9955; }
+.bridge { opacity: 0.7; background: rgba(255,255,255,0.02); }
+.new { border-color: rgba(255,215,0,0.5); }
+.new-row { color: #ffd700; }
+.self-fk { color: #bf7aff; }
+.purple { border-color: rgba(191,122,255,0.3); }
+.self-ref { color: #bf7aff; font-size: 10px; }
+hr { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 10px 0; }
+.legend { max-width: 1400px; margin: 0 auto; color: #888; font-size: 12px; line-height: 1.8; }
+</style>
+</head>
+<body>
+
+<div class="top-row">
+  <div class="table new">
+    <div class="table-title">users</div>
+    <div class="row"><div class="col"><span class="col-name pk">id</span><span class="col-type type">UUID</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">username</span><span class="col-type type">String</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">display_name</span><span class="col-type type">String</span></div></div>
+  </div>
+  <div class="arrow-col arrow-tall"><span style="font-size:14px;">1 : N</span></div>
+  <div class="table">
+    <div class="table-title">workspaces</div>
+    <div class="row"><div class="col"><span class="col-name pk">id</span><span class="col-type type">UUID</span></div></div>
+    <div class="row"><div class="col"><span class="col-name fk">user_id</span><span class="col-type type">UUID FK</span><span class="col-note">→ users</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">name</span><span class="col-type type">String</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">description</span><span class="col-type type">String?</span></div></div>
+  </div>
+  <div class="arrow-col arrow-tall"><span style="font-size:14px;">1 : N</span></div>
+  <div class="table" style="min-width:280px;">
+    <div class="table-title">documents <small>核心</small></div>
+    <div class="row"><div class="col"><span class="col-name pk">id</span><span class="col-type type">UUID</span></div></div>
+    <div class="row"><div class="col"><span class="col-name fk">workspace_id</span><span class="col-type type">UUID FK</span><span class="col-note">→ workspaces</span></div></div>
+    <div class="row new-row"><div class="col"><span class="col-name self-fk">parent_id</span><span class="col-type type">UUID FK?</span><span class="col-note">→ doc（树）</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">title</span><span class="col-type type">String</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">file_path</span><span class="col-type type">String</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">frontmatter</span><span class="col-type type">JSONB</span></div></div>
+    <div class="row new-row"><div class="col"><span class="col-name">is_folder</span><span class="col-type type">Bool</span><span class="col-note">目录/文档</span></div></div>
+    <div class="row new-row"><div class="col"><span class="col-name">visibility</span><span class="col-type type">String</span><span class="col-note">private/public/shared</span></div></div>
+    <div class="row new-row"><div class="col"><span class="col-name">is_pinned</span><span class="col-type type">Bool</span><span class="col-note">置顶</span></div></div>
+    <div class="row new-row"><div class="col"><span class="col-name">is_favorite</span><span class="col-type type">Bool</span><span class="col-note">收藏</span></div></div>
+    <div class="row new-row"><div class="col"><span class="col-name">is_template</span><span class="col-type type">Bool</span><span class="col-note">模板</span></div></div>
+    <div class="row new-row"><div class="col"><span class="col-name">status</span><span class="col-type type">String</span><span class="col-note">draft/published</span></div></div>
+    <div class="row new-row"><div class="col"><span class="col-name">word_count</span><span class="col-type type">Int?</span><span class="col-note">后端算</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">updated_at</span><span class="col-type type">DateTime</span><span class="col-note">乐观锁</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">content_hash</span><span class="col-type type">String</span><span class="col-note">外部改动</span></div></div>
+  </div>
+</div>
+
+<div class="bottom-row">
+  <!-- versions -->
+  <div class="table new" style="min-width:250px;">
+    <div class="table-title">document_versions <small>🆕 版本历史</small></div>
+    <div class="row"><div class="col"><span class="col-name pk">id</span><span class="col-type type">UUID</span></div></div>
+    <div class="row"><div class="col"><span class="col-name fk">doc_id</span><span class="col-type type">UUID FK</span><span class="col-note">→ doc</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">content</span><span class="col-type type">Text</span><span class="col-note">全文（回退用）</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">diff</span><span class="col-type type">Text</span><span class="col-note">unified diff（展示用）</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">version_no</span><span class="col-type type">Int</span><span class="col-note">1, 2, 3...</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">created_at</span><span class="col-type type">DateTime</span></div></div>
+  </div>
+  <div class="arrow-col arrow-short"><span style="font-size:14px;">N : 1</span><span>保存时自动</span><span>快照+diff</span></div>
+
+  <div class="table purple" style="min-width:230px;">
+    <div class="table-title">document_links <small>引用链</small></div>
+    <div class="row"><div class="col"><span class="col-name fk">source_id</span><span class="col-type type">UUID FK</span><span class="col-note">→ doc（引用者）</span></div></div>
+    <div class="row"><div class="col"><span class="col-name fk">target_id</span><span class="col-type type">UUID FK</span><span class="col-note">→ doc（被引用）</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">link_type</span><span class="col-type type">String</span><span class="col-note">"ref"/"embed"</span></div></div>
+  </div>
+  <div class="arrow-col arrow-short"><span style="font-size:12px;color:#bf7aff;">⟲ M:N</span><span class="self-ref">documents</span><span class="self-ref">自关联</span></div>
+
+  <div class="table bridge" style="min-width:200px;">
+    <div class="table-title">doc_tags <small>标签关联</small></div>
+    <div class="row"><div class="col"><span class="col-name fk">doc_id</span><span class="col-type type">UUID FK</span><span class="col-note">→ doc</span></div></div>
+    <div class="row"><div class="col"><span class="col-name fk">tag_id</span><span class="col-type type">UUID FK</span><span class="col-note">→ tag</span></div></div>
+  </div>
+  <div class="arrow-col arrow-short"><span style="font-size:14px;">N : 1</span></div>
+
+  <div class="table">
+    <div class="table-title">tags</div>
+    <div class="row"><div class="col"><span class="col-name pk">id</span><span class="col-type type">UUID</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">name</span><span class="col-type type">String</span></div></div>
+    <div class="row"><div class="col"><span class="col-name">color</span><span class="col-type type">String?</span></div></div>
+  </div>
+</div>
+
+<hr>
+<div class="legend">
+  <strong style="color:#ccc;">Stella · 文档模块 — 数据模型定稿 v4</strong><br>
+  <span style="color:#ffd700;">黄</span>=新增 &nbsp; <span style="color:#ff6b9d;">粉</span>=FK &nbsp; <span style="color:#bf7aff;">紫</span>=自关联 &nbsp; <span style="color:#6a9955;">绿</span>=类型<br>
+  📜 <code>document_versions</code> — content 用来回退，diff 用来展示变更，保存时自动生成，零人工
+</div>
+
+</body>
+</html>
