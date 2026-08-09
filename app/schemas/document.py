@@ -48,7 +48,18 @@ class DocumentRead(BaseModel):
     content_hash: str
     created_at: datetime
     updated_at: datetime
+    # 草稿元信息（内容不随文档返回，要看走 /documents/{id}/draft）
+    draft_updated_at: datetime | None = None
+    draft_device: str | None = None
+    has_draft: bool = False  # 由 router 按 10 分钟惰性规则算好挂上去
 
     model_config = {"from_attributes": True}
+
+
+class DraftRead(BaseModel):
+    """草稿槽内容——只在「查看草稿」时单独取"""
+    content: str
+    updated_at: datetime
+    device: str | None
 
 

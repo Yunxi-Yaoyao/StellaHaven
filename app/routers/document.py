@@ -3,8 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentRead
-from app.services.document import get_document, list_documents, create_document, update_document, delete_document
+from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentRead, DraftRead
+from app.services.document import (
+    get_document, list_documents, create_document, update_document, delete_document,
+    is_draft_fresh, get_fresh_draft,
+)
 
 from app.routers.ws import notify_sync
 
@@ -13,7 +16,21 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 @router.get("/{doc_id}", response_model=DocumentRead)
 def read_one(doc_id: UUID, db: Session = Depends(get_db)):
-    return get_document(db, doc_id)
+    doc = get_document(db, doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    # 草稿新鲜度在读取这一刻惰性判断（10 分钟规则）
+    doc.has_draft = is_draft_fresh(doc)
+    return doc
+
+
+@router.get("/{doc_id}/draft", response_model=DraftRead)
+def read_draft(doc_id: UUID, db: Session = Depends(get_db)):
+    """查看草稿内容。过期草稿返回 404——和「没有草稿」同一个语义。"""
+    doc = get_fresh_draft(db, doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="没有未保存草稿")
+    return DraftRead(content=doc.draft_content, updated_at=doc.draft_updated_at, device=doc.draft_device)
 
 
 @router.get("/", response_model=list[DocumentRead])

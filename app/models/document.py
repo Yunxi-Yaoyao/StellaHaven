@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import ForeignKey, Boolean, DateTime
+from sqlalchemy import ForeignKey, Boolean, DateTime, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.models import Base, Mapped, mapped_column, UUID, uuid4
@@ -23,3 +23,8 @@ class Document(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"))
     parent_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
+
+    # 草稿槽：每文档一格，覆写不追加。手动保存时清空。
+    draft_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    draft_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    draft_device: Mapped[str | None] = mapped_column(nullable=True)
