@@ -699,20 +699,22 @@ function fmtDraftTime(iso: string) {
       @click="tocOpen = true"
     >‹</div>
 
-    <!-- TOC 大纲面板（浮在文章上方，不挤开内容；点条目跳转后保持展开，手动关闭） -->
-    <div v-if="tocOpen && tocItems.length" class="toc-panel">
-      <div class="toc-head">
-        大纲
-        <button class="toc-close" title="收起" @click="tocOpen = false">×</button>
+    <!-- TOC 大纲面板（从右缘把手滑出；点条目跳转后保持展开，» 丝滑收回） -->
+    <Transition name="toc">
+      <div v-if="tocOpen && tocItems.length" class="toc-panel">
+        <div class="toc-head">
+          <span class="toc-title">大纲</span>
+          <button class="toc-close" title="收起大纲" @click="tocOpen = false">»</button>
+        </div>
+        <div
+          v-for="t in tocItems"
+          :key="t.id"
+          class="toc-item"
+          :style="{ paddingLeft: 10 + (t.level - 1) * 14 + 'px' }"
+          @click="jumpTo(t.id)"
+        >{{ t.text }}</div>
       </div>
-      <div
-        v-for="t in tocItems"
-        :key="t.id"
-        class="toc-item"
-        :style="{ paddingLeft: 10 + (t.level - 1) * 14 + 'px' }"
-        @click="jumpTo(t.id)"
-      >{{ t.text }}</div>
-    </div>
+    </Transition>
 
     <!-- 导出窗口：独立浮窗，预览 + 选格式一站完成 -->
     <div v-if="exportWin" class="mask" @click.self="exportWin = false">
@@ -787,30 +789,44 @@ function fmtDraftTime(iso: string) {
   box-shadow: -8px 0 32px rgba(0, 0, 0, 0.55);
   z-index: 26;
   padding: 8px 0;
-  animation: toc-in 220ms ease;
 }
-@keyframes toc-in {
-  from { transform: translateY(-50%) translateX(100%); opacity: 0; }
-  to { transform: translateY(-50%) translateX(0); opacity: 1; }
+/* 展开/收起双向丝滑动画（慢一点更优雅） */
+.toc-enter-active, .toc-leave-active {
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 320ms ease;
+}
+.toc-enter-from, .toc-leave-to {
+  transform: translateY(-50%) translateX(105%);
+  opacity: 0;
 }
 .toc-head {
-  font-size: 11px;
-  color: var(--text-faint);
-  letter-spacing: 1px;
-  padding: 4px 12px 6px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 4px 12px 8px;
 }
+.toc-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-lo);
+  letter-spacing: 1.5px;
+}
+/* 收起控件：小药丸 »，比 × 温柔 */
 .toc-close {
-  border: none;
+  border: 1px solid var(--text-faint);
   background: transparent;
   color: var(--text-faint);
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1;
   cursor: pointer;
-  padding: 0 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  transition: all var(--transition);
 }
-.toc-close:hover { color: var(--pink); }
+.toc-close:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--bg-panel);
+}
 .toc-item {
   font-size: 12.5px;
   color: var(--text-lo);
