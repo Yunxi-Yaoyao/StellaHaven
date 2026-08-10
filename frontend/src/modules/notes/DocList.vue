@@ -20,24 +20,18 @@ const emit = defineEmits<{
 const props = defineProps<{ currentId: string | null; trashOpen: boolean; attachOpen: boolean; graphOpen: boolean }>();
 
 const store = useNotesStore();
+// 标签筛选状态从 store 读取（由搜索栏的高级筛选面板驱动，列表栏不再放标签行）
 const { docs, recent, searchQuery, searching, workspaces, workspaceId, tags, docTags, filterTagId } = storeToRefs(store);
 
-// 有在用的标签（挂在某篇笔记上的才显示）
-const usedTags = computed(() => {
-  const used = new Set(docTags.value.map((r) => r.tag_id));
-  return tags.value.filter((t) => used.has(t.id));
-});
-
-// 标签筛选中的文档
+// 筛选结果：标签 + 文本搜索可叠加（标签客户端筛，文本走后端搜索）
 const tagFilteredDocs = computed(() => {
-  if (!filterTagId.value) return [];
+  if (!filterTagId.value) return docs.value;
   const ids = new Set(docTags.value.filter((r) => r.tag_id === filterTagId.value).map((r) => r.doc_id));
   return docs.value.filter((d) => ids.has(d.id));
 });
 
-function toggleTagFilter(id: string) {
-  filterTagId.value = filterTagId.value === id ? null : id;
-}
+// 平铺展示条件：搜索中 或 有标签筛选
+const flatMode = computed(() => searching.value || !!filterTagId.value);
 
 // ── 工作区切换器 ──
 const wsMenuOpen = ref(false);
@@ -127,6 +121,22 @@ function toggle(id: string) {
   localStorage.setItem(LS_EXPANDED, JSON.stringify([...s]));
 }
 
+// 高级筛选面板状态
+const filterOpen = ref(false);
+const usedTags = computed(() => {
+  const used = new Set(docTags.value.map((r) => r.tag_id));
+  return tags.value.filter((t) => used.has(t.id));
+});
+function toggleTag(id: string) {
+  filterTagId.value = filterTagId.value === id ? null : id;
+}
+function clearFilters() {
+  searchQuery.value = "";
+  filterTagId.value = null;
+  store.refreshList();
+  filterOpen.value = false;
+}
+
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 function onSearchInput() {
   if (debounceTimer) clearTimeout(debounceTimer);
@@ -159,46 +169,59 @@ function onSearchInput() {
       </div>
     </div>
 
+    <!-- 搜索栏 + 高级筛选按钮（悬浮面板：文本 + 标签） -->
     <div class="search-box">
       <input
         v-model="searchQuery"
         placeholder="搜索标题和正文…"
         @input="onSearchInput"
       />
+      <button
+        class="filter-btn"
+        :class="{ on: filterOpen || filterTagId }"
+        title="高级筛选"
+        @click="filterOpen = !filterOpen"
+      >⚙</button>
+
+      <!-- 高级筛选悬浮面板 -->
+      <div v-if="filterOpen" class="filter-panel">
+        <div class="fp-label">文本</div>
+        <input
+          v-model="searchQuery"
+          class="fp-input"
+          placeholder="标题 / 正文关键词…"
+          @input="onSearchInput"
+        />
+        <div class="fp-label">标签</div>
+        <div class="fp-tags">
+          <span
+            v-for="t in usedTags"
+            :key="t.id"
+            class="ftag"
+            :class="{ on: filterTagId === t.id }"
+            @click="toggleTag(t.id)"
+          >{{ t.name }}</span>
+          <span v-if="!usedTags.length" class="fp-none">还没有标签</span>
+        </div>
+        <div class="fp-foot">
+          <button class="fp-clear" @click="clearFilters">清除筛选</button>
+          <button class="fp-done" @click="filterOpen = false">完成</button>
+        </div>
+      </div>
     </div>
 
     <button class="new-btn" @click="emit('newChild', null)"><Icon name="plus" :size="13" /> 新建笔记</button>
-    <div v-if="searching" class="search-hint">搜索「{{ searchQuery }}」的结果（平铺显示）</div>
-
-    <!-- 标签筛选行 -->
-    <div v-if="usedTags.length" class="tag-row">
-      <span
-        v-for="t in usedTags"
-        :key="t.id"
-        class="ftag"
-        :class="{ on: filterTagId === t.id }"
-        @click="toggleTagFilter(t.id)"
-      >{{ t.name }}</span>
-    </div>
+    <div v-if="searching && !filterTagId" class="search-hint">搜索「{{ searchQuery }}」的结果（平铺显示）</div>
 
     <div class="items">
-      <!-- 标签筛选中：平铺结果 -->
-      <template v-if="filterTagId">
-        <div class="search-hint">标签「{{ tags.find(t => t.id === filterTagId)?.name }}」的笔记</div>
+      <!-- 筛选中（文本搜索 / 标签 / 叠加）：平铺结果 -->
+      <template v-if="flatMode">
+        <div v-if="searching && filterTagId" class="search-hint">
+          「{{ searchQuery }}」+ 标签「{{ tags.find(t => t.id === filterTagId)?.name }}」
+        </div>
+        <div v-else-if="filterTagId" class="search-hint">标签「{{ tags.find(t => t.id === filterTagId)?.name }}」的笔记</div>
         <div
           v-for="doc in tagFilteredDocs"
-          :key="doc.id"
-          class="flat-item"
-          :class="{ active: doc.id === props.currentId }"
-          @click="emit('open', doc.id)"
-        >{{ doc.title }}</div>
-        <div v-if="!tagFilteredDocs.length" class="empty">这个标签下没有笔记</div>
-      </template>
-
-      <!-- 搜索中：平铺结果 -->
-      <template v-else-if="searching">
-        <div
-          v-for="doc in docs"
           :key="doc.id"
           class="flat-item"
           :class="{ active: doc.id === props.currentId }"
@@ -206,6 +229,7 @@ function onSearchInput() {
         >
           {{ doc.title }}
         </div>
+        <div v-if="!tagFilteredDocs.length" class="empty">没有命中的笔记</div>
       </template>
 
       <template v-else>
@@ -321,19 +345,66 @@ function onSearchInput() {
   border-radius: var(--radius) 0 0 var(--radius);
   overflow: hidden;
 }
-.search-box { padding: 12px 12px 8px; }
-.search-box input {
-  width: 100%;
+.search-box { padding: 12px 12px 8px; position: relative; display: flex; gap: 6px; }
+.search-box input:not(.fp-input) {
+  flex: 1;
   padding: 8px 12px;
   border: none;
   border-radius: var(--radius-sm);
   background: var(--bg-raised);
   color: var(--text-hi);
-  font-size: 13px;
+  font-size: 14px;
   outline: none;
   transition: box-shadow var(--transition);
 }
-.search-box input:focus { box-shadow: 0 0 0 1.5px var(--accent-dim); }
+.search-box input:not(.fp-input):focus { box-shadow: 0 0 0 1.5px var(--accent-dim); }
+.filter-btn {
+  width: 34px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all var(--transition);
+}
+.filter-btn:hover, .filter-btn.on { color: var(--accent); }
+.filter-panel {
+  position: absolute;
+  top: 46px;
+  left: 12px;
+  right: 12px;
+  z-index: 40;
+  background: var(--bg-raised);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.fp-label { font-size: 11px; color: var(--text-faint); letter-spacing: 1px; margin-bottom: 6px; }
+.fp-input {
+  width: 100%;
+  padding: 7px 10px;
+  margin-bottom: 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-hi);
+  font-size: 13px;
+  outline: none;
+}
+.fp-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.fp-none { font-size: 11px; color: var(--text-faint); }
+.fp-foot { display: flex; justify-content: space-between; }
+.fp-clear, .fp-done {
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fp-clear { border: 1px solid transparent; background: transparent; color: var(--text-faint); }
+.fp-clear:hover { color: var(--pink); }
+.fp-done { border: 1px solid var(--accent-dim); background: transparent; color: var(--accent); }
 .search-hint { padding: 0 14px 6px; font-size: 11px; color: var(--text-faint); }
 .new-btn {
   margin: 4px 12px 10px;

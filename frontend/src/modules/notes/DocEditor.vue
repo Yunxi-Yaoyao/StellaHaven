@@ -39,7 +39,7 @@ const title = ref("");
 const content = ref("");
 const savedTitle = ref("");
 const savedContent = ref("");
-const reading = ref(false); // false=编辑（双栏） true=阅览（纯预览）
+const reading = ref(true); // 默认阅览模式（老婆的定稿），编辑双栏/阅览纯预览切换
 
 // 常驻状态条数据：保存时间 + 草稿暂存标记 + 相对时间 ticker
 const savedAt = ref<string | null>(null);
