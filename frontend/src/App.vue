@@ -1,8 +1,46 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, reactive, watch } from "vue";
 import SideBar from "./shell/SideBar.vue";
 import { toasts } from "./composables/useToast";
 import { lightbox, closeLightbox } from "./composables/useLightbox";
+
+// 放大器缩放/平移状态
+const zoom = ref(1);
+const pan = reactive({ x: 0, y: 0 });
+watch(() => lightbox.src, () => {
+  zoom.value = 1;
+  pan.x = 0;
+  pan.y = 0;
+});
+
+function zoomBy(f: number) {
+  zoom.value = Math.min(5, Math.max(0.25, zoom.value * f));
+}
+function onWheel(e: WheelEvent) {
+  e.preventDefault();
+  zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15);
+}
+function resetZoom() {
+  zoom.value = 1;
+  pan.x = 0;
+  pan.y = 0;
+}
+
+// 拖动平移（放大后）
+let panning: { sx: number; sy: number; ox: number; oy: number } | null = null;
+function onImgPointerDown(e: PointerEvent) {
+  if (zoom.value <= 1) return;
+  panning = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y };
+  (e.target as HTMLElement).setPointerCapture(e.pointerId);
+}
+function onImgPointerMove(e: PointerEvent) {
+  if (!panning) return;
+  pan.x = panning.ox + (e.clientX - panning.sx);
+  pan.y = panning.oy + (e.clientY - panning.sy);
+}
+function onImgPointerUp() {
+  panning = null;
+}
 
 // 桌面折叠（记忆）+ 移动端抽屉（不记忆）
 const sidebarCollapsed = ref(localStorage.getItem("stella_sidebar_fold") === "1");
@@ -43,9 +81,22 @@ function toggleSidebar() {
       </TransitionGroup>
     </div>
 
-    <!-- 全局图片放大查看器 -->
-    <div v-if="lightbox.src" class="lightbox" @click="closeLightbox">
-      <img :src="lightbox.src" />
+    <!-- 全局图片放大查看器：滚轮/按钮缩放 + 拖动平移 -->
+    <div v-if="lightbox.src" class="lightbox" @click="closeLightbox" @wheel="onWheel">
+      <img
+        :src="lightbox.src"
+        :style="{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }"
+        :class="{ pannable: zoom > 1 }"
+        @click.stop
+        @pointerdown="onImgPointerDown"
+        @pointermove="onImgPointerMove"
+        @pointerup="onImgPointerUp"
+      />
+      <div class="zoom-bar" @click.stop>
+        <button @click="zoomBy(1 / 1.25)">−</button>
+        <span class="zoom-val" @click="resetZoom" title="点我复位">{{ Math.round(zoom * 100) }}%</span>
+        <button @click="zoomBy(1.25)">＋</button>
+      </div>
     </div>
   </div>
 </template>
@@ -152,11 +203,47 @@ function toggleSidebar() {
   display: grid;
   place-items: center;
   cursor: zoom-out;
+  overflow: hidden;
 }
 .lightbox img {
   max-width: 92vw;
   max-height: 92vh;
   border-radius: var(--radius-sm);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  transition: transform 120ms ease-out;
+}
+.lightbox img.pannable { cursor: grab; }
+.zoom-bar {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: rgba(27, 31, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+}
+.zoom-bar button {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-hi);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.zoom-bar button:hover { background: var(--bg-raised); }
+.zoom-val {
+  font-size: 12px;
+  color: var(--text-lo);
+  min-width: 42px;
+  text-align: center;
+  cursor: pointer;
 }
 </style>

@@ -1408,6 +1408,12 @@ function fmtDraftTime(iso: string) {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
   margin: 12px auto; /* 图片居中（老婆定的） */
   display: block;
+  cursor: zoom-in; /* 悬浮提示可放大 */
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+.markdown-body :deep(img:hover) {
+  transform: scale(1.015);
+  box-shadow: 0 4px 20px rgba(201, 212, 232, 0.25);
 }
 /* 附件下载卡片：大图标 + 文件名在下，点击原样下载 */
 .markdown-body :deep(.attach-card) {
