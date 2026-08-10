@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
 import { storeToRefs } from "pinia";
-import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type SimulationNodeDatum, type SimulationLinkDatum } from "d3-force";
+import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, type SimulationNodeDatum, type SimulationLinkDatum } from "d3-force";
 import { useNotesStore } from "../../stores/notes";
 import { listAllLinks } from "../../api/notes";
 import Icon from "../../shell/Icon.vue";
@@ -50,11 +50,19 @@ onMounted(async () => {
   const wikiLinks = await listAllLinks();
   const docIds = new Set(docs.value.map((d) => d.id));
 
+  // 初始位置：中心周围随机散开（全挤在 (0,0) 会被斥力炸出画布）
+  const jitter = () => (Math.random() - 0.5) * Math.min(W.value, H.value) * 0.6;
   const ns: GNode[] = [
-    ...docs.value.map((d) => ({ id: d.id, label: d.title, kind: "doc" as const, x: 0, y: 0 })),
+    ...docs.value.map((d) => ({
+      id: d.id, label: d.title, kind: "doc" as const,
+      x: W.value / 2 + jitter(), y: H.value / 2 + jitter(),
+    })),
     ...tags.value
       .filter((t) => docTags.value.some((r) => r.tag_id === t.id))
-      .map((t) => ({ id: "tag-" + t.id, label: "#" + t.name, kind: "tag" as const, x: 0, y: 0 })),
+      .map((t) => ({
+        id: "tag-" + t.id, label: "#" + t.name, kind: "tag" as const,
+        x: W.value / 2 + jitter(), y: H.value / 2 + jitter(),
+      })),
   ];
   const ls: GLink[] = [
     ...wikiLinks
@@ -70,9 +78,12 @@ onMounted(async () => {
 
   sim = forceSimulation<GNode>(ns)
     .force("link", forceLink<GNode, GLink>(ls).id((n) => n.id).distance(80))
-    .force("charge", forceManyBody().strength(-220))
+    .force("charge", forceManyBody().strength(-160))
     .force("center", forceCenter(W.value / 2, H.value / 2))
     .force("collide", forceCollide(28))
+    // 引力缰绳：把整团往画布中心拉，防止斥力把节点甩飞
+    .force("x", forceX(W.value / 2).strength(0.06))
+    .force("y", forceY(H.value / 2).strength(0.06))
     .on("tick", () => {
       nodes.value = [...ns]; // 触发响应式
     });
