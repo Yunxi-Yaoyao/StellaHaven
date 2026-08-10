@@ -17,6 +17,7 @@ export default defineConfig({
       "/document-links": "http://127.0.0.1:12031",
       "/document-versions": "http://127.0.0.1:12031",
       "/attachments": "http://127.0.0.1:12031",
+      "/assets": "http://127.0.0.1:12031",
       "/ws": { target: "ws://127.0.0.1:12031", ws: true },
     },
   },

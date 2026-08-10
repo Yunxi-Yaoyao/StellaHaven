@@ -5,6 +5,12 @@ from app.routers import (
     ws_router,
 )
 from app.routers.attachment import router as attachment_router
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
+# 全局资源（主页背景/挂件素材等）：和笔记附件系统（引用计数清理）完全隔离
+ASSETS_DIR = Path(__file__).resolve().parent / "data" / "assets"
+ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="StellaHaven")
 
@@ -17,4 +23,5 @@ app.include_router(document_link_router)
 app.include_router(document_version_router)
 app.include_router(ws_router)
 app.include_router(attachment_router)
+app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 

@@ -21,7 +21,8 @@ function editMood() {
 }
 
 /* ================= 自定义背景图（极淡铺在星光下） ================= */
-const bgImage = ref(localStorage.getItem("stella_home_bg") || "");
+// 默认用和服少女（老婆给的图，存在全局资源区，不走笔记附件）
+const bgImage = ref(localStorage.getItem("stella_home_bg") ?? "/assets/bg-kimono.jpeg");
 function setBg() {
   const url = prompt("背景图链接（留空清除）", bgImage.value);
   if (url !== null) {
