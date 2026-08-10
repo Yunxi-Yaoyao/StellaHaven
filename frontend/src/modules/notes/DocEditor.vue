@@ -437,7 +437,7 @@ const ATTACH_RE = /\/attachments\/([0-9a-f-]{36})/g;
 const FORMATS = [
   { key: "md", label: "Markdown", hint: "纯文本源文件，含本地图自动打 zip" },
   { key: "html", label: "HTML 网页", hint: "自带排版样式，含本地图自动打 zip" },
-  { key: "pdf", label: "PDF", hint: "打开打印窗口，选「另存为 PDF」" },
+  { key: "pdf", label: "PDF", hint: "直接下载 PDF 文件，自动分页" },
   { key: "png", label: "PNG 长图", hint: "2x 清晰度整篇截图" },
 ] as const;
 
@@ -531,13 +531,32 @@ async function doExportPng() {
   toast("PNG 已导出 ✓");
 }
 
-function doExportPdf() {
-  const w = window.open("", "_blank");
-  if (!w) return;
-  w.document.write(buildHtml());
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 400); // 等渲染完调打印（选「另存为 PDF」）
+async function doExportPdf() {
+  const el = document.querySelector(".export-preview-body") as HTMLElement;
+  if (!el) return;
+  const { default: html2canvas } = await import("html2canvas");
+  const { jsPDF } = await import("jspdf");
+
+  const canvas = await html2canvas(el, { backgroundColor: "#ffffff", scale: 2 });
+  const pdf = new jsPDF("p", "mm", "a4");
+  const pageW = 210;
+  const pageH = 297;
+  const imgH = (canvas.height * pageW) / canvas.width;
+  const imgData = canvas.toDataURL("image/jpeg", 0.92);
+
+  // 长内容按 A4 分页切片
+  let position = 0;
+  pdf.addImage(imgData, "JPEG", 0, position, pageW, imgH);
+  let remaining = imgH - pageH;
+  while (remaining > 0) {
+    position -= pageH;
+    pdf.addPage();
+    pdf.addImage(imgData, "JPEG", 0, position, pageW, imgH);
+    remaining -= pageH;
+  }
+  pdf.save(`${title.value || "未命名"}.pdf`);
+  exportWin.value = false;
+  toast("PDF 已导出 ✓");
 }
 
 // ── 星标切换（轻量端点，不动 updated_at 不碰正在编辑的内容）──
