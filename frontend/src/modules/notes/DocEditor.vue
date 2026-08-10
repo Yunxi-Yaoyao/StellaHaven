@@ -73,7 +73,7 @@ const dirty = computed(() => title.value !== savedTitle.value || content.value !
 const rendered = computed(() => {
   let html = marked.parse(content.value || "", { breaks: true }) as string;
   let hIdx = 0;
-  html = html.replace(/<h([123])>/g, () => `<h$1 id="toc-h${hIdx++}">`);
+  html = html.replace(/<h([123])>/g, (_m, lv) => `<h${lv} id="toc-h${hIdx++}">`);
   html = html.replace(
     /\[\[([^\[\]]+)\]\]/g,
     '<a class="wikilink" data-title="$1">$1</a>'
@@ -462,7 +462,7 @@ function localAttachIds(): string[] {
   return [...new Set([...(content.value.matchAll(ATTACH_RE))].map((m) => m[1]))];
 }
 
-const EXPORT_CSS = "body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,Inter,\"PingFang SC\",sans-serif;line-height:1.7;color:#222}img{max-width:100%}code{background:#f4f4f4;padding:2px 6px;border-radius:4px}pre{background:#f4f4f4;padding:12px;border-radius:8px;overflow:auto}";
+const EXPORT_CSS = "body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,Inter,\"PingFang SC\",sans-serif;line-height:1.75;color:#222;font-size:15px}h1{font-size:24px;margin:26px 0 12px;padding-bottom:8px;border-bottom:1px solid #eee}h2{font-size:19px;margin:22px 0 10px}h3{font-size:16.5px;margin:18px 0 8px}p{margin:10px 0}ul,ol{padding-left:24px;margin:10px 0}li{margin:4px 0}blockquote{border-left:3px solid #ccc;padding:4px 0 4px 14px;color:#666;margin:14px 0}hr{border:none;height:1px;background:#ddd;margin:20px 0}img{max-width:100%;border-radius:8px;margin:12px 0}code{background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:13px}pre{background:#f4f4f4;padding:14px 18px;border-radius:8px;overflow:auto;margin:14px 0}pre code{background:none;padding:0}";
 
 function buildHtml(attachMap?: Map<string, string>) {
   let body = rendered.value;
@@ -1273,39 +1273,79 @@ function fmtDraftTime(iso: string) {
   padding: 16px 20px;
 }
 
-/* markdown 渲染样式（克制版） */
-.markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3) {
+/* markdown 渲染样式（字阶拉开 + 呼吸感，老婆验收版） */
+.markdown-body {
+  line-height: 1.75;
+  font-size: 15px;
+}
+.markdown-body :deep(h1) {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-hi);
+  margin: 26px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.markdown-body :deep(h2) {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 22px 0 10px;
+}
+.markdown-body :deep(h3) {
+  font-size: 16.5px;
+  font-weight: 600;
   color: var(--accent);
   margin: 18px 0 8px;
 }
-.markdown-body :deep(p) { margin: 8px 0; }
+.markdown-body :deep(h4) {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-lo);
+  margin: 14px 0 6px;
+}
+.markdown-body :deep(h1:first-child), .markdown-body :deep(h2:first-child),
+.markdown-body :deep(h3:first-child) { margin-top: 4px; }
+.markdown-body :deep(p) { margin: 10px 0; }
 .markdown-body :deep(code) {
   background: var(--bg-raised);
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .markdown-body :deep(pre) {
   background: var(--bg-base);
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-radius: var(--radius-sm);
   overflow-x: auto;
-  margin: 10px 0;
+  margin: 14px 0;
 }
 .markdown-body :deep(pre code) { background: none; padding: 0; }
 .markdown-body :deep(blockquote) {
   border-left: 3px solid var(--accent-dim);
-  padding-left: 12px;
+  padding: 4px 0 4px 14px;
   color: var(--text-lo);
+  margin: 14px 0;
+}
+.markdown-body :deep(ul), .markdown-body :deep(ol) {
+  padding-left: 24px;
   margin: 10px 0;
 }
-.markdown-body :deep(ul), .markdown-body :deep(ol) { padding-left: 22px; margin: 8px 0; }
+.markdown-body :deep(li) { margin: 4px 0; }
+.markdown-body :deep(li::marker) { color: var(--accent-dim); }
+.markdown-body :deep(hr) {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+  opacity: 0.4;
+  margin: 20px 0;
+}
 .markdown-body :deep(a) { color: var(--pink); }
 .markdown-body :deep(img) {
   max-width: 100%;
   border-radius: var(--radius-sm);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
-  margin: 10px 0;
+  margin: 12px 0;
   display: block;
 }
 </style>
