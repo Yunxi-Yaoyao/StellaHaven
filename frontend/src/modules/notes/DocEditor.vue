@@ -69,8 +69,9 @@ function isDismissed(docId: string, draftUpdatedAt: string): boolean {
 const dirty = computed(() => title.value !== savedTitle.value || content.value !== savedContent.value);
 
 // 渲染时把 [[标题]] 转成可点链接 + 给标题加锚点 id（TOC 用）
+// breaks: true → 单回车即换行（老婆不习惯 markdown 默认要空一行）
 const rendered = computed(() => {
-  let html = marked.parse(content.value || "") as string;
+  let html = marked.parse(content.value || "", { breaks: true }) as string;
   let hIdx = 0;
   html = html.replace(/<h([123])>/g, () => `<h$1 id="toc-h${hIdx++}">`);
   html = html.replace(
@@ -779,20 +780,27 @@ function fmtDraftTime(iso: string) {
 }
 .toc-strip:hover { color: var(--accent); width: 26px; }
 
-/* TOC 大纲面板：浮在文章上方（absolute overlay，不占布局） */
+/* TOC 大纲面板：从右缘把手处滑出（贴右缘浮出，不挤开内容） */
 .toc-panel {
   position: absolute;
-  right: 12px;
-  top: 80px;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   width: 210px;
   max-height: 60%;
   overflow-y: auto;
   background: var(--bg-raised);
   border: 1px solid var(--accent-dim);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  border-right: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.55);
   z-index: 26;
   padding: 8px 0;
+  animation: toc-in 220ms ease;
+}
+@keyframes toc-in {
+  from { transform: translateY(-50%) translateX(100%); opacity: 0; }
+  to { transform: translateY(-50%) translateX(0); opacity: 1; }
 }
 .toc-head {
   font-size: 11px;
