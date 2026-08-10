@@ -40,6 +40,9 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* 表单元素默认不继承字体（UA 强制 Arial/系统默认），统一接管 */
+button, input, textarea, select { font-family: inherit; }
+
 html, body, #app { height: 100%; }
 
 body {
@@ -47,6 +50,9 @@ body {
   color: var(--text-hi);
   font-family: var(--font-ui);
   font-size: 15px;
+  /* Outline 同款「柔和粗」：475 字重（可变 Inter 精确渲染）+ 字形优化 */
+  font-weight: 475;
+  text-rendering: optimizeLegibility;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }

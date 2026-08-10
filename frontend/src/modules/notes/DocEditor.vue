@@ -619,8 +619,9 @@ function fmtDraftTime(iso: string) {
   border: none;
   outline: none;
   color: var(--text-hi);
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 600;
+  letter-spacing: 0.3px;
 }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 /* 所有操作按钮统一 inline-flex，图标/文字/混合按钮都垂直居中——修手机端不齐 */
