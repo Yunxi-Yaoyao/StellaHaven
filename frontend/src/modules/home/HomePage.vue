@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import { ensureWorkspace, listDocs, getDoc } from "../../api/notes";
 
 /* ================= 签名 ================= */
 const signature = "夜有星辰，晨有曦光。";
@@ -31,7 +30,49 @@ function setBg() {
   }
 }
 
-/* ================= 塔罗水晶球 ================= */
+/* ================= Live2D 挂件（右侧大摆件，兼每日塔罗播报） ================= */
+const tarotBubble = ref(false);
+let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function showTarotBubble() {
+  tarotBubble.value = true;
+  if (bubbleTimer) clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => (tarotBubble.value = false), 6000);
+}
+
+function initLive2d() {
+  // 核心库 + 挂件壳要按顺序加载（壳才注册 window.L2Dwidget）
+  const core = document.createElement("script");
+  core.src = "/live2d/L2Dwidget.0.min.js";
+  core.onload = () => {
+    const shell = document.createElement("script");
+    shell.src = "/live2d/L2Dwidget.min.js";
+    shell.onload = () => {
+      // @ts-expect-error 全局挂件库
+      const w = window.L2Dwidget;
+      if (!w) return;
+      w.init({
+        model: { jsonPath: "/live2d/shizuku/shizuku.model.json", scale: 1 },
+        display: {
+          position: "right",
+          width: 300,   // 大摆件，填充右侧
+          height: 420,
+          hOffset: 40,
+          vOffset: -10,
+        },
+        mobile: { show: true, scale: 0.6 },
+        react: { opacityDefault: 0.85, opacityOnHover: 1 },
+      });
+      // 点挂件 → 播报今日塔罗
+      setTimeout(() => {
+        const canvas = document.getElementById("live2dcanvas");
+        canvas?.addEventListener("click", showTarotBubble);
+      }, 800);
+    };
+    document.head.appendChild(shell);
+  };
+  document.head.appendChild(core);
+}
 const MAJORS: [string, string][] = [
   ["愚者", "新的开始，别怕迈出第一步"],
   ["魔术师", "资源都在手上，今天适合开工"],
@@ -61,45 +102,12 @@ const todayCard = computed(() => {
   const seed = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
   return MAJORS[seed % MAJORS.length];
 });
-const revealed = ref(false);
-
-/* ================= 碎语条（从笔记里捞一句） ================= */
-const snippet = ref("");
-async function drawSnippet() {
-  try {
-    const ws = await ensureWorkspace();
-    const docs = await listDocs(ws.workspaceId);
-    if (!docs.length) return;
-    // 随机抽一篇，捞一条干净的行
-    for (let tries = 0; tries < 5; tries++) {
-      const doc = docs[Math.floor(Math.random() * docs.length)];
-      const full = await getDoc(doc.id);
-      const lines = (full.content || "")
-        .split("\n")
-        .map((l) => l.trim().replace(/^#+\s*/, "").replace(/^[-*>]\s*/, "").replace(/^-\s*\[[ x]\]\s*/, ""))
-        .filter((l) =>
-          l.length >= 4 && l.length <= 60 &&
-          !l.includes("/attachments/") && !l.startsWith("!") && !l.startsWith("[") &&
-          !/^[`|]/.test(l)
-        );
-      if (lines.length) {
-        snippet.value = lines[Math.floor(Math.random() * lines.length)]
-          .replace(/\[\[([^\]]+)\]\]/g, "$1")
-          .replace(/[*_~`]/g, "");
-        return;
-      }
-    }
-    snippet.value = "";
-  } catch {
-    /* 捞不到就安静空着 */
-  }
-}
 
 /* ================= 星光粒子 ================= */
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 let raf = 0;
 onMounted(() => {
-  drawSnippet();
+  initLive2d();
   const canvas = canvasEl.value!;
   const ctx = canvas.getContext("2d")!;
   let w = (canvas.width = canvas.offsetWidth);
@@ -180,20 +188,13 @@ const dateLine = computed(() =>
       </div>
     </div>
 
-    <!-- 塔罗水晶球：磨砂球体，点一下显出今日牌 -->
-    <div class="orb" :class="{ revealed }" @click="revealed = !revealed" title="每日一抽">
-      <div class="orb-glow" />
-      <div class="orb-inner">
-        <template v-if="!revealed">
-          <div class="orb-star">✦</div>
-          <div class="orb-hint">每日一抽</div>
-        </template>
-        <template v-else>
-          <div class="orb-card-name">{{ todayCard[0] }}</div>
-          <div class="orb-card-mean">{{ todayCard[1] }}</div>
-        </template>
+    <!-- Live2D 挂件（右侧大摆件）；点一下播报今日塔罗 -->
+    <Transition name="bubble">
+      <div v-if="tarotBubble" class="tarot-bubble">
+        <div class="tb-name">🃏 今日牌 · {{ todayCard[0] }}</div>
+        <div class="tb-mean">{{ todayCard[1] }}</div>
       </div>
-    </div>
+    </Transition>
 
     <!-- 斜悬浮碎语条已撤（老婆定的：主页不登录也可见，不放笔记内容） -->
 
@@ -303,115 +304,6 @@ const dateLine = computed(() =>
 .mood.empty { color: var(--text-faint); }
 .mood:hover { opacity: 0.8; }
 
-/* ── 塔罗水晶球 ── */
-.orb {
-  position: absolute;
-  right: 13%;
-  top: 18%;
-  width: 230px;
-  height: 230px;
-  border-radius: 50%;
-  cursor: pointer;
-  background:
-    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.16), transparent 42%),
-    radial-gradient(circle at 50% 50%, rgba(201, 212, 232, 0.1), rgba(20, 23, 31, 0.6));
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(201, 212, 232, 0.35);
-  box-shadow:
-    0 0 44px rgba(201, 212, 232, 0.18),
-    inset 0 0 40px rgba(201, 212, 232, 0.08);
-  display: grid;
-  place-items: center;
-  animation: orb-in 800ms 150ms cubic-bezier(0.22, 1, 0.36, 1) backwards, orb-float 6s 1s ease-in-out infinite;
-  transition: box-shadow var(--transition);
-}
-@keyframes orb-in {
-  from { opacity: 0; transform: scale(0.85); }
-  to { opacity: 1; transform: scale(1); }
-}
-@keyframes orb-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
-}
-.orb:hover {
-  box-shadow:
-    0 0 64px rgba(201, 212, 232, 0.3),
-    inset 0 0 48px rgba(201, 212, 232, 0.14);
-}
-.orb-inner {
-  text-align: center;
-  padding: 24px;
-  z-index: 2;
-}
-.orb-star {
-  font-size: 44px;
-  color: var(--accent);
-  text-shadow: 0 0 24px rgba(201, 212, 232, 0.7);
-  animation: twinkle 2.4s ease-in-out infinite;
-}
-@keyframes twinkle {
-  0%, 100% { opacity: 0.65; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.12); }
-}
-.orb-hint {
-  margin-top: 10px;
-  font-size: 11px;
-  letter-spacing: 3px;
-  color: var(--text-faint);
-}
-.orb.revealed {
-  border-color: var(--pink);
-  box-shadow:
-    0 0 72px rgba(232, 160, 191, 0.35),
-    inset 0 0 48px rgba(232, 160, 191, 0.12);
-}
-.orb-card-name {
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: 8px;
-  color: var(--accent);
-  text-shadow: 0 0 18px rgba(201, 212, 232, 0.6);
-  animation: reveal-in 500ms ease;
-}
-.orb-card-mean {
-  margin-top: 12px;
-  font-size: 12.5px;
-  line-height: 1.8;
-  color: var(--text-lo);
-  animation: reveal-in 700ms 100ms ease backwards;
-}
-@keyframes reveal-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* ── 斜悬浮碎语条 ── */
-.snippet {
-  position: absolute;
-  right: 8%;
-  bottom: 16%;
-  transform: rotate(-4deg);
-  max-width: 380px;
-  padding: 16px 24px;
-  background: rgba(27, 31, 42, 0.45);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  cursor: pointer;
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  animation: float-in 800ms 300ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-  transition: transform var(--transition);
-}
-.snippet:hover { transform: rotate(-4deg) translateY(-3px); }
-.snippet-mark { color: var(--pink); font-size: 16px; }
-.snippet-text {
-  font-size: 13px;
-  color: var(--text-lo);
-  line-height: 1.8;
-  letter-spacing: 0.5px;
-}
 
 .bg-btn {
   position: absolute;
@@ -440,8 +332,6 @@ const dateLine = computed(() =>
 
 /* 移动端：竖排 */
 @media (max-width: 768px) {
-  .sig-card { left: 50%; top: 8%; transform: translateX(-50%) rotate(-1.2deg); width: 84vw; padding: 36px 24px; }
-  .orb { right: 50%; top: auto; bottom: 30%; transform: translateX(50%); width: 180px; height: 180px; }
-  .snippet { right: 50%; bottom: 6%; transform: translateX(50%) rotate(-2deg); width: 82vw; }
+  .sig-card { left: 50%; top: 8%; transform: translateX(-50%) rotate(-1.2deg); width: 84vw; padding: 36px 24px; min-width: 0; }
 }
 </style>
