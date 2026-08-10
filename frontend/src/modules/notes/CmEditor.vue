@@ -73,6 +73,7 @@ const emit = defineEmits<{
   change: [EditorView];
   paste: [ClipboardEvent];
   drop: [DragEvent];
+  scroll: [number]; // 滚动比例 0-1（编辑/预览联动用）
 }>();
 
 const host = ref<HTMLElement | null>(null);
@@ -113,6 +114,13 @@ onMounted(() => {
       ],
     }),
     parent: host.value!,
+  });
+
+  // 编辑器滚动 → 抛比例给外面（预览跟着滚）
+  view.scrollDOM.addEventListener("scroll", () => {
+    const el = view!.scrollDOM;
+    const max = el.scrollHeight - el.clientHeight;
+    emit("scroll", max > 0 ? el.scrollTop / max : 0);
   });
 });
 

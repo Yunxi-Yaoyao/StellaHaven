@@ -139,6 +139,14 @@ function jumpTo(id: string) {
   target?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// 编辑/预览滚动联动：编辑器滚多少比例，预览滚同样比例（老婆：不想滑两次）
+const previewEl = ref<HTMLElement | null>(null);
+function onEditorScroll(ratio: number) {
+  const p = previewEl.value;
+  if (!p) return;
+  p.scrollTop = ratio * (p.scrollHeight - p.clientHeight);
+}
+
 // 点预览：附件卡下载 / wikilink 跳转 / 图片放大
 function onPreviewClick(e: MouseEvent) {
   const card = (e.target as HTMLElement).closest(".attach-card") as HTMLElement | null;
@@ -523,7 +531,7 @@ function localAttachIds(): string[] {
   return [...new Set([...(content.value.matchAll(ATTACH_RE))].map((m) => m[1]))];
 }
 
-const EXPORT_CSS = "body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,Inter,\"PingFang SC\",sans-serif;line-height:1.75;color:#222;font-size:15px}h1{font-size:24px;margin:26px 0 12px;padding-bottom:8px;border-bottom:1px solid #eee}h2{font-size:19px;margin:22px 0 10px}h3{font-size:16.5px;margin:18px 0 8px}p{margin:10px 0}ul,ol{padding-left:24px;margin:10px 0}li{margin:4px 0}blockquote{border-left:3px solid #ccc;padding:4px 0 4px 14px;color:#666;margin:14px 0}hr{border:none;height:1px;background:#ddd;margin:20px 0}img{max-width:100%;border-radius:8px;margin:12px 0}code{background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:13px}pre{background:#f4f4f4;padding:14px 18px;border-radius:8px;overflow:auto;margin:14px 0}pre code{background:none;padding:0}";
+const EXPORT_CSS = "body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,Inter,\"PingFang SC\",sans-serif;line-height:1.75;color:#222;font-size:15px}h1{font-size:30px;margin:30px 0 14px;padding-bottom:10px;border-bottom:1px solid #eee}h2{font-size:24px;margin:26px 0 12px}h3{font-size:21px;margin:20px 0 9px}p{margin:10px 0}ul,ol{padding-left:24px;margin:10px 0}li{margin:4px 0}blockquote{border-left:3px solid #ccc;padding:4px 0 4px 14px;color:#666;margin:14px 0}hr{border:none;height:1px;background:#ddd;margin:20px 0}img{max-width:100%;border-radius:8px;margin:12px auto;display:block}code{background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:13px}pre{background:#f4f4f4;padding:14px 18px;border-radius:8px;overflow:auto;margin:14px 0}pre code{background:none;padding:0}";
 
 function buildHtml(attachMap?: Map<string, string>) {
   let body = rendered.value;
@@ -735,6 +743,7 @@ function fmtDraftTime(iso: string) {
           @change="onCmChange"
           @paste="onPaste"
           @drop="onDrop"
+          @scroll="onEditorScroll"
         />
         <!-- [[ 双链补全 -->
         <div v-if="suggestMode === 'link' && linkSuggests.length" class="suggests">
@@ -755,7 +764,7 @@ function fmtDraftTime(iso: string) {
           >{{ c.label }}</div>
         </div>
       </div>
-      <div class="preview markdown-body" v-html="rendered" @click="onPreviewClick" />
+      <div ref="previewEl" class="preview markdown-body" v-html="rendered" @click="onPreviewClick" />
     </div>
 
     <!-- 反链：哪些页面链接到了这篇 -->
@@ -1340,30 +1349,30 @@ function fmtDraftTime(iso: string) {
   font-size: 15px;
 }
 .markdown-body :deep(h1) {
-  font-size: 24px;
+  font-size: 30px;
   font-weight: 600;
   color: var(--text-hi);
-  margin: 26px 0 12px;
-  padding-bottom: 8px;
+  margin: 30px 0 14px;
+  padding-bottom: 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 .markdown-body :deep(h2) {
-  font-size: 19px;
+  font-size: 24px;
   font-weight: 600;
   color: var(--accent);
-  margin: 22px 0 10px;
+  margin: 26px 0 12px;
 }
 .markdown-body :deep(h3) {
-  font-size: 16.5px;
+  font-size: 21px;
   font-weight: 600;
   color: var(--accent);
-  margin: 18px 0 8px;
+  margin: 20px 0 9px;
 }
 .markdown-body :deep(h4) {
-  font-size: 15px;
+  font-size: 18.5px;
   font-weight: 600;
   color: var(--text-lo);
-  margin: 14px 0 6px;
+  margin: 16px 0 7px;
 }
 .markdown-body :deep(h1:first-child), .markdown-body :deep(h2:first-child),
 .markdown-body :deep(h3:first-child) { margin-top: 4px; }
