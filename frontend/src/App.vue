@@ -1,11 +1,32 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import SideBar from "./shell/SideBar.vue";
 import { toasts } from "./composables/useToast";
+
+// 桌面折叠（记忆）+ 移动端抽屉（不记忆）
+const sidebarCollapsed = ref(localStorage.getItem("stella_sidebar_fold") === "1");
+const mobileOpen = ref(false);
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  localStorage.setItem("stella_sidebar_fold", sidebarCollapsed.value ? "1" : "0");
+}
 </script>
 
 <template>
   <div class="shell">
-    <SideBar />
+    <SideBar
+      :collapsed="sidebarCollapsed"
+      :mobile-open="mobileOpen"
+      @toggle="toggleSidebar"
+      @close-mobile="mobileOpen = false"
+    />
+
+    <!-- 移动端遮罩 -->
+    <div v-if="mobileOpen" class="mobile-mask" @click="mobileOpen = false" />
+    <!-- 移动端汉堡按钮 -->
+    <button v-if="!mobileOpen" class="hamburger" @click="mobileOpen = true">☰</button>
+
     <main class="content">
       <RouterView v-slot="{ Component }">
         <Transition name="fade" mode="out-in">
@@ -48,7 +69,40 @@ import { toasts } from "./composables/useToast";
 }
 
 @media (max-width: 768px) {
-  .content { padding: 18px 16px; }
+  .content { padding: 14px 12px; }
+}
+
+/* 移动端遮罩 + 汉堡 */
+.mobile-mask {
+  display: none;
+}
+.hamburger {
+  display: none;
+}
+@media (max-width: 768px) {
+  .mobile-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 80;
+  }
+  .hamburger {
+    display: block;
+    position: fixed;
+    left: 10px;
+    bottom: 14px;
+    z-index: 70;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1px solid var(--accent-dim);
+    background: var(--bg-raised);
+    color: var(--accent);
+    font-size: 16px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  }
 }
 
 /* ── 全局 toast ── */

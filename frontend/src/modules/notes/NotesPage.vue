@@ -18,6 +18,15 @@ const graphOpen = ref(false);
 const ready = ref(false);
 const moving = ref<TreeNode | null>(null);
 
+// 列表栏折叠（桌面记忆 + 移动端抽屉）
+const listCollapsed = ref(
+  localStorage.getItem("stella_list_fold") === "1" || window.innerWidth <= 768
+);
+function toggleList() {
+  listCollapsed.value = !listCollapsed.value;
+  localStorage.setItem("stella_list_fold", listCollapsed.value ? "1" : "0");
+}
+
 // 列表频道：任何文档变动（保存/新建/删除/还原）→ 刷新列表 + 回收站
 let listWs: WebSocket | null = null;
 let listWsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -72,6 +81,8 @@ async function onOpen(id: string) {
   attachOpen.value = false;
   graphOpen.value = false;
   currentId.value = id;
+  // 移动端打开笔记后自动收起列表抽屉
+  if (window.innerWidth <= 768) listCollapsed.value = true;
   // 打开 → 服务端已戳 last_viewed_at，稍后刷新最近查看
   setTimeout(() => store.refreshRecent(), 300);
 }
@@ -101,7 +112,10 @@ function onDeleted() {
 
 <template>
   <div class="notes-page" v-if="ready">
+    <!-- 列表收起时的窄条把手 -->
+    <div v-if="listCollapsed" class="list-strip" title="展开列表" @click="toggleList">»</div>
     <DocList
+      v-show="!listCollapsed"
       :current-id="currentId"
       :trash-open="trashOpen"
       :attach-open="attachOpen"
@@ -114,6 +128,7 @@ function onDeleted() {
       @move="onMove"
       @del="onDel"
       @switched="onWsSwitched"
+      @fold="toggleList"
     />
     <GraphPanel v-if="graphOpen" @close="graphOpen = false" @open="onOpen" />
     <AttachmentsPanel v-else-if="attachOpen" @close="attachOpen = false" @open="onOpen" />
@@ -175,6 +190,33 @@ function onDeleted() {
 }
 .blank-icon { font-size: 36px; opacity: 0.6; }
 .loading { height: 100%; display: grid; place-items: center; color: var(--text-faint); }
+
+/* 列表收起窄条把手 */
+.list-strip {
+  width: 26px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg-panel);
+  border-radius: var(--radius) 0 0 var(--radius);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.list-strip:hover { color: var(--accent); background: var(--bg-raised); }
+@media (max-width: 768px) {
+  .list-strip {
+    position: fixed;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 64px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    z-index: 75;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.35);
+  }
+}
 
 .mask {
   position: fixed;

@@ -15,6 +15,7 @@ const emit = defineEmits<{
   move: [node: TreeNode];
   del: [node: TreeNode];
   switched: [];
+  fold: [];
 }>();
 const props = defineProps<{ currentId: string | null; trashOpen: boolean; attachOpen: boolean; graphOpen: boolean }>();
 
@@ -141,6 +142,7 @@ function onSearchInput() {
         <span class="ws-name">{{ currentWsName }}</span>
         <span class="ws-caret" :class="{ open: wsMenuOpen }">▾</span>
       </button>
+      <button class="fold-list-btn" title="收起列表" @click="emit('fold')">«</button>
       <div v-if="wsMenuOpen" class="ws-menu">
         <div
           v-for="w in workspaces"
@@ -364,9 +366,9 @@ function onSearchInput() {
 .sec-caret.open { transform: rotate(90deg); }
 
 /* 工作区切换器 */
-.ws-switcher { position: relative; padding: 10px 12px 2px; }
+.ws-switcher { position: relative; padding: 10px 12px 2px; display: flex; gap: 6px; }
 .ws-current {
-  width: 100%;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -379,6 +381,16 @@ function onSearchInput() {
   font-weight: 600;
   cursor: pointer;
 }
+.fold-list-btn {
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 13px;
+}
+.fold-list-btn:hover { background: var(--bg-raised); color: var(--accent); }
 .ws-caret { transition: transform var(--transition); color: var(--text-faint); }
 .ws-caret.open { transform: rotate(180deg); }
 .ws-menu {
@@ -491,6 +503,16 @@ function onSearchInput() {
 .trash-entry:hover, .trash-entry.active { color: var(--text-hi); background: var(--bg-raised); }
 
 @media (max-width: 768px) {
-  .doc-list { width: 200px; }
+  .doc-list {
+    width: 78vw;
+    max-width: 320px;
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 85;
+    border-radius: 0;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.5);
+  }
 }
 </style>
