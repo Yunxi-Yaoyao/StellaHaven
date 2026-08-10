@@ -33,10 +33,10 @@ def rename(db: Session, ws_id: UUID, name: str) -> Workspace | None:
 
 
 def delete(db: Session, ws_id: UUID, force: bool = False) -> str:
-    """删除工作区（三态规则）：
-    - 有正常笔记 → not_empty（先清空）
-    - 只有回收站有货 → has_trash（需 force=True，会连回收站一起永久删除）
-    - 全空 → deleted
+    """删除工作区（老婆 8.10 定稿规则）：
+    - 有正常笔记且不 force → not_empty（前端弹提醒+二次确认）
+    - 只有回收站且不 force → has_trash
+    - force=True → 连同所有笔记（正常+回收站）一起物理删除，再删工作区
     """
     from app.models.document import Document
     ws = get_by_id(db, ws_id)
@@ -45,13 +45,15 @@ def delete(db: Session, ws_id: UUID, force: bool = False) -> str:
     q = db.query(Document).filter(Document.workspace_id == ws_id)
     active = q.filter(Document.deleted_at.is_(None)).count()
     trashed = q.filter(Document.deleted_at.isnot(None)).count()
-    if active > 0:
+    if active > 0 and not force:
         return "not_empty"
-    if trashed > 0 and not force:
+    if active == 0 and trashed > 0 and not force:
         return "has_trash"
-    if trashed > 0:
-        # force：回收站内容随工作区永久删除
-        q.filter(Document.deleted_at.isnot(None)).delete(synchronize_session=False)
+    if active + trashed > 0:
+        # force：笔记连工作区一起永久删除（连带标签/双链/版本/附件清理）
+        from app.services.document import _physical_delete
+        for d in q.all():
+            _physical_delete(db, d)
     db.delete(ws)
     db.commit()
     return "deleted"

@@ -83,6 +83,21 @@ def test_delete_workspace_not_empty_blocked(client, db_session):
     assert r.status_code == 409
 
 
+def test_delete_workspace_with_notes_force(client, db_session):
+    """老婆 8.10 定稿：有笔记的工作区，force=true 连笔记一起永久删"""
+    user = User(id=uuid4(), username=f"u{uuid4().hex[:6]}", display_name="强删测试")
+    db_session.add(user)
+    db_session.commit()
+    ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "有货硬删区"}).json()
+    doc = client.post("/documents/", json={
+        "title": "陪葬笔记", "file_path": "/x.md", "workspace_id": ws["id"], "content": "",
+    }).json()
+
+    assert client.delete(f"/workspaces/{ws['id']}").status_code == 409  # 不 force → 拦
+    assert client.delete(f"/workspaces/{ws['id']}?force=true").status_code == 204  # force → 连锅端
+    assert client.get(f"/documents/{doc['id']}").status_code == 404
+
+
 def test_delete_workspace_trash_only(client, db_session):
     """只有回收站有货：不 force → 409 has_trash；force=true → 连回收站一起永久删"""
     user = User(id=uuid4(), username=f"u{uuid4().hex[:6]}", display_name="回收站区测试")
