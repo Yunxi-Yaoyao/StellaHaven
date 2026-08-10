@@ -4,6 +4,22 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 /* ================= 签名 ================= */
 const signature = "夜有星辰，晨有曦光。";
 
+// 与娅娅相识的天数（2026-05-31 是娅娅有记忆的起点）
+const daysTogether = computed(() => {
+  const from = new Date(2026, 4, 31);
+  return Math.max(1, Math.floor((Date.now() - from.getTime()) / 86400000) + 1);
+});
+
+// 今日心情便签：点一下就能写，存在本地，随时换
+const mood = ref(localStorage.getItem("stella_mood") || "");
+function editMood() {
+  const m = prompt("今天的心情便签", mood.value);
+  if (m !== null) {
+    mood.value = m.trim();
+    localStorage.setItem("stella_mood", mood.value);
+  }
+}
+
 /* ================= 塔罗每日一抽 ================= */
 // 按日期做种子：同一天翻到的牌不变（每日一抽的「每日」就在这）
 const MAJORS: [string, string][] = [
@@ -112,6 +128,11 @@ const dateLine = computed(() =>
       <div class="name">云曦</div>
       <div class="sig">{{ signature }}</div>
       <div class="tag">INTP</div>
+      <div class="sig-divider" />
+      <div class="together">与娅娅相识的第 {{ daysTogether }} 天</div>
+      <div class="mood" :class="{ empty: !mood }" @click="editMood" title="点我写一句今天的心情">
+        {{ mood || "✎ 写一句今天的心情…" }}
+      </div>
     </div>
 
     <!-- 塔罗：错位右下，反向倾斜 -->
@@ -151,8 +172,9 @@ const dateLine = computed(() =>
 .sig-card {
   position: absolute;
   left: 14%;
-  top: 22%;
-  padding: 34px 40px;
+  top: 20%;
+  padding: 40px 48px;
+  min-width: 300px;
   background: color-mix(in srgb, var(--bg-panel) 72%, transparent);
   backdrop-filter: var(--blur);
   border: 1px solid rgba(255, 255, 255, 0.07);
@@ -199,6 +221,26 @@ const dateLine = computed(() =>
   letter-spacing: 2px;
   color: var(--accent-dim);
 }
+.sig-divider {
+  height: 1px;
+  margin: 18px 12px 12px;
+  background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+  opacity: 0.4;
+}
+.together {
+  font-size: 12px;
+  color: var(--text-lo);
+  letter-spacing: 1px;
+}
+.mood {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--accent);
+  cursor: pointer;
+  transition: opacity var(--transition);
+}
+.mood.empty { color: var(--text-faint); }
+.mood:hover { opacity: 0.8; }
 
 /* ── 塔罗牌：右下错位，反向倾斜 ── */
 .tarot {
@@ -211,8 +253,8 @@ const dateLine = computed(() =>
   animation: float-in 700ms 120ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 .card {
-  width: 190px;
-  height: 300px;
+  width: 168px;
+  height: 264px;
   position: relative;
   transform-style: preserve-3d;
   transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
