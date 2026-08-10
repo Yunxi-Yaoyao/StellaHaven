@@ -26,9 +26,22 @@ export function buildTree(docs: Doc[]): TreeNode[] {
       roots.push(n); // 父级不在列表里（回收站等）也按根级显示，防孤儿消失
     }
   }
-  // 兄弟间按更新时间倒序（老婆定的：默认排序即可）
+  // 兄弟间按标题排序：数字升序 → A-Z → 中文拼音（老婆定的）
+  const collator = new Intl.Collator("zh-Hans-CN", { numeric: true });
+  // zh 排序器会把拉丁字母排到中文后面，手动分组：0数字 1拉丁 2中文
+  const rankOf = (t: string): number => {
+    const ch = t.trim().charAt(0);
+    if (/\d/.test(ch)) return 0;
+    if (/[a-zA-Z]/.test(ch)) return 1;
+    return 2;
+  };
   const sortRec = (nodes: TreeNode[]) => {
-    nodes.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    nodes.sort((a, b) => {
+      const ra = rankOf(a.title);
+      const rb = rankOf(b.title);
+      if (ra !== rb) return ra - rb;
+      return collator.compare(a.title, b.title);
+    });
     nodes.forEach((n) => sortRec(n.children));
   };
   sortRec(roots);

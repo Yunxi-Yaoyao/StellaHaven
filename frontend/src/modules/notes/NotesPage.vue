@@ -12,6 +12,7 @@ import MoveDialog from "./MoveDialog.vue";
 const store = useNotesStore();
 const { pendingDelete } = storeToRefs(store);
 const currentId = ref<string | null>(null);
+const LS_CURRENT = "stella_current_doc";
 const trashOpen = ref(false);
 const attachOpen = ref(false);
 const graphOpen = ref(false);
@@ -58,7 +59,13 @@ onMounted(async () => {
   await store.bootstrap();
   ready.value = true;
   connectListWs();
-  if (store.docs.length > 0) currentId.value = store.docs[0].id;
+  // 恢复上次正在看的文章（刷新不跳篇）；不存在了才回退到第一篇
+  const saved = localStorage.getItem(LS_CURRENT);
+  if (saved && store.docs.some((d) => d.id === saved)) {
+    currentId.value = saved;
+  } else if (store.docs.length > 0) {
+    currentId.value = store.docs[0].id;
+  }
 });
 
 onUnmounted(() => {
@@ -76,6 +83,7 @@ async function onWsSwitched() {
   attachOpen.value = false;
   graphOpen.value = false;
   currentId.value = store.docs[0]?.id ?? null;
+  if (currentId.value) localStorage.setItem(LS_CURRENT, currentId.value);
 }
 
 async function onOpen(id: string) {
@@ -83,6 +91,7 @@ async function onOpen(id: string) {
   attachOpen.value = false;
   graphOpen.value = false;
   currentId.value = id;
+  localStorage.setItem(LS_CURRENT, id); // 记住正在看的
   // 移动端打开笔记后自动收起列表抽屉
   if (window.innerWidth <= 768) listCollapsed.value = true;
   // 打开 → 服务端已戳 last_viewed_at，稍后刷新最近查看
