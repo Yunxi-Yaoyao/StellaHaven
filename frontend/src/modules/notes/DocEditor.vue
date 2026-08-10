@@ -429,9 +429,25 @@ function dismissDraft() {
 
 // ── 导出 ──
 // 规则（老婆定的）：含本地附件 → 打包 zip（改写为相对路径）；纯文本 → 直接下对应格式
-// 交互（老婆定的）：点导出直接浮出独立窗口，里面预览 + 选格式
+// 交互（老婆定的）：点导出 → 独立浮窗，左预览右选格式，确定才执行
 const exportWin = ref(false);
+const exportFormat = ref<"md" | "html" | "pdf" | "png">("md");
 const ATTACH_RE = /\/attachments\/([0-9a-f-]{36})/g;
+
+const FORMATS = [
+  { key: "md", label: "Markdown", hint: "纯文本源文件，含本地图自动打 zip" },
+  { key: "html", label: "HTML 网页", hint: "自带排版样式，含本地图自动打 zip" },
+  { key: "pdf", label: "PDF", hint: "打开打印窗口，选「另存为 PDF」" },
+  { key: "png", label: "PNG 长图", hint: "2x 清晰度整篇截图" },
+] as const;
+
+function confirmExport() {
+  const f = exportFormat.value;
+  if (f === "md") exportMd();
+  else if (f === "html") exportHtml();
+  else if (f === "pdf") doExportPdf();
+  else doExportPng();
+}
 
 function download(filename: string, content: string | Blob, mime: string) {
   const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
@@ -716,24 +732,36 @@ function fmtDraftTime(iso: string) {
       </div>
     </Transition>
 
-    <!-- 导出窗口：独立浮窗，预览 + 选格式一站完成 -->
-    <div v-if="exportWin" class="mask" @click.self="exportWin = false">
+    <!-- 导出窗口：独立浮窗，左预览 / 右选格式 + 确定取消 -->
+    <div v-if="exportWin" class="export-mask" @click.self="exportWin = false">
       <div class="export-window">
         <div class="ew-titlebar">
           <span class="ew-title">导出 · {{ title || "未命名" }}</span>
           <button class="ew-close" @click="exportWin = false">×</button>
         </div>
-        <div class="export-preview-body markdown-body">
-          <h1>{{ title || "未命名" }}</h1>
-          <div v-html="rendered"></div>
-        </div>
-        <div class="ew-foot">
-          <span class="ew-hint">{{ localAttachIds().length ? `含 ${localAttachIds().length} 个本地图片，md/html 会自动打包 zip` : "纯文本，直接导出单文件" }}</span>
-          <div class="ew-formats">
-            <button @click="exportMd">Markdown</button>
-            <button @click="exportHtml">HTML</button>
-            <button @click="doExportPdf">PDF</button>
-            <button @click="doExportPng">PNG</button>
+        <div class="ew-body">
+          <!-- 左栏：预览 -->
+          <div class="export-preview-body markdown-body">
+            <h1>{{ title || "未命名" }}</h1>
+            <div v-html="rendered"></div>
+          </div>
+          <!-- 右栏：格式选择 + 确定取消 -->
+          <div class="ew-side">
+            <div class="ew-side-title">导出格式</div>
+            <label
+              v-for="f in FORMATS"
+              :key="f.key"
+              class="fmt-opt"
+              :class="{ on: exportFormat === f.key }"
+            >
+              <input type="radio" :value="f.key" v-model="exportFormat" />
+              <span class="fmt-label">{{ f.label }}</span>
+              <span class="fmt-hint">{{ f.hint }}</span>
+            </label>
+            <div class="ew-actions">
+              <button class="confirm" @click="confirmExport">确定导出</button>
+              <button class="cancel" @click="exportWin = false">取消</button>
+            </div>
           </div>
         </div>
       </div>
@@ -839,10 +867,20 @@ function fmtDraftTime(iso: string) {
 }
 .toc-item:hover { background: var(--bg-panel); color: var(--accent); }
 
-/* 导出窗口：独立浮窗（标题栏 + 预览 + 格式栏），弹出带缩放动画不突兀 */
+/* 导出窗口遮罩（组件内 scoped，之前用别处的 .mask 没样式 → 挤到文章下方） */
+.export-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+}
+
+/* 导出窗口：独立浮窗（标题栏 + 左预览右格式），弹出带缩放动画不突兀 */
 .export-window {
-  width: min(760px, 92vw);
-  max-height: 85vh;
+  width: min(880px, 94vw);
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
@@ -874,41 +912,92 @@ function fmtDraftTime(iso: string) {
   padding: 0 4px;
 }
 .ew-close:hover { color: var(--pink); }
-.export-preview-body {
+
+/* 双栏主体 */
+.ew-body {
   flex: 1;
+  display: flex;
+  gap: 14px;
+  padding: 14px 18px;
+  overflow: hidden;
+  min-height: 0;
+}
+.export-preview-body {
+  flex: 1.4;
   overflow-y: auto;
-  margin: 14px 18px 0;
   padding: 20px 24px;
   background: #ffffff;
   color: #222;
   border-radius: var(--radius-sm);
   font-family: -apple-system, Inter, "PingFang SC", sans-serif;
   line-height: 1.7;
-  min-height: 200px;
+  min-height: 220px;
 }
 .export-preview-body :deep(h1) { color: #222; margin: 0 0 12px; }
 .export-preview-body :deep(*) { color: #222; }
-.ew-foot {
+
+.ew-side {
+  flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 18px 14px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 210px;
 }
-.ew-hint { font-size: 11px; color: var(--text-faint); }
-.ew-formats { display: flex; gap: 8px; }
-.ew-formats button {
-  padding: 7px 16px;
-  border: 1px solid var(--accent-dim);
+.ew-side-title {
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  padding-bottom: 2px;
+}
+.fmt-opt {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid var(--bg-raised);
   border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--accent);
-  font-size: 12.5px;
   cursor: pointer;
   transition: all var(--transition);
 }
-.ew-formats button:hover { background: var(--bg-raised); }
+.fmt-opt:hover { border-color: var(--accent-dim); }
+.fmt-opt.on { border-color: var(--accent); background: var(--bg-raised); }
+.fmt-opt input { accent-color: var(--accent); margin: 0; grid-row: span 2; }
+.fmt-label { font-size: 13px; color: var(--text-hi); }
+.fmt-hint { font-size: 10.5px; color: var(--text-faint); }
+.ew-actions {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+}
+.ew-actions .confirm {
+  flex: 1;
+  padding: 9px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--bg-base);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ew-actions .cancel {
+  padding: 9px 18px;
+  border: 1px solid var(--text-faint);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-lo);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* 窄屏：双栏改上下 */
+@media (max-width: 768px) {
+  .ew-body { flex-direction: column; overflow-y: auto; }
+  .export-preview-body { min-height: 180px; max-height: 40vh; }
+}
 
 .draft-banner {
   display: flex;
