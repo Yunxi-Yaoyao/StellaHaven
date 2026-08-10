@@ -628,9 +628,6 @@ function fmtDraftTime(iso: string) {
             <button @click="openPreviewExport('png')">PNG（预览）</button>
           </span>
         </span>
-        <button class="mode-toggle" :class="{ on: tocOpen }" @click="tocOpen = !tocOpen">
-          <Icon name="book" :size="13" /> 大纲
-        </button>
         <button class="del-btn" @click="remove">删除</button>
       </div>
     </div>
@@ -709,9 +706,20 @@ function fmtDraftTime(iso: string) {
       <span class="device" title="点击给这个来源起名" @click="renameDevice">{{ deviceLabel }}</span>
     </div>
 
-    <!-- TOC 大纲面板（右侧浮出） -->
+    <!-- TOC 右缘把手（默认收着，有标题才出现） -->
+    <div
+      v-if="!tocOpen && tocItems.length"
+      class="toc-strip"
+      title="展开大纲"
+      @click="tocOpen = true"
+    >‹</div>
+
+    <!-- TOC 大纲面板（浮在文章上方，不挤开内容；点条目跳转后保持展开，手动关闭） -->
     <div v-if="tocOpen && tocItems.length" class="toc-panel">
-      <div class="toc-head">大纲</div>
+      <div class="toc-head">
+        大纲
+        <button class="toc-close" title="收起" @click="tocOpen = false">×</button>
+      </div>
       <div
         v-for="t in tocItems"
         :key="t.id"
@@ -750,19 +758,40 @@ function fmtDraftTime(iso: string) {
   position: relative;
 }
 
-/* TOC 大纲面板 */
+/* TOC 右缘把手（收起态） */
+.toc-strip {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-raised);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-right: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  color: var(--text-faint);
+  cursor: pointer;
+  z-index: 26;
+  transition: all var(--transition);
+}
+.toc-strip:hover { color: var(--accent); width: 26px; }
+
+/* TOC 大纲面板：浮在文章上方（absolute overlay，不占布局） */
 .toc-panel {
   position: absolute;
   right: 12px;
-  top: 90px;
-  width: 200px;
-  max-height: 55%;
+  top: 80px;
+  width: 210px;
+  max-height: 60%;
   overflow-y: auto;
   background: var(--bg-raised);
   border: 1px solid var(--accent-dim);
   border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  z-index: 25;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  z-index: 26;
   padding: 8px 0;
 }
 .toc-head {
@@ -770,7 +799,19 @@ function fmtDraftTime(iso: string) {
   color: var(--text-faint);
   letter-spacing: 1px;
   padding: 4px 12px 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
+.toc-close {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.toc-close:hover { color: var(--pink); }
 .toc-item {
   font-size: 12.5px;
   color: var(--text-lo);
