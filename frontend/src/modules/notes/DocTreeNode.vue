@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { type TreeNode } from "../../stores/notes";
+import { computed, ref } from "vue";
+import { type TreeNode, useNotesStore } from "../../stores/notes";
 import Icon from "../../shell/Icon.vue";
 
 const props = defineProps<{
@@ -15,7 +15,37 @@ const emit = defineEmits<{
   newChild: [node: TreeNode];
   move: [node: TreeNode];
   del: [node: TreeNode];
+  dropOn: [target: TreeNode];
 }>();
+
+// ── 拖拽换父级 ──
+const store = useNotesStore();
+const dragOver = ref(false);
+
+function onDragStart(e: DragEvent) {
+  store.draggingId = props.node.id;
+  e.dataTransfer?.setData("text/plain", props.node.id);
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+}
+function onDragEnd() {
+  store.draggingId = null;
+  dragOver.value = false;
+}
+function onDragOver(e: DragEvent) {
+  if (!store.draggingId || store.draggingId === props.node.id) return;
+  e.preventDefault(); // 允许落下
+  dragOver.value = true;
+}
+function onDragLeave() {
+  dragOver.value = false;
+}
+function onDrop(e: DragEvent) {
+  e.preventDefault();
+  dragOver.value = false;
+  if (!store.draggingId || store.draggingId === props.node.id) return;
+  emit("dropOn", props.node);
+  store.draggingId = null;
+}
 
 const isOpen = computed(() => props.expanded.has(props.node.id));
 const hasKids = computed(() => props.node.children.length > 0);
@@ -25,9 +55,15 @@ const hasKids = computed(() => props.node.children.length > 0);
   <div class="node">
     <div
       class="row"
-      :class="{ active: node.id === currentId }"
+      :class="{ active: node.id === currentId, 'drag-over': dragOver }"
       :style="{ paddingLeft: 10 + depth * 16 + 'px' }"
+      draggable="true"
       @click="emit('open', node.id)"
+      @dragstart="onDragStart"
+      @dragend="onDragEnd"
+      @dragover="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
     >
       <span
         class="caret"
@@ -65,6 +101,7 @@ const hasKids = computed(() => props.node.children.length > 0);
         @new-child="emit('newChild', $event)"
         @move="emit('move', $event)"
         @del="emit('del', $event)"
+        @drop-on="emit('dropOn', $event)"
       />
     </template>
   </div>
@@ -85,6 +122,10 @@ const hasKids = computed(() => props.node.children.length > 0);
 .row.active {
   background: var(--bg-raised);
   box-shadow: inset 2px 0 0 var(--accent);
+}
+.row.drag-over {
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 .caret {
   width: 14px;

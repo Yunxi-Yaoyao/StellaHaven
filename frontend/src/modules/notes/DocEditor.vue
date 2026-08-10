@@ -9,6 +9,7 @@ import { ApiError } from "../../api/client";
 import { useDraftSocket, getDeviceName, setDeviceName, getIpInfo } from "../../composables/useDraftSocket";
 import { useNotesStore } from "../../stores/notes";
 import { toast } from "../../composables/useToast";
+import { openLightbox } from "../../composables/useLightbox";
 import Icon from "../../shell/Icon.vue";
 import TagBar from "./TagBar.vue";
 
@@ -77,8 +78,13 @@ const rendered = computed(() => {
   return html;
 });
 
-// 点预览里的 wikilink → 跳目标页
+// 点预览：wikilink 跳转 / 图片放大
 function onPreviewClick(e: MouseEvent) {
+  const img = (e.target as HTMLElement).closest("img") as HTMLImageElement | null;
+  if (img && img.src) {
+    openLightbox(img.src); // 文章图片点击放大
+    return;
+  }
   const a = (e.target as HTMLElement).closest(".wikilink") as HTMLElement | null;
   if (!a) return;
   const t = a.dataset.title;
@@ -177,16 +183,24 @@ async function uploadOne(file: File, insertAt: number) {
   form.append("file", file, name);
   try {
     const resp = await fetch(`/attachments/${doc.value.id}`, { method: "POST", body: form });
-    if (!resp.ok) throw new Error(String(resp.status));
+    if (!resp.ok) {
+      // 把后端的真实原因抛出来（413=超限等），不再只报「上传失败」
+      let reason = `HTTP ${resp.status}`;
+      try {
+        const body = await resp.json();
+        if (body?.detail) reason = body.detail;
+      } catch { /* 非 JSON */ }
+      throw new Error(reason);
+    }
     const { url, filename } = await resp.json();
     content.value = content.value.replace(
       placeholder,
       isImg ? `![${filename}](${url})` : `[${filename}](${url})`
     );
     toast(isImg ? "图片已上传 ✓" : `「${filename}」已上传 ✓`);
-  } catch {
+  } catch (e) {
     content.value = content.value.replace(placeholder, "");
-    toast("上传失败");
+    toast(`上传失败：${e instanceof Error ? e.message : "未知原因"}`);
   }
 }
 
@@ -391,6 +405,32 @@ function dismissDraft() {
   draftPreview.value = null;
 }
 
+// ── 导出 ──
+const exportOpen = ref(false);
+
+function download(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportMd() {
+  exportOpen.value = false;
+  download(`${title.value || "未命名"}.md`, `# ${title.value}\n\n${content.value}`, "text/markdown");
+}
+
+function exportHtml() {
+  exportOpen.value = false;
+  const body = rendered.value;
+  const html = `<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><title>${title.value}</title>
+<style>body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,Inter,"PingFang SC",sans-serif;line-height:1.7;color:#222}img{max-width:100%}code{background:#f4f4f4;padding:2px 6px;border-radius:4px}pre{background:#f4f4f4;padding:12px;border-radius:8px;overflow:auto}</style>
+</head><body>${body}</body></html>`;
+  download(`${title.value || "未命名"}.html`, html, "text/html");
+}
+
 // ── 星标切换（轻量端点，不动 updated_at 不碰正在编辑的内容）──
 async function toggleFav() {
   if (!doc.value) return;
@@ -477,6 +517,13 @@ function fmtDraftTime(iso: string) {
         <button class="mode-toggle" @click="reading = !reading">
           <Icon :name="reading ? 'edit' : 'eye'" :size="13" /> {{ reading ? "编辑" : "阅览" }}
         </button>
+        <span class="export-wrap">
+          <button class="mode-toggle" @click="exportOpen = !exportOpen"><Icon name="move" :size="13" style="transform:rotate(90deg)" /> 导出</button>
+          <span v-if="exportOpen" class="export-menu">
+            <button @click="exportMd">Markdown (.md)</button>
+            <button @click="exportHtml">网页 (.html)</button>
+          </span>
+        </span>
         <button class="del-btn" @click="remove">删除</button>
       </div>
     </div>
@@ -672,6 +719,31 @@ function fmtDraftTime(iso: string) {
   transition: all var(--transition);
 }
 .mode-toggle:hover { background: var(--bg-raised); }
+.export-wrap { position: relative; display: inline-flex; }
+.export-menu {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.export-menu button {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-lo);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.export-menu button:hover { background: var(--bg-panel); color: var(--accent); }
 .del-btn {
   padding: 6px 12px;
   border: 1px solid var(--text-faint);

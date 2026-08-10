@@ -4,7 +4,44 @@ import { EditorView, keymap } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
+import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
+import { tags as cmTags } from "@lezer/highlight";
+
+// Stella 配色语法高亮（月白银/樱粉系，吃 design tokens 的色）
+const stellaHighlight = HighlightStyle.define([
+  { tag: cmTags.heading1, color: "#e8ecf4", fontWeight: "600", fontSize: "1.35em" },
+  { tag: cmTags.heading2, color: "#c9d4e8", fontWeight: "600", fontSize: "1.2em" },
+  { tag: cmTags.heading3, color: "#c9d4e8", fontWeight: "600" },
+  { tag: cmTags.strong, color: "#e8a0bf", fontWeight: "600" },
+  { tag: cmTags.emphasis, color: "#e8c9d8", fontStyle: "italic" },
+  { tag: cmTags.link, color: "#c9d4e8", textDecoration: "underline dashed" },
+  { tag: cmTags.url, color: "#8a94ab" },
+  { tag: cmTags.monospace, color: "#e8a0bf", backgroundColor: "rgba(232,160,191,0.08)" },
+  { tag: cmTags.quote, color: "#9aa3b5", fontStyle: "italic" },
+  { tag: cmTags.list, color: "#c9d4e8" },
+  { tag: cmTags.strikethrough, textDecoration: "line-through", color: "#5c6474" },
+]);
+
+// 回车自动续行：- 列表 / - [ ] 待办 / > 引用；空项回车=退出列表
+function continueList(view: EditorView): boolean {
+  const { from, to } = view.state.selection.main;
+  if (from !== to) return false; // 有选区走默认
+  const line = view.state.doc.lineAt(from);
+  const m = line.text.match(/^(\s*(?:[-*+] |\d+\. |> )(\[ \] )?)/);
+  if (!m) return false;
+  const prefix = m[1];
+  const rest = line.text.slice(prefix.length);
+  if (!rest.trim()) {
+    // 空列表项回车 → 清掉前缀退出列表
+    view.dispatch({ changes: { from: line.from, to: line.to, insert: "" } });
+    return true;
+  }
+  view.dispatch({
+    changes: { from, insert: "\n" + prefix },
+    selection: { anchor: from + 1 + prefix.length },
+  });
+  return true;
+}
 
 // Stella 暗夜主题（对齐 design tokens）
 const stellaTheme = EditorView.theme({
@@ -47,9 +84,13 @@ onMounted(() => {
       doc: props.modelValue,
       extensions: [
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        keymap.of([
+          { key: "Enter", run: continueList }, // 列表/待办/引用自动续行
+          ...defaultKeymap,
+          ...historyKeymap,
+        ]),
         markdown({ base: markdownLanguage }),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        syntaxHighlighting(stellaHighlight, { fallback: true }),
         stellaTheme,
         EditorView.updateListener.of((u) => {
           if (u.docChanged && !syncingFromOutside) {

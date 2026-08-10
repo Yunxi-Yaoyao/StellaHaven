@@ -62,6 +62,12 @@ export const useNotesStore = defineStore("notes", () => {
   const recent = ref<Doc[]>([]);
   const searchQuery = ref("");
   const searching = ref(false);
+  const draggingId = ref<string | null>(null); // 树拖拽：正在被拖的节点
+  // 全量文档缓存：搜索时 docs 只剩命中项，路径/面包屑计算需要完整上下文
+  const docsCache = new Map<string, Doc>();
+  function cacheDocs(list: Doc[]) {
+    for (const d of list) docsCache.set(d.id, d);
+  }
   // 标签：全量标签表 + 全量关联（个人规模一次拉全）
   const tags = ref<{ id: string; name: string; color: string | null }[]>([]);
   const docTags = ref<{ doc_id: string; tag_id: string }[]>([]);
@@ -82,17 +88,35 @@ export const useNotesStore = defineStore("notes", () => {
     [tags.value, docTags.value] = await Promise.all([listTags(), listAllDocTags()]);
   }
 
+  /** 文档路径（面包屑字符串）：装修日志 / 材料清单 / 瓷砖选购 */
+  function pathOf(docId: string): string {
+    const chain: string[] = [];
+    // 优先全量缓存（搜索时 docs 只剩命中项，找父级会断链）
+    const find = (id: string | null | undefined) =>
+      id ? (docsCache.get(id) ?? docs.value.find((d) => d.id === id)) : undefined;
+    let cur = find(docId);
+    let guard = 0;
+    while (cur && guard++ < 20) {
+      chain.unshift(cur.title);
+      cur = find(cur.parent_id);
+    }
+    return chain.join(" / ");
+  }
+
   /** 文档的标签对象列表 */
   function tagsOf(docId: string) {
     const ids = new Set(docTags.value.filter((r) => r.doc_id === docId).map((r) => r.tag_id));
     return tags.value.filter((t) => ids.has(t.id));
   }
 
-  /** 打标签：没有就新建 */
+  /** 打标签：没有就新建（自动分配调色板颜色） */
   async function tagDoc(docId: string, name: string) {
+    const TAG_PALETTE = ["#c9d4e8", "#e8a0bf", "#9ec9a8", "#e8c98a", "#a8b8e8", "#d4a8e8", "#8ad4d4"];
     const { createTag, addDocTag } = await import("../api/notes");
     let tag = tags.value.find((t) => t.name === name);
-    if (!tag) tag = await createTag(name);
+    if (!tag) {
+      tag = await createTag(name, TAG_PALETTE[tags.value.length % TAG_PALETTE.length]);
+    }
     if (docTags.value.some((r) => r.doc_id === docId && r.tag_id === tag!.id)) return;
     await addDocTag(docId, tag.id);
     await refreshTags();
@@ -162,6 +186,7 @@ export const useNotesStore = defineStore("notes", () => {
       searching.value = false;
       docs.value = await listDocs(workspaceId.value);
     }
+    cacheDocs(docs.value); // 搜索结果只含命中项，但路径计算需要全量上下文
   }
 
   async function refreshTrash() {
@@ -241,9 +266,9 @@ export const useNotesStore = defineStore("notes", () => {
 
   return {
     workspaceId, userId, workspaces, docs, trash, recent, searchQuery, searching, pendingDelete,
-    tags, docTags, filterTagId,
+    tags, docTags, filterTagId, draggingId,
     bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces, refreshTags,
-    tagsOf, tagDoc, untagDoc,
+    tagsOf, tagDoc, untagDoc, pathOf,
     switchWorkspace, addWorkspace, renameCurrentWorkspace, deleteCurrentWorkspace,
     childCount, createNew, requestDelete, doDelete, restore, purge, emptyAllTrash, clearAll, moveTo,
   };

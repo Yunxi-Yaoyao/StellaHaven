@@ -3,6 +3,7 @@ import { ref, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useNotesStore } from "../../stores/notes";
 import { api } from "../../api/client";
+import { openLightbox } from "../../composables/useLightbox";
 import Icon from "../../shell/Icon.vue";
 
 const emit = defineEmits<{ close: []; open: [id: string] }>();
@@ -51,8 +52,8 @@ function isImage(mime: string) {
         v-for="a in items"
         :key="a.id"
         class="card"
-        @click="emit('open', a.doc_id)"
-        :title="'来自「' + a.doc_title + '」，点击打开这篇笔记'"
+        @click="isImage(a.mime) ? openLightbox(a.url) : emit('open', a.doc_id)"
+        :title="isImage(a.mime) ? '点击看大图' : '来自「' + a.doc_title + '」，点击打开'"
       >
         <div class="thumb">
           <img v-if="isImage(a.mime)" :src="a.url" :alt="a.filename" loading="lazy" />
@@ -61,8 +62,11 @@ function isImage(mime: string) {
         <div class="info">
           <div class="name">{{ a.filename }}</div>
           <div class="meta">
-            {{ fmtSize(a.size) }} · 来自「{{ a.doc_title }}」
+            {{ fmtSize(a.size) }}
             <span v-if="a.doc_in_trash" class="in-trash">回收站中</span>
+          </div>
+          <div class="from" @click.stop="emit('open', a.doc_id)">
+            <Icon name="note" :size="10" /> {{ a.doc_title }} ↗
           </div>
         </div>
       </div>
@@ -133,6 +137,16 @@ function isImage(mime: string) {
   text-overflow: ellipsis;
 }
 .meta { font-size: 10.5px; color: var(--text-faint); margin-top: 2px; }
+.from {
+  font-size: 10.5px;
+  color: var(--accent-dim);
+  margin-top: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+.from:hover { color: var(--accent); }
 .in-trash { color: var(--pink); margin-left: 4px; }
 .empty { grid-column: 1 / -1; text-align: center; color: var(--text-faint); padding: 40px; }
 </style>

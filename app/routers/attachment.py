@@ -19,7 +19,7 @@ STORAGE.mkdir(parents=True, exist_ok=True)
 # 正文里引用附件的标记：![..](/attachments/{id})
 ATTACH_REF_RE = re.compile(r"/attachments/([0-9a-f-]{36})")
 
-MAX_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_SIZE = 25 * 1024 * 1024  # 25MB（手机原图随便贴）
 
 
 @router.get("/")
@@ -57,7 +57,7 @@ async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db)):
 
     data = await file.read()
     if len(data) > MAX_SIZE:
-        raise HTTPException(status_code=413, detail="文件超过 10MB")
+        raise HTTPException(status_code=413, detail="文件超过 25MB")
 
     att = Attachment(
         doc_id=doc_id,

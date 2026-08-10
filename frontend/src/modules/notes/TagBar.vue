@@ -40,7 +40,12 @@ function onBlur() {
 
 <template>
   <div class="tag-bar">
-    <span v-for="t in myTags" :key="t.id" class="tag-chip">
+    <span
+      v-for="t in myTags"
+      :key="t.id"
+      class="tag-chip"
+      :style="t.color ? { borderColor: t.color, color: t.color } : {}"
+    >
       {{ t.name }}
       <button class="x" title="移除标签" @click="store.untagDoc(props.docId, t.id)">×</button>
     </span>

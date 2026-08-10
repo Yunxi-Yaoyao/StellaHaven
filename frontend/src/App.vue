@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import SideBar from "./shell/SideBar.vue";
 import { toasts } from "./composables/useToast";
+import { lightbox, closeLightbox } from "./composables/useLightbox";
 
 // 桌面折叠（记忆）+ 移动端抽屉（不记忆）
 const sidebarCollapsed = ref(localStorage.getItem("stella_sidebar_fold") === "1");
@@ -40,6 +41,11 @@ function toggleSidebar() {
       <TransitionGroup name="toast">
         <div v-for="t in toasts" :key="t.id" class="toast">{{ t.text }}</div>
       </TransitionGroup>
+    </div>
+
+    <!-- 全局图片放大查看器 -->
+    <div v-if="lightbox.src" class="lightbox" @click="closeLightbox">
+      <img :src="lightbox.src" />
     </div>
   </div>
 </template>
@@ -135,5 +141,22 @@ function toggleSidebar() {
 .toast-leave-to {
   opacity: 0;
   transform: translateX(12px);
+}
+
+/* 图片放大查看器 */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.82);
+  display: grid;
+  place-items: center;
+  cursor: zoom-out;
+}
+.lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
 }
 </style>

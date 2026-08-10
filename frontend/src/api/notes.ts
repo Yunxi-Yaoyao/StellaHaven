@@ -179,8 +179,8 @@ export interface DocTag {
 }
 
 export const listTags = () => api<Tag[]>("/tags/?limit=200");
-export const createTag = (name: string) =>
-  api<Tag>("/tags/", { method: "POST", body: JSON.stringify({ name }) });
+export const createTag = (name: string, color?: string) =>
+  api<Tag>("/tags/", { method: "POST", body: JSON.stringify({ name, color }) });
 export const listAllDocTags = () => api<DocTag[]>("/doc-tags/");
 export const getDocTags = (docId: string) => api<DocTag[]>(`/doc-tags/?doc_id=${docId}`);
 export const addDocTag = (docId: string, tagId: string) =>

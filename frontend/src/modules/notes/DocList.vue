@@ -125,6 +125,23 @@ function clearFilters() {
   filterOpen.value = false;
 }
 
+// ── 拖拽换父级 ──
+async function onDropOnNode(target: TreeNode) {
+  const id = store.draggingId;
+  if (!id) return;
+  const doc = store.docs.find((d) => d.id === id);
+  if (doc) await store.moveTo(doc, target.id);
+}
+
+async function onDropToRoot(e: DragEvent) {
+  // 落在空白区/容器上 = 移回根级；落在节点上由节点自己处理，别抢
+  if ((e.target as HTMLElement).closest(".row")) return;
+  const id = e.dataTransfer?.getData("text/plain");
+  if (!id) return;
+  const doc = store.docs.find((d) => d.id === id);
+  if (doc && doc.parent_id) await store.moveTo(doc, null);
+}
+
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 function onSearchInput() {
   if (debounceTimer) clearTimeout(debounceTimer);
@@ -186,6 +203,7 @@ function onSearchInput() {
             :key="t.id"
             class="ftag"
             :class="{ on: filterTagId === t.id }"
+            :style="t.color && filterTagId !== t.id ? { color: t.color } : {}"
             @click="toggleTag(t.id)"
           >{{ t.name }}</span>
           <span v-if="!usedTags.length" class="fp-none">还没有标签</span>
@@ -217,11 +235,12 @@ function onSearchInput() {
         <div
           v-for="doc in tagFilteredDocs"
           :key="doc.id"
-          class="flat-item"
+          class="flat-item with-path"
           :class="{ active: doc.id === props.currentId }"
           @click="emit('open', doc.id)"
         >
-          {{ doc.title }}
+          <span class="fi-title">{{ doc.title }}</span>
+          <span class="fi-path">{{ store.pathOf(doc.id) }}</span>
         </div>
         <div v-if="!tagFilteredDocs.length" class="empty">没有命中的笔记</div>
       </template>
@@ -262,23 +281,27 @@ function onSearchInput() {
         <!-- 目录树 -->
         <div class="section">
           <div class="section-title clickable" @click="toggleSection('tree')">
-            <span class="sec-caret" :class="{ open: sections.tree }">▸</span> <Icon name="book" :size="12" /> 全部笔记
+            <span class="sec-caret" :class="{ open: sections.tree }">▸</span> <Icon name="book" :size="13" /> 全部笔记
           </div>
           <template v-if="sections.tree">
-            <DocTreeNode
-              v-for="node in tree"
-              :key="node.id"
-              :node="node"
-              :depth="0"
-              :current-id="props.currentId"
-              :expanded="expanded"
-              @open="emit('open', $event)"
-              @toggle="toggle"
-              @new-child="emit('newChild', $event)"
-              @move="emit('move', $event)"
-              @del="emit('del', $event)"
-            />
-            <div v-if="tree.length === 0" class="empty">还没有笔记，点上面新建一篇吧</div>
+            <!-- 拖到空白区 = 移回根级 -->
+            <div class="tree-root" @dragover.prevent @drop="onDropToRoot">
+              <DocTreeNode
+                v-for="node in tree"
+                :key="node.id"
+                :node="node"
+                :depth="0"
+                :current-id="props.currentId"
+                :expanded="expanded"
+                @open="emit('open', $event)"
+                @toggle="toggle"
+                @new-child="emit('newChild', $event)"
+                @move="emit('move', $event)"
+                @del="emit('del', $event)"
+                @drop-on="onDropOnNode"
+              />
+              <div v-if="tree.length === 0" class="empty">还没有笔记，点上面新建一篇吧</div>
+            </div>
           </template>
         </div>
       </template>
@@ -578,6 +601,19 @@ function onSearchInput() {
 }
 .flat-item:hover { background: var(--bg-raised); color: var(--text-hi); }
 .flat-item.active { background: var(--bg-raised); color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
+.flat-item.with-path { display: flex; flex-direction: column; gap: 1px; align-items: stretch; }
+.flat-item .fi-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flat-item .fi-path {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .empty { padding: 24px 12px; text-align: center; color: var(--text-faint); font-size: 12px; }
 
 .trash-entry {
