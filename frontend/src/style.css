@@ -43,6 +43,13 @@
 /* 表单元素默认不继承字体（UA 强制 Arial/系统默认），统一接管 */
 button, input, textarea, select { font-family: inherit; }
 
+/* 光标收口（老婆 8.11 定的规矩）：
+   除了真输入区，任何地方点击都不许出现闪烁光标。
+   全局透明 + 白名单放行；选中复制不受影响（user-select 没动）。
+   CM6 编辑器的光标是它自己画的 .cm-cursor，不受 caret-color 管。 */
+* { caret-color: transparent; }
+input, textarea, [contenteditable="true"] { caret-color: auto; }
+
 html, body, #app { height: 100%; }
 
 body {
