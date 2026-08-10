@@ -167,9 +167,9 @@ const dateLine = computed(() =>
     <div v-if="bgImage" class="bg-img" :style="{ backgroundImage: `url(${bgImage})` }" />
     <canvas ref="canvasEl" class="stars" />
 
-    <!-- 签名卡：2.5 倍主角尺寸 -->
+    <!-- 签名卡：高×1.35 宽×1.7（老婆实测后定的尺寸） -->
     <div class="sig-card">
-      <div class="avatar">云</div>
+      <div class="avatar"><img src="/avatar.png" alt="云曦" /></div>
       <div class="name">云曦</div>
       <div class="sig">{{ signature }}</div>
       <div class="tag">INTP</div>
@@ -195,11 +195,7 @@ const dateLine = computed(() =>
       </div>
     </div>
 
-    <!-- 斜悬浮碎语条：从笔记里捞一句 -->
-    <div v-if="snippet" class="snippet" @click="drawSnippet" title="换一句">
-      <span class="snippet-mark">❝</span>
-      <span class="snippet-text">{{ snippet }}</span>
-    </div>
+    <!-- 斜悬浮碎语条已撤（老婆定的：主页不登录也可见，不放笔记内容） -->
 
     <!-- 背景设置入口（右下角小齿轮） -->
     <button class="bg-btn" title="自定义背景图" @click="setBg">⚙</button>
@@ -230,16 +226,17 @@ const dateLine = computed(() =>
   pointer-events: none;
 }
 
-/* ── 签名卡：2.5x 主角 ── */
+/* ── 签名卡：高×1.35 宽×1.7 ── */
 .sig-card {
   position: absolute;
   left: 10%;
-  top: 16%;
-  padding: 56px 72px;
+  top: 12%;
+  padding: 84px 118px;
+  min-width: 560px;
   background: color-mix(in srgb, var(--bg-panel) 72%, transparent);
   backdrop-filter: var(--blur);
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 20px;
+  border-radius: 22px;
   transform: rotate(-1.6deg);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   text-align: center;
@@ -250,16 +247,19 @@ const dateLine = computed(() =>
   to { opacity: 1; transform: rotate(-1.6deg) translateY(0); }
 }
 .avatar {
-  width: 108px;
-  height: 108px;
-  margin: 0 auto 20px;
+  width: 132px;
+  height: 132px;
+  margin: 0 auto 24px;
   border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 44px;
-  color: var(--bg-base);
-  background: linear-gradient(135deg, var(--accent), var(--pink));
-  box-shadow: 0 0 36px rgba(201, 212, 232, 0.35);
+  overflow: hidden;
+  box-shadow: 0 0 40px rgba(201, 212, 232, 0.35);
+  border: 2px solid rgba(201, 212, 232, 0.4);
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .name {
   font-size: 30px;
