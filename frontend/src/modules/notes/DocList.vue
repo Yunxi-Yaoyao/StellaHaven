@@ -198,15 +198,22 @@ function onSearchInput() {
     </div>
 
     <button class="new-btn" @click="emit('newChild', null)"><Icon name="plus" :size="13" /> 新建笔记</button>
-    <div v-if="searching && !filterTagId" class="search-hint">搜索「{{ searchQuery }}」的结果（平铺显示）</div>
 
     <div class="items">
       <!-- 筛选中（文本搜索 / 标签 / 叠加）：平铺结果 -->
       <template v-if="flatMode">
         <div v-if="searching && filterTagId" class="search-hint">
-          「{{ searchQuery }}」+ 标签「{{ tags.find(t => t.id === filterTagId)?.name }}」
+          <span class="hint-text">「{{ searchQuery }}」+ 标签「{{ tags.find(t => t.id === filterTagId)?.name }}」</span>
+          <button class="reset-btn" @click="clearFilters">重置 ✕</button>
         </div>
-        <div v-else-if="filterTagId" class="search-hint">标签「{{ tags.find(t => t.id === filterTagId)?.name }}」的笔记</div>
+        <div v-else-if="filterTagId" class="search-hint">
+          <span class="hint-text">标签「{{ tags.find(t => t.id === filterTagId)?.name }}」的笔记</span>
+          <button class="reset-btn" @click="clearFilters">重置 ✕</button>
+        </div>
+        <div v-else-if="searching" class="search-hint">
+          <span class="hint-text">搜索「{{ searchQuery }}」的结果</span>
+          <button class="reset-btn" @click="clearFilters">重置 ✕</button>
+        </div>
         <div
           v-for="doc in tagFilteredDocs"
           :key="doc.id"
@@ -391,7 +398,32 @@ function onSearchInput() {
 .fp-clear { border: 1px solid transparent; background: transparent; color: var(--text-faint); }
 .fp-clear:hover { color: var(--pink); }
 .fp-done { border: 1px solid var(--accent-dim); background: transparent; color: var(--accent); }
-.search-hint { padding: 0 14px 6px; font-size: 11px; color: var(--text-faint); }
+.search-hint {
+  padding: 0 14px 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hint-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reset-btn {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all var(--transition);
+}
+.reset-btn:hover { color: var(--pink); background: var(--bg-raised); }
 .new-btn {
   margin: 4px 12px 10px;
   padding: 9px;

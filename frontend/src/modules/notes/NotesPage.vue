@@ -67,12 +67,14 @@ onUnmounted(() => {
   listWs?.close();
 });
 
-// 切换工作区 → 列表频道重连 + 打开新工作区的第一篇
+// 切换工作区 → 列表频道重连 + 关掉所有面板（图谱/附件/回收站都是旧工作区的数据）+ 打开新工作区的第一篇
 async function onWsSwitched() {
   listWs?.close();
   listWs = null;
   connectListWs();
   trashOpen.value = false;
+  attachOpen.value = false;
+  graphOpen.value = false;
   currentId.value = store.docs[0]?.id ?? null;
 }
 

@@ -49,6 +49,8 @@ onMounted(async () => {
   // 数据：文档节点 + 标签节点 + 双链边 + 标签归属边
   const wikiLinks = await listAllLinks();
   const docIds = new Set(docs.value.map((d) => d.id));
+  // 只保留当前工作区的标签关联（不然别的工作区的标签会漏进图谱）
+  const wsDocTags = docTags.value.filter((r) => docIds.has(r.doc_id));
 
   // 初始位置：中心周围随机散开（全挤在 (0,0) 会被斥力炸出画布）
   const jitter = () => (Math.random() - 0.5) * Math.min(W.value, H.value) * 0.6;
@@ -58,7 +60,7 @@ onMounted(async () => {
       x: W.value / 2 + jitter(), y: H.value / 2 + jitter(),
     })),
     ...tags.value
-      .filter((t) => docTags.value.some((r) => r.tag_id === t.id))
+      .filter((t) => wsDocTags.some((r) => r.tag_id === t.id))
       .map((t) => ({
         id: "tag-" + t.id, label: "#" + t.name, kind: "tag" as const,
         x: W.value / 2 + jitter(), y: H.value / 2 + jitter(),
@@ -68,9 +70,7 @@ onMounted(async () => {
     ...wikiLinks
       .filter((l) => docIds.has(l.source_id) && docIds.has(l.target_id))
       .map((l) => ({ source: l.source_id, target: l.target_id })),
-    ...docTags.value
-      .filter((r) => docIds.has(r.doc_id))
-      .map((r) => ({ source: r.doc_id, target: "tag-" + r.tag_id })),
+    ...wsDocTags.map((r) => ({ source: r.doc_id, target: "tag-" + r.tag_id })),
   ];
 
   nodes.value = ns;
