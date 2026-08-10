@@ -92,7 +92,7 @@ const hasKids = computed(() => props.node.children.length > 0);
 .caret.open { transform: rotate(90deg); }
 .caret.leaf { opacity: 0.3; }
 .text {
-  font-size: 13.5px;
+  font-size: 14.5px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

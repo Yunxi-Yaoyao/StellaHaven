@@ -351,7 +351,7 @@ function onSearchInput() {
 .items { flex: 1; overflow-y: auto; padding: 0 8px; }
 .section { margin-bottom: 10px; }
 .section-title {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-faint);
   letter-spacing: 1px;
   padding: 6px 10px 4px;
@@ -474,9 +474,9 @@ function onSearchInput() {
 .btns button.danger { border-color: var(--pink); color: var(--pink); }
 .btns button.cancel { border-color: var(--text-faint); color: var(--text-faint); }
 .flat-item {
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

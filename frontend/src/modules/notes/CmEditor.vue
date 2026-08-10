@@ -11,7 +11,7 @@ const stellaTheme = EditorView.theme({
   "&": {
     backgroundColor: "transparent",
     color: "var(--text-hi)",
-    fontSize: "14px",
+    fontSize: "15px",
     height: "100%",
   },
   ".cm-content": {

@@ -37,7 +37,7 @@ const navItems = [
         :class="{ active: $route.path === item.to }"
         @click="emit('closeMobile')"
       >
-        <span class="icon"><Icon :name="item.icon" :size="16" /></span>
+        <span class="icon"><Icon :name="item.icon" :size="17" /></span>
         <span class="label">{{ item.label }}</span>
       </RouterLink>
     </nav>
@@ -136,7 +136,7 @@ const navItems = [
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .icon { width: 22px; text-align: center; display: inline-flex; align-items: center; justify-content: center; }
-.label { font-size: 13.5px; letter-spacing: 0.5px; }
+.label { font-size: 14.5px; letter-spacing: 0.5px; }
 
 .spacer { flex: 1; }
 

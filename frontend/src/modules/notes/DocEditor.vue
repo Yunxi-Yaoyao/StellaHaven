@@ -260,6 +260,11 @@ const childDocs = computed(() =>
   store.docs.filter((d) => d.parent_id === props.docId)
 );
 
+// 当前工作区名（面包屑第一级）
+const wsName = computed(() =>
+  store.workspaces.find((w) => w.id === store.workspaceId)?.name ?? "笔记本"
+);
+
 // ── 加载文档 ──
 async function load(id: string) {
   doc.value = await getDoc(id);
@@ -445,12 +450,14 @@ function fmtDraftTime(iso: string) {
       <pre>{{ draftPreview }}</pre>
     </div>
 
-    <!-- 面包屑：祖先路径，可点击跳转 -->
-    <div v-if="breadcrumb.length" class="breadcrumb">
+    <!-- 面包屑：永远显示（工作区 / 祖先… / 当前），根级次级统一 -->
+    <div class="breadcrumb">
+      <span class="crumb root"><Icon name="book" :size="11" /> {{ wsName }}</span>
       <template v-for="b in breadcrumb" :key="b.id">
-        <span class="crumb" @click="emit('open', b.id)">{{ b.title }}</span>
         <span class="sep">/</span>
+        <span class="crumb" @click="emit('open', b.id)">{{ b.title }}</span>
       </template>
+      <span class="sep">/</span>
       <span class="crumb current">{{ doc.title }}</span>
     </div>
 
@@ -612,7 +619,7 @@ function fmtDraftTime(iso: string) {
   border: none;
   outline: none;
   color: var(--text-hi);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 600;
 }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -663,8 +670,8 @@ function fmtDraftTime(iso: string) {
 .status-bar {
   display: flex;
   align-items: center;
-  padding: 7px 16px;
-  font-size: 11px;
+  padding: 8px 16px;
+  font-size: 11.5px;
   color: var(--text-faint);
   border-top: 1px solid rgba(255, 255, 255, 0.05);
   background: var(--bg-base);
@@ -688,6 +695,7 @@ function fmtDraftTime(iso: string) {
 .crumb { cursor: pointer; transition: color var(--transition); }
 .crumb:hover { color: var(--accent); }
 .crumb.current { color: var(--text-lo); cursor: default; }
+.crumb.root { color: var(--accent-dim); cursor: default; display: inline-flex; align-items: center; gap: 4px; }
 .sep { opacity: 0.4; }
 
 .children-strip {
