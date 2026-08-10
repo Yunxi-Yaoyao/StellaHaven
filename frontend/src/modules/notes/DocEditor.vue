@@ -596,6 +596,16 @@ function fmtDraftTime(iso: string) {
   padding: 12px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
+
+/* 移动端：标题和操作按钮换行排列，不挤压 */
+@media (max-width: 768px) {
+  .toolbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .title-input { min-width: 0; flex: 1 1 100%; font-size: 15px; }
+  .editor-toolbar { padding: 6px 12px; }
+  .panes.split { flex-direction: column; }
+  .panes.split .input-wrap { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .breadcrumb { padding: 8px 12px 0; }
+}
 .title-input {
   flex: 1;
   background: transparent;
@@ -605,7 +615,16 @@ function fmtDraftTime(iso: string) {
   font-size: 17px;
   font-weight: 600;
 }
-.actions { display: flex; gap: 8px; align-items: center; }
+.actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* 所有操作按钮统一 inline-flex，图标/文字/混合按钮都垂直居中——修手机端不齐 */
+.actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 30px;
+  box-sizing: border-box;
+}
 .star-btn {
   padding: 5px 10px;
   border: none;
