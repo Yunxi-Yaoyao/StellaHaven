@@ -345,10 +345,10 @@ function onSearchInput() {
   border-radius: var(--radius) 0 0 var(--radius);
   overflow: hidden;
 }
-.search-box { padding: 12px 12px 8px; position: relative; display: flex; gap: 6px; }
+.search-box { padding: 12px 12px 8px; position: relative; }
 .search-box input:not(.fp-input) {
-  flex: 1;
-  padding: 8px 12px;
+  width: 100%;
+  padding: 8px 34px 8px 12px; /* 右侧给内嵌 ⚙ 留位 */
   border: none;
   border-radius: var(--radius-sm);
   background: var(--bg-raised);
@@ -358,17 +358,24 @@ function onSearchInput() {
   transition: box-shadow var(--transition);
 }
 .search-box input:not(.fp-input):focus { box-shadow: 0 0 0 1.5px var(--accent-dim); }
+/* ⚙ 内嵌在搜索栏右端 */
 .filter-btn {
-  width: 34px;
+  position: absolute;
+  right: 16px;
+  top: 12px;
+  bottom: 8px;
+  width: 28px;
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--bg-raised);
+  background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
+  display: grid;
+  place-items: center;
   transition: all var(--transition);
 }
-.filter-btn:hover, .filter-btn.on { color: var(--accent); }
+.filter-btn:hover, .filter-btn.on { color: var(--accent); background: var(--bg-panel); }
 .filter-panel {
   position: absolute;
   top: 46px;

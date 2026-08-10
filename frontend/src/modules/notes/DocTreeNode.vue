@@ -33,7 +33,13 @@ const hasKids = computed(() => props.node.children.length > 0);
         class="caret"
         :class="{ open: isOpen, leaf: !hasKids }"
         @click.stop="hasKids && emit('toggle', node.id)"
-      >{{ hasKids ? "▸" : "·" }}</span>
+      >
+        <Icon v-if="hasKids" name="chevron" :size="12" />
+      </span>
+      <!-- 类型图标：有下挂=文件夹，没下挂=文档（统一线性风） -->
+      <span class="type-icon" :class="{ folder: hasKids }">
+        <Icon :name="hasKids ? 'folder' : 'note'" :size="13" />
+      </span>
       <span class="text">{{ node.title }}</span>
       <span class="indicators">
         <Icon v-if="node.is_favorite" name="star" :size="11" class="star" />
@@ -83,14 +89,21 @@ const hasKids = computed(() => props.node.children.length > 0);
 .caret {
   width: 14px;
   flex-shrink: 0;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-faint);
-  font-size: 11px;
   transition: transform var(--transition);
-  display: inline-block;
 }
 .caret.open { transform: rotate(90deg); }
-.caret.leaf { opacity: 0.3; }
+.caret.leaf { visibility: hidden; } /* 叶子页留位不显示，保持对齐 */
+.type-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-lo);
+}
+.type-icon.folder { color: var(--accent); }
 .text {
   font-size: 14.5px;
   white-space: nowrap;

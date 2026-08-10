@@ -462,7 +462,9 @@ function fmtDraftTime(iso: string) {
     </div>
 
     <div class="toolbar">
-      <input v-model="title" class="title-input" placeholder="无标题" />
+      <!-- 编辑态：活的标题输入框；阅览态：纯文本（无光标，但允许选中复制） -->
+      <input v-if="!reading" v-model="title" class="title-input" placeholder="无标题" />
+      <div v-else class="title-input title-readonly">{{ title || "无标题" }}</div>
       <div class="actions">
         <button
           class="star-btn"
@@ -622,6 +624,19 @@ function fmtDraftTime(iso: string) {
   font-size: 22px;
   font-weight: 600;
   letter-spacing: 0.3px;
+}
+/* 阅览态标题：纯文本，无光标但可选中复制 */
+.title-readonly {
+  cursor: default;
+  user-select: text;
+  -webkit-user-select: text;
+  padding: 1px 0; /* 对齐 input 的默认内边距 */
+}
+/* 阅览态正文：防任何光标色，选中复制照常 */
+.panes.preview-only .preview {
+  caret-color: transparent;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 /* 所有操作按钮统一 inline-flex，图标/文字/混合按钮都垂直居中——修手机端不齐 */
