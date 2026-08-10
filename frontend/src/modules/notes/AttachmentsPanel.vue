@@ -37,6 +37,18 @@ function fmtSize(bytes: number) {
 function isImage(mime: string) {
   return mime.startsWith("image/");
 }
+
+// 点击卡片：图片看大图，文件原原本本下载（老婆定的）
+function onCardClick(a: AttachmentItem) {
+  if (isImage(a.mime)) {
+    openLightbox(a.url);
+  } else {
+    const el = document.createElement("a");
+    el.href = a.url;
+    el.download = a.filename; // download 属性强制原样保存
+    el.click();
+  }
+}
 </script>
 
 <template>
@@ -52,12 +64,12 @@ function isImage(mime: string) {
         v-for="a in items"
         :key="a.id"
         class="card"
-        @click="isImage(a.mime) ? openLightbox(a.url) : emit('open', a.doc_id)"
-        :title="isImage(a.mime) ? '点击看大图' : '来自「' + a.doc_title + '」，点击打开'"
+        @click="onCardClick(a)"
+        :title="isImage(a.mime) ? '点击看大图' : '点击下载「' + a.filename + '」'"
       >
         <div class="thumb">
           <img v-if="isImage(a.mime)" :src="a.url" :alt="a.filename" loading="lazy" />
-          <Icon v-else name="note" :size="28" />
+          <Icon v-else name="note" :size="40" />
         </div>
         <div class="info">
           <div class="name">{{ a.filename }}</div>

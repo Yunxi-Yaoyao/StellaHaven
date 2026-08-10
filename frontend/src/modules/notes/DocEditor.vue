@@ -70,10 +70,49 @@ const dirty = computed(() => title.value !== savedTitle.value || content.value !
 
 // 渲染时把 [[标题]] 转成可点链接 + 给标题加锚点 id（TOC 用）
 // breaks: true → 单回车即换行（老婆不习惯 markdown 默认要空一行）
+// 附件链接 → 居中卡片（大图标+文件名，点击原样下载）
+const attachMeta = ref<Record<string, { filename: string; mime: string }>>({});
+
+const FILE_ICON_PATHS: Record<string, string> = {
+  file: "M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z|M13 2v7h7",
+  text: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M16 13H8|M16 17H8",
+  archive: "M21 8v13H3V8|M1 3h22v5H1z|M10 12h4",
+  media: "M9 18V5l12-2v13|M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z|M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
+  pdf: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M9 15l6-6|M9 9l6 6",
+};
+
+function iconKindFor(mime: string, filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  if (mime === "application/pdf" || ext === "pdf") return "pdf";
+  if (/zip|rar|7z|tar|gz/.test(ext) || mime.includes("zip") || mime.includes("compressed")) return "archive";
+  if (mime.startsWith("video/") || mime.startsWith("audio/")) return "media";
+  if (mime.startsWith("text/") || /txt|md|log|json|csv/.test(ext)) return "text";
+  return "file";
+}
+
+function attachCardHtml(id: string, fallbackName: string): string {
+  const meta = attachMeta.value[id];
+  const name = meta?.filename || fallbackName || "附件";
+  const mime = meta?.mime || "";
+  const kind = iconKindFor(mime, name);
+  const paths = FILE_ICON_PATHS[kind].split("|").map((d) => `<path d="${d}"/>`).join("");
+  return (
+    `<span class="attach-card" data-url="/attachments/${id}" data-name="${name.replace(/"/g, "")}">` +
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>` +
+    `<span class="attach-name">${name}</span>` +
+    `</span>`
+  );
+}
+
 const rendered = computed(() => {
   let html = marked.parse(content.value || "", { breaks: true }) as string;
   let hIdx = 0;
   html = html.replace(/<h([123])>/g, (_m, lv) => `<h${lv} id="toc-h${hIdx++}">`);
+  // 附件链接 → 下载卡片
+  html = html.replace(
+    /<a href="\/attachments\/([0-9a-f-]{36})">([^<]*)<\/a>/g,
+    (_m, id, name) => attachCardHtml(id, name)
+  );
   html = html.replace(
     /\[\[([^\[\]]+)\]\]/g,
     '<a class="wikilink" data-title="$1">$1</a>'
@@ -100,8 +139,17 @@ function jumpTo(id: string) {
   target?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-// 点预览：wikilink 跳转 / 图片放大
+// 点预览：附件卡下载 / wikilink 跳转 / 图片放大
 function onPreviewClick(e: MouseEvent) {
+  const card = (e.target as HTMLElement).closest(".attach-card") as HTMLElement | null;
+  if (card) {
+    // 原原本本下载（download 属性强制保存，不打开预览）
+    const a = document.createElement("a");
+    a.href = card.dataset.url!;
+    a.download = card.dataset.name || "";
+    a.click();
+    return;
+  }
   const img = (e.target as HTMLElement).closest("img") as HTMLImageElement | null;
   if (img && img.src) {
     openLightbox(img.src); // 文章图片点击放大
@@ -252,6 +300,18 @@ async function loadBacklinks() {
   backlinks.value = await api<Doc[]>(`/documents/${props.docId}/backlinks`);
 }
 
+// 附件元信息（渲染下载卡片用：文件名 + mime → 图标类型）
+async function loadAttachMeta() {
+  const all = await api<{ id: string; filename: string; mime: string; doc_id: string }[]>(
+    `/attachments/?workspace_id=${store.workspaceId}`
+  );
+  const map: Record<string, { filename: string; mime: string }> = {};
+  for (const a of all) {
+    if (a.doc_id === props.docId) map[a.id] = { filename: a.filename, mime: a.mime };
+  }
+  attachMeta.value = map;
+}
+
 // 字数：CJK 每字算 1，拉丁/数字按词算
 const wordCount = computed(() => {
   const cjk = (content.value.match(/[一-鿿]/g) || []).length;
@@ -312,6 +372,7 @@ async function load(id: string) {
   draftSynced.value = false;
   draftPreview.value = null;
   loadBacklinks();
+  loadAttachMeta();
   draftBanner.value =
     doc.value.has_draft && !isDismissed(doc.value.id, doc.value.draft_updated_at!)
       ? { device: doc.value.draft_device, updatedAt: doc.value.draft_updated_at! }
@@ -1345,7 +1406,40 @@ function fmtDraftTime(iso: string) {
   max-width: 100%;
   border-radius: var(--radius-sm);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
-  margin: 12px 0;
+  margin: 12px auto; /* 图片居中（老婆定的） */
   display: block;
+}
+/* 附件下载卡片：大图标 + 文件名在下，点击原样下载 */
+.markdown-body :deep(.attach-card) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 150px;
+  margin: 14px auto; /* 附件居中 */
+  padding: 16px 12px 12px;
+  background: var(--bg-raised);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  color: var(--accent-dim);
+}
+.markdown-body :deep(.attach-card:hover) {
+  border-color: var(--accent-dim);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.markdown-body :deep(.attach-card svg) {
+  width: 40px;
+  height: 40px;
+}
+.markdown-body :deep(.attach-card .attach-name) {
+  font-size: 12px;
+  color: var(--text-lo);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
