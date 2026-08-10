@@ -109,6 +109,21 @@ function toggle(id: string) {
   localStorage.setItem(LS_EXPANDED, JSON.stringify([...s]));
 }
 
+// 搜索命中高亮：关键词包 <mark>
+function hl(text: string): string {
+  const q = searchQuery.value.trim();
+  if (!q) return text;
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return text;
+  return (
+    text.slice(0, i) +
+    '<mark class="hl">' +
+    text.slice(i, i + q.length) +
+    "</mark>" +
+    text.slice(i + q.length)
+  );
+}
+
 // 高级筛选面板状态
 const filterOpen = ref(false);
 const usedTags = computed(() => {
@@ -249,7 +264,7 @@ function onSearchInput() {
           :class="{ active: doc.id === props.currentId }"
           @click="emit('open', doc.id)"
         >
-          <span class="fi-title">{{ doc.title }}</span>
+          <span class="fi-title" v-html="hl(doc.title)"></span>
           <span class="fi-path">{{ store.pathOf(doc.id) }}</span>
         </div>
         <div v-if="!tagFilteredDocs.length" class="empty">没有命中的笔记</div>
@@ -620,6 +635,12 @@ function onSearchInput() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.flat-item :deep(mark.hl) {
+  background: rgba(232, 160, 191, 0.22);
+  color: var(--pink);
+  border-radius: 3px;
+  padding: 0 1px;
 }
 .empty { padding: 24px 12px; text-align: center; color: var(--text-faint); font-size: 12px; }
 

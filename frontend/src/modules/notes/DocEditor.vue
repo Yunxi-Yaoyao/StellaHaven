@@ -68,15 +68,36 @@ function isDismissed(docId: string, draftUpdatedAt: string): boolean {
 
 const dirty = computed(() => title.value !== savedTitle.value || content.value !== savedContent.value);
 
-// 渲染时把 [[标题]] 转成可点链接
+// 渲染时把 [[标题]] 转成可点链接 + 给标题加锚点 id（TOC 用）
 const rendered = computed(() => {
   let html = marked.parse(content.value || "") as string;
+  let hIdx = 0;
+  html = html.replace(/<h([123])>/g, () => `<h$1 id="toc-h${hIdx++}">`);
   html = html.replace(
     /\[\[([^\[\]]+)\]\]/g,
     '<a class="wikilink" data-title="$1">$1</a>'
   );
   return html;
 });
+
+// ── TOC 大纲 ──
+const tocOpen = ref(false);
+const tocItems = computed(() => {
+  const items: { level: number; text: string; id: string }[] = [];
+  const re = /^(#{1,3})\s+(.+)$/gm;
+  let m;
+  let i = 0;
+  while ((m = re.exec(content.value || ""))) {
+    items.push({ level: m[1].length, text: m[2].trim(), id: `toc-h${i++}` });
+  }
+  return items;
+});
+
+function jumpTo(id: string) {
+  const preview = document.querySelector(".preview");
+  const target = preview?.querySelector(`#${id}`);
+  target?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 // 点预览：wikilink 跳转 / 图片放大
 function onPreviewClick(e: MouseEvent) {
@@ -406,10 +427,13 @@ function dismissDraft() {
 }
 
 // ── 导出 ──
+// 规则（老婆定的）：含本地附件 → 打包 zip（改写为相对路径）；纯文本 → 直接下对应格式
 const exportOpen = ref(false);
+const previewExport = ref<"pdf" | "png" | null>(null);
+const ATTACH_RE = /\/attachments\/([0-9a-f-]{36})/g;
 
-function download(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: mime });
+function download(filename: string, content: string | Blob, mime: string) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = filename;
@@ -417,18 +441,96 @@ function download(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(a.href);
 }
 
-function exportMd() {
-  exportOpen.value = false;
-  download(`${title.value || "未命名"}.md`, `# ${title.value}\n\n${content.value}`, "text/markdown");
+function localAttachIds(): string[] {
+  return [...new Set([...(content.value.matchAll(ATTACH_RE))].map((m) => m[1]))];
 }
 
-function exportHtml() {
+const EXPORT_CSS = "body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,Inter,\"PingFang SC\",sans-serif;line-height:1.7;color:#222}img{max-width:100%}code{background:#f4f4f4;padding:2px 6px;border-radius:4px}pre{background:#f4f4f4;padding:12px;border-radius:8px;overflow:auto}";
+
+function buildHtml(attachMap?: Map<string, string>) {
+  let body = rendered.value;
+  if (attachMap) {
+    for (const [id, fname] of attachMap) {
+      body = body.replaceAll(`/attachments/${id}`, `attachments/${fname}`);
+    }
+  }
+  return `<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><title>${title.value}</title><style>${EXPORT_CSS}</style></head><body>${body}</body></html>`;
+}
+
+async function packZip(innerName: string, innerContent: string) {
+  const { default: JSZip } = await import("jszip");
+  const zip = new JSZip();
+  const ids = localAttachIds();
+  const map = new Map<string, string>();
+  const folder = zip.folder("attachments")!;
+  for (const id of ids) {
+    const resp = await fetch(`/attachments/${id}`);
+    const blob = await resp.blob();
+    const ext = (blob.type.split("/")[1] || "bin").replace("svg+xml", "svg");
+    const fname = `${id.slice(0, 8)}.${ext}`;
+    folder.file(fname, blob);
+    map.set(id, fname);
+  }
+  return { zip, map, innerName, innerContent };
+}
+
+async function exportMd() {
   exportOpen.value = false;
-  const body = rendered.value;
-  const html = `<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><title>${title.value}</title>
-<style>body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,Inter,"PingFang SC",sans-serif;line-height:1.7;color:#222}img{max-width:100%}code{background:#f4f4f4;padding:2px 6px;border-radius:4px}pre{background:#f4f4f4;padding:12px;border-radius:8px;overflow:auto}</style>
-</head><body>${body}</body></html>`;
-  download(`${title.value || "未命名"}.html`, html, "text/html");
+  const base = title.value || "未命名";
+  const ids = localAttachIds();
+  if (!ids.length) {
+    download(`${base}.md`, `# ${base}\n\n${content.value}`, "text/markdown");
+    return;
+  }
+  let md = `# ${base}\n\n${content.value}`;
+  const { zip, map, innerName } = await packZip(`${base}.md`, md);
+  for (const [id, fname] of map) md = md.replaceAll(`/attachments/${id}`, `attachments/${fname}`);
+  zip.file(innerName, md);
+  download(`${base}-含附件.zip`, await zip.generateAsync({ type: "blob" }), "application/zip");
+  toast("已打包导出（含本地图片）✓");
+}
+
+async function exportHtml() {
+  exportOpen.value = false;
+  const base = title.value || "未命名";
+  const ids = localAttachIds();
+  if (!ids.length) {
+    download(`${base}.html`, buildHtml(), "text/html");
+    return;
+  }
+  const { zip, map, innerName } = await packZip(`${base}.html`, "");
+  zip.file(innerName, buildHtml(map));
+  download(`${base}-含附件.zip`, await zip.generateAsync({ type: "blob" }), "application/zip");
+  toast("已打包导出（含本地图片）✓");
+}
+
+// PDF/PNG 走预览弹窗
+function openPreviewExport(kind: "md" | "html" | "pdf" | "png") {
+  if (kind === "md") exportMd();
+  else if (kind === "html") exportHtml();
+  else {
+    exportOpen.value = false;
+    previewExport.value = kind;
+  }
+}
+
+async function doExportPng() {
+  const el = document.querySelector(".export-preview-body") as HTMLElement;
+  if (!el) return;
+  const { default: html2canvas } = await import("html2canvas");
+  const canvas = await html2canvas(el, { backgroundColor: "#ffffff", scale: 2 });
+  canvas.toBlob((b) => b && download(`${title.value || "未命名"}.png`, b, "image/png"));
+  previewExport.value = null;
+  toast("PNG 已导出 ✓");
+}
+
+function doExportPdf() {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(buildHtml());
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 400); // 等渲染完调打印（选「另存为 PDF」）
 }
 
 // ── 星标切换（轻量端点，不动 updated_at 不碰正在编辑的内容）──
@@ -520,10 +622,15 @@ function fmtDraftTime(iso: string) {
         <span class="export-wrap">
           <button class="mode-toggle" @click="exportOpen = !exportOpen"><Icon name="move" :size="13" style="transform:rotate(90deg)" /> 导出</button>
           <span v-if="exportOpen" class="export-menu">
-            <button @click="exportMd">Markdown (.md)</button>
-            <button @click="exportHtml">网页 (.html)</button>
+            <button @click="openPreviewExport('md')">Markdown (.md)</button>
+            <button @click="openPreviewExport('html')">网页 (.html)</button>
+            <button @click="openPreviewExport('pdf')">PDF（预览）</button>
+            <button @click="openPreviewExport('png')">PNG（预览）</button>
           </span>
         </span>
+        <button class="mode-toggle" :class="{ on: tocOpen }" @click="tocOpen = !tocOpen">
+          <Icon name="book" :size="13" /> 大纲
+        </button>
         <button class="del-btn" @click="remove">删除</button>
       </div>
     </div>
@@ -601,6 +708,34 @@ function fmtDraftTime(iso: string) {
       <span class="right">{{ wordCount }} 字 · </span>
       <span class="device" title="点击给这个来源起名" @click="renameDevice">{{ deviceLabel }}</span>
     </div>
+
+    <!-- TOC 大纲面板（右侧浮出） -->
+    <div v-if="tocOpen && tocItems.length" class="toc-panel">
+      <div class="toc-head">大纲</div>
+      <div
+        v-for="t in tocItems"
+        :key="t.id"
+        class="toc-item"
+        :style="{ paddingLeft: 10 + (t.level - 1) * 14 + 'px' }"
+        @click="jumpTo(t.id)"
+      >{{ t.text }}</div>
+    </div>
+
+    <!-- 导出预览弹窗（PDF/PNG 先预览再导） -->
+    <div v-if="previewExport" class="mask" @click.self="previewExport = null">
+      <div class="export-dialog">
+        <div class="ed-head">导出预览 · {{ previewExport === 'pdf' ? 'PDF' : 'PNG' }}</div>
+        <div class="export-preview-body markdown-body">
+          <h1>{{ title || "未命名" }}</h1>
+          <div v-html="rendered"></div>
+        </div>
+        <div class="ed-foot">
+          <button v-if="previewExport === 'pdf'" class="primary" @click="doExportPdf">打印 / 存为 PDF</button>
+          <button v-else class="primary" @click="doExportPng">下载 PNG</button>
+          <button class="ghost" @click="previewExport = null">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -612,6 +747,91 @@ function fmtDraftTime(iso: string) {
   background: var(--bg-panel);
   border-radius: 0 var(--radius) var(--radius) 0;
   overflow: hidden;
+  position: relative;
+}
+
+/* TOC 大纲面板 */
+.toc-panel {
+  position: absolute;
+  right: 12px;
+  top: 90px;
+  width: 200px;
+  max-height: 55%;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 25;
+  padding: 8px 0;
+}
+.toc-head {
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  padding: 4px 12px 6px;
+}
+.toc-item {
+  font-size: 12.5px;
+  color: var(--text-lo);
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all var(--transition);
+}
+.toc-item:hover { background: var(--bg-panel); color: var(--accent); }
+
+/* 导出预览弹窗 */
+.export-dialog {
+  width: min(720px, 92vw);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--bg-raised);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.ed-head { padding: 14px 18px; font-size: 14px; font-weight: 600; }
+.export-preview-body {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 18px;
+  padding: 20px 24px;
+  background: #ffffff;
+  color: #222;
+  border-radius: var(--radius-sm);
+  font-family: -apple-system, Inter, "PingFang SC", sans-serif;
+  line-height: 1.7;
+}
+.export-preview-body :deep(h1) { color: #222; margin: 0 0 12px; }
+.export-preview-body :deep(*) { color: #222; }
+.ed-foot {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 14px 18px;
+}
+.ed-foot .primary {
+  padding: 8px 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--bg-base);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ed-foot .ghost {
+  padding: 8px 18px;
+  border: 1px solid var(--text-faint);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-lo);
+  font-size: 13px;
+  cursor: pointer;
 }
 
 .draft-banner {

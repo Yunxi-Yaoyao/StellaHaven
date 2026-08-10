@@ -6,6 +6,7 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { tags as cmTags } from "@lezer/highlight";
+import { searchKeymap } from "@codemirror/search";
 
 // Stella 配色语法高亮（月白银/樱粉系，吃 design tokens 的色）
 const stellaHighlight = HighlightStyle.define([
@@ -85,7 +86,12 @@ onMounted(() => {
       extensions: [
         history(),
         keymap.of([
+          // 编辑器快捷键（手不离键盘）
+          { key: "Mod-b", run: () => { wrapSelection("**", "**", "粗体"); return true; } },
+          { key: "Mod-i", run: () => { wrapSelection("*", "*", "斜体"); return true; } },
+          { key: "Mod-k", run: () => { wrapSelection("[", "](https://)", "链接文字"); return true; } },
           { key: "Enter", run: continueList }, // 列表/待办/引用自动续行
+          ...searchKeymap, // Ctrl+F 文内查找/替换
           ...defaultKeymap,
           ...historyKeymap,
         ]),

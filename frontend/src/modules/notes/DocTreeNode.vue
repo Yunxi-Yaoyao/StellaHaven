@@ -167,6 +167,8 @@ const hasKids = computed(() => props.node.children.length > 0);
   display: none;
   flex-shrink: 0;
   gap: 2px;
+  margin-left: auto; /* 操作按钮统一靠右（老婆定的） */
+  padding-left: 6px;
 }
 .row:hover .actions { display: flex; }
 .row:hover .indicators { display: none; } /* hover 时指示让位给操作 */
