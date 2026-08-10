@@ -25,11 +25,13 @@
     "live2d-widget-model-shizuku": "^1.0.5",
     "marked": "^18.0.9",
     "pinia": "^4.0.2",
+    "three": "^0.185.1",
     "vue": "^3.5.40",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/tsconfig": "^0.9.1",
     "typescript": "~6.0.2",

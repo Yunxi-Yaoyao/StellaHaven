@@ -31,7 +31,9 @@ function setBg() {
   }
 }
 
-/* ================= Live2D 挂件（右侧大摆件，兼每日塔罗播报） ================= */
+/* ================= 3D 挂件（Shinano，戳她播报今日塔罗） ================= */
+import ShinanoWidget from "./ShinanoWidget.vue";
+
 const tarotBubble = ref(false);
 let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -39,40 +41,6 @@ function showTarotBubble() {
   tarotBubble.value = true;
   if (bubbleTimer) clearTimeout(bubbleTimer);
   bubbleTimer = setTimeout(() => (tarotBubble.value = false), 6000);
-}
-
-function initLive2d() {
-  // 核心库 + 挂件壳要按顺序加载（壳才注册 window.L2Dwidget）
-  const core = document.createElement("script");
-  core.src = "/live2d/L2Dwidget.0.min.js";
-  core.onload = () => {
-    const shell = document.createElement("script");
-    shell.src = "/live2d/L2Dwidget.min.js";
-    shell.onload = () => {
-      // @ts-expect-error 全局挂件库
-      const w = window.L2Dwidget;
-      if (!w) return;
-      w.init({
-        model: { jsonPath: "/live2d/shizuku/shizuku.model.json", scale: 1 },
-        display: {
-          position: "right",
-          width: 300,   // 大摆件，填充右侧
-          height: 420,
-          hOffset: 40,
-          vOffset: -10,
-        },
-        mobile: { show: true, scale: 0.6 },
-        react: { opacityDefault: 0.85, opacityOnHover: 1 },
-      });
-      // 点挂件 → 播报今日塔罗
-      setTimeout(() => {
-        const canvas = document.getElementById("live2dcanvas");
-        canvas?.addEventListener("click", showTarotBubble);
-      }, 800);
-    };
-    document.head.appendChild(shell);
-  };
-  document.head.appendChild(core);
 }
 const MAJORS: [string, string][] = [
   ["愚者", "新的开始，别怕迈出第一步"],
@@ -108,7 +76,6 @@ const todayCard = computed(() => {
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 let raf = 0;
 onMounted(() => {
-  initLive2d();
   const canvas = canvasEl.value!;
   const ctx = canvas.getContext("2d")!;
   let w = (canvas.width = canvas.offsetWidth);
@@ -189,7 +156,10 @@ const dateLine = computed(() =>
       </div>
     </div>
 
-    <!-- Live2D 挂件（右侧大摆件）；点一下播报今日塔罗 -->
+    <!-- 3D 挂件（Shinano）坐镇右侧；戳她播报今日塔罗 -->
+    <div class="shinano">
+      <ShinanoWidget @poke="showTarotBubble" />
+    </div>
     <Transition name="bubble">
       <div v-if="tarotBubble" class="tarot-bubble">
         <div class="tb-name">🃏 今日牌 · {{ todayCard[0] }}</div>
@@ -305,6 +275,50 @@ const dateLine = computed(() =>
 .mood.empty { color: var(--text-faint); }
 .mood:hover { opacity: 0.8; }
 
+
+/* ── 3D 挂件位（右侧大块空间） ── */
+.shinano {
+  position: absolute;
+  right: 4%;
+  bottom: 0;
+  width: 380px;
+  height: 72%;
+  z-index: 5;
+}
+
+/* ── 塔罗气泡 ── */
+.tarot-bubble {
+  position: absolute;
+  right: 60px;
+  top: 12%;
+  max-width: 250px;
+  padding: 14px 18px;
+  background: rgba(27, 31, 42, 0.75);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--accent-dim);
+  border-radius: 14px 14px 4px 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  z-index: 30;
+}
+.bubble-enter-active, .bubble-leave-active {
+  transition: all 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.bubble-enter-from, .bubble-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.96);
+}
+.tb-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+.tb-mean {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-lo);
+  line-height: 1.7;
+}
 
 .bg-btn {
   position: absolute;
