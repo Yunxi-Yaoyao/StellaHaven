@@ -150,9 +150,9 @@ function onSearchInput() {
           @click="switchWs(w.id)"
         >{{ w.name }}</div>
         <div class="ws-divider" />
-        <div class="ws-opt action" @click="onNewWs">＋ 新建工作区</div>
-        <div class="ws-opt action" @click="onRenameWs">✎ 重命名工作区</div>
-        <div class="ws-opt action danger" @click="onDeleteWs">🗑 删除工作区</div>
+        <div class="ws-opt action" @click="onNewWs"><Icon name="plus" :size="13" /> 新建工作区</div>
+        <div class="ws-opt action" @click="onRenameWs"><Icon name="edit" :size="13" /> 重命名工作区</div>
+        <div class="ws-opt action danger" @click="onDeleteWs"><Icon name="trash" :size="13" /> 删除工作区</div>
       </div>
     </div>
 
@@ -470,6 +470,9 @@ function onSearchInput() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .ws-opt:hover { background: var(--bg-panel); color: var(--text-hi); }
 .ws-opt.on { color: var(--accent); }
