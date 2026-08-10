@@ -1402,6 +1402,30 @@ function fmtDraftTime(iso: string) {
   margin: 20px 0;
 }
 .markdown-body :deep(a) { color: var(--pink); }
+.markdown-body :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.markdown-body :deep(th) {
+  background: var(--bg-raised);
+  color: var(--accent);
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.markdown-body :deep(td) {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-lo);
+}
+.markdown-body :deep(tr:nth-child(even) td) { background: rgba(255, 255, 255, 0.02); }
+.markdown-body :deep(input[type="checkbox"]) {
+  accent-color: var(--pink);
+  margin-right: 4px;
+}
 .markdown-body :deep(img) {
   max-width: 100%;
   border-radius: var(--radius-sm);
