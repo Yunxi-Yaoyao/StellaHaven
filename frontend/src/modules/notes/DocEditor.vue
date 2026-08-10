@@ -429,8 +429,8 @@ function dismissDraft() {
 
 // ── 导出 ──
 // 规则（老婆定的）：含本地附件 → 打包 zip（改写为相对路径）；纯文本 → 直接下对应格式
-const exportOpen = ref(false);
-const previewExport = ref<"pdf" | "png" | null>(null);
+// 交互（老婆定的）：点导出直接浮出独立窗口，里面预览 + 选格式
+const exportWin = ref(false);
 const ATTACH_RE = /\/attachments\/([0-9a-f-]{36})/g;
 
 function download(filename: string, content: string | Blob, mime: string) {
@@ -476,7 +476,7 @@ async function packZip(innerName: string, innerContent: string) {
 }
 
 async function exportMd() {
-  exportOpen.value = false;
+  exportWin.value = false;
   const base = title.value || "未命名";
   const ids = localAttachIds();
   if (!ids.length) {
@@ -492,7 +492,7 @@ async function exportMd() {
 }
 
 async function exportHtml() {
-  exportOpen.value = false;
+  exportWin.value = false;
   const base = title.value || "未命名";
   const ids = localAttachIds();
   if (!ids.length) {
@@ -505,23 +505,13 @@ async function exportHtml() {
   toast("已打包导出（含本地图片）✓");
 }
 
-// PDF/PNG 走预览弹窗
-function openPreviewExport(kind: "md" | "html" | "pdf" | "png") {
-  if (kind === "md") exportMd();
-  else if (kind === "html") exportHtml();
-  else {
-    exportOpen.value = false;
-    previewExport.value = kind;
-  }
-}
-
 async function doExportPng() {
   const el = document.querySelector(".export-preview-body") as HTMLElement;
   if (!el) return;
   const { default: html2canvas } = await import("html2canvas");
   const canvas = await html2canvas(el, { backgroundColor: "#ffffff", scale: 2 });
   canvas.toBlob((b) => b && download(`${title.value || "未命名"}.png`, b, "image/png"));
-  previewExport.value = null;
+  exportWin.value = false;
   toast("PNG 已导出 ✓");
 }
 
@@ -620,15 +610,9 @@ function fmtDraftTime(iso: string) {
         <button class="mode-toggle" @click="reading = !reading">
           <Icon :name="reading ? 'edit' : 'eye'" :size="13" /> {{ reading ? "编辑" : "阅览" }}
         </button>
-        <span class="export-wrap">
-          <button class="mode-toggle" @click="exportOpen = !exportOpen"><Icon name="move" :size="13" style="transform:rotate(90deg)" /> 导出</button>
-          <span v-if="exportOpen" class="export-menu">
-            <button @click="openPreviewExport('md')">Markdown (.md)</button>
-            <button @click="openPreviewExport('html')">网页 (.html)</button>
-            <button @click="openPreviewExport('pdf')">PDF（预览）</button>
-            <button @click="openPreviewExport('png')">PNG（预览）</button>
-          </span>
-        </span>
+        <button class="mode-toggle" @click="exportWin = true">
+          <Icon name="move" :size="13" style="transform:rotate(90deg)" /> 导出
+        </button>
         <button class="del-btn" @click="remove">删除</button>
       </div>
     </div>
@@ -730,18 +714,25 @@ function fmtDraftTime(iso: string) {
       >{{ t.text }}</div>
     </div>
 
-    <!-- 导出预览弹窗（PDF/PNG 先预览再导） -->
-    <div v-if="previewExport" class="mask" @click.self="previewExport = null">
-      <div class="export-dialog">
-        <div class="ed-head">导出预览 · {{ previewExport === 'pdf' ? 'PDF' : 'PNG' }}</div>
+    <!-- 导出窗口：独立浮窗，预览 + 选格式一站完成 -->
+    <div v-if="exportWin" class="mask" @click.self="exportWin = false">
+      <div class="export-window">
+        <div class="ew-titlebar">
+          <span class="ew-title">导出 · {{ title || "未命名" }}</span>
+          <button class="ew-close" @click="exportWin = false">×</button>
+        </div>
         <div class="export-preview-body markdown-body">
           <h1>{{ title || "未命名" }}</h1>
           <div v-html="rendered"></div>
         </div>
-        <div class="ed-foot">
-          <button v-if="previewExport === 'pdf'" class="primary" @click="doExportPdf">打印 / 存为 PDF</button>
-          <button v-else class="primary" @click="doExportPng">下载 PNG</button>
-          <button class="ghost" @click="previewExport = null">取消</button>
+        <div class="ew-foot">
+          <span class="ew-hint">{{ localAttachIds().length ? `含 ${localAttachIds().length} 个本地图片，md/html 会自动打包 zip` : "纯文本，直接导出单文件" }}</span>
+          <div class="ew-formats">
+            <button @click="exportMd">Markdown</button>
+            <button @click="exportHtml">HTML</button>
+            <button @click="doExportPdf">PDF</button>
+            <button @click="doExportPng">PNG</button>
+          </div>
         </div>
       </div>
     </div>
@@ -832,9 +823,9 @@ function fmtDraftTime(iso: string) {
 }
 .toc-item:hover { background: var(--bg-panel); color: var(--accent); }
 
-/* 导出预览弹窗 */
-.export-dialog {
-  width: min(720px, 92vw);
+/* 导出窗口：独立浮窗（标题栏 + 预览 + 格式栏），弹出带缩放动画不突兀 */
+.export-window {
+  width: min(760px, 92vw);
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -842,46 +833,66 @@ function fmtDraftTime(iso: string) {
   border: 1px solid var(--bg-raised);
   border-radius: var(--radius);
   overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  animation: win-in 220ms ease;
 }
-.ed-head { padding: 14px 18px; font-size: 14px; font-weight: 600; }
+@keyframes win-in {
+  from { transform: scale(0.96) translateY(10px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}
+.ew-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--bg-raised);
+  background: var(--bg-raised);
+}
+.ew-title { font-size: 13.5px; font-weight: 600; letter-spacing: 0.5px; }
+.ew-close {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.ew-close:hover { color: var(--pink); }
 .export-preview-body {
   flex: 1;
   overflow-y: auto;
-  margin: 0 18px;
+  margin: 14px 18px 0;
   padding: 20px 24px;
   background: #ffffff;
   color: #222;
   border-radius: var(--radius-sm);
   font-family: -apple-system, Inter, "PingFang SC", sans-serif;
   line-height: 1.7;
+  min-height: 200px;
 }
 .export-preview-body :deep(h1) { color: #222; margin: 0 0 12px; }
 .export-preview-body :deep(*) { color: #222; }
-.ed-foot {
+.ew-foot {
   display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  padding: 14px 18px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px 14px;
+  flex-wrap: wrap;
 }
-.ed-foot .primary {
-  padding: 8px 18px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: var(--bg-base);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.ed-foot .ghost {
-  padding: 8px 18px;
-  border: 1px solid var(--text-faint);
+.ew-hint { font-size: 11px; color: var(--text-faint); }
+.ew-formats { display: flex; gap: 8px; }
+.ew-formats button {
+  padding: 7px 16px;
+  border: 1px solid var(--accent-dim);
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-lo);
-  font-size: 13px;
+  color: var(--accent);
+  font-size: 12.5px;
   cursor: pointer;
+  transition: all var(--transition);
 }
+.ew-formats button:hover { background: var(--bg-raised); }
 
 .draft-banner {
   display: flex;
