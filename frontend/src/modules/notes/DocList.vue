@@ -133,13 +133,23 @@ async function onDropOnNode(target: TreeNode) {
   if (doc) await store.moveTo(doc, target.id);
 }
 
-async function onDropToRoot(e: DragEvent) {
-  // 落在空白区/容器上 = 移回根级；落在节点上由节点自己处理，别抢
+function onListDragOver(e: DragEvent) {
+  // 落在节点行上由节点自己处理；其余区域都算「回根级」的合法落点
   if ((e.target as HTMLElement).closest(".row")) return;
-  const id = e.dataTransfer?.getData("text/plain");
+  if (!store.draggingId) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+}
+
+async function onDropToRoot(e: DragEvent) {
+  // 落在节点行上由节点自己处理（挂为子页），别抢
+  if ((e.target as HTMLElement).closest(".row")) return;
+  const id = e.dataTransfer?.getData("text/plain") || store.draggingId;
   if (!id) return;
+  e.preventDefault();
   const doc = store.docs.find((d) => d.id === id);
   if (doc && doc.parent_id) await store.moveTo(doc, null);
+  store.draggingId = null;
 }
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -217,7 +227,7 @@ function onSearchInput() {
 
     <button class="new-btn" @click="emit('newChild', null)"><Icon name="plus" :size="13" /> 新建笔记</button>
 
-    <div class="items">
+    <div class="items" @dragover="onListDragOver" @drop="onDropToRoot">
       <!-- 筛选中（文本搜索 / 标签 / 叠加）：平铺结果 -->
       <template v-if="flatMode">
         <div v-if="searching && filterTagId" class="search-hint">
@@ -284,24 +294,21 @@ function onSearchInput() {
             <span class="sec-caret" :class="{ open: sections.tree }">▸</span> <Icon name="book" :size="13" /> 全部笔记
           </div>
           <template v-if="sections.tree">
-            <!-- 拖到空白区 = 移回根级 -->
-            <div class="tree-root" @dragover.prevent @drop="onDropToRoot">
-              <DocTreeNode
-                v-for="node in tree"
-                :key="node.id"
-                :node="node"
-                :depth="0"
-                :current-id="props.currentId"
-                :expanded="expanded"
-                @open="emit('open', $event)"
-                @toggle="toggle"
-                @new-child="emit('newChild', $event)"
-                @move="emit('move', $event)"
-                @del="emit('del', $event)"
-                @drop-on="onDropOnNode"
-              />
-              <div v-if="tree.length === 0" class="empty">还没有笔记，点上面新建一篇吧</div>
-            </div>
+            <DocTreeNode
+              v-for="node in tree"
+              :key="node.id"
+              :node="node"
+              :depth="0"
+              :current-id="props.currentId"
+              :expanded="expanded"
+              @open="emit('open', $event)"
+              @toggle="toggle"
+              @new-child="emit('newChild', $event)"
+              @move="emit('move', $event)"
+              @del="emit('del', $event)"
+              @drop-on="onDropOnNode"
+            />
+            <div v-if="tree.length === 0" class="empty">还没有笔记，点上面新建一篇吧</div>
           </template>
         </div>
       </template>

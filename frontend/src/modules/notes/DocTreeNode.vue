@@ -34,6 +34,7 @@ function onDragEnd() {
 function onDragOver(e: DragEvent) {
   if (!store.draggingId || store.draggingId === props.node.id) return;
   e.preventDefault(); // 允许落下
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; // 关键：声明 move，不然浏览器显示「松开以搜索」
   dragOver.value = true;
 }
 function onDragLeave() {
