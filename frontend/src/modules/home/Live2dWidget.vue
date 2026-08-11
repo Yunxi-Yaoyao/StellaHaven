@@ -58,17 +58,28 @@ onMounted(async () => {
   app.stage.addChild(model as any);
   // 调试句柄：控制台可用 __miku.expression("脸红") 等直接调戏她
   (window as any).__miku = model;
+  (window as any).__mikuApp = app;
 
-  // 适配容器：居中贴底
+  // 适配容器：水平居中、底部贴到 98% 高度。
+  // 注意：model.width 是「变换后」的宽度（含 scale），反复 fit 会振荡发散——
+  // 必须每次先重置变换，用 getLocalBounds()（不含 scale）做计算基准。
   const fit = () => {
     const w = el.clientWidth;
     const h = el.clientHeight;
-    const s = Math.min(w / model.width, h / model.height) * 0.98;
+    model.scale.set(1);
+    model.position.set(0, 0);
+    const lb = model.getLocalBounds();
+    if (!lb.width || !lb.height) return;
+    const s = Math.min(w / lb.width, h / lb.height) * 0.98;
     model.scale.set(s);
-    model.x = w / 2;
-    model.y = h * 0.98;
+    const b = model.getBounds();
+    model.x += (w - b.width) / 2 - b.x;
+    model.y += h * 0.98 - (b.y + b.height);
   };
   fit();
+  // 贴图加载后再校正两轮（第 1 帧 + 兜底 800ms）
+  requestAnimationFrame(fit);
+  setTimeout(fit, 800);
   ro = new ResizeObserver(fit);
   ro.observe(el);
 
