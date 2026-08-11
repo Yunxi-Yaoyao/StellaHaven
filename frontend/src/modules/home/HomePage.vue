@@ -276,17 +276,17 @@ const dateLine = computed(() =>
 .mood:hover { opacity: 0.8; }
 
 
-/* ── 3D 挂件位（右侧大块空间） ── */
+/* ── Live2D 挂件位（右下固定席位，不随窗口变） ── */
 .shinano {
   position: absolute;
-  right: 4%;
+  right: 24px;
   bottom: 0;
-  width: 380px;
-  height: 72%;
-  z-index: 5;
+  width: 420px;
+  height: 560px;
+  z-index: 8; /* 在签名卡（默认层）之上、塔罗气泡（30）之下——允许盖卡 */
 }
 @media (max-width: 768px) {
-  /* 手机：模型收小沉底靠右，签名卡浮在上层不被压住 */
+  /* 手机：收小沉底靠右，签名卡浮在上层不被压住 */
   .shinano {
     width: 62vw;
     height: 46%;
@@ -298,8 +298,8 @@ const dateLine = computed(() =>
 /* ── 塔罗气泡 ── */
 .tarot-bubble {
   position: absolute;
-  right: 60px;
-  top: 12%;
+  right: 452px; /* 挪到她头左边：模型 420 + 32 间隙，不再压大腿 */
+  top: 10%;
   max-width: 250px;
   padding: 14px 18px;
   background: rgba(27, 31, 42, 0.75);
@@ -308,6 +308,7 @@ const dateLine = computed(() =>
   border-radius: 14px 14px 4px 14px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   z-index: 30;
+  pointer-events: none; /* 只是播报 toast，不挡 Miku 的点击 */
 }
 .bubble-enter-active, .bubble-leave-active {
   transition: all 350ms cubic-bezier(0.22, 1, 0.36, 1);
