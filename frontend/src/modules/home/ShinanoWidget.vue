@@ -1,10 +1,8 @@
 <script setup lang="ts">
-// 3D 挂件：Shinano（VRChat FBX → GLB，draco+webp 压缩到 15MB）
-// three.js + GLTFLoader + DRACOLoader；待机轻摇摆 + 视线/头部跟鼠标
+// 3D 挂件：Sour Cozy Cocoa Miku（MMD PMX 直载）；待机轻摇摆 + 视线/头部跟鼠标
 import { ref, onMounted, onUnmounted } from "vue";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
+import { MMDLoader } from "three-stdlib";
 
 const emit = defineEmits<{ poke: [] }>();
 
@@ -32,27 +30,35 @@ onMounted(() => {
   rim.position.set(-2, 1.5, -2);
   scene.add(rim);
 
-  const draco = new DRACOLoader().setDecoderPath("/draco/");
-  const loader = new GLTFLoader().setDRACOLoader(draco);
+  const loader = new MMDLoader();
 
-  let model: THREE.Group | null = null;
+  let model: THREE.Object3D | null = null;
   let head: THREE.Object3D | null = null;
 
-  loader.load("/assets/shinano/Shinano-web.glb", (gltf: any) => {
-    const m = gltf.scene as THREE.Group;
-    model = m;
-    // 居中：算包围盒，把模型摆到地面上、面向镜头
-    const box = new THREE.Box3().setFromObject(m);
+  // MMD 模型（PMX 直载，贴图自动按相对路径解析）
+  loader.load("/assets/miku/Sour Cozy Cocoa Miku/Sour Cozy Cocoa Miku.pmx", (m: any) => {
+    model = m as THREE.Object3D;
+    // MMD 单位小，按包围盒归一化到 ~1.9 高
+    const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
-    m.position.set(-center.x, -box.min.y, -center.z);
+    model.position.set(-center.x, -box.min.y, -center.z);
     const s = 1.9 / size.y;
-    m.scale.setScalar(s);
-    scene.add(m);
+    model.scale.setScalar(s);
+    scene.add(model);
+    (window as any).__miku = model; // 调试：控制台查骨骼/表情名
 
-    // 找头骨做注视（VRChat 人形标准命名 Head）
-    m.traverse((o: THREE.Object3D) => {
-      if (!head && /head/i.test(o.name)) head = o;
+    // MMD 骨骼是日文的：头 = 頭
+    model.traverse((o: THREE.Object3D) => {
+      if (!head && (o.name === "頭" || /head/i.test(o.name))) head = o;
+    });
+
+    // 初始姿势去呆化：T-pose → 自然垂手（老婆：初始状态有点呆）
+    model.traverse((o: THREE.Object3D) => {
+      if (o.name === "左腕") o.rotation.z = 1.15;
+      if (o.name === "右腕") o.rotation.z = -1.15;
+      if (o.name === "左肩") o.rotation.z = 0.25;
+      if (o.name === "右肩") o.rotation.z = -0.25;
     });
   });
 
@@ -99,7 +105,6 @@ onMounted(() => {
     ro.disconnect();
     window.removeEventListener("mousemove", onMove);
     renderer?.dispose();
-    draco.dispose();
   });
 });
 </script>

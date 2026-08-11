@@ -31,8 +31,8 @@ function setBg() {
   }
 }
 
-/* ================= 3D 挂件（Shinano，戳她播报今日塔罗） ================= */
-import ShinanoWidget from "./ShinanoWidget.vue";
+/* ================= Live2D 挂件（Miku，戳她播报今日塔罗） ================= */
+import Live2dWidget from "./Live2dWidget.vue";
 
 const tarotBubble = ref(false);
 let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -156,9 +156,9 @@ const dateLine = computed(() =>
       </div>
     </div>
 
-    <!-- 3D 挂件（Shinano）坐镇右侧；戳她播报今日塔罗 -->
+    <!-- Live2D 挂件（Miku）坐镇右侧；戳她播报今日塔罗 -->
     <div class="shinano">
-      <ShinanoWidget @poke="showTarotBubble" />
+      <Live2dWidget @poke="showTarotBubble" />
     </div>
     <Transition name="bubble">
       <div v-if="tarotBubble" class="tarot-bubble">
@@ -284,6 +284,15 @@ const dateLine = computed(() =>
   width: 380px;
   height: 72%;
   z-index: 5;
+}
+@media (max-width: 768px) {
+  /* 手机：模型收小沉底靠右，签名卡浮在上层不被压住 */
+  .shinano {
+    width: 62vw;
+    height: 46%;
+    right: -4%;
+  }
+  .sig-card { z-index: 10; }
 }
 
 /* ── 塔罗气泡 ── */
