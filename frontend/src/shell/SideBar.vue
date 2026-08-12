@@ -137,6 +137,14 @@ const navItems = [
 }
 .icon { width: 22px; text-align: center; display: inline-flex; align-items: center; justify-content: center; }
 .label { font-size: 14.5px; letter-spacing: 0.5px; }
+.settings-entry {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
 
 .spacer { flex: 1; }
 

@@ -5,6 +5,7 @@ from app.routers import (
     ws_router,
 )
 from app.routers.attachment import router as attachment_router
+from app.routers.homebg import router as homebg_router
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -23,5 +24,6 @@ app.include_router(document_link_router)
 app.include_router(document_version_router)
 app.include_router(ws_router)
 app.include_router(attachment_router)
+app.include_router(homebg_router)
 app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 

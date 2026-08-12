@@ -7,6 +7,9 @@ import * as PIXI from "pixi.js";
 // 所以必须先把两个运行时脚本挂上 window，再动态 import 它。
 
 const emit = defineEmits<{ poke: [] }>();
+// headroom：画布顶部留白（px）。人形缩放只按「画布高 - headroom」算——
+// 画布向上延伸时体型不变，头顶多出一截空间
+const props = withDefaults(defineProps<{ headroom?: number }>(), { headroom: 0 });
 const host = ref<HTMLElement | null>(null);
 // 热区透视（#zones 开启）：把点击分区画在她身上给老婆校准
 const showZones = typeof location !== "undefined" && location.hash.includes("zones");
@@ -149,20 +152,26 @@ onMounted(async () => {
   });
   const fit = () => {
     const w = el.clientWidth;
-    const h = el.clientHeight;
+    const h = el.clientHeight - props.headroom; // 有效人形区高度（顶部留白不参与缩放）
+    // 容器尺寸变化时渲染器 buffer 必须跟着 resize——否则 CSS 100% 拉伸旧 buffer（比例拉伸的根因）
+    const rw = app!.renderer.width / app!.renderer.resolution;
+    const rh = app!.renderer.height / app!.renderer.resolution;
+    if (Math.round(rw) !== el.clientWidth || Math.round(rh) !== el.clientHeight) {
+      app!.renderer.resize(el.clientWidth, el.clientHeight);
+    }
     model.scale.set(1);
     model.position.set(0, 0);
     const lb = model.getLocalBounds();
     if (!lb.width || !lb.height) return;
     const s = Math.min(w / lb.width, h / (lb.height * CROP_TOP)) * 0.98;
     model.scale.set(s);
-    // 先粗放到画布中央，再量真实内容精修：内容水平居中、头顶贴 2%
+    // 先粗放到画布中央，再量真实内容精修：内容水平居中、头顶贴留白下沿 2%
     const b = model.getBounds();
     model.x += (w - b.width) / 2 - b.x;
-    model.y += h * 0.02 - b.y;
+    model.y += props.headroom + h * 0.02 - b.y;
     measureContent();
     model.x += (w - contentBox.w) / 2 - contentBox.x;
-    model.y += h * 0.02 - contentBox.y;
+    model.y += props.headroom + h * 0.02 - contentBox.y;
     measureContent();
     formTween = null; // 硬取景取消补间
     normalY = model.y;

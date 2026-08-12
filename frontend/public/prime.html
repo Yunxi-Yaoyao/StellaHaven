@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>prime</title><style>html,body{margin:0;height:100%;background:#0d0f14}canvas{display:block}</style></head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// 截图自检工具页：?mode=prime 只种 localStorage；?mode=sim 画「预览等效图」（支持图片和 MP4）
+const q = new URLSearchParams(location.search);
+const mode = q.get("mode") || "prime";
+
+if (mode === "prime") {
+  for (const [k, v] of q) if (k !== "mode") localStorage.setItem(k, v);
+  document.title = "primed";
+  document.body.innerHTML = "<p style='color:#888;font:14px monospace'>primed</p>";
+} else if (mode === "sim") {
+  // 图片数学 = background-size% + position%；
+  // 视频数学 = object-fit:cover + object-position% + 中心 scale（与主题视频分支一致）
+  const bg = q.get("bg") || "/assets/homebg/default-bg-kimono.jpeg";
+  const zoom = parseFloat(q.get("zoom") || "100") / 100;
+  const px = parseFloat(q.get("px") || "50") / 100;
+  const py = parseFloat(q.get("py") || "50") / 100;
+  const c = document.getElementById("c");
+  const W = (c.width = innerWidth);
+  const H = (c.height = innerHeight);
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#f7fafc";
+  ctx.fillRect(0, 0, W, H);
+
+  function drawScrim() {
+    const g = ctx.createLinearGradient(0, 0, W * 0.62, 0);
+    g.addColorStop(0, "rgba(247,250,252,0.97)");
+    g.addColorStop(0.48, "rgba(247,250,252,0.94)");
+    g.addColorStop(0.74, "rgba(247,250,252,0.55)");
+    g.addColorStop(1, "rgba(247,250,252,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    document.title = "sim-done";
+  }
+
+  if (bg.toLowerCase().endsWith(".mp4")) {
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.preload = "auto";
+    v.src = bg;
+    let drawn = false;
+    // 轮询就绪（headless 下 canplay 事件可能不发，别等事件）
+    const dbg = document.createElement("div");
+    dbg.style.cssText = "position:fixed;left:0;top:0;color:#888;font:12px monospace;z-index:9";
+    document.body.appendChild(dbg);
+    const poll = setInterval(() => {
+      dbg.textContent = `readyState=${v.readyState} vw=${v.videoWidth} net=${v.networkState} err=${v.error ? v.error.code : "-"} t=${v.currentTime.toFixed(1)} drawn=${drawn}`;
+      if (drawn || v.readyState < 2 || !v.videoWidth) return;
+      drawn = true;
+      clearInterval(poll);
+      try { v.currentTime = 0.1; } catch (e) {}
+      setTimeout(() => {
+        const s = Math.max(W / v.videoWidth, H / v.videoHeight);
+        const dw = v.videoWidth * s, dh = v.videoHeight * s;
+        const ox = (W - dw) * px, oy = (H - dh) * py;
+        ctx.save();
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(zoom, zoom);
+        ctx.translate(-W / 2, -H / 2);
+        ctx.drawImage(v, ox, oy, dw, dh);
+        ctx.restore();
+        drawScrim();
+      }, 600); // 给 seek 落帧一点时间
+    }, 200);
+  } else {
+    const img = new Image();
+    img.onload = () => {
+      const iw = W * zoom;
+      const ih = iw * (img.naturalHeight / img.naturalWidth);
+      ctx.drawImage(img, (W - iw) * px, (H - ih) * py, iw, ih);
+      drawScrim();
+    };
+    img.src = bg;
+  }
+}
+</script>
+</body>
+</html>

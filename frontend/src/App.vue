@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from "vue";
 import SideBar from "./shell/SideBar.vue";
+import SettingsPanel from "./shell/SettingsPanel.vue";
+import BgManager from "./modules/home/BgManager.vue";
 import { toasts } from "./composables/useToast";
 import { lightbox, closeLightbox } from "./composables/useLightbox";
 
@@ -65,6 +67,11 @@ function toggleSidebar() {
     <div v-if="mobileOpen" class="mobile-mask" @click="mobileOpen = false" />
     <!-- 移动端汉堡按钮 -->
     <button v-if="!mobileOpen" class="hamburger" @click="mobileOpen = true">☰</button>
+
+    <!-- 设置面板（右侧滑出） -->
+    <SettingsPanel />
+    <!-- 背景图库浮窗 -->
+    <BgManager />
 
     <main class="content">
       <RouterView v-slot="{ Component }">
