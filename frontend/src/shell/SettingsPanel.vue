@@ -5,6 +5,7 @@ import { settingsOpen, bgManagerOpen, homeSettings, DEFAULT_HOME_BG } from "../m
 
 const themes = [
   { key: "daybreak", name: "破晓", desc: "白天云海 · 黑胶唱片 · 衬线标题" },
+  { key: "nightfall", name: "夜泊", desc: "破晓同款暗色版 · 月光银 · 夜色玻璃" },
   { key: "coastline", name: "海岸线", desc: "航拍海岸 · 木质栈台 · 信纸水洼" },
   { key: "classic", name: "经典", desc: "夜色星空 · 签名卡 · 初版主页" },
 ];

@@ -5,10 +5,12 @@ import { homeSettings } from "./settings";
 import HomeClassic from "./themes/HomeClassic.vue";
 import HomeCoastline from "./themes/HomeCoastline.vue";
 import HomeDaybreak from "./themes/HomeDaybreak.vue";
+import HomeNightfall from "./themes/HomeNightfall.vue";
 
 const Active = computed(() =>
   homeSettings.theme === "classic" ? HomeClassic :
   homeSettings.theme === "coastline" ? HomeCoastline :
+  homeSettings.theme === "nightfall" ? HomeNightfall :
   HomeDaybreak
 );
 </script>
