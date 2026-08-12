@@ -31,6 +31,22 @@ const bgName = computed(() => {
 const bgIsVideo = computed(() => homeSettings.bgImage.toLowerCase().endsWith(".mp4"));
 
 function resetBg() { homeSettings.bgImage = DEFAULT_HOME_BG; }
+
+/* 自绘下拉（原生 select 的选中蓝样式管不了，老婆实锤刺眼） */
+const selOpen = ref(false);
+const particleOptions = [
+  { value: "stars", label: "星空点点" },
+  { value: "motes", label: "浮尘微粒" },
+  { value: "sakura", label: "樱花飘落" },
+  { value: "off", label: "关闭" },
+] as const;
+const particleLabel = computed(() =>
+  particleOptions.find((o) => o.value === homeSettings.particles)?.label ?? "星空点点"
+);
+function pickParticle(v: string) {
+  (homeSettings as any).particles = v;
+  selOpen.value = false;
+}
 </script>
 
 <template>
@@ -62,12 +78,59 @@ function resetBg() { homeSettings.bgImage = DEFAULT_HOME_BG; }
 
         <section class="sec">
           <div class="sec-t">氛围粒子</div>
-          <select v-model="homeSettings.particles" class="bg-input select">
-            <option value="stars">星空点点</option>
-            <option value="motes">浮尘微粒</option>
-            <option value="sakura">樱花飘落</option>
-            <option value="off">关闭</option>
-          </select>
+          <div class="sel">
+            <button class="sel-btn" @click="selOpen = !selOpen">
+              <span>{{ particleLabel }}</span>
+              <span class="sel-arrow" :class="{ up: selOpen }">▾</span>
+            </button>
+            <Transition name="drop">
+              <div v-if="selOpen" class="sel-list">
+                <button
+                  v-for="o in particleOptions"
+                  :key="o.value"
+                  class="sel-opt"
+                  :class="{ on: homeSettings.particles === o.value }"
+                  @click="pickParticle(o.value)"
+                >
+                  <span>{{ o.label }}</span>
+                  <span class="tick">{{ homeSettings.particles === o.value ? "●" : "" }}</span>
+                </button>
+              </div>
+            </Transition>
+            <div v-if="selOpen" class="sel-mask" @click="selOpen = false" />
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-t">站点</div>
+          <div class="field">
+            <span class="f-label">头像</span>
+            <img class="avatar-preview" :src="homeSettings.avatar" alt="头像预览" />
+            <input v-model="homeSettings.avatar" class="bg-input" placeholder="/avatar.png" />
+            <button class="mini-btn" title="恢复默认头像" @click="homeSettings.avatar = '/avatar.png'">默认</button>
+          </div>
+          <div class="field">
+            <span class="f-label">大标题</span>
+            <input v-model="homeSettings.siteTitle" class="bg-input" placeholder="StellaHaven" />
+          </div>
+          <div class="field">
+            <span class="f-label">签名</span>
+            <input v-model="homeSettings.signature" class="bg-input" placeholder="夜有星辰，晨有曦光。" />
+          </div>
+          <div class="field">
+            <span class="f-label">相识起点</span>
+            <input v-model="homeSettings.meetDate" class="bg-input" type="date" />
+          </div>
+          <div class="row">
+            <span class="r-text">Live2D 挂件（Miku）</span>
+            <button
+              class="switch"
+              :class="{ on: homeSettings.live2d }"
+              role="switch"
+              :aria-checked="homeSettings.live2d"
+              @click="homeSettings.live2d = !homeSettings.live2d"
+            ><i /></button>
+          </div>
         </section>
 
         <section class="sec">
@@ -182,6 +245,9 @@ function resetBg() { homeSettings.bgImage = DEFAULT_HOME_BG; }
 }
 .bg-input:focus { border-color: var(--accent-dim); }
 .bg-now { display: flex; align-items: center; gap: 12px; }
+.field { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.f-label { font-size: 12.5px; color: var(--text-lo); width: 60px; flex-shrink: 0; letter-spacing: 1px; }
+.field .bg-input { flex: 1; }
 .bg-preview {
   width: 108px; height: 64px;
   border-radius: 10px; overflow: hidden;
@@ -199,14 +265,55 @@ function resetBg() { homeSettings.bgImage = DEFAULT_HOME_BG; }
   font-size: 13.5px; color: var(--text-hi); letter-spacing: 0.5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.select {
-  appearance: none;
-  cursor: pointer;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-lo) 50%), linear-gradient(135deg, var(--text-lo) 50%, transparent 50%);
-  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
-  background-size: 5px 5px;
-  background-repeat: no-repeat;
+.avatar-preview {
+  width: 34px; height: 34px; border-radius: 50%;
+  object-fit: cover; flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
+/* 自绘下拉：和面板同质感（隐边按钮 + 深色浮层列表，无原生蓝） */
+.sel { position: relative; }
+.sel-btn {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-hi);
+  font-size: 13.5px; font-family: inherit;
+  cursor: pointer;
+  transition: all 220ms;
+}
+.sel-btn:hover { background: rgba(255, 255, 255, 0.06); }
+.sel-arrow { font-size: 11px; color: var(--text-lo); transition: transform 220ms; }
+.sel-arrow.up { transform: rotate(180deg); }
+.sel-mask { position: fixed; inset: 0; z-index: 96; }
+.sel-list {
+  position: absolute; left: 0; right: 0; top: calc(100% + 6px);
+  z-index: 97;
+  background: var(--bg-panel);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: 5px;
+  overflow: hidden;
+}
+.sel-opt {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 11px;
+  border: none; border-radius: 8px;
+  background: transparent;
+  color: var(--text-lo);
+  font-size: 13px; font-family: inherit;
+  cursor: pointer;
+  transition: all 180ms;
+}
+.sel-opt:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-hi); }
+.sel-opt.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.tick { font-size: 10px; }
+.drop-enter-active, .drop-leave-active { transition: all 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+.drop-enter-from, .drop-leave-to { opacity: 0; transform: translateY(-6px); }
 .bg-actions { display: flex; gap: 8px; margin-top: 10px; }
 .mini-btn {
   padding: 6px 14px;

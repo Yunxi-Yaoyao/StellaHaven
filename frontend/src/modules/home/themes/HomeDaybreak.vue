@@ -2,10 +2,11 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 
 /* ================= 文字内容 ================= */
-const signature = "夜有星辰，晨有曦光。";
+const signature = computed(() => homeSettings.signature);
 
 const daysTogether = computed(() => {
-  const from = new Date(2026, 4, 31);
+  const p = (homeSettings.meetDate || "2026-05-31").split("-").map(Number);
+  const from = new Date(p[0], (p[1] || 1) - 1, p[2] || 1);
   return Math.max(1, Math.floor((Date.now() - from.getTime()) / 86400000) + 1);
 });
 
@@ -71,23 +72,12 @@ const todayCard = computed(() => {
   return MAJORS[seed % MAJORS.length];
 });
 
-/* ================= 时光进度条（绑 now 响应式，30s 一跳） ================= */
-const yearProgress = computed(() => {
-  const d = now.value; // 响应式依赖！之前用 new Date() 是冻住的（老婆抓的 bug）
-  const start = new Date(d.getFullYear(), 0, 1).getTime();
-  const end = new Date(d.getFullYear() + 1, 0, 1).getTime();
-  return ((d.getTime() - start) / (end - start)) * 100;
-});
-// 今日进度：肉眼可见地走
-const dayProgress = computed(() => {
-  const d = now.value;
-  return ((d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) / 86400) * 100;
-});
-
 /* ================= 主题切换逻辑已搬进设置面板（SideBar 入口） ================= */
 
 /* ================= 粒子氛围（星空/浮尘/樱花，设置面板下拉切换） ================= */
 import ParticleCanvas from "../ParticleCanvas.vue";
+import TimeProgress from "../TimeProgress.vue";
+const isNight = computed(() => homeSettings.theme === "nightfall");
 const particleMode = computed(() =>
   homeSettings.particles === "off" ? "motes" : homeSettings.particles
 );
@@ -104,7 +94,7 @@ const dateLine = computed(() =>
 </script>
 
 <template>
-  <div class="daybreak">
+  <div class="daybreak" :class="{ night: isNight }">
     <!-- 白昼云海底：背景图提权清晰显示 + 左白右透遮罩（参考图的那层白） -->
     <BgLayer v-if="bgImage" class="bg-img" :url="bgImage" :crop="homeSettings.bgCrop" />
     <div class="scrim" />
@@ -116,7 +106,7 @@ const dateLine = computed(() =>
         <div class="badge">云曦 · YUNXI'S</div>
         <div class="brand-rule" />
       </div>
-      <h1 class="title">StellaHaven</h1>
+      <h1 class="title">{{ homeSettings.siteTitle }}</h1>
 
       <!-- 波形装饰线 -->
       <div class="wave" aria-hidden="true">
@@ -126,7 +116,7 @@ const dateLine = computed(() =>
       <!-- 黑胶唱片（头像碟心，缓转） -->
       <div class="vinyl" title="云曦的唱片">
         <div class="grooves" />
-        <div class="label"><img src="/avatar.png" alt="云曦" /></div>
+        <div class="label"><img :src="homeSettings.avatar" alt="云曦" /></div>
         <div class="sheen" />
       </div>
 
@@ -156,12 +146,10 @@ const dateLine = computed(() =>
         </Transition>
       </div>
 
-      <!-- 时光进度条：今日可见地走 + 今年慢变量 -->
-      <div class="progress-row">
-        <div class="track"><div class="fill" :style="{ width: dayProgress + '%' }" /></div>
-        <span class="pct">{{ dayProgress.toFixed(1) }}%</span>
+      <!-- 时光进度条组（今天/本周/本月 + 今年小字） -->
+      <div class="progress-wrap">
+        <TimeProgress />
       </div>
-      <div class="progress-cap">今天 {{ dayProgress.toFixed(1) }}% · 今年 {{ yearProgress.toFixed(1) }}%</div>
 
       <!-- 底部功能图标行：塔罗 + 设置（换背景/切主题都在面板里） -->
       <div class="controls">
@@ -176,7 +164,7 @@ const dateLine = computed(() =>
 
     <!-- ═══ 右：Miku（出血位贴右缘） ═══ -->
     <div class="shinano">
-      <Live2dWidget :headroom="150" @poke="showTarotBubble" />
+      <Live2dWidget v-if="homeSettings.live2d" :headroom="150" @poke="showTarotBubble" />
     </div>
     <Transition name="bubble">
       <div v-if="tarotBubble" class="tarot-bubble">
@@ -194,22 +182,69 @@ const dateLine = computed(() =>
   position: relative;
   height: 100%;
   overflow: hidden;
-  background: linear-gradient(168deg, #f7fafc 0%, #e8f1f7 46%, #d9e8f2 100%);
+  background: var(--bg-page);
+}
+/* ═══ 皮肤变量：默认=破晓（亮），.night=夜泊（暗） ═══ */
+.daybreak {
+  --bg-page: linear-gradient(168deg, #f7fafc 0%, #e8f1f7 46%, #d9e8f2 100%);
+  --bg-opacity: 0.9;
+  --bg-filter: brightness(1.05) saturate(0.95);
+  --scrim: linear-gradient(to right, rgba(247,250,252,0.97) 0%, rgba(247,250,252,0.94) 30%, rgba(247,250,252,0.55) 46%, rgba(247,250,252,0) 62%);
+  --t-text: #1c2b3a;
+  --t-badge-bg: #16202c; --t-badge-fg: #f2f6fa;
+  --t-rule: linear-gradient(to right, #16202c, rgba(22,32,44,0.12));
+  --t-title: #5d93ad; --t-title-shadow: 0 2px 12px rgba(255,255,255,0.7);
+  --t-wave: linear-gradient(180deg, #7fb3c8, #a8c9da);
+  --t-lyr-main: #37536b; --t-lyr-sub: #7a8fa0; --t-lyr-hover: #5d93ad;
+  --t-pop-bg: rgba(255,255,255,0.92); --t-pop-border: 1px solid rgba(93,147,173,0.25);
+  --t-pop-shadow: 0 16px 40px rgba(44,90,117,0.22);
+  --t-input-bg: rgba(255,255,255,0.8); --t-input-fg: #2c4a5e;
+  --t-input-border: 1px solid rgba(93,147,173,0.35); --t-input-focus: #5d93ad;
+  --t-btn-bg: #5d93ad; --t-btn-fg: #fff; --t-btn-hover: #4a7d97;
+  --t-ctl-border: 1px solid rgba(93,147,173,0.35); --t-ctl-bg: rgba(255,255,255,0.55); --t-ctl-fg: #4d7186;
+  --t-ctl-hover-bg: #ffffff; --t-ctl-hover-fg: #2c5a75; --t-ctl-hover-shadow: 0 6px 16px rgba(44,90,117,0.22);
+  --t-bubble-bg: rgba(255,255,255,0.82); --t-bubble-border: 1px solid rgba(93,147,173,0.3);
+  --t-bubble-shadow: 0 12px 32px rgba(44,90,117,0.18);
+  --t-bubble-name: #b06084; --t-bubble-mean: #55707f;
+  --t-date: #8ba0b0;
+  --prog-track: rgba(93,147,173,0.18); --prog-from: #7fb3c8; --prog-to: #5d93ad;
+  --prog-label: #7a8fa0; --prog-cap: #9aabba;
+}
+.daybreak.night {
+  --bg-page: linear-gradient(168deg, #12151e 0%, #0d1017 46%, #090c12 100%);
+  --bg-opacity: 0.55;
+  --bg-filter: brightness(0.8) saturate(0.9);
+  --scrim: linear-gradient(to right, rgba(14,17,25,0.97) 0%, rgba(14,17,25,0.93) 30%, rgba(14,17,25,0.55) 46%, rgba(14,17,25,0) 62%);
+  --t-text: #e8ecf4;
+  --t-badge-bg: rgba(201,212,232,0.92); --t-badge-fg: #16202c;
+  --t-rule: linear-gradient(to right, rgba(201,212,232,0.85), rgba(201,212,232,0.1));
+  --t-title: #c9d4e8; --t-title-shadow: 0 2px 16px rgba(201,212,232,0.25);
+  --t-wave: linear-gradient(180deg, #8a94ab, #c9d4e8);
+  --t-lyr-main: #c9d4e8; --t-lyr-sub: #8a94ab; --t-lyr-hover: #c9d4e8;
+  --t-pop-bg: rgba(27,31,42,0.94); --t-pop-border: 1px solid rgba(201,212,232,0.18);
+  --t-pop-shadow: 0 16px 40px rgba(0,0,0,0.5);
+  --t-input-bg: rgba(13,16,23,0.6); --t-input-fg: #e8ecf4;
+  --t-input-border: 1px solid rgba(201,212,232,0.25); --t-input-focus: #8a94ab;
+  --t-btn-bg: #8a94ab; --t-btn-fg: #141824; --t-btn-hover: #c9d4e8;
+  --t-ctl-border: 1px solid rgba(201,212,232,0.25); --t-ctl-bg: rgba(27,31,42,0.55); --t-ctl-fg: #9aa3b5;
+  --t-ctl-hover-bg: rgba(40,48,64,0.9); --t-ctl-hover-fg: #c9d4e8; --t-ctl-hover-shadow: 0 6px 16px rgba(0,0,0,0.4);
+  --t-bubble-bg: rgba(27,31,42,0.85); --t-bubble-border: 1px solid rgba(201,212,232,0.2);
+  --t-bubble-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  --t-bubble-name: #e8a0bf; --t-bubble-mean: #9aa3b5;
+  --t-date: #5c6474;
+  --prog-track: rgba(201,212,232,0.14); --prog-from: #8a94ab; --prog-to: #c9d4e8;
+  --prog-label: #8a94ab; --prog-cap: #5c6474;
 }
 .bg-img {
   position: absolute; inset: 0;
   background-size: cover; background-position: center;
-  opacity: 0.9; pointer-events: none;
-  filter: brightness(1.05) saturate(0.95);
+  opacity: var(--bg-opacity); pointer-events: none;
+  filter: var(--bg-filter);
 }
 /* 左白右透遮罩：参考图的真正机制——左边纯白不透明给文字托底，中间渐隐到全透 */
 .scrim {
   position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(to right,
-    rgba(247, 250, 252, 0.97) 0%,
-    rgba(247, 250, 252, 0.94) 30%,
-    rgba(247, 250, 252, 0.55) 46%,
-    rgba(247, 250, 252, 0) 62%);
+  background: var(--scrim);
 }
 .motes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
@@ -219,7 +254,7 @@ const dateLine = computed(() =>
   left: 6%; top: 9%; bottom: 7%;
   width: 480px;
   z-index: 5;
-  color: #1c2b3a;
+  color: var(--t-text);
   display: flex;
   flex-direction: column;
 }
@@ -228,8 +263,8 @@ const dateLine = computed(() =>
 .badge {
   display: inline-block;
   padding: 5px 11px 5px 14px; /* 右 padding 吃掉 letter-spacing 的尾部空隙，刚好包住字 */
-  background: #16202c;
-  color: #f2f6fa;
+  background: var(--t-badge-bg);
+  color: var(--t-badge-fg);
   font-size: 11px;
   letter-spacing: 3.5px;
   border-radius: 3px;
@@ -238,7 +273,7 @@ const dateLine = computed(() =>
   margin-top: 8px;
   height: 1px;
   width: 100%; /* 与徽章同宽 */
-  background: linear-gradient(to right, #16202c, rgba(22, 32, 44, 0.12));
+  background: var(--t-rule);
 }
 .title {
   margin: 16px 0 0;
@@ -246,9 +281,9 @@ const dateLine = computed(() =>
   font-size: 64px;
   font-weight: 600;
   letter-spacing: 2px;
-  color: #5d93ad;
+  color: var(--t-title);
   line-height: 1.05;
-  text-shadow: 0 2px 12px rgba(255, 255, 255, 0.7);
+  text-shadow: var(--t-title-shadow);
 }
 
 /* 波形装饰 */
@@ -262,7 +297,7 @@ const dateLine = computed(() =>
 .wave i {
   width: 3px;
   border-radius: 2px;
-  background: linear-gradient(180deg, #7fb3c8, #a8c9da);
+  background: var(--t-wave);
   animation: wave-pulse 2.4s ease-in-out infinite;
   opacity: 0.85;
 }
@@ -311,18 +346,18 @@ const dateLine = computed(() =>
 .lyrics { margin-top: 24px; position: relative; }
 .lyr-main {
   font-size: 16px;
-  color: #37536b;
+  color: var(--t-lyr-main);
   letter-spacing: 2px;
   font-weight: 500;
 }
 .lyr-sub {
   margin-top: 9px;
   font-size: 13px;
-  color: #7a8fa0;
+  color: var(--t-lyr-sub);
   letter-spacing: 1px;
 }
 .lyr-sub[title] { cursor: pointer; }
-.lyr-sub[title]:hover { color: #5d93ad; }
+.lyr-sub[title]:hover { color: var(--t-lyr-hover); }
 
 /* 心情小浮窗 */
 .mood-pop {
@@ -332,71 +367,49 @@ const dateLine = computed(() =>
   margin-top: 8px;
   width: 300px;
   padding: 16px 18px 14px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--t-pop-bg);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(93, 147, 173, 0.25);
+  border: var(--t-pop-border);
   border-radius: 14px;
-  box-shadow: 0 16px 40px rgba(44, 90, 117, 0.22);
+  box-shadow: var(--t-pop-shadow);
   z-index: 40;
 }
-.mp-title { font-size: 12px; color: #7a8fa0; letter-spacing: 2px; margin-bottom: 10px; }
+.mp-title { font-size: 12px; color: var(--t-lyr-sub); letter-spacing: 2px; margin-bottom: 10px; }
 .mp-input {
   width: 100%;
   padding: 9px 12px;
   border-radius: 9px;
-  border: 1px solid rgba(93, 147, 173, 0.35);
-  background: rgba(255, 255, 255, 0.8);
-  color: #2c4a5e;
+  border: var(--t-input-border);
+  background: var(--t-input-bg);
+  color: var(--t-input-fg);
   font-size: 13.5px;
   font-family: inherit;
   outline: none;
   transition: border-color 200ms;
 }
-.mp-input:focus { border-color: #5d93ad; }
+.mp-input:focus { border-color: var(--t-input-focus); }
 .mp-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .mp-btn {
   padding: 6px 16px;
   border-radius: 9px;
   border: none;
-  background: #5d93ad;
-  color: #fff;
+  background: var(--t-btn-bg);
+  color: var(--t-btn-fg);
   font-size: 12.5px;
   cursor: pointer;
   font-family: inherit;
   transition: all 200ms;
 }
-.mp-btn:hover { background: #4a7d97; }
-.mp-btn.ghost { background: transparent; color: #7a8fa0; }
+.mp-btn:hover { background: var(--t-btn-hover); }
+.mp-btn.ghost { background: transparent; color: var(--t-lyr-sub); }
 .mp-btn.ghost:hover { background: rgba(93, 147, 173, 0.12); }
 .pop-enter-active, .pop-leave-active { transition: all 240ms cubic-bezier(0.22, 1, 0.36, 1); }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(8px) scale(0.97); }
 
-/* 时光进度条（margin-top:auto 把它和下面的塔罗签/按钮一起压到底部） */
-.progress-row {
+/* 时光进度条组（margin-top:auto 压到底部；--prog-* 主题色变量在 .daybreak 根上） */
+.progress-wrap {
   margin-top: auto;
   padding-top: 22px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.track {
-  flex: 1;
-  height: 5px;
-  border-radius: 3px;
-  background: rgba(93, 147, 173, 0.18);
-  overflow: hidden;
-}
-.fill {
-  height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #7fb3c8, #5d93ad);
-}
-.pct { font-size: 12px; color: #7a8fa0; letter-spacing: 1px; }
-.progress-cap {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #9aabba;
-  letter-spacing: 1px;
 }
 
 /* 底部图标行 */
@@ -408,9 +421,9 @@ const dateLine = computed(() =>
 .ctl {
   width: 40px; height: 40px;
   border-radius: 50%;
-  border: 1px solid rgba(93, 147, 173, 0.35);
-  background: rgba(255, 255, 255, 0.55);
-  color: #4d7186;
+  border: var(--t-ctl-border);
+  background: var(--t-ctl-bg);
+  color: var(--t-ctl-fg);
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: all 220ms;
@@ -418,10 +431,10 @@ const dateLine = computed(() =>
 }
 .ctl svg { width: 19px; height: 19px; }
 .ctl:hover {
-  background: #ffffff;
-  color: #2c5a75;
+  background: var(--t-ctl-hover-bg);
+  color: var(--t-ctl-hover-fg);
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(44, 90, 117, 0.22);
+  box-shadow: var(--t-ctl-hover-shadow);
 }
 
 /* ── 右：Miku（0.75 体型 + 画布向上延伸 80px 头部空间；热区锚内容盒自动跟随） ── */
@@ -446,23 +459,23 @@ const dateLine = computed(() =>
   position: absolute;
   right: 334px; top: 10%;
   max-width: 250px; padding: 14px 18px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--t-bubble-bg);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(93, 147, 173, 0.3);
+  border: var(--t-bubble-border);
   border-radius: 14px 14px 4px 14px;
-  box-shadow: 0 12px 32px rgba(44, 90, 117, 0.18);
+  box-shadow: var(--t-bubble-shadow);
   z-index: 30; pointer-events: none;
 }
 .bubble-enter-active, .bubble-leave-active { transition: all 350ms cubic-bezier(0.22, 1, 0.36, 1); }
 .bubble-enter-from, .bubble-leave-to { opacity: 0; transform: translateY(10px) scale(0.96); }
-.tb-name { font-size: 14px; font-weight: 600; color: #b06084; letter-spacing: 1px; }
-.tb-mean { margin-top: 6px; font-size: 13px; color: #55707f; line-height: 1.6; }
+.tb-name { font-size: 14px; font-weight: 600; color: var(--t-bubble-name); letter-spacing: 1px; }
+.tb-mean { margin-top: 6px; font-size: 13px; color: var(--t-bubble-mean); line-height: 1.6; }
 
 .date-line {
   position: absolute;
   left: 22px; bottom: 18px;
   font-size: 12.5px;
-  color: #8ba0b0;
+  color: var(--t-date);
   letter-spacing: 1px;
   pointer-events: none;
   z-index: 5;

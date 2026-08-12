@@ -2,10 +2,11 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 
 /* ================= 签名（信纸上的字） ================= */
-const signature = "夜有星辰，晨有曦光。";
+const signature = computed(() => homeSettings.signature);
 
 const daysTogether = computed(() => {
-  const from = new Date(2026, 4, 31);
+  const p = (homeSettings.meetDate || "2026-05-31").split("-").map(Number);
+  const from = new Date(p[0], (p[1] || 1) - 1, p[2] || 1);
   return Math.max(1, Math.floor((Date.now() - from.getTime()) / 86400000) + 1);
 });
 
@@ -156,7 +157,7 @@ const dateLine = computed(() =>
 
     <!-- ═══ 信纸（个人信息都在信上） ═══ -->
     <div class="letter">
-      <div class="avatar"><img src="/avatar.png" alt="云曦" /></div>
+      <div class="avatar"><img :src="homeSettings.avatar" alt="云曦" /></div>
       <div class="name">云曦</div>
       <div class="sig">{{ signature }}</div>
       <div class="tag">INTP</div>
@@ -190,7 +191,7 @@ const dateLine = computed(() =>
 
     <!-- Live2D 挂件（Miku） -->
     <div class="shinano">
-      <Live2dWidget @poke="showTarotBubble" />
+      <Live2dWidget v-if="homeSettings.live2d" @poke="showTarotBubble" />
     </div>
     <Transition name="bubble">
       <div v-if="tarotBubble" class="tarot-bubble">

@@ -2,6 +2,7 @@
 // 侧边栏：Stella 的门面。三段式——名片区 / 导航区 / 扩展区
 // collapsed=true → 收成图标栏；移动端由 App 控制 mobile-open 覆盖层
 import Icon from "./Icon.vue";
+import { homeSettings } from "../modules/home/settings";
 
 defineProps<{ collapsed: boolean; mobileOpen: boolean }>();
 const emit = defineEmits<{ toggle: []; closeMobile: [] }>();
@@ -16,9 +17,9 @@ const navItems = [
 
 <template>
   <aside class="sidebar" :class="{ collapsed, 'mobile-open': mobileOpen }">
-    <!-- 一段：个人名片 -->
+    <!-- 一段：个人名片（头像 = 用户头像，签名卡也借用它） -->
     <div class="profile">
-      <div class="avatar">云</div>
+      <div class="avatar"><img :src="homeSettings.avatar" alt="云曦" /></div>
       <div class="who">
         <div class="name">云曦</div>
         <div class="motto">「把星光收进面板里」</div>
@@ -81,6 +82,7 @@ const navItems = [
   height: 44px;
   flex-shrink: 0;
   border-radius: 50%;
+  overflow: hidden;
   display: grid;
   place-items: center;
   font-size: 19px;
@@ -88,6 +90,7 @@ const navItems = [
   background: linear-gradient(135deg, var(--accent), var(--pink));
   box-shadow: 0 0 16px rgba(201, 212, 232, 0.25);
 }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .name {
   font-size: 15px;
   font-weight: 600;

@@ -154,9 +154,9 @@ function toggleSidebar() {
   .hamburger {
     display: block;
     position: fixed;
-    left: 10px;
-    bottom: 14px;
-    z-index: 70;
+    left: 12px;
+    top: 12px;
+    z-index: 75;
     width: 38px;
     height: 38px;
     border-radius: 50%;

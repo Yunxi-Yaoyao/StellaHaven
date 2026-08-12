@@ -15,10 +15,15 @@ export type Particles = "stars" | "motes" | "sakura" | "off";
 export interface BgCrop { cx: number; cy: number; w: number; h: number; }
 
 export interface HomeSettings {
-  theme: string;      // daybreak | coastline | classic
+  theme: string;      // daybreak | coastline | classic | nightfall(=daybreak 暗皮肤)
   particles: Particles;
   bgImage: string;    // 背景图 URL（空串=无背景图）
   bgCrop: BgCrop;     // 源图裁剪区（分数）——窗口 resize 内容不变，只缩放
+  siteTitle: string;  // 大标题（破晓/夜泊）
+  signature: string;  // 签名句
+  meetDate: string;   // 相识起点 YYYY-MM-DD（天数计数器用它算）
+  live2d: boolean;    // Miku 挂件总开关
+  avatar: string;     // 用户头像 URL——侧栏和签名卡都借用它（唯一来源）
 }
 
 // 旧字段迁移：stella_home_stars(on/off) → particles(stars/off)
@@ -33,6 +38,11 @@ export const homeSettings = reactive<HomeSettings>({
   particles: loadParticles(),
   bgImage: migrateBg(localStorage.getItem("stella_home_bg")),
   bgCrop: loadCrop(),
+  siteTitle: localStorage.getItem("stella_site_title") || "StellaHaven",
+  signature: localStorage.getItem("stella_signature") || "夜有星辰，晨有曦光。",
+  meetDate: localStorage.getItem("stella_meet_date") || "2026-05-31",
+  live2d: localStorage.getItem("stella_live2d") !== "off",
+  avatar: localStorage.getItem("stella_avatar") || "/avatar.png",
 });
 
 // 旧默认路径 → 附件系统里的默认背景
@@ -53,3 +63,8 @@ watch(() => homeSettings.theme, (v) => localStorage.setItem("stella_home_theme",
 watch(() => homeSettings.particles, (v) => localStorage.setItem("stella_home_particles", v));
 watch(() => homeSettings.bgImage, (v) => localStorage.setItem("stella_home_bg", v));
 watch(() => homeSettings.bgCrop, (v) => localStorage.setItem("stella_home_bgcrop", JSON.stringify(v)), { deep: true });
+watch(() => homeSettings.siteTitle, (v) => localStorage.setItem("stella_site_title", v));
+watch(() => homeSettings.signature, (v) => localStorage.setItem("stella_signature", v));
+watch(() => homeSettings.meetDate, (v) => localStorage.setItem("stella_meet_date", v));
+watch(() => homeSettings.live2d, (v) => localStorage.setItem("stella_live2d", v ? "on" : "off"));
+watch(() => homeSettings.avatar, (v) => localStorage.setItem("stella_avatar", v));
