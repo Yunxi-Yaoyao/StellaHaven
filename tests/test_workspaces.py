@@ -3,6 +3,10 @@ from uuid import uuid4
 from app.models.user import User
 
 
+def _name() -> str:
+    return f"u_{uuid4().hex[:8]}"
+
+
 def test_create_workspace(client, db_session):
     """创建 workspace → 验证返回 201 和字段正确"""
 
@@ -23,13 +27,44 @@ def test_create_workspace(client, db_session):
     data = response.json()
     assert data["name"] == "我的工作区"
     assert data["description"] == "测试用"
-    assert data["user_id"] == str(user.id)
+    # 数据隔离后：workspace 永远归属当前登录用户（忽略传入的 user_id）
+    me = client.get("/auth/me").json()
+    assert data["user_id"] == me["id"]
     assert "id" in data  # 后端自动生成 UUID
 
 
-def test_list_workspaces(client, db_session):
-    """列出 user 的所有 workspace → 验证能查到刚创建的"""
+def test_showcase_seeded_on_create(client):
+    """新工作区自动种「样式展示厅」示例笔记"""
+    client.post("/workspaces/", json={"user_id": str(uuid4()), "name": "种籽测试区"})
+    me = client.get("/auth/me").json()
+    wss = client.get("/workspaces/").json()
+    ws = next(w for w in wss if w["name"] == "种籽测试区")
+    docs = client.get(f"/documents/?workspace_id={ws['id']}").json()
+    assert any(d["title"] == "🎨 Stella 样式展示厅" for d in docs)
 
+
+def test_cross_user_isolation(client, db_session):
+    """数据隔离：别人的工作区 404（不暴露存在性）、列表只出自己的"""
+    from app.models.workspace import Workspace
+
+    # 造一个别人的工作区（直接 ORM，归属别的用户）
+    other = User(id=uuid4(), username=_name(), display_name="别人", password_hash="x")
+    db_session.add(other)
+    db_session.flush()
+    ws = Workspace(user_id=other.id, name="别人的区", description="")
+    db_session.add(ws)
+    db_session.flush()
+
+    # 直接访问别人的区 → 404
+    r = client.get(f"/workspaces/{ws.id}")
+    assert r.status_code == 404
+    # 列表里不出现
+    rows = client.get("/workspaces/").json()
+    assert all(row["id"] != str(ws.id) for row in rows)
+
+
+def test_list_workspaces(client, db_session):
+    """列出当前用户的所有 workspace → 验证能查到刚创建的"""
     user = User(id=uuid4(), username="testuser2", display_name="测试用户2")
     db_session.add(user)
     db_session.commit()
@@ -59,12 +94,22 @@ def test_rename_workspace(client, db_session):
     assert r.json()["name"] == "新名字"
 
 
+def _purge_seed(client, ws_id):
+    """测试助手：清掉自动种的展示厅笔记（软删+清回收站），让工作区回到真空"""
+    docs = client.get(f"/documents/?workspace_id={ws_id}").json()
+    for d in docs:
+        if d["title"] == "🎨 Stella 样式展示厅":
+            client.delete(f"/documents/{d['id']}")
+    client.post("/documents/trash/empty", params={"workspace_id": ws_id})
+
+
 def test_delete_workspace_empty_ok(client, db_session):
     """空工作区可删"""
     user = User(id=uuid4(), username=f"u{uuid4().hex[:6]}", display_name="删区测试")
     db_session.add(user)
     db_session.commit()
     ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "空区"}).json()
+    _purge_seed(client, ws["id"])  # 自动种的展示厅先清掉，才是真空区
 
     assert client.delete(f"/workspaces/{ws['id']}").status_code == 204
 
@@ -104,6 +149,7 @@ def test_delete_workspace_trash_only(client, db_session):
     db_session.add(user)
     db_session.commit()
     ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "只有回收站的区"}).json()
+    _purge_seed(client, ws["id"])
     doc = client.post("/documents/", json={
         "title": "垃圾", "file_path": "/t.md", "workspace_id": ws["id"], "content": "",
     }).json()
@@ -154,6 +200,7 @@ def test_clear_all_docs(client, db_session):
     db_session.add(user)
     db_session.commit()
     ws = client.post("/workspaces/", json={"user_id": str(user.id), "name": "待清区"}).json()
+    _purge_seed(client, ws["id"])  # 清掉自动种的展示厅
 
     parent = client.post("/documents/", json={
         "title": "父", "file_path": "/p.md", "workspace_id": ws["id"], "content": "",

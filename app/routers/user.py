@@ -3,10 +3,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.routers.auth import admin_user
 from app.schemas.user import UserCreate, UserRead
 from app.services.user import get_user, list_users, create_user
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(dependencies=[Depends(admin_user)], prefix="/users", tags=["users"])
 
 
 @router.get("/{user_id}", response_model=UserRead)

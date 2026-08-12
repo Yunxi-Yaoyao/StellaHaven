@@ -41,6 +41,7 @@ function commitMood() {
 /* ================= 设置 store（背景图/星空/主题都在设置面板里改） ================= */
 import BgLayer from "../BgLayer.vue";
 import { homeSettings, settingsOpen } from "../settings";
+import { loggedIn, currentAvatar } from "../auth";
 const bgImage = computed(() => homeSettings.bgImage);
 
 /* ================= Live2D 挂件（Miku，戳她播报今日塔罗） ================= */
@@ -116,14 +117,14 @@ const dateLine = computed(() =>
       <!-- 黑胶唱片（头像碟心，缓转） -->
       <div class="vinyl" title="云曦的唱片">
         <div class="grooves" />
-        <div class="label"><img :src="homeSettings.avatar" alt="云曦" /></div>
+        <div class="label"><img :src="currentAvatar" alt="云曦" /></div>
         <div class="sheen" />
       </div>
 
       <!-- 歌词位：签名 / 心情 / 天数 -->
       <div class="lyrics">
         <p class="lyr-main">{{ signature }}</p>
-        <p class="lyr-sub mood-line" @click="openMoodEditor" title="点我写一句今天的心情">{{ mood || MOOD_DEFAULT }}</p>
+        <p class="lyr-sub mood-line" :class="{ locked: !loggedIn }" @click="loggedIn && openMoodEditor()" title="点我写一句今天的心情">{{ mood || MOOD_DEFAULT }}</p>
         <p class="lyr-sub">与娅娅相识的第 {{ daysTogether }} 天</p>
 
         <!-- 心情小浮窗：贴着便签正下方弹出 -->
@@ -156,7 +157,7 @@ const dateLine = computed(() =>
         <button class="ctl" title="今日塔罗" @click="showTarotBubble">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
         </button>
-        <button class="ctl" title="主页设置" @click="settingsOpen = true">
+        <button v-if="loggedIn" class="ctl" title="主页设置" @click="settingsOpen = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2.2"/><circle cx="9" cy="16" r="2.2"/></svg>
         </button>
       </div>
@@ -480,4 +481,5 @@ const dateLine = computed(() =>
   pointer-events: none;
   z-index: 5;
 }
+.locked { cursor: default !important; opacity: 0.75; }
 </style>

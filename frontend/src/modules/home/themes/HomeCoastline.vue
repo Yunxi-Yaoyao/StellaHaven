@@ -22,6 +22,7 @@ function editMood() {
 /* ================= 自定义背景图（海洋，不被遮挡） ================= */
 import BgLayer from "../BgLayer.vue";
 import { homeSettings, settingsOpen } from "../settings";
+import { loggedIn, currentAvatar } from "../auth";
 const bgImage = computed(() => homeSettings.bgImage);
 function setBg() {
   settingsOpen.value = true; // 小齿轮变成设置面板入口
@@ -157,13 +158,13 @@ const dateLine = computed(() =>
 
     <!-- ═══ 信纸（个人信息都在信上） ═══ -->
     <div class="letter">
-      <div class="avatar"><img :src="homeSettings.avatar" alt="云曦" /></div>
+      <div class="avatar"><img :src="currentAvatar" alt="云曦" /></div>
       <div class="name">云曦</div>
       <div class="sig">{{ signature }}</div>
       <div class="tag">INTP</div>
       <div class="letter-divider" />
       <div class="together">与娅娅相识的第 {{ daysTogether }} 天</div>
-      <div class="mood" :class="{ empty: !mood }" title="点水洼也能写心情">
+      <div class="mood" :class="{ empty: !mood, locked: !loggedIn }" title="点水洼也能写心情">
         {{ mood || "✎ 写一句今天的心情…" }}
       </div>
       <!-- 火漆印 -->
@@ -200,7 +201,7 @@ const dateLine = computed(() =>
       </div>
     </Transition>
 
-    <button class="bg-btn" title="自定义背景图" @click="setBg">⚙</button>
+    <button v-if="loggedIn" class="bg-btn" title="主页设置" @click="setBg">⚙</button>
     <div class="date-line">{{ dateLine }}</div>
   </div>
 </template>
@@ -409,4 +410,5 @@ const dateLine = computed(() =>
   font-size: 12.5px; color: var(--text-faint);
   letter-spacing: 1px; pointer-events: none;
 }
+.locked { cursor: default !important; opacity: 0.75; }
 </style>

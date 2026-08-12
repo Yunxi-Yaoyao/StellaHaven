@@ -37,10 +37,13 @@ const cx = computed(() => cropW.value / 2 + (sliderX.value / 100) * (1 - cropW.v
 const cy = computed(() => cropH.value / 2 + (sliderY.value / 100) * (1 - cropH.value));
 
 async function load() {
-  const r = await fetch("/homebg/");
-  list.value = await r.json();
-  const cur = list.value.find((e) => e.url === homeSettings.bgImage);
-  selectedId.value = cur?.id ?? list.value[0]?.id ?? null;
+  try {
+    const r = await fetch("/homebg/");
+    if (!r.ok) return; // 未登录时静默（管理窗本来要登录才开）
+    list.value = await r.json();
+    const cur = list.value.find((e) => e.url === homeSettings.bgImage);
+    selectedId.value = cur?.id ?? list.value[0]?.id ?? null;
+  } catch { /* 后端没起就静默 */ }
 }
 
 onMounted(load);

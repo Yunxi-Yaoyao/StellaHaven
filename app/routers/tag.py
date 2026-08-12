@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.tag import TagCreate, TagRead
 from app.services.tag import get_tag, list_tags, create_tag
+from app.routers.auth import current_user
 
-router = APIRouter(prefix="/tags", tags=["tags"])
+router = APIRouter(dependencies=[Depends(current_user)], prefix="/tags", tags=["tags"])
 
 
 @router.get("/{tag_id}", response_model=TagRead)

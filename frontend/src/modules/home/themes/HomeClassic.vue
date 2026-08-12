@@ -24,6 +24,7 @@ function editMood() {
 /* ================= 自定义背景图（设置 store 驱动，面板里改） ================= */
 import BgLayer from "../BgLayer.vue";
 import { homeSettings, settingsOpen } from "../settings";
+import { loggedIn, currentAvatar } from "../auth";
 const bgImage = computed(() => homeSettings.bgImage);
 function setBg() {
   settingsOpen.value = true; // 小齿轮变成设置面板入口
@@ -98,13 +99,13 @@ const dateLine = computed(() =>
 
     <!-- 签名卡：高×1.35 宽×1.7（老婆实测后定的尺寸） -->
     <div class="sig-card">
-      <div class="avatar"><img :src="homeSettings.avatar" alt="云曦" /></div>
+      <div class="avatar"><img :src="currentAvatar" alt="云曦" /></div>
       <div class="name">云曦</div>
       <div class="sig">{{ signature }}</div>
       <div class="tag">INTP</div>
       <div class="sig-divider" />
       <div class="together">与娅娅相识的第 {{ daysTogether }} 天</div>
-      <div class="mood" :class="{ empty: !mood }" @click="editMood" title="点我写一句今天的心情">
+      <div class="mood" :class="{ empty: !mood, locked: !loggedIn }" @click="loggedIn && editMood()" title="点我写一句今天的心情">
         {{ mood || "✎ 写一句今天的心情…" }}
       </div>
     </div>
@@ -123,7 +124,7 @@ const dateLine = computed(() =>
     <!-- 斜悬浮碎语条已撤（老婆定的：主页不登录也可见，不放笔记内容） -->
 
     <!-- 背景设置入口（右下角小齿轮） -->
-    <button class="bg-btn" title="自定义背景图" @click="setBg">⚙</button>
+    <button v-if="loggedIn" class="bg-btn" title="主页设置" @click="setBg">⚙</button>
 
     <div class="date-line">{{ dateLine }}</div>
   </div>
@@ -312,4 +313,5 @@ const dateLine = computed(() =>
 @media (max-width: 768px) {
   .sig-card { left: 50%; top: 8%; transform: translateX(-50%) rotate(-1.2deg); width: 84vw; padding: 36px 24px; min-width: 0; }
 }
+.locked { cursor: default !important; opacity: 0.75; }
 </style>

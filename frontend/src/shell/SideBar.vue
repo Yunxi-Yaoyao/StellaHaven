@@ -2,7 +2,13 @@
 // 侧边栏：Stella 的门面。三段式——名片区 / 导航区 / 扩展区
 // collapsed=true → 收成图标栏；移动端由 App 控制 mobile-open 覆盖层
 import Icon from "./Icon.vue";
-import { homeSettings } from "../modules/home/settings";
+import { auth, loggedIn, currentAvatar } from "../modules/home/auth";
+import { computed } from "vue";
+
+// 未登录显示站点名 StellaHaven；登录后昵称优先、回退用户名
+const displayName = computed(() =>
+  loggedIn.value ? (auth.me?.display_name || auth.me?.username || "云曦") : "StellaHaven"
+);
 
 defineProps<{ collapsed: boolean; mobileOpen: boolean }>();
 const emit = defineEmits<{ toggle: []; closeMobile: [] }>();
@@ -12,16 +18,20 @@ const navItems = [
   { to: "/notes", icon: "note", label: "笔记" },
   { to: "/gallery", icon: "image", label: "图库" },
   { to: "/status", icon: "activity", label: "服务器状态" },
+  { to: "/settings", icon: "settings", label: "设置" },
 ];
 </script>
 
 <template>
   <aside class="sidebar" :class="{ collapsed, 'mobile-open': mobileOpen }">
-    <!-- 一段：个人名片（头像 = 用户头像，签名卡也借用它） -->
+    <!-- 一段：个人名片（未登录=?头像+StellaHaven；登录=头像+昵称） -->
     <div class="profile">
-      <div class="avatar"><img :src="homeSettings.avatar" alt="云曦" /></div>
+      <div class="avatar">
+        <img v-if="loggedIn" :src="currentAvatar" alt="头像" />
+        <span v-else class="avatar-ghost">?</span>
+      </div>
       <div class="who">
-        <div class="name">云曦</div>
+        <div class="name">{{ displayName }}</div>
         <div class="motto">「把星光收进面板里」</div>
       </div>
     </div>
@@ -50,10 +60,19 @@ const navItems = [
       <div class="extra-hint">更多模块 · 装饰阶段</div>
     </div>
 
-    <!-- 折叠开关 -->
-    <button class="fold-btn" :title="collapsed ? '展开侧栏' : '收起侧栏'" @click="emit('toggle')">
-      {{ collapsed ? "»" : "«" }}
-    </button>
+    <!-- 底行：账号位 + 折叠钮同一行 -->
+    <div class="bottom-row">
+      <RouterLink :to="loggedIn ? '/settings' : '/login'" class="account" @click="emit('closeMobile')">
+        <span class="acc-avatar">
+          <img v-if="loggedIn" :src="currentAvatar" alt="头像" />
+          <span v-else class="acc-ghost">?</span>
+        </span>
+        <span class="acc-name">{{ loggedIn ? "已登录喵~" : "未登录哟~" }}</span>
+      </RouterLink>
+      <button class="fold-btn" :title="collapsed ? '展开侧栏' : '收起侧栏'" @click="emit('toggle')">
+        {{ collapsed ? "»" : "«" }}
+      </button>
+    </div>
   </aside>
 </template>
 
@@ -91,6 +110,11 @@ const navItems = [
   box-shadow: 0 0 16px rgba(201, 212, 232, 0.25);
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar-ghost {
+  font-size: 19px;
+  color: var(--bg-base);
+  font-weight: 600;
+}
 .name {
   font-size: 15px;
   font-weight: 600;
@@ -148,6 +172,49 @@ const navItems = [
   text-align: left;
   width: 100%;
 }
+
+/* 账号位（底行） */
+.bottom-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.bottom-row .fold-btn { margin-top: 0; flex-shrink: 0; }
+.account {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: all var(--transition);
+}
+.account:hover { background: var(--bg-raised); }
+.acc-avatar {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: grid; place-items: center;
+  background: var(--bg-raised);
+  border: 1px solid var(--accent-dim);
+}
+.acc-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.acc-ghost { color: var(--text-faint); font-size: 14px; }
+.acc-name {
+  font-size: 13.5px;
+  color: var(--text-lo);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account:hover .acc-name { color: var(--text-hi); }
+.sidebar.collapsed .acc-name { display: none; }
+.sidebar.collapsed .account { justify-content: center; padding: 8px 0; }
 
 .spacer { flex: 1; }
 

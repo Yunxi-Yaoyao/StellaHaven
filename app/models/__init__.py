@@ -4,7 +4,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
 from app.models.tag import Tag
-from app.models.user import User
+from app.models.user import User, AuthSession, Invite, EmailCode
 from app.models.workspace import Workspace
 from app.models.document import Document
 from app.models.doc_tag import DocTag

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { auth, fetchMe, loggedIn } from "../modules/home/auth";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -7,7 +8,25 @@ const router = createRouter({
       path: "/",
       name: "home",
       component: () => import("../modules/home/HomePage.vue"),
-      meta: { title: "个人主页" },
+      meta: { title: "个人主页", public: true }, // 主页公开（不含隐私内容）
+    },
+    {
+      path: "/login",
+      name: "login",
+      component: () => import("../modules/auth/LoginPage.vue"),
+      meta: { title: "登录", public: true, bare: true },
+    },
+    {
+      path: "/invite/:token",
+      name: "invite",
+      component: () => import("../modules/auth/InvitePage.vue"),
+      meta: { title: "受邀入港", public: true, bare: true },
+    },
+    {
+      path: "/settings",
+      name: "settings",
+      component: () => import("../modules/settings/SettingsPage.vue"),
+      meta: { title: "设置" },
     },
     {
       path: "/notes",
@@ -28,6 +47,17 @@ const router = createRouter({
       meta: { title: "服务器状态" },
     },
   ],
+});
+
+// 路由守卫：非公开页面未登录 → /login；已登录访问 /login → 回主页
+router.beforeEach(async (to) => {
+  if (!auth.checked) await fetchMe();
+  if (to.meta.public) {
+    if (to.name === "login" && loggedIn.value) return { name: "home" };
+    return true;
+  }
+  if (!loggedIn.value) return { name: "login", query: { next: to.fullPath } };
+  return true;
 });
 
 router.afterEach((to) => {

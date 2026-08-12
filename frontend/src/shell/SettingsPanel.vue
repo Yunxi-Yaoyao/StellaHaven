@@ -104,12 +104,6 @@ function pickParticle(v: string) {
         <section class="sec">
           <div class="sec-t">站点</div>
           <div class="field">
-            <span class="f-label">头像</span>
-            <img class="avatar-preview" :src="homeSettings.avatar" alt="头像预览" />
-            <input v-model="homeSettings.avatar" class="bg-input" placeholder="/avatar.png" />
-            <button class="mini-btn" title="恢复默认头像" @click="homeSettings.avatar = '/avatar.png'">默认</button>
-          </div>
-          <div class="field">
             <span class="f-label">大标题</span>
             <input v-model="homeSettings.siteTitle" class="bg-input" placeholder="StellaHaven" />
           </div>

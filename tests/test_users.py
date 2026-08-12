@@ -32,7 +32,7 @@ def test_list_users(client):
     username = f"user_{uuid4().hex[:8]}"
     client.post("/users/", json={"username": username, "display_name": "列表测试"})
 
-    response = client.get("/users/?limit=100")
+    response = client.get("/users/?limit=10000")  # 测试夹具每个用例都注册账号，池子大了要把上限放宽
     assert response.status_code == 200
     usernames = {u["username"] for u in response.json()}
     assert username in usernames

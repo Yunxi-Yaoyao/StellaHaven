@@ -3,7 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.user import User
 from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentRead, DraftRead
+from app.routers.auth import current_user, require_ws_owner, require_doc_owner
 from app.services.document import (
     get_document, list_documents, create_document, update_document, delete_document,
     restore_document, list_trash_documents, search_documents,
@@ -13,48 +15,54 @@ from app.services.document import (
 
 from app.routers.ws import notify_sync
 
-router = APIRouter(prefix="/documents", tags=["documents"])
+router = APIRouter(dependencies=[Depends(current_user)], prefix="/documents", tags=["documents"])
 
 
 # ⚠️ /search /trash /recent 固定路径必须声明在 /{doc_id} 之前——否则被当 UUID 解析直接 422
 
 
 @router.get("/search", response_model=list[DocumentRead])
-def search_docs(q: str, workspace_id: UUID, limit: int = 50, db: Session = Depends(get_db)):
+def search_docs(q: str, workspace_id: UUID, limit: int = 50, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """全文搜索：标题 + 正文子串匹配（pg_trgm 索引加速），不含回收站"""
+    require_ws_owner(db, workspace_id, user)  # 数据隔离
     return search_documents(db, workspace_id, q, limit)
 
 
 @router.get("/recent", response_model=list[DocumentRead])
-def recent_docs(workspace_id: UUID, limit: int = 8, db: Session = Depends(get_db)):
+def recent_docs(workspace_id: UUID, limit: int = 8, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """最近查看"""
+    require_ws_owner(db, workspace_id, user)  # 数据隔离
     return list_recent_documents(db, workspace_id, limit)
 
 
 @router.get("/trash", response_model=list[DocumentRead])
-def read_trash(workspace_id: UUID, db: Session = Depends(get_db)):
+def read_trash(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """回收站列表。访问时顺手惰性清理超过保留期的（默认 30 天）"""
+    require_ws_owner(db, workspace_id, user)  # 数据隔离
     return list_trash_documents(db, workspace_id)
 
 
 @router.post("/trash/empty")
-def empty_trash_endpoint(workspace_id: UUID, db: Session = Depends(get_db)):
+def empty_trash_endpoint(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """一键清空回收站（前端有二次确认弹窗）。返回清了几篇"""
+    require_ws_owner(db, workspace_id, user)  # 数据隔离
     n = empty_trash(db, workspace_id)
     notify_list(workspace_id, workspace_id)  # 通知列表频道刷新
     return {"purged": n}
 
 
 @router.post("/clear-all")
-def clear_all_endpoint(workspace_id: UUID, db: Session = Depends(get_db)):
+def clear_all_endpoint(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """清空笔记：工作区全部笔记移入回收站（可还原），前端二次确认"""
+    require_ws_owner(db, workspace_id, user)  # 数据隔离
     n = clear_workspace_docs(db, workspace_id)
     notify_list(workspace_id, workspace_id)
     return {"trashed": n}
 
 
 @router.get("/{doc_id}", response_model=DocumentRead)
-def read_one(doc_id: UUID, db: Session = Depends(get_db)):
+def read_one(doc_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    require_doc_owner(db, doc_id, user)  # 数据隔离
     doc = get_document(db, doc_id)
     if doc is None or doc.deleted_at is not None:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -65,8 +73,9 @@ def read_one(doc_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/{doc_id}/draft", response_model=DraftRead)
-def read_draft(doc_id: UUID, db: Session = Depends(get_db)):
+def read_draft(doc_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """查看草稿内容。过期草稿返回 404——和「没有草稿」同一个语义。"""
+    require_doc_owner(db, doc_id, user)  # 数据隔离
     doc = get_fresh_draft(db, doc_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="没有未保存草稿")
@@ -74,13 +83,15 @@ def read_draft(doc_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/{doc_id}/backlinks", response_model=list[DocumentRead])
-def read_backlinks(doc_id: UUID, db: Session = Depends(get_db)):
+def read_backlinks(doc_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """反链：哪些页面链接到了这篇"""
+    require_doc_owner(db, doc_id, user)  # 数据隔离
     return get_backlinks(db, doc_id)
 
 
 @router.get("/", response_model=list[DocumentRead])
-def read_all(workspace_id: UUID, parent_id: UUID | None = None, skip: int = 0, limit: int = 20, db: Session = Depends(get_db)):
+def read_all(workspace_id: UUID, parent_id: UUID | None = None, skip: int = 0, limit: int = 20, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    require_ws_owner(db, workspace_id, user)  # 数据隔离
     return list_documents(db, workspace_id, parent_id, skip, limit)
 
 
@@ -93,14 +104,16 @@ def notify_list(workspace_id: UUID, doc_id: UUID):
 
 
 @router.post("/", response_model=DocumentRead, status_code=201)
-def create_one(data: DocumentCreate, db: Session = Depends(get_db)):
+def create_one(data: DocumentCreate, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    require_ws_owner(db, data.workspace_id, user)  # 数据隔离
     doc = create_document(db, data)
     notify_list(doc.workspace_id, doc.id)
     return doc
 
 
 @router.put("/{doc_id}")
-def update_one(doc_id: UUID, data: DocumentUpdate, request: Request, db: Session = Depends(get_db)):
+def update_one(doc_id: UUID, data: DocumentUpdate, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    require_doc_owner(db, doc_id, user)  # 数据隔离
     try:
         result = update_document(db, doc_id, data)
     except ValueError as e:
@@ -133,9 +146,10 @@ def update_one(doc_id: UUID, data: DocumentUpdate, request: Request, db: Session
 
 
 @router.post("/{doc_id}/favorite", response_model=DocumentRead)
-def toggle_favorite(doc_id: UUID, db: Session = Depends(get_db)):
+def toggle_favorite(doc_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """星标切换。轻量端点：只翻 is_favorite，不碰 updated_at（点赞不是保存正文，
     不该让笔记跳列表顶），不走乐观锁（单用户场景无冲突语义）"""
+    require_doc_owner(db, doc_id, user)  # 数据隔离
     doc = get_document(db, doc_id)
     if doc is None or doc.deleted_at is not None:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -147,9 +161,10 @@ def toggle_favorite(doc_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.post("/{doc_id}/restore")
-def restore_one(doc_id: UUID, cascade: bool = False, db: Session = Depends(get_db)):
+def restore_one(doc_id: UUID, cascade: bool = False, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """从回收站还原。cascade=True 时下挂一起还原。
     返回 {doc, reattached, restored}：reattached=父页面不在已挂回根级（前端提醒）"""
+    require_doc_owner(db, doc_id, user)  # 数据隔离
     try:
         result = restore_document(db, doc_id, cascade)
     except ValueError:
@@ -164,9 +179,10 @@ def restore_one(doc_id: UUID, cascade: bool = False, db: Session = Depends(get_d
 
 
 @router.delete("/{doc_id}", status_code=204)
-def delete_one(doc_id: UUID, cascade: bool = True, db: Session = Depends(get_db)):
+def delete_one(doc_id: UUID, cascade: bool = True, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """两级删除 + 级联策略：cascade=True 下挂一起进回收站；False 子页上移一级。
     回收站里的再删 → 物理删除"""
+    require_doc_owner(db, doc_id, user)  # 数据隔离
     doc = get_document(db, doc_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="文档不存在")

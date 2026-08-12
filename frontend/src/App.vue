@@ -4,6 +4,24 @@ import SideBar from "./shell/SideBar.vue";
 import SettingsPanel from "./shell/SettingsPanel.vue";
 import BgManager from "./modules/home/BgManager.vue";
 import { toasts } from "./composables/useToast";
+import { auth, loggedIn, fetchMe } from "./modules/home/auth";
+import { useRouter } from "vue-router";
+import { onMounted, onUnmounted } from "vue";
+
+const router = useRouter();
+
+// 会话巡检：被别处踢下线（refresh 已吊销）时，30 秒内感知并滚去登录页
+let sessionWatchdog: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  sessionWatchdog = setInterval(async () => {
+    if (!loggedIn.value) return;
+    const ok = await fetchMe(); // fetchMe 内部会先 refresh 续命；refresh 也被吊销才 false
+    if (!ok && !auth.me) {
+      router.push("/login");
+    }
+  }, 30000);
+});
+onUnmounted(() => clearInterval(sessionWatchdog));
 import { lightbox, closeLightbox } from "./composables/useLightbox";
 
 // 放大器缩放/平移状态

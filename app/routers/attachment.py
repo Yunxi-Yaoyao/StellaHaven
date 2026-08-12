@@ -7,10 +7,12 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.user import User
 from app.models.attachment import Attachment
 from app.models.document import Document
+from app.routers.auth import current_user, require_ws_owner, require_doc_owner
 
-router = APIRouter(prefix="/attachments", tags=["attachments"])
+router = APIRouter(dependencies=[Depends(current_user)], prefix="/attachments", tags=["attachments"])
 
 # 文件本体落这里（DB 只记元信息——二进制不进关系库，docs/15 的决策）
 STORAGE = Path(__file__).resolve().parents[2] / "data" / "attachments"
@@ -23,8 +25,9 @@ MAX_SIZE = 25 * 1024 * 1024  # 25MB（手机原图随便贴）
 
 
 @router.get("/")
-def list_attachments(workspace_id: UUID, db: Session = Depends(get_db)):
+def list_attachments(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """列出工作区所有附件（含所属笔记标题；回收站里的笔记的附件也列出并标记）"""
+    require_ws_owner(db, workspace_id, user)  # 数据隔离
     rows = (
         db.query(Attachment, Document)
         .join(Document, Attachment.doc_id == Document.id)
@@ -49,8 +52,9 @@ def list_attachments(workspace_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.post("/{doc_id}")
-async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db)):
+async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """上传附件：粘贴图片时前端调这里。返回引用路径"""
+    require_doc_owner(db, doc_id, user)  # 数据隔离
     doc = db.get(Document, doc_id)
     if doc is None or doc.deleted_at is not None:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -74,12 +78,13 @@ async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db)):
 
 
 @router.get("/{att_id}")
-def serve(att_id: UUID, db: Session = Depends(get_db)):
-    """读附件"""
+def serve(att_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """读附件（仅归属者）"""
     att = db.get(Attachment, att_id)
     path = STORAGE / str(att_id)
     if att is None or not path.exists():
         raise HTTPException(status_code=404, detail="附件不存在")
+    require_doc_owner(db, att.doc_id, user)  # 数据隔离
     return FileResponse(path, media_type=att.mime, filename=att.filename)
 
 

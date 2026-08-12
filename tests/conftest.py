@@ -1,4 +1,5 @@
 import pytest
+from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -50,7 +51,8 @@ def db_session(test_db):
 
 @pytest.fixture
 def client(db_session):
-    """TestClient 用测试 session 替代真实数据库——不启动 uvicorn 也能调 API"""
+    """TestClient 用测试 session 替代真实数据库——不启动 uvicorn 也能调 API。
+    路由已接入登录保护：每个测试的 client 自动注册一个随机用户（登录态）"""
 
     def override_get_db():
         try:
@@ -61,6 +63,16 @@ def client(db_session):
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as c:
+        # 直接 ORM 建号（注册通道初始化后就关了，不能走 /auth/register）+ 登录拿 cookie
+        from app.models.user import User
+        from app.security import hash_password
+
+        username = f"test_{uuid4().hex[:10]}"
+        u = User(username=username, display_name=username,
+                 password_hash=hash_password("testpass123"), is_admin=True)
+        db_session.add(u)
+        db_session.flush()
+        c.post("/auth/login", json={"username": username, "password": "testpass123"})
         yield c
 
     app.dependency_overrides.clear()

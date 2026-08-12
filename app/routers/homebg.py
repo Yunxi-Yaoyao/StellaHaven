@@ -9,10 +9,12 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from app.routers.auth import current_user
+from app.models.user import User
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/homebg", tags=["homebg"])
+router = APIRouter(dependencies=[Depends(current_user)], prefix="/homebg", tags=["homebg"])
 
 HOMEBG_DIR = Path(__file__).resolve().parents[2] / "data" / "assets" / "homebg"
 HOMEBG_DIR.mkdir(parents=True, exist_ok=True)
@@ -63,16 +65,20 @@ def _public(e: dict) -> dict:
         "ext": e["ext"],
         "url": f"/assets/homebg/{e['file']}",
         "isDefault": bool(e.get("isDefault")),
+        "isSystem": bool(e.get("isSystem")),
+        "owner": e.get("owner"),
     }
 
 
 @router.get("/")
-def list_homebg():
-    return [_public(e) for e in _load()]
+def list_homebg(user: User = Depends(current_user)):
+    """系统自带的全员可见；用户上传的只出自己的（数据隔离）"""
+    uid = str(user.id)
+    return [_public(e) for e in _load() if e.get("isSystem") or e.get("isDefault") or e.get("owner") in (None, uid)]
 
 
 @router.post("/upload")
-async def upload_homebg(file: UploadFile):
+async def upload_homebg(file: UploadFile, user: User = Depends(current_user)):
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in ALLOWED_EXT:
         raise HTTPException(400, f"不支持的格式 .{ext}（仅 jpg/png/webp/gif/mp4）")
@@ -87,6 +93,7 @@ async def upload_homebg(file: UploadFile):
         "ext": ext,
         "file": fname,
         "isDefault": False,
+        "owner": str(user.id),  # 归属上传者
     }
     entries = _load()
     entries.append(entry)
@@ -99,10 +106,13 @@ class RenameBody(BaseModel):
 
 
 @router.patch("/{entry_id}")
-def rename_homebg(entry_id: str, body: RenameBody):
+def rename_homebg(entry_id: str, body: RenameBody, user: User = Depends(current_user)):
     entries = _load()
     for e in entries:
         if e["id"] == entry_id:
+            # 归属校验：只有上传者或 admin 能改名
+            if e.get("owner") not in (None, str(user.id)) and not user.is_admin:
+                raise HTTPException(404, "背景不存在")
             name = body.name.strip()
             if not name:
                 raise HTTPException(400, "名字不能为空")
@@ -113,12 +123,14 @@ def rename_homebg(entry_id: str, body: RenameBody):
 
 
 @router.delete("/{entry_id}")
-def delete_homebg(entry_id: str):
+def delete_homebg(entry_id: str, user: User = Depends(current_user)):
     entries = _load()
     for i, e in enumerate(entries):
         if e["id"] == entry_id:
-            if e.get("isDefault"):
-                raise HTTPException(400, "默认背景不可删除")
+            if e.get("isDefault") or e.get("isSystem"):
+                raise HTTPException(400, "系统自带背景不可删除")
+            if e.get("owner") not in (None, str(user.id)) and not user.is_admin:
+                raise HTTPException(404, "背景不存在")
             (HOMEBG_DIR / e["file"]).unlink(missing_ok=True)
             entries.pop(i)
             _save(entries)

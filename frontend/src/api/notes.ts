@@ -27,12 +27,6 @@ export interface Draft {
   device: string | null;
 }
 
-interface UserRead {
-  id: string;
-  username: string;
-  display_name: string;
-}
-
 interface WorkspaceRead {
   id: string;
   name: string;
@@ -48,37 +42,38 @@ export interface Bootstrap {
 }
 
 export async function ensureUser(): Promise<string> {
+  // 认证时代：用户身份只认 /auth/me（不再从用户列表里翻 yunxi）
   const cached = localStorage.getItem(LS_KEY);
   if (cached) {
     try {
       const id = JSON.parse(cached).userId;
-      if (id) return id as string; // 旧格式缓存没有 userId → 继续往下重建
+      if (id) return id as string;
     } catch {
       /* 缓存坏了往下走 */
     }
   }
-
-  const users = await api<UserRead[]>("/users/?limit=100");
-  let user = users.find((u) => u.username === "yunxi");
-  if (!user) {
-    user = await api<UserRead>("/users/", {
-      method: "POST",
-      body: JSON.stringify({ username: "yunxi", display_name: "云曦" }),
-    });
-  }
-  return user.id;
+  const r = await fetch("/auth/me");
+  if (!r.ok) throw new Error("未登录");
+  const me = await r.json();
+  return me.id as string;
 }
 
 export async function ensureWorkspace(): Promise<Bootstrap> {
   const cached = localStorage.getItem(LS_KEY);
   if (cached) {
     const b = JSON.parse(cached);
-    if (b.userId && b.workspaceId) return b;
+    if (b.userId && b.workspaceId) {
+      // 缓存的工作区可能已不属于当前账号（数据隔离时代）——先验归属，不对就重建
+      const chk = await fetch(`/workspaces/${b.workspaceId}`);
+      if (chk.ok) return b;
+      localStorage.removeItem(LS_KEY);
+    }
   }
 
   const userId = await ensureUser();
-  const wss = await api<WorkspaceRead[]>(`/workspaces/?user_id=${userId}&limit=100`);
-  let ws = wss.find((w) => w.name === "云曦的笔记本");
+  // 数据隔离后：/workspaces/ 只返回当前用户自己的区（user_id 参数已被后端忽略）
+  const wss = await api<WorkspaceRead[]>(`/workspaces/?limit=100`);
+  let ws = wss.find((w) => w.name === "云曦的笔记本") ?? wss[0];
   if (!ws) {
     ws = await api<WorkspaceRead>("/workspaces/", {
       method: "POST",
