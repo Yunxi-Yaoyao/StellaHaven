@@ -1,6 +1,6 @@
 # StellaHaven ✨
 
-> 一个把「个人主页」和「知识库」长在一起的私人数字空间——笔记、图库、塔罗、Live2D 陪伴，以及一套从零手搓的完整账号体系。
+> 一个把「个人主页」和「知识库」长在一起的私人数字空间——笔记、图库、塔罗、Live2D 陪伴，以及一套完整的账号体系。
 
 <div align="center">
   <img src="assets/screenshots/home.png" width="49%" alt="主页">
@@ -9,19 +9,17 @@
 
 ---
 
-## 这是什么
+## 由来
 
-StellaHaven 是我（云曦）的个人项目，最初的念头很简单：做一个只属于自己的地方，把笔记、图库、还有每天想看一眼的东西收进来。
+最早是一个 Flask 写的前后端混合原型，只想做个能装笔记和图库的地方，顺带放些每天想瞄一眼的东西。
 
-它最初是 Flask + 前后端混合的一版原型，后来决定认真做，整体迁移到 **FastAPI + Vue 3**，并补上了最考验后端功底的部分——**一套不依赖第三方库、从零实现的账号与权限体系**。
+后来下决心重做，迁到 FastAPI + Vue 3，账号权限、测试、CI 一点点补上，就成了现在这个样子。
 
-它不是「照着教程敲出来的 CRUD 演示」，而是一个真正在用的东西：有完整的测试、有 CI、有数据隔离、有实时协同。
+## 有什么
 
-## 核心特性
+### 账号体系
 
-### 🔐 完整账号体系（从零实现）
-
-没有用现成的 auth 框架，登录、会话、验证码、邀请全自己写：
+登录、会话、验证码、邀请等流程直接实现，不依赖第三方 auth 框架：
 
 - **三合一登录**：用户名 / 昵称 / 已验证邮箱，任意一个都能登
 - **免密验证码登录** + 忘记密码重置
@@ -35,12 +33,12 @@ StellaHaven 是我（云曦）的个人项目，最初的念头很简单：做�
   <img src="assets/screenshots/login.png" width="55%" alt="登录页">
 </div>
 
-### 🛡️ 数据隔离
+### 数据隔离
 
 - workspace / document / attachment / tag / link / version **全部按当前用户过滤**
 - 资源不存在时返回 404，**不暴露存在性**（防探测）
 
-### 📝 笔记
+### 笔记
 
 - 层级树 + 折叠记忆 + 面包屑导航
 - 双链 `[[]]` 自动补全 + 反链面板
@@ -49,14 +47,14 @@ StellaHaven 是我（云曦）的个人项目，最初的念头很简单：做�
 - 文档版本、回收站、草稿槽、全文搜索
 - CodeMirror 6 编辑器 + 实时预览 + PDF / HTML / PNG 导出
 
-### 🏠 主页
+### 主页
 
 - 签名卡 + 塔罗每日一抽（按日期做种子，同一天同一张）
 - Live2D 挂件（点击互动：摸头 / 哭哭 / 比心 / 唱歌）+ 3D 挂件（three.js）
 - 三套主题（破晓 / 夜泊 / 海岸线）
 - 时光进度条、心情便签、自定义背景（图片 / 视频）
 
-### 🔄 WebSocket 实时协同
+### WebSocket 实时协同
 
 - 在线状态感知（presence）、编辑中状态、文档变更广播
 
@@ -80,7 +78,7 @@ StellaHaven 是我（云曦）的个人项目，最初的念头很简单：做�
 | CI | GitHub Actions |
 | 包管理 | uv |
 
-## 快速开始
+## 跑起来
 
 ```bash
 # 1. 克隆
@@ -115,14 +113,14 @@ npm run dev
 
 > 首次启动会在 `data/secret_key` 自动生成 JWT 密钥；数据库初始化后需通过注册流程创建管理员账号。
 
-## 项目结构
+## 目录结构
 
 ```
 StellaHaven/
 ├── app/
 │   ├── config.py          # 配置（pydantic-settings，读 .env）
 │   ├── database.py        # engine / session / Base
-│   ├── security.py        # 密码哈希 + JWT 签发校验（全站唯一出口）
+│   ├── security.py        # 密码哈希 + JWT 签发校验
 │   ├── models/            # SQLAlchemy 模型（user/workspace/document/tag/...）
 │   ├── schemas/           # Pydantic 请求/响应模型
 │   ├── routers/           # API 路由（auth/document/workspace/ws/...）
@@ -142,7 +140,7 @@ StellaHaven/
 ## 测试 & CI
 
 - **94 个 pytest 用例**，覆盖认证、文档、工作区、标签、附件、回收站、版本、图谱等模块
-- **GitHub Actions CI**：每次 push / PR 自动起 PostgreSQL 容器 + `uv sync` + `pytest`，全绿才放行
+- **GitHub Actions CI**：每次 push / PR 自动起 PostgreSQL 容器 + `uv sync` + `pytest`
 
 ```bash
 uv run pytest          # 本地跑全部测试
