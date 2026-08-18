@@ -16,8 +16,9 @@ from pathlib import Path
 from authlib.jose import JsonWebKey, jwt
 
 # ── 基础配置 ──
-# issuer = Stella 后端对外地址（OpenList 容器 + 浏览器都要能访问，后端需监听 0.0.0.0）
-ISSUER = "http://192.168.1.5:12031"
+# issuer = Stella 对外地址（OpenList/Immich 容器 + 浏览器都要能访问）。
+# 注意：Immich 的 openid-client v6 强制 HTTPS issuer，故用公网域名（nginx/frp 终结 TLS 反代到本服务）。
+ISSUER = "https://stella.xiya.live"
 
 OIDC_DIR = Path(__file__).resolve().parents[2] / "data" / "oidc"
 PRIVATE_KEY_PATH = OIDC_DIR / "private.json"  # 私钥 JWK（含公钥）

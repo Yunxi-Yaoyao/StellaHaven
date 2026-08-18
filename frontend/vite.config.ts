@@ -39,6 +39,12 @@ export default defineConfig({
         // 前端路由 /drive（无子路径）走 vite 的 SPA fallback，只有 /drive/xxx（API）才转发后端
         bypass: (req) => (req.url === "/drive" ? "/index.html" : null),
       },
+      "/gallery": {
+        target: "http://127.0.0.1:12031",
+        xfwd: true,
+        // 前端路由 /gallery（无子路径）走 SPA fallback，只有 /gallery/xxx（API）才转发后端
+        bypass: (req) => (req.url === "/gallery" ? "/index.html" : null),
+      },
       "/assets": "http://127.0.0.1:12031",
       "/ws": { target: "ws://127.0.0.1:12031", ws: true },
     },

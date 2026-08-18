@@ -224,8 +224,9 @@ def _create_session(db: Session, user: User, request: Request, response: Respons
     return session
 
 
-@router.post("/refresh")
-def refresh(request: Request, response: Response, db: Session = Depends(get_db)):
+def rotate_refresh(request: Request, response: Response, db: Session) -> User:
+    """用 refresh token 旋转出新 access token（Set-Cookie 到 response），返回 User。
+    供 /auth/refresh 路由和 OIDC authorize 裸跳转的自动续期共用。"""
     raw = request.cookies.get(RT_COOKIE)
     if not raw:
         raise HTTPException(401, "无刷新令牌")
@@ -243,7 +244,12 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
     session._rt_raw = rt_raw  # type: ignore[attr-defined]
     _issue_cookies(response, user, session, session.remember)
     db.commit()
-    return _user_out(user)
+    return user
+
+
+@router.post("/refresh")
+def refresh(request: Request, response: Response, db: Session = Depends(get_db)):
+    return _user_out(rotate_refresh(request, response, db))
 
 
 @router.post("/logout")

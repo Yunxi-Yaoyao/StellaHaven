@@ -2,24 +2,31 @@
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services import oidc as oidc_svc
 from app.models.user import User
+from app.routers import auth as auth_mod
 from app.routers.auth import current_user
 
 router = APIRouter(tags=["oidc"])
 
 # 前端登录页（未登录时跳转）
-FRONTEND_LOGIN = "http://192.168.1.5:5173/login"
+FRONTEND_LOGIN = f"{oidc_svc.ISSUER}/login"
 
 
-def _optional_user(request: Request, db: Session = Depends(get_db)):
-    """可选登录态：已登录返回 User，未登录返回 None（不强制 401）。"""
+def _optional_user(request: Request, response: Response, db: Session = Depends(get_db)):
+    """可选登录态：已登录返回 User，未登录返回 None（不强制 401）。
+    access token 过期但 refresh token 有效时自动续期（Set-Cookie 新 at）——
+    authorize 是 iframe 裸 302 跳转，没有前端 JS 的 refreshAccess 兜底。"""
     try:
         return current_user(request, db)
+    except HTTPException:
+        pass
+    try:
+        return auth_mod.rotate_refresh(request, response, db)
     except HTTPException:
         return None
 
