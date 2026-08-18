@@ -15,6 +15,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(nullable=False, default="")
     email_verified: Mapped[bool] = mapped_column(nullable=False, default=False)
     avatar_history: Mapped[str] = mapped_column(nullable=False, default="[]")  # 近 5 个历史头像 URL，JSON 数组
+    home_bg: Mapped[str] = mapped_column(nullable=False, default="")  # 用户自选主页背景 URL（账号级，登录后各用各的）
     is_admin: Mapped[bool] = mapped_column(nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())

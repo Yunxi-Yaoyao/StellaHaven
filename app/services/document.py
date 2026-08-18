@@ -179,6 +179,8 @@ def _physical_delete(db: Session, doc: Document) -> None:
     from app.models.document_link import DocumentLink
     from app.models.document_version import DocumentVersion
     from app.routers.attachment import delete_attachments_of
+    # 先记下这文档挂的标签，删完关联后清掉「从此没人引用」的孤儿标签本体
+    tag_ids = [r.tag_id for r in db.query(DocTag).filter(DocTag.doc_id == doc.id).all()]
     db.query(DocTag).filter(DocTag.doc_id == doc.id).delete(synchronize_session=False)
     db.query(DocumentLink).filter(
         (DocumentLink.source_id == doc.id) | (DocumentLink.target_id == doc.id)
@@ -186,6 +188,9 @@ def _physical_delete(db: Session, doc: Document) -> None:
     db.query(DocumentVersion).filter(DocumentVersion.doc_id == doc.id).delete(synchronize_session=False)
     delete_attachments_of(db, doc.id)
     delete(db, doc)
+    if tag_ids:
+        from app.services.tag import purge_orphan_tags
+        purge_orphan_tags(db, tag_ids)
 
 
 def empty_trash(db: Session, workspace_id: UUID) -> int:

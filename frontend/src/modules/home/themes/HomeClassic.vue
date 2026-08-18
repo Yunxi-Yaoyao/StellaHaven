@@ -24,8 +24,8 @@ function editMood() {
 /* ================= 自定义背景图（设置 store 驱动，面板里改） ================= */
 import BgLayer from "../BgLayer.vue";
 import { homeSettings, settingsOpen } from "../settings";
-import { loggedIn, currentAvatar } from "../auth";
-const bgImage = computed(() => homeSettings.bgImage);
+import { displayBg, loggedIn, currentAvatar } from "../auth";
+const bgImage = displayBg;
 function setBg() {
   settingsOpen.value = true; // 小齿轮变成设置面板入口
 }
@@ -124,7 +124,7 @@ const dateLine = computed(() =>
     <!-- 斜悬浮碎语条已撤（老婆定的：主页不登录也可见，不放笔记内容） -->
 
     <!-- 背景设置入口（右下角小齿轮） -->
-    <button v-if="loggedIn" class="bg-btn" title="主页设置" @click="setBg">⚙</button>
+    <button v-if="loggedIn" class="bg-btn" title="主页设置" @click="setBg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2.2"/><circle cx="9" cy="16" r="2.2"/></svg></button>
 
     <div class="date-line">{{ dateLine }}</div>
   </div>
@@ -286,24 +286,27 @@ const dateLine = computed(() =>
 
 .bg-btn {
   position: absolute;
-  right: 18px;
-  bottom: 14px;
-  width: 30px;
-  height: 30px;
-  border: none;
+  left: 22px;
+  bottom: 18px;
+  z-index: 20;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  background: transparent;
-  color: var(--text-faint);
+  border: 1px solid var(--accent-dim);
+  background: color-mix(in srgb, var(--bg-panel) 78%, transparent);
+  color: var(--text-lo);
   cursor: pointer;
-  font-size: 13px;
-  transition: all var(--transition);
+  display: grid;
+  place-items: center;
+  transition: all 250ms;
 }
-.bg-btn:hover { color: var(--accent); background: var(--bg-raised); }
+.bg-btn svg { width: 19px; height: 19px; }
+.bg-btn:hover { color: var(--accent); transform: rotate(40deg); }
 
 .date-line {
   position: absolute;
-  left: 26px;
-  bottom: 18px;
+  left: 70px;
+  bottom: 24px;
   font-size: 11.5px;
   color: var(--text-faint);
   letter-spacing: 1px;

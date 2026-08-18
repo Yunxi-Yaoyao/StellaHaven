@@ -9,6 +9,9 @@ export const bgManagerOpen = ref(false);
 
 export const DEFAULT_HOME_BG = "/assets/homebg/default-bg-kimono.jpeg";
 
+/** 站点背景（管理员设置，未登录访客看到这个；登录后各用各的 localStorage 背景） */
+export const siteBackground = ref("");
+
 /** 粒子氛围：星空点点（夜色）/ 浮尘微粒（白日）/ 樱花飘落 / off=关闭 */
 export type Particles = "stars" | "motes" | "sakura" | "off";
 

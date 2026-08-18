@@ -9,12 +9,12 @@ def get_by_id(db: Session, tag_id: UUID) -> Tag | None:
     return db.query(Tag).filter(Tag.id == tag_id).first()
 
 
-def get_by_name(db: Session, name: str) -> Tag | None:
-    return db.query(Tag).filter(Tag.name == name).first()
+def get_by_name(db: Session, user_id: UUID, name: str) -> Tag | None:
+    return db.query(Tag).filter(Tag.user_id == user_id, Tag.name == name).first()
 
 
-def list_all(db: Session, skip: int = 0, limit: int = 20) -> list[Tag]:
-    return db.query(Tag).offset(skip).limit(limit).all()
+def list_all(db: Session, user_id: UUID, skip: int = 0, limit: int = 20) -> list[Tag]:
+    return db.query(Tag).filter(Tag.user_id == user_id).offset(skip).limit(limit).all()
 
 
 def create(db: Session, data: TagCreate) -> Tag:

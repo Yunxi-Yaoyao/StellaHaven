@@ -1,4 +1,6 @@
 // fetch 封装：统一 JSON、错误带 status（409 乐观锁要靠它区分）
+import { refreshAccess } from "../modules/home/auth";
+
 export class ApiError extends Error {
   status: number;
   detail: unknown;
@@ -10,10 +12,14 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const resp = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const doFetch = () =>
+    fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+
+  let resp = await doFetch();
+  // access token 过期（30min）→ 单例 refresh 续命后重试一次
+  if (resp.status === 401) {
+    if (await refreshAccess()) resp = await doFetch();
+  }
   if (!resp.ok) {
     let detail: unknown = null;
     try {

@@ -2,13 +2,17 @@
 // 设置页：标签页切换（我的资料 / 管理员设置[admin] / 其他），页内切换不新开
 import { ref, computed, onMounted } from "vue";
 import { auth, isAdmin, currentAvatar, logout } from "../home/auth";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import AvatarCropper from "./AvatarCropper.vue";
+import { getPublicHost, setPublicHost } from "../../api/servers";
 
 const router = useRouter();
+const route = useRoute();
 
 /* ---------- 标签页 ---------- */
-const tab = ref<"profile" | "admin" | "misc">("profile");
+const tab = ref<"profile" | "admin" | "misc">(
+  (route.query.tab as "profile" | "admin" | "misc") || "profile"
+);
 const tabs = computed(() => {
   const t = [{ key: "profile", label: "我的资料" }];
   if (isAdmin.value) t.push({ key: "admin", label: "管理员设置" });
@@ -288,11 +292,37 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/* ---------- 公网地址（其他） ---------- */
+const publicHost = ref("");
+const publicHostMsg = ref("");
+
+async function loadPublicHost() {
+  try {
+    publicHost.value = (await getPublicHost()).value;
+  } catch { /* 静默 */ }
+}
+
+async function savePublicHost() {
+  publicHostMsg.value = "";
+  const v = publicHost.value.trim();
+  if (!v) {
+    publicHostMsg.value = "公网地址不能为空喵~";
+    return;
+  }
+  try {
+    await setPublicHost(v);
+    publicHostMsg.value = "已保存";
+  } catch {
+    publicHostMsg.value = "保存失败喵~";
+  }
+}
+
 onMounted(() => {
   nameDraft.value = auth.me?.display_name ?? "";
   mailDraft.value = auth.me?.email ?? "";
   loadSessions();
   loadAvatarHistory();
+  loadPublicHost();
   if (isAdmin.value) { loadUsers(); loadInvites(); loadEmailCfg(); }
 });
 </script>
@@ -446,6 +476,17 @@ onMounted(() => {
       <!-- ═══ 其他 ═══ -->
       <template v-else>
         <section class="card">
+          <div class="sec-t">公网地址 <span class="sec-sub">给远程服务器装 agent 时用</span></div>
+          <div class="field-row">
+            <span class="f-label">IP / 域名</span>
+            <input v-model="publicHost" class="input" placeholder="如 me.yaoyao.cfd 或 149.104.15.68" />
+            <button class="btn" @click="savePublicHost">保存</button>
+          </div>
+          <div class="hint">没填的话，给远程机器复制安装命令时会提示「未设置公网 IP/域名喵~」</div>
+          <div v-if="publicHostMsg" class="ok-msg">{{ publicHostMsg }}</div>
+        </section>
+
+        <section class="card">
           <div class="sec-t">其他</div>
           <div class="hint">通用设置以后搬来这里。现在先去主页齿轮里玩主题和背景图喵~</div>
         </section>
@@ -597,6 +638,7 @@ onMounted(() => {
   padding: 8px 18px; border-radius: 10px; border: none;
   background: var(--accent); color: #141824;
   font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+  white-space: nowrap; flex-shrink: 0;
 }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn.ghost { background: transparent; color: var(--text-lo); border: 1px solid rgba(255, 255, 255, 0.12); font-weight: 400; }
@@ -620,7 +662,7 @@ onMounted(() => {
 }
 .sess-group:first-of-type { margin-top: 0; }
 .field-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.field-row .f-label { width: 44px; flex-shrink: 0; font-size: 12.5px; color: var(--text-lo); }
+.field-row .f-label { min-width: 44px; flex-shrink: 0; font-size: 12.5px; color: var(--text-lo); white-space: nowrap; }
 .f-hint { font-size: 11.5px; color: var(--text-faint); }
 .mail-test { display: flex; gap: 10px; margin-top: 14px; }
 .switch {

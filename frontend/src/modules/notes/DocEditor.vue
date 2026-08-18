@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted, toRef } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onUnmounted, toRef } from "vue";
 import { marked } from "marked";
 import {
   getDoc, updateDoc, getDraft, toggleFavorite, type Doc,
@@ -41,6 +41,14 @@ const content = ref("");
 const savedTitle = ref("");
 const savedContent = ref("");
 const reading = ref(true); // 默认阅览模式（老婆的定稿），编辑双栏/阅览纯预览切换
+
+// 窄屏检测：窗口挤到放不下编辑双栏（左编辑器+右预览）→ 自动单栏（编辑只看编辑器）
+// 断点 900px：双栏每边至少 ~430px 才不挤
+const NARROW_BP = 900;
+const narrow = ref(window.innerWidth <= NARROW_BP);
+function onWinResize() {
+  narrow.value = window.innerWidth <= NARROW_BP;
+}
 
 // 常驻状态条数据：保存时间 + 草稿暂存标记 + 相对时间 ticker
 const savedAt = ref<string | null>(null);
@@ -104,10 +112,40 @@ function attachCardHtml(id: string, fallbackName: string): string {
   );
 }
 
+// mermaid 代码块 → 占位 div（marked 默认渲染成 <pre><code>，这里换成 .mermaid 容器供 mermaid.js 渲染）
+const mermaidRenderer = new marked.Renderer();
+const _origCode = mermaidRenderer.code.bind(mermaidRenderer);
+mermaidRenderer.code = (token: { text: string; lang?: string }) => {
+  if (token.lang === "mermaid") {
+    const escaped = token.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return `<div class="mermaid">${escaped}</div>`;
+  }
+  return _origCode(token as Parameters<typeof _origCode>[0]);
+};
+
 const rendered = computed(() => {
-  let html = marked.parse(content.value || "", { breaks: true }) as string;
+  const md = content.value || "";
+  let html = marked.parse(md, { breaks: true, renderer: mermaidRenderer }) as string;
+  // 标题加锚点 id（hIdx 顺序和 marked.lexer 的 heading 顺序严格一致）
   let hIdx = 0;
-  html = html.replace(/<h([123])>/g, (_m, lv) => `<h${lv} id="toc-h${hIdx++}">`);
+  html = html.replace(/<h([123])>/g, (_m, lv) => {
+    const id = `toc-h${hIdx++}`;
+    return `<h${lv} id="${id}">`;
+  });
+  // 用 lexer 拿标题 + 源码偏移（offset 供编辑器跳转用）
+  // 关键：lexer 只认真标题，代码块里的 # 注释不会被误当成标题 → id 和锚点对齐
+  const toc: { level: number; text: string; id: string; offset: number }[] = [];
+  let cursor = 0;
+  let ti = 0;
+  for (const t of marked.lexer(md, { breaks: true })) {
+    if (t.type === "heading" && t.depth <= 3) {
+      const idx = md.indexOf(t.raw, cursor);
+      const offset = idx >= 0 ? idx : cursor;
+      toc.push({ level: t.depth, text: t.text, id: `toc-h${ti++}`, offset });
+      if (idx >= 0) cursor = idx + t.raw.length;
+    }
+  }
+  tocItems.value = toc;
   // 附件链接 → 下载卡片
   html = html.replace(
     /<a href="\/attachments\/([0-9a-f-]{36})">([^<]*)<\/a>/g,
@@ -120,23 +158,74 @@ const rendered = computed(() => {
   return html;
 });
 
+// ── mermaid 渲染：v-html 落 DOM 后，把 .mermaid 容器逐个渲染成 SVG ──
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+let mermaidSeq = 0;
+let mermaidPromise: Promise<any> | null = null;
+function loadMermaid(): Promise<any> {
+  // 按需动态加载 CDN 的 mermaid（v10 UMD）；v11 打包有 TDZ 循环依赖问题，已绕开打包链。
+  // 只在笔记里真有 mermaid 图时才加载，避免 3MB 脚本拖慢其他页面/切换。
+  const w = window as any;
+  if (w.mermaid) return Promise.resolve(w.mermaid);
+  if (mermaidPromise) return mermaidPromise;
+  mermaidPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
+    s.onload = () => {
+      const m = w.mermaid;
+      if (m) {
+        m.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+        resolve(m);
+      } else {
+        reject(new Error("mermaid 加载失败"));
+      }
+    };
+    s.onerror = () => reject(new Error("mermaid CDN 加载失败"));
+    document.head.appendChild(s);
+  });
+  return mermaidPromise;
+}
+async function renderMermaid() {
+  await nextTick();
+  const containers = Array.from(document.querySelectorAll(".preview .mermaid:not([data-processed])"));
+  if (containers.length === 0) return;
+  let m: any;
+  try {
+    m = await loadMermaid();
+  } catch {
+    return; // CDN 加载失败时静默跳过（代码块仍以源码显示）
+  }
+  for (const el of containers) {
+    const code = (el.textContent || "").trim();
+    if (!code) { el.setAttribute("data-processed", "1"); continue; }
+    try {
+      const { svg } = await m.render(`mmd-${Date.now()}-${mermaidSeq++}`, code);
+      el.innerHTML = svg;
+    } catch {
+      // 语法错误等：回退成纯文本代码块，方便定位
+      el.innerHTML = `<pre class="mermaid-error">${escapeHtml(code)}</pre>`;
+    }
+    el.setAttribute("data-processed", "1");
+  }
+}
+
 // ── TOC 大纲 ──
 const tocOpen = ref(false);
-const tocItems = computed(() => {
-  const items: { level: number; text: string; id: string }[] = [];
-  const re = /^(#{1,3})\s+(.+)$/gm;
-  let m;
-  let i = 0;
-  while ((m = re.exec(content.value || ""))) {
-    items.push({ level: m[1].length, text: m[2].trim(), id: `toc-h${i++}` });
-  }
-  return items;
-});
+// TOC 条目由 rendered 计算时同步产出（id 与锚点严格对齐，offset 供编辑器跳转）
+const tocItems = ref<{ level: number; text: string; id: string; offset: number }[]>([]);
+// ⚠️ watch 必须在 tocItems 声明之后：rendered 内部引用 tocItems，watch 会立即读 computed，若在声明前会触发 TDZ
+watch(rendered, () => { renderMermaid(); });
 
 function jumpTo(id: string) {
+  // 1. 预览跳转（阅览模式 / 双栏的右侧）
   const preview = document.querySelector(".preview");
   const target = preview?.querySelector(`#${id}`);
   target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  // 2. 编辑器跳转（编辑双栏的左侧 / 窄屏单栏的编辑器）——两边同步滚
+  const item = tocItems.value.find((t) => t.id === id);
+  if (item) cmRef.value?.scrollToPos(item.offset);
 }
 
 // 编辑/预览滚动联动：编辑器滚多少比例，预览滚同样比例（老婆：不想滑两次）
@@ -157,6 +246,16 @@ function onPreviewClick(e: MouseEvent) {
     a.download = card.dataset.name || "";
     a.click();
     return;
+  }
+  // mermaid 流程图点击放大：内联 SVG 序列化成 data URI 塞进 lightbox（跟图片同一套滚轮缩放+拖动）
+  const mermaidBlock = (e.target as HTMLElement).closest(".mermaid") as HTMLElement | null;
+  if (mermaidBlock) {
+    const svg = mermaidBlock.querySelector("svg");
+    if (svg) {
+      const svgStr = new XMLSerializer().serializeToString(svg);
+      openLightbox("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr));
+      return;
+    }
   }
   const img = (e.target as HTMLElement).closest("img") as HTMLImageElement | null;
   if (img && img.src) {
@@ -658,10 +757,13 @@ function onKey(e: KeyboardEvent) {
 }
 onMounted(() => {
   window.addEventListener("keydown", onKey);
+  window.addEventListener("resize", onWinResize);
   tickTimer = setInterval(() => (nowTick.value = Date.now()), 30000); // 「几分钟前」自己走
+  renderMermaid(); // 初始内容里的 mermaid 图
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);
+  window.removeEventListener("resize", onWinResize);
   if (tickTimer) clearInterval(tickTimer);
 });
 
@@ -735,7 +837,7 @@ function fmtDraftTime(iso: string) {
       >{{ t.text }}</button>
     </div>
 
-    <div class="panes" :class="reading ? 'preview-only' : 'split'">
+    <div class="panes" :class="reading ? 'preview-only' : (narrow ? 'edit-single' : 'split')">
       <div v-show="!reading" class="input-wrap">
         <CmEditor
           ref="cmRef"
@@ -764,7 +866,8 @@ function fmtDraftTime(iso: string) {
           >{{ c.label }}</div>
         </div>
       </div>
-      <div ref="previewEl" class="preview markdown-body" v-html="rendered" @click="onPreviewClick" />
+      <!-- 窄屏编辑单栏：预览隐藏（要看预览切回阅览模式） -->
+      <div v-show="reading || !narrow" ref="previewEl" class="preview markdown-body" v-html="rendered" @click="onPreviewClick" />
     </div>
 
     <!-- 反链：哪些页面链接到了这篇 -->
@@ -792,6 +895,7 @@ function fmtDraftTime(iso: string) {
     <!-- 常驻状态条：保存于几分钟前 · 字数 · 来源 -->
     <div class="status-bar">
       <span class="state">{{ statusLeft }}</span>
+      <span v-if="!reading && narrow" class="narrow-hint" title="窗口较窄，已自动切换为单栏（编辑只看编辑器）">单栏</span>
       <span class="right">{{ wordCount }} 字 · </span>
       <span class="device" title="点击给这个来源起名" @click="renameDevice">{{ deviceLabel }}</span>
     </div>
@@ -811,13 +915,16 @@ function fmtDraftTime(iso: string) {
           <span class="toc-title">大纲</span>
           <button class="toc-close" title="收起大纲" @click="tocOpen = false">»</button>
         </div>
-        <div
-          v-for="t in tocItems"
-          :key="t.id"
-          class="toc-item"
-          :style="{ paddingLeft: 10 + (t.level - 1) * 14 + 'px' }"
-          @click="jumpTo(t.id)"
-        >{{ t.text }}</div>
+        <!-- 标题栏固定，只有条目区滚动（标题/关闭按钮不再被滚出视野） -->
+        <div class="toc-list">
+          <div
+            v-for="t in tocItems"
+            :key="t.id"
+            class="toc-item"
+            :style="{ paddingLeft: 10 + (t.level - 1) * 14 + 'px' }"
+            @click="jumpTo(t.id)"
+          >{{ t.text }}</div>
+        </div>
       </div>
     </Transition>
 
@@ -898,7 +1005,8 @@ function fmtDraftTime(iso: string) {
   transform: translateY(-50%);
   width: 210px;
   max-height: 60%;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-raised);
   border: 1px solid var(--accent-dim);
   border-right: none;
@@ -906,6 +1014,13 @@ function fmtDraftTime(iso: string) {
   box-shadow: -8px 0 32px rgba(0, 0, 0, 0.55);
   z-index: 26;
   padding: 8px 0;
+}
+/* 标题栏固定 + 条目区独立滚动（标题/关闭按钮不被滚走） */
+.toc-head { flex-shrink: 0; }
+.toc-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 /* 展开/收起双向丝滑动画（慢一点更优雅） */
 .toc-enter-active, .toc-leave-active {
@@ -1239,11 +1354,23 @@ function fmtDraftTime(iso: string) {
   background: var(--bg-base);
 }
 .status-bar .state { color: var(--text-lo); }
+.status-bar .narrow-hint {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.5px;
+}
 .status-bar .right { margin-left: auto; }
 .status-bar .device { cursor: pointer; }
 .status-bar .device:hover { color: var(--accent); }
 
 .panes { flex: 1; display: flex; overflow: hidden; }
+
+/* 窄屏编辑单栏：只显示编辑器，预览隐藏（预览只在阅览模式出现） */
+.panes.edit-single .input-wrap { flex: 1; }
 
 .breadcrumb {
   padding: 8px 16px 0;
@@ -1343,6 +1470,14 @@ function fmtDraftTime(iso: string) {
   padding: 16px 20px;
 }
 
+/* 编辑双栏：预览跟随编辑器联动滚动，预览滚动条冗余 → 隐藏，只留编辑器一条（老婆定的） */
+.panes.split .preview {
+  scrollbar-width: none; /* Firefox */
+}
+.panes.split .preview::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
 /* markdown 渲染样式（字阶拉开 + 呼吸感，老婆验收版） */
 .markdown-body {
   line-height: 1.75;
@@ -1391,6 +1526,16 @@ function fmtDraftTime(iso: string) {
   margin: 14px 0;
 }
 .markdown-body :deep(pre code) { background: none; padding: 0; }
+/* mermaid 流程图：可点击放大（cursor 提示），缩放到列宽 */
+.markdown-body :deep(.mermaid) {
+  cursor: zoom-in;
+  margin: 14px 0;
+  overflow-x: auto;
+}
+.markdown-body :deep(.mermaid svg) {
+  max-width: 100%;
+  height: auto;
+}
 .markdown-body :deep(blockquote) {
   border-left: 3px solid var(--accent-dim);
   padding: 4px 0 4px 14px;

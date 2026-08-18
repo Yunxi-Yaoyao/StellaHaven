@@ -12,6 +12,9 @@ def add_tag(db: Session, data: DocTagCreate) -> DocTag:
 
 def remove_tag(db: Session, doc_id: UUID, tag_id: UUID) -> None:
     remove(db, doc_id, tag_id)
+    # 摘掉后这标签可能成了孤儿 → 顺手清掉本体
+    from app.services.tag import purge_orphan_tags
+    purge_orphan_tags(db, [tag_id])
 
 
 def get_tags(db: Session, doc_id: UUID) -> list[DocTag]:

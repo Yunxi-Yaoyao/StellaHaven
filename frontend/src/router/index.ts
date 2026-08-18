@@ -41,10 +41,16 @@ const router = createRouter({
       meta: { title: "图库" },
     },
     {
+      path: "/drive",
+      name: "drive",
+      component: () => import("../modules/drive/DrivePage.vue"),
+      meta: { title: "网盘" },
+    },
+    {
       path: "/status",
       name: "status",
-      component: () => import("../modules/status/StatusPage.vue"),
-      meta: { title: "服务器状态" },
+      component: () => import("../modules/servers/ServersPage.vue"),
+      meta: { title: "服务器" },
     },
   ],
 });

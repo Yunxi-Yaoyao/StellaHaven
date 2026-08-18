@@ -229,7 +229,8 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
     raw = request.cookies.get(RT_COOKIE)
     if not raw:
         raise HTTPException(401, "无刷新令牌")
-    session = db.query(AuthSession).filter(AuthSession.refresh_hash == hash_refresh(raw)).first()
+    # 行级锁：同域名多 tab 并发 refresh 时串行化，避免旋转制把对方 token 覆盖废掉
+    session = db.query(AuthSession).filter(AuthSession.refresh_hash == hash_refresh(raw)).with_for_update().first()
     if not session or session.revoked:
         raise HTTPException(401, "会话已失效")
     user = db.get(User, session.user_id)
@@ -266,6 +267,7 @@ def me(user: User = Depends(current_user)):
 class ProfileIn(BaseModel):
     display_name: str | None = None
     email: str | None = None
+    home_bg: str | None = None
 
 
 @router.patch("/me")
@@ -285,6 +287,8 @@ def update_profile(data: ProfileIn, user: User = Depends(current_user), db: Sess
             raise HTTPException(400, "昵称不能为空")
         _assert_identifiers_free(db, display_name=name, exclude=user.id)
         user.display_name = name
+    if data.home_bg is not None:
+        user.home_bg = data.home_bg.strip()
     db.commit()
     return _user_out(user)
 
@@ -797,6 +801,7 @@ def _user_out(user: User) -> dict:
         "display_name": user.display_name,
         "is_admin": user.is_admin,
         "avatar_url": user.avatar_url,
+        "home_bg": user.home_bg,
         "email": user.email,
         "email_verified": user.email_verified,
     }

@@ -41,8 +41,8 @@ function commitMood() {
 /* ================= 设置 store（背景图/星空/主题都在设置面板里改） ================= */
 import BgLayer from "../BgLayer.vue";
 import { homeSettings, settingsOpen } from "../settings";
-import { loggedIn, currentAvatar } from "../auth";
-const bgImage = computed(() => homeSettings.bgImage);
+import { displayBg, loggedIn, currentAvatar } from "../auth";
+const bgImage = displayBg;
 
 /* ================= Live2D 挂件（Miku，戳她播报今日塔罗） ================= */
 import Live2dWidget from "../Live2dWidget.vue";

@@ -17,7 +17,8 @@ const navItems = [
   { to: "/", icon: "home", label: "个人主页" },
   { to: "/notes", icon: "note", label: "笔记" },
   { to: "/gallery", icon: "image", label: "图库" },
-  { to: "/status", icon: "activity", label: "服务器状态" },
+  { to: "/drive", icon: "drive", label: "网盘" },
+  { to: "/status", icon: "server", label: "服务器" },
   { to: "/settings", icon: "settings", label: "设置" },
 ];
 </script>
@@ -42,7 +43,7 @@ const navItems = [
     <nav class="nav">
       <RouterLink
         v-for="item in navItems"
-        :key="item.to"
+        :key="item.label"
         :to="item.to"
         class="nav-item"
         :class="{ active: $route.path === item.to }"
@@ -151,6 +152,15 @@ const navItems = [
   border-radius: var(--radius-sm);
   color: var(--text-lo);
   transition: all var(--transition);
+  /* button reset：网盘占位项是 <button>，补齐对齐/字体/边框，和 <a> 导航项视觉一致 */
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .nav-item:hover {
   background: var(--bg-raised);

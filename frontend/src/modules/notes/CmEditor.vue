@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, drawSelection } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -58,7 +58,11 @@ const stellaTheme = EditorView.theme({
     padding: "16px",
     caretColor: "var(--accent)",
   },
-  ".cm-cursor": { borderLeftColor: "var(--accent)" },
+  ".cm-cursor": {
+    borderLeftColor: "var(--accent)",
+    // CM6 默认光标闪烁动画，显式补上（theme 重写 .cm-cursor 后默认 animation 会丢）
+    animation: "cm-blink 1.2s steps(1) infinite",
+  },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
     backgroundColor: "var(--bg-raised) !important",
   },
@@ -99,6 +103,8 @@ onMounted(() => {
         markdown({ base: markdownLanguage }),
         syntaxHighlighting(stellaHighlight, { fallback: true }),
         stellaTheme,
+        // 光标 + 选区绘制（含闪烁动画）——不引这个，CM6 根本不画光标
+        drawSelection(),
         EditorView.updateListener.of((u) => {
           if (u.docChanged && !syncingFromOutside) {
             emit("update:modelValue", u.state.doc.toString());
@@ -182,7 +188,18 @@ function cursorPos(): number {
   return view?.coordsAtPos(view.state.selection.main.head)?.top ?? 0;
 }
 
-defineExpose({ wrapSelection, insertText, deleteBefore, linePrefix, getCursor, cursorPos, focus: () => view?.focus() });
+/** 跳转到源码某字符偏移处（TOC 跳转时让编辑器同步滚到对应标题） */
+function scrollToPos(offset: number) {
+  if (!view) return;
+  const pos = Math.max(0, Math.min(offset, view.state.doc.length));
+  view.dispatch({
+    selection: { anchor: pos },
+    effects: EditorView.scrollIntoView(pos, { y: "start" }),
+  });
+  view.focus();
+}
+
+defineExpose({ wrapSelection, insertText, deleteBefore, linePrefix, getCursor, cursorPos, scrollToPos, focus: () => view?.focus() });
 </script>
 
 <template>

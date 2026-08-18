@@ -3,6 +3,7 @@
 // 裁剪模型 = 源图分数区域（cx,cy 中心 + w,h 宽高），渲染时 cover-fit 铺满——窗口 resize 内容不散。
 import { ref, computed, watch, onMounted } from "vue";
 import { bgManagerOpen, homeSettings } from "./settings";
+import { auth, displayBg } from "./auth";
 
 interface BgEntry {
   id: string;
@@ -41,7 +42,7 @@ async function load() {
     const r = await fetch("/homebg/");
     if (!r.ok) return; // 未登录时静默（管理窗本来要登录才开）
     list.value = await r.json();
-    const cur = list.value.find((e) => e.url === homeSettings.bgImage);
+    const cur = list.value.find((e) => e.url === displayBg.value);
     selectedId.value = cur?.id ?? list.value[0]?.id ?? null;
   } catch { /* 后端没起就静默 */ }
 }
@@ -151,10 +152,22 @@ const mediaStyle = computed(() => {
   };
 });
 
+async function saveMyBg(url: string) {
+  // 写服务端：登录后自己的壁纸（账号级），换设备跟随账号
+  try {
+    const r = await fetch("/auth/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ home_bg: url }),
+    });
+    if (r.ok) auth.me = await r.json();
+  } catch { /* 后端不在则不落盘 */ }
+}
+
 function applyCrop() {
   const e = previewEntry.value;
   if (e) {
-    homeSettings.bgImage = e.url;
+    saveMyBg(e.url);
     homeSettings.bgCrop = { cx: cx.value, cy: cy.value, w: cropW.value, h: cropH.value };
   }
   previewEntry.value = null;
@@ -163,7 +176,7 @@ function applyCrop() {
 
 function confirmPick() {
   const e = list.value.find((x) => x.id === selectedId.value);
-  if (e) homeSettings.bgImage = e.url;
+  if (e) saveMyBg(e.url);
   bgManagerOpen.value = false;
 }
 
