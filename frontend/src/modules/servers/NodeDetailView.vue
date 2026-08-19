@@ -6,8 +6,9 @@ import * as echarts from "echarts";
 import Icon from "../../shell/Icon.vue";
 import {
   getNodeDetail, getNodeMetrics, getNodeSysMetrics, getTrafficStats, updateNodeIfaces, updateNetType, changeIp,
-  listMonitors, getMonitorSeries, createCommand, listCommands, scanFirewall, getNetTask, scanDocker, ctlDocker,
-  type NodeDetail, type Monitor, type MonitorCheckPoint, type TrafficStats, type FirewallData, type DockerContainer,
+  listMonitors, getMonitorSeries, createCommand, listCommands, scanFirewall, getNetTask,
+  latestNetTask, scanPbr,
+  type NodeDetail, type Monitor, type MonitorCheckPoint, type TrafficStats, type FirewallData,
 } from "../../api/servers";
 import { toast } from "../../composables/useToast";
 import Dropdown from "../../shell/Dropdown.vue";
@@ -67,36 +68,35 @@ const fw = computed(() => detail.value?.components?.firewall || {});
 // ── 防火墙 / PBR 只读查看（复用 command 任务：下发 → 轮询拿 stdout）──
 const fwOutput = ref("");
 const fwLoading = ref(false);
-const pbrOutput = ref("");
 const pbrLoading = ref(false);
 
-async function runNodeCommand(cmd: string): Promise<string> {
-  const created = await createCommand({ node_id: nodeId.value, command: cmd });
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    try {
-      const cmds = await listCommands();
-      const c = cmds.find((x) => x.id === created.id);
-      if (c && c.status !== "pending" && c.status !== "running") {
-        return c.stdout || c.stderr || "(无输出)";
-      }
-    } catch { /* 继续轮询 */ }
-  }
-  return "(查询超时)";
-}
+const fwAt = ref("");  // 防火墙快照时间
 
-async function viewFirewall() {
+async function viewFirewall(force = true) {
   // 结构化扫描（一期）：agent 采集 ufw numbered + iptables-save 五表，前端表格展示
+  // 惰性缓存：非强制且有 10 分钟内快照 → 直接用
   fwLoading.value = true;
   fwOutput.value = "";
-  fwData.value = null;
   try {
+    if (!force) {
+      const latest = await latestNetTask(nodeId.value, "firewall_scan");
+      const rj = latest?.result_json as any;
+      if (latest && rj?.ufw) {
+        fwData.value = rj;
+        fwAt.value = latest.created_at;
+        const tbls = rj?.iptables?.tables || {};
+        fwIptTab.value = IPT_TABLE_ORDER.find((k) => tbls[k]) || Object.keys(tbls)[0] || "";
+        if (Date.now() - new Date(latest.created_at).getTime() < SCAN_TTL) { fwLoading.value = false; return; }
+        // 过期：先显示旧数据，继续往下后台重扫
+      }
+    }
     const t = await scanFirewall(nodeId.value);
     for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 2000));
       const cur = await getNetTask(t.id);
       if (cur.status === "done") {
         fwData.value = cur.result_json as FirewallData;
+        fwAt.value = new Date().toISOString();
         // 默认选中第一个有数据的表
         const tbls = fwData.value?.iptables?.tables || {};
         fwIptTab.value = IPT_TABLE_ORDER.find((k) => tbls[k]) || Object.keys(tbls)[0] || "";
@@ -128,62 +128,54 @@ const iptTables = computed(() => {
 const fwChainsOpen = ref<Record<string, boolean>>({});
 function toggleChain(key: string) { fwChainsOpen.value = { ...fwChainsOpen.value, [key]: !fwChainsOpen.value[key] }; }
 
-// ── Docker 面板 ──
-const dkData = ref<{ installed: boolean; error?: string; containers?: DockerContainer[] } | null>(null);
-const dkLoading = ref(false);
-const dkBusy = ref<Record<string, boolean>>({});   // container -> 操作进行中
+// ── Docker 状态（面板已独立成 tab，详情页只留状态行）──
 const dkComp = computed(() => (detail.value?.components as any)?.docker || null);  // 心跳里的检测状态
 
-async function loadDocker() {
-  dkLoading.value = true;
-  try {
-    const t = await scanDocker(nodeId.value);
-    for (let i = 0; i < 15; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const cur = await getNetTask(t.id);
-      if (cur.status === "done") {
-        dkData.value = cur.result_json as any;
-        dkLoading.value = false;
-        return;
-      }
-      if (cur.status === "failed") { toast("Docker 扫描失败喵~"); dkLoading.value = false; return; }
-    }
-    toast("扫描超时了喵~");
-  } catch { toast("下发扫描失败"); }
-  dkLoading.value = false;
+// ── 惰性扫描缓存：打开面板先读最近一次完成快照，超过 10 分钟自动后台重扫 ──
+const SCAN_TTL = 10 * 60 * 1000;
+
+interface PbrRule { pref: number; mark: string | null; table: string | null; from: string | null; raw: string }
+interface PbrRoute { dst: string; via: string | null; dev: string | null; scope: string | null; raw: string }
+interface PbrMark { chain: string | null; uid: string | null; mark: string | null; raw: string }
+interface PbrData { rules: PbrRule[]; tables: Record<string, PbrRoute[]>; marks: PbrMark[] }
+
+function goDockerTab() { router.push({ path: "/status", query: { view: "docker", node: String(nodeId.value) } }); }
+function fmtScanTime(iso: string) {
+  return iso ? `数据来自 ${new Date(iso).toLocaleTimeString("zh-CN", { hour12: false })}` : "";
 }
 
-async function dockerCtl(c: DockerContainer, action: "start" | "stop" | "restart") {
-  if (dkBusy.value[c.name]) return;
-  dkBusy.value = { ...dkBusy.value, [c.name]: true };
-  try {
-    const t = await ctlDocker(nodeId.value, action, c.name);
-    for (let i = 0; i < 35; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const cur = await getNetTask(t.id);
-      if (cur.status === "done") {
-        toast(`${action === "start" ? "已启动" : action === "stop" ? "已停止" : "已重启"} ${c.name} 喵~`);
-        await loadDocker();  // 刷新列表
-        return;
-      }
-      if (cur.status === "failed") {
-        toast(`${action} 失败：${(cur.result_json as any)?.error || "未知原因"}`);
-        return;
-      }
-    }
-    toast("操作超时了喵~");
-  } catch { toast("下发失败"); }
-  finally { dkBusy.value = { ...dkBusy.value, [c.name]: false }; }
+const pbrData = ref<PbrData | null>(null);
+const pbrAt = ref("");           // 快照时间
+const pbrOpen = ref<Record<string, boolean>>({});  // 路由表展开
+
+async function pollNetTask(tid: number, tries = 15): Promise<any> {
+  for (let i = 0; i < tries; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const cur = await getNetTask(tid);
+    if (cur.status === "done") return cur.result_json;
+    if (cur.status === "failed") return { error: (cur.result_json as any)?.error || "扫描失败" };
+  }
+  return { error: "扫描超时" };
 }
 
-async function viewPbr() {
+async function loadPbr(force = false) {
   pbrLoading.value = true;
-  pbrOutput.value = "";
   try {
-    pbrOutput.value = await runNodeCommand(
-      "ip rule show; echo '=== rt_tables ==='; cat /etc/iproute2/rt_tables 2>/dev/null; echo '=== route table all ==='; ip route show table all 2>&1 | head -120"
-    );
-  } catch { pbrOutput.value = "查看失败"; }
+    if (!force) {
+      const latest = await latestNetTask(nodeId.value, "pbr_scan");
+      const rj = latest?.result_json as any;
+      if (latest && rj?.rules) {
+        pbrData.value = rj;
+        pbrAt.value = latest.created_at;
+        if (Date.now() - new Date(latest.created_at).getTime() < SCAN_TTL) { pbrLoading.value = false; return; }
+        // 过期：先显示旧数据，后台继续重扫
+      }
+    }
+    const t = await scanPbr(nodeId.value);
+    const rj = await pollNetTask(t.id);
+    if (rj?.rules) { pbrData.value = rj; pbrAt.value = new Date().toISOString(); }
+    else if (rj?.error) toast(`PBR 扫描失败：${rj.error}`);
+  } catch { toast("PBR 加载失败"); }
   pbrLoading.value = false;
 }
 
@@ -900,6 +892,9 @@ watch(() => props.nodeId, (newId, oldId) => {
 onMounted(async () => {
   await load();        // 先拿节点详情（网卡清单），再画图表
   loadCharts();
+  // 惰性扫描缓存：面板打开即有数据（10 分钟内快照直接用，过期后台重扫）
+  viewFirewall(false);
+  loadPbr(false);
   timer = setInterval(load, 5000);  // 5s 只刷状态类，图表不动
   uptimeTimer = setInterval(() => { uptimeTick.value++; }, 30000);
   window.addEventListener("resize", onResize);
@@ -1216,7 +1211,8 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
       <section class="panel">
         <div class="panel-head">
           <span class="ph-title">防火墙</span>
-          <button class="ghost-btn" @click="viewFirewall">{{ fwLoading ? '扫描中…' : '扫描规则' }}</button>
+          <span v-if="fwAt" class="ph-hint">{{ fmtScanTime(fwAt) }}{{ fwLoading ? " · 更新中…" : "" }}</span>
+          <button class="ghost-btn" :disabled="fwLoading" @click="viewFirewall(true)">{{ fwLoading && !fwData ? '扫描中…' : '重新扫描' }}</button>
           <button v-if="fwData" class="ghost-btn" @click="fwShowRaw = !fwShowRaw">{{ fwShowRaw ? '收起原文' : '原文' }}</button>
           <button class="danger-btn" @click="fwModOpen = !fwModOpen">{{ fwModOpen ? '收起' : '修改规则' }}</button>
         </div>
@@ -1351,48 +1347,64 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
         <pre v-if="fwOutput" class="cmd-output">{{ fwOutput }}</pre>
       </section>
 
-      <!-- PBR 策略路由面板（只读） -->
+      <!-- PBR 策略路由面板（结构化竖向展示，打开自动加载缓存，过期后台重扫） -->
       <section class="panel">
         <div class="panel-head">
           <span class="ph-title">策略路由（PBR）</span>
-          <button class="ghost-btn" @click="viewPbr">{{ pbrLoading ? '查询中…' : '查看' }}</button>
+          <span v-if="pbrAt" class="ph-hint">{{ fmtScanTime(pbrAt) }}{{ pbrLoading ? " · 更新中…" : "" }}</span>
+          <button class="ghost-btn" :disabled="pbrLoading" @click="loadPbr(true)">{{ pbrLoading && !pbrData ? '扫描中…' : '重新扫描' }}</button>
         </div>
-        <pre v-if="pbrOutput" class="cmd-output">{{ pbrOutput }}</pre>
+        <div v-if="!pbrData && !pbrLoading" class="empty">加载中…</div>
+        <template v-if="pbrData">
+          <!-- 打标链：谁被打了什么标记 -->
+          <div class="pbr-block">
+            <div class="pbr-bt">打标规则（mangle）</div>
+            <div v-if="!pbrData.marks.length" class="empty">无 MARK 打标规则</div>
+            <div v-for="(m, i) in pbrData.marks" :key="i" class="pbr-item" :title="m.raw">
+              <span class="pbr-k">链</span><span class="pbr-v mono">{{ m.chain }}</span>
+              <span class="pbr-k">UID</span><span class="pbr-v mono">{{ m.uid ?? "全部" }}</span>
+              <span class="pbr-k">标记</span><span class="pbr-v mono pbr-mark">{{ m.mark }}</span>
+            </div>
+          </div>
+          <!-- 规则：标记/来源 → 路由表 -->
+          <div class="pbr-block">
+            <div class="pbr-bt">路由规则（ip rule，按优先级）</div>
+            <div v-for="r in pbrData.rules" :key="r.pref" class="pbr-item" :title="r.raw">
+              <span class="pbr-k">优先级</span><span class="pbr-v mono">{{ r.pref }}</span>
+              <span class="pbr-k">匹配</span><span class="pbr-v mono">{{ r.mark ? `fwmark ${r.mark}` : (r.from ? `from ${r.from}` : "全部流量") }}</span>
+              <span class="pbr-k">查表</span><span class="pbr-v mono pbr-table">{{ r.table }}</span>
+            </div>
+          </div>
+          <!-- 路由表：每张表一个可折叠块 -->
+          <div class="pbr-block">
+            <div class="pbr-bt">路由表</div>
+            <div v-for="(routes, tname) in pbrData.tables" :key="tname" class="pbr-tbl">
+              <div class="pbr-tbl-head" @click="pbrOpen[tname] = !pbrOpen[tname]">
+                <span class="mono">table {{ tname }}</span>
+                <span class="pbr-cnt">{{ routes.length }} 条</span>
+                <span class="pbr-chev">{{ pbrOpen[tname] ? "▾" : "▸" }}</span>
+              </div>
+              <template v-if="pbrOpen[tname]">
+                <div v-for="(r, i) in routes" :key="i" class="pbr-item route" :title="r.raw">
+                  <span class="pbr-k">目的</span><span class="pbr-v mono">{{ r.dst }}</span>
+                  <span v-if="r.via" class="pbr-k">网关</span><span v-if="r.via" class="pbr-v mono">{{ r.via }}</span>
+                  <span v-if="r.dev" class="pbr-k">出口</span><span v-if="r.dev" class="pbr-v mono">{{ r.dev }}</span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
       </section>
 
-      <!-- Docker 面板：容器列表 + 启停重启 -->
+      <!-- Docker：独立 tab（侧栏 Docker），这里只留状态 + 入口 -->
       <section class="panel">
         <div class="panel-head">
           <span class="ph-title">Docker</span>
           <span v-if="dkComp?.installed" class="fw-st" :class="dkComp.running ? 'on' : 'off'">{{ dkComp.running ? '运行中' : '已安装（守护未运行）' }}</span>
           <span v-else-if="dkComp && !dkComp.installed" class="fw-st off">未安装</span>
-          <button v-if="dkComp?.installed" class="ghost-btn" @click="loadDocker">{{ dkLoading ? '加载中…' : (dkData ? '刷新' : '加载容器') }}</button>
+          <button v-if="dkComp?.installed" class="ghost-btn" @click="goDockerTab">打开面板</button>
         </div>
-        <div v-if="dkComp && !dkComp.installed" class="empty">该节点未安装 Docker（代装在「工具 → 打流」页的服务器组件里）</div>
-        <template v-if="dkData?.installed">
-          <div v-if="dkData.error" class="empty">{{ dkData.error }}</div>
-          <div v-else-if="!dkData.containers?.length" class="empty">没有容器</div>
-          <div v-else class="dk-list-wrap">
-            <table class="fw-table dk-table">
-              <thead><tr><th>容器</th><th>镜像</th><th>状态</th><th>端口</th><th></th></tr></thead>
-              <tbody>
-                <tr v-for="ct in dkData.containers" :key="ct.id">
-                  <td class="mono dk-name">{{ ct.name }}</td>
-                  <td class="mono dk-image" :title="ct.image">{{ ct.image }}</td>
-                  <td><span class="dk-state" :class="ct.state === 'running' ? 'up' : 'down'">{{ ct.status }}</span></td>
-                  <td class="mono dk-ports" :title="ct.ports">{{ ct.ports || '—' }}</td>
-                  <td class="dk-ops">
-                    <template v-if="ct.state === 'running'">
-                      <button class="ghost-btn sm" :disabled="dkBusy[ct.name]" @click="dockerCtl(ct, 'restart')">重启</button>
-                      <button class="ghost-btn sm danger" :disabled="dkBusy[ct.name]" @click="dockerCtl(ct, 'stop')">停止</button>
-                    </template>
-                    <button v-else class="ghost-btn sm" :disabled="dkBusy[ct.name]" @click="dockerCtl(ct, 'start')">启动</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </template>
+        <div v-if="dkComp && !dkComp.installed" class="empty">该节点未安装 Docker（可在服务器页组件区代装）</div>
       </section>
     </div>
 
@@ -1795,4 +1807,27 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 .fw-mod { padding: 8px 0 4px; }
 .fw-mod-tabs { display: flex; gap: 8px; margin-bottom: 8px; }
 .fw-mod-tabs .ghost-btn.active { color: var(--accent); border-color: var(--accent); }
+
+/* ── PBR 结构化竖向展示 ── */
+.pbr-block { margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px; }
+.pbr-bt { font-size: 12px; color: var(--text-faint); margin-bottom: 6px; }
+.pbr-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,0.02); margin-bottom: 4px; font-size: 12px; }
+.pbr-item.route { margin-left: 10px; }
+.pbr-k { color: var(--text-faint); font-size: 11px; flex-shrink: 0; }
+.pbr-v { color: var(--text-hi); word-break: break-all; min-width: 0; }
+.pbr-v.mono { font-family: var(--font-mono, monospace); font-size: 11.5px; }
+.pbr-mark, .pbr-table { color: var(--pink); }
+.pbr-tbl { margin-bottom: 4px; }
+.pbr-tbl-head { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 5px 8px; border-radius: 6px; color: var(--text-hi); font-size: 12.5px; }
+.pbr-tbl-head:hover { background: rgba(255,255,255,0.04); }
+.pbr-cnt { color: var(--text-faint); font-size: 11px; }
+.pbr-chev { margin-left: auto; color: var(--text-faint); }
+
+/* 移动端：防火墙七列宽表转竖向卡片（行=块，单元格带标签竖排） */
+@media (max-width: 768px) {
+  .fw-table, .fw-table thead, .fw-table tbody, .fw-table tr, .fw-table td { display: block; }
+  .fw-table thead { display: none; }
+  .fw-table tr { border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; margin-bottom: 8px; padding: 6px 10px; }
+  .fw-table td { padding: 2px 0; border: none; word-break: break-all; }
+}
 </style>

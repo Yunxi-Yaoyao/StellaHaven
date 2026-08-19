@@ -297,17 +297,29 @@ export const createCommand = (data: { node_id: number; command: string }) =>
   api<Command>("/commands", { method: "POST", body: JSON.stringify(data) });
 
 // ── 组件代装 ──
+export type CompName = "iperf3" | "speedtest" | "ufw" | "docker" | "mtr";
 export interface ComponentTask {
   id: number;
   node_id: number;
-  component: "iperf3" | "speedtest";
+  component: CompName;
   status: "pending" | "running" | "done" | "failed";
   error: string | null;
   created_at: string;
 }
 export const listComponentInstalls = () => api<ComponentTask[]>("/component-installs");
-export const installComponent = (node_id: number, component: "iperf3" | "speedtest") =>
+export const installComponent = (node_id: number, component: CompName) =>
   api<ComponentTask>("/component-installs", { method: "POST", body: JSON.stringify({ node_id, component }) });
+
+// ── 扫描任务（防火墙/PBR/Docker）──
+export const scanPbr = (nodeId: number) =>
+  api<NetTask>(`/nodes/${nodeId}/pbr-scan`, { method: "POST" });
+export const dockerLogs = (nodeId: number, container: string, tail = 150) =>
+  api<NetTask>(`/nodes/${nodeId}/docker-logs`, { method: "POST", body: JSON.stringify({ container, tail }) });
+export const dockerInspect = (nodeId: number, container: string) =>
+  api<NetTask>(`/nodes/${nodeId}/docker-inspect`, { method: "POST", body: JSON.stringify({ container }) });
+/** 某节点某类型最近一次完成的扫描（惰性缓存：页面打开先读快照，过期再自动重扫） */
+export const latestNetTask = (nodeId: number, kind: string) =>
+  api<NetTask | null>(`/nodes/${nodeId}/net-tasks/latest?kind=${encodeURIComponent(kind)}`);
 
 // ── 宿主机 ──
 export interface HostInfo {

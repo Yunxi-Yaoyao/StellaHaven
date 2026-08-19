@@ -60,6 +60,10 @@ function toggleTools() {
       <Icon name="server" :size="15" /><span class="bi-label">服务器</span>
     </button>
 
+    <button class="bar-item" :class="{ active: !inDetail && view === 'docker' }" @click="goView('docker')">
+      <Icon name="box" :size="15" /><span class="bi-label">Docker</span>
+    </button>
+
     <button class="bar-item" :class="{ 'active-parent': !inDetail && view === 'tools' }" @click="toggleTools">
       <Icon name="zap" :size="15" /><span class="bi-label">工具</span>
       <Icon :name="toolsOpen ? 'chevron-down' : 'chevron'" :size="12" class="vi-arrow" />

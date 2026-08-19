@@ -355,6 +355,35 @@ def create_docker_scan(db: Session, node_id: int) -> NetTask:
     return repo.create_net_task(db, node_id, "docker_scan", None)
 
 
+def create_pbr_scan(db: Session, node_id: int) -> NetTask:
+    """下发 PBR 结构化采集（ip rule / 各路由表 / mangle 打标链，只读）。"""
+    node = node_repo.get_by_id(db, node_id)
+    if node is None or node.status != "online":
+        raise ValueError("节点不在线")
+    return repo.create_net_task(db, node_id, "pbr_scan", None)
+
+
+def create_docker_logs(db: Session, node_id: int, container: str, tail: int = 150) -> NetTask:
+    """下发容器日志读取（docker logs --tail，只读）。"""
+    node = node_repo.get_by_id(db, node_id)
+    if node is None or node.status != "online":
+        raise ValueError("节点不在线")
+    tail = max(1, min(int(tail), 500))  # 上限 500 行防大包
+    return repo.create_net_task(db, node_id, "docker_logs", {"container": container, "tail": tail})
+
+
+def create_docker_inspect(db: Session, node_id: int, container: str) -> NetTask:
+    """下发容器配置查看（docker inspect 摘要化，只读）。"""
+    node = node_repo.get_by_id(db, node_id)
+    if node is None or node.status != "online":
+        raise ValueError("节点不在线")
+    return repo.create_net_task(db, node_id, "docker_inspect", {"container": container})
+
+
+def latest_net_task(db: Session, node_id: int, kind: str) -> NetTask | None:
+    return repo.latest_net_task(db, node_id, kind)
+
+
 def create_docker_ctl(db: Session, node_id: int, action: str, container: str) -> NetTask:
     """容器启停重启（agent 侧再校验 action 白名单 + 容器名合法性）。"""
     if action not in ("start", "stop", "restart"):

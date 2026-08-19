@@ -7,7 +7,7 @@ from app.database import get_db
 from app.models.user import User
 from app.routers.auth import current_user
 from app.schemas.monitor import (
-    NodeCreate, NodeRead, NodeDetail, NodeUpdate, NetTypeUpdate, IpChangeCreate, NetTaskRead, DockerCtlCreate, MetricPoint, SysMetricPoint,
+    NodeCreate, NodeRead, NodeDetail, NodeUpdate, NetTypeUpdate, IpChangeCreate, NetTaskRead, DockerCtlCreate, DockerContainerAction, MetricPoint, SysMetricPoint,
     AgentReport, AgentConfig, MonitorForAgent,
     MonitorCreate, MonitorUpdate, MonitorRead, MonitorCheckRead, MonitorCheckReport, MonitorCheckPoint,
     MtrReport, MtrTaskRead,
@@ -151,13 +151,49 @@ def docker_scan(node_id: int, user: User = Depends(current_user), db: Session = 
 
 
 @node_router.post("/{node_id}/docker-ctl", response_model=NetTaskRead, status_code=201)
-def docker_ctl(node_id: int, data: DockerCtlCreate,
+def docker_ctl(node_id: int, data: DockerCtlCreate, DockerContainerAction,
                user: User = Depends(current_user), db: Session = Depends(get_db)):
     """容器启停重启。"""
     try:
         return task_svc.create_docker_ctl(db, node_id, data.action, data.container)
     except ValueError as e:
         raise HTTPException(409, str(e))
+
+
+@node_router.post("/{node_id}/pbr-scan", response_model=NetTaskRead, status_code=201)
+def pbr_scan(node_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """下发 PBR 结构化采集（ip rule/路由表/mangle 打标，只读）。"""
+    try:
+        return task_svc.create_pbr_scan(db, node_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@node_router.post("/{node_id}/docker-logs", response_model=NetTaskRead, status_code=201)
+def docker_logs(node_id: int, data: DockerContainerAction,
+                user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """读容器日志（tail 行，只读）。"""
+    try:
+        return task_svc.create_docker_logs(db, node_id, data.container, data.tail)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@node_router.post("/{node_id}/docker-inspect", response_model=NetTaskRead, status_code=201)
+def docker_inspect(node_id: int, data: DockerContainerAction,
+                   user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """读容器配置摘要（inspect 只读）。"""
+    try:
+        return task_svc.create_docker_inspect(db, node_id, data.container)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@node_router.get("/{node_id}/net-tasks/latest", response_model=NetTaskRead | None)
+def latest_net_task(node_id: int, kind: str, user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """某节点某类型最近一次完成的扫描（前端惰性缓存：打开页面先读快照，过期再自动重扫）。"""
+    return task_svc.latest_net_task(db, node_id, kind)
 
 
 @node_router.get("/{node_id}", response_model=NodeDetail)

@@ -100,6 +100,12 @@ class DockerCtlCreate(BaseModel):
     container: str   # 容器名或 ID
 
 
+class DockerContainerAction(BaseModel):
+    """容器日志/配置查看（只读）"""
+    container: str   # 容器名或 ID
+    tail: int = 150  # 日志行数（仅 docker-logs 用）
+
+
 class AgentReport(BaseModel):
     """agent 上报：一次带流量 + 系统指标（可批量，补传时多条）。"""
     metrics: list[MetricPoint] = []

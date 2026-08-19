@@ -287,6 +287,13 @@ def create_net_task(db: Session, node_id: int, kind: str, payload: dict | None) 
     return t
 
 
+def latest_net_task(db: Session, node_id: int, kind: str) -> NetTask | None:
+    """某节点某类型最近一次已完成的任务（前端扫描缓存读取用——惰性缓存：页面读旧快照，过期再触发新扫）。"""
+    return db.query(NetTask).filter(
+        NetTask.node_id == node_id, NetTask.kind == kind, NetTask.status == "done",
+    ).order_by(NetTask.id.desc()).first()
+
+
 def pending_net_tasks(db: Session, node_id: int) -> list[NetTask]:
     return db.query(NetTask).filter(
         NetTask.status == "pending", NetTask.node_id == node_id,

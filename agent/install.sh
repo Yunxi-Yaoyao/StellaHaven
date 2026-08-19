@@ -113,6 +113,9 @@ _IPTABLES=$(command -v iptables)
 [ -n "$_UFW" ] && _CMDS="${_CMDS}, ${_UFW}"
 [ -n "$_IPTABLES_SAVE" ] && _CMDS="${_CMDS}, ${_IPTABLES_SAVE}"
 [ -n "$_IPTABLES" ] && _CMDS="${_CMDS}, ${_IPTABLES}"
+# 改 IP 连通性验证：sudo ping 绕 owner-mark（agent 被 PBR 打标走固定出口，直连探测摸不到被改接口的网关）
+_PING=$(command -v ping)
+[ -n "$_PING" ] && _CMDS="${_CMDS}, ${_PING}"
 cat > /etc/sudoers.d/stella-uninstall << EOF
 stella ALL=(root) NOPASSWD: ${_CMDS}
 EOF

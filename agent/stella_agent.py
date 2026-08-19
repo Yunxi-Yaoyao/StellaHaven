@@ -41,7 +41,7 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.0"
+AGENT_VERSION = "0.6.3"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
@@ -76,16 +76,38 @@ class Agent:
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin")
 
     def _check_components(self) -> dict:
-        """检测打流相关组件 + 防火墙是否安装（前端显示绿/红，未装可代装）。"""
-        iperf3 = shutil.which("iperf3") is not None
-        speedtest = any(shutil.which(x) for x in ("speedtest-go", "speedtest", "speedtest-cli")) \
-            or os.path.exists(os.path.join(self._agent_bin(), "speedtest-go"))
-        return {"iperf3": iperf3, "speedtest": speedtest, "firewall": self._check_firewall(),
-                "docker": self._check_docker(), "mtr": shutil.which("mtr") is not None}
+        """检测打流相关组件 + 防火墙是否安装（前端显示绿/红，未装可代装）。
+        0.6.2 起简单布尔升级为 {installed, version}（前端显示版本号），防火墙/ docker 维持旧结构。"""
+        iperf3_bin = shutil.which("iperf3")
+        st_bin = next((shutil.which(x) for x in ("speedtest-go", "speedtest", "speedtest-cli") if shutil.which(x)), None) \
+            or (os.path.join(self._agent_bin(), "speedtest-go")
+                if os.path.exists(os.path.join(self._agent_bin(), "speedtest-go")) else None)
+        mtr_bin = shutil.which("mtr")
+        return {"iperf3": {"installed": bool(iperf3_bin), "version": self._comp_version(iperf3_bin, ["--version"])},
+                "speedtest": {"installed": bool(st_bin), "version": self._comp_version(st_bin, ["--version"])},
+                "firewall": self._check_firewall(),
+                "docker": self._check_docker(),
+                "mtr": {"installed": bool(mtr_bin), "version": self._comp_version(mtr_bin, ["--version"])}}
+
+    @staticmethod
+    def _comp_version(binary: str | None, args: list) -> str:
+        """取组件版本号（首行前 40 字符，提取 x.y.z 样式的版本串），失败返回空串。"""
+        if not binary:
+            return ""
+        try:
+            r = subprocess.run([binary] + args, capture_output=True, text=True, timeout=5)
+            line = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
+            if not line:
+                return ""
+            m = re.search(r"\d+(\.\d+)+", line[0])
+            return m.group(0) if m else ""
+        except Exception:
+            return ""
 
     def _check_docker(self) -> dict:
-        """检测 Docker：是否安装 + 守护进程是否运行（systemctl is-active 查询不需要 root）。"""
-        installed = shutil.which("docker") is not None
+        """检测 Docker：是否安装 + 版本 + 守护进程是否运行（--version/is-active 查询不需要 root）。"""
+        docker_bin = shutil.which("docker")
+        installed = docker_bin is not None
         running = False
         if installed:
             try:
@@ -93,22 +115,34 @@ class Agent:
                 running = (r.stdout or "").strip() == "active"
             except Exception:
                 pass
-        return {"installed": installed, "running": running}
+        return {"installed": installed, "running": running,
+                "version": self._comp_version(docker_bin, ["--version"])}
+
+    _FW_CACHE_TTL = 300  # ufw status 要 sudo，5s 心跳每次调会把 auth 日志刷爆（8.20 HK 实锤）→ 5min 缓存
 
     def _check_firewall(self) -> dict:
-        """检测防火墙：ufw / iptables 是否安装 + ufw 是否启用。
+        """检测防火墙：ufw / iptables 是否安装 + ufw 是否启用 + ufw 版本。
         ufw status 要 root（sudo -n，install.sh 白名单已放），不带 sudo 会误报未启用。"""
-        ufw_installed = shutil.which("ufw") is not None
+        now = time.time()
+        cached = getattr(self, "_fw_cache", None)
+        if cached and now - cached[0] < self._FW_CACHE_TTL:
+            return cached[1]
+        ufw_bin = shutil.which("ufw")
+        ufw_installed = ufw_bin is not None
         ufw_active = False
+        ufw_version = ""
         if ufw_installed:
             try:
                 r = subprocess.run(["sudo", "-n", "ufw", "status"], capture_output=True, text=True, timeout=5)
                 ufw_active = "Status: active" in (r.stdout or "")
             except Exception:
                 pass
+            ufw_version = self._comp_version(ufw_bin, ["version"])
         iptables_installed = shutil.which("iptables") is not None
-        return {"ufw": {"installed": ufw_installed, "active": ufw_active},
-                "iptables": {"installed": iptables_installed}}
+        result = {"ufw": {"installed": ufw_installed, "active": ufw_active, "version": ufw_version},
+                  "iptables": {"installed": iptables_installed}}
+        self._fw_cache = (now, result)
+        return result
 
     def _probe_public_ip(self) -> dict | None:
         """探测本机出口公网 IP + 地区（中文）。双服务 fallback：ip-api.com → ipinfo.io。"""
@@ -1513,6 +1547,12 @@ class Agent:
                 result = self._docker_scan()
             elif task["kind"] == "docker_ctl":
                 result = self._docker_ctl(task.get("payload") or {})
+            elif task["kind"] == "pbr_scan":
+                result = self._pbr_scan()
+            elif task["kind"] == "docker_logs":
+                result = self._docker_logs(task.get("payload") or {})
+            elif task["kind"] == "docker_inspect":
+                result = self._docker_inspect(task.get("payload") or {})
             else:
                 result = {"error": f"未知任务类型 {task['kind']}"}
             if isinstance(result, dict) and result.get("error"):
@@ -1579,6 +1619,113 @@ class Agent:
             return {"error": (r.stderr or r.stdout).strip()[-300:]}
         except Exception as e:
             return {"error": str(e)}
+
+    def _docker_logs(self, payload: dict) -> dict:
+        """读容器最近日志（默认 150 行，上限 500）。strip ANSI 控制符。"""
+        name = str(payload.get("container") or "")
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.\-]*", name):
+            return {"error": "容器名不合法"}
+        tail = max(1, min(int(payload.get("tail") or 150), 500))
+        try:
+            r = subprocess.run(["sudo", "-n", "docker", "logs", "--tail", str(tail), name],
+                               capture_output=True, text=True, timeout=30)
+            text = (r.stdout or "") + (r.stderr or "")
+            text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)  # 去 ANSI 颜色码
+            return {"container": name, "lines": text[-20000:], "tail": tail}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _docker_inspect(self, payload: dict) -> dict:
+        """容器配置摘要：镜像/命令/环境变量/挂载/端口/重启策略/网络/创建时间（竖向展示用）。"""
+        name = str(payload.get("container") or "")
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.\-]*", name):
+            return {"error": "容器名不合法"}
+        out = self._sudo_run(["docker", "inspect", name], timeout=15)
+        if out is None:
+            return {"error": "docker inspect 失败（容器不存在或权限不足）"}
+        try:
+            info = json.loads(out)[0]
+            cfg = info.get("Config") or {}
+            host = info.get("HostConfig") or {}
+            net = info.get("NetworkSettings") or {}
+            mounts = [{"source": m.get("Source"), "target": m.get("Destination"),
+                       "mode": m.get("Mode"), "rw": m.get("RW")} for m in (info.get("Mounts") or [])]
+            ports = []
+            for k, v in (net.get("Ports") or {}).items():
+                for b in (v or []):
+                    ports.append({"container": k, "host": f"{b.get('HostIp')}:{b.get('HostPort')}"})
+            return {
+                "container": name,
+                "image": cfg.get("Image"),
+                "created": info.get("Created"),
+                "cmd": " ".join(cfg.get("Cmd") or []) or None,
+                "entrypoint": " ".join(cfg.get("Entrypoint") or []) or None,
+                "env": cfg.get("Env") or [],
+                "mounts": mounts,
+                "ports": ports,
+                "restart_policy": (host.get("RestartPolicy") or {}).get("Name"),
+                "networks": list((net.get("Networks") or {}).keys()),
+                "state": (info.get("State") or {}).get("Status"),
+            }
+        except Exception as e:
+            return {"error": f"inspect 解析失败: {e}"}
+
+    def _pbr_scan(self) -> dict:
+        """PBR 结构化采集：ip rule（优先级/标记→路由表）+ 各路由表路由 + mangle 打标链。全只读。"""
+        rules = []
+        try:
+            r = subprocess.run(["ip", "rule"], capture_output=True, text=True, timeout=8)
+            for line in (r.stdout or "").splitlines():
+                line = line.strip()
+                m = re.match(r"^(\d+):\s+(.+)$", line)
+                if not m:
+                    continue
+                pref, rest = m.group(1), m.group(2)
+                mark = re.search(r"fwmark (\S+)", rest)
+                table = re.search(r"(?:lookup|table)\s+(\S+)", rest)
+                src = re.search(r"from (\S+)", rest)
+                rules.append({"pref": int(pref), "mark": mark.group(1) if mark else None,
+                              "table": table.group(1) if table else None,
+                              "from": src.group(1) if src and src.group(1) != "all" else None,
+                              "raw": line})
+        except Exception as e:
+            rules = [{"error": str(e)}]
+
+        tables: dict = {}
+        try:
+            r = subprocess.run(["ip", "route", "show", "table", "all"], capture_output=True, text=True, timeout=8)
+            for line in (r.stdout or "").splitlines():
+                line = line.strip()
+                if not line or " linkdown" in line:
+                    continue
+                tm = re.search(r"\btable (\S+)", line)
+                tname = tm.group(1) if tm else "main"
+                dm = re.match(r"^(\S+)", line)
+                via = re.search(r"\bvia (\S+)", line)
+                dev = re.search(r"\bdev (\S+)", line)
+                scope = re.search(r"\bscope (\S+)", line)
+                tables.setdefault(tname, []).append({
+                    "dst": dm.group(1) if dm else line,
+                    "via": via.group(1) if via else None,
+                    "dev": dev.group(1) if dev else None,
+                    "scope": scope.group(1) if scope else None,
+                    "raw": line})
+        except Exception:
+            pass
+
+        marks = []
+        raw = self._sudo_run(["iptables", "-t", "mangle", "-S"], timeout=10) or ""
+        for line in raw.splitlines():
+            if "MARK" not in line:
+                continue
+            chain = re.search(r"^-A (\S+)", line)
+            uid = re.search(r"--uid-owner (\S+)", line)
+            mark = re.search(r"--set-x?mark (\S+)", line)
+            marks.append({"chain": chain.group(1) if chain else None,
+                          "uid": uid.group(1) if uid else None,
+                          "mark": mark.group(1) if mark else None,
+                          "raw": line.strip()})
+        return {"rules": rules, "tables": tables, "marks": marks}
 
     def _scan_ufw(self) -> dict:
         if not shutil.which("ufw"):
@@ -1653,7 +1800,22 @@ class Agent:
         return d
 
     @staticmethod
-    def _ping(target: str, count: int = 3, timeout: int = 2) -> bool:
+    def _ping(target: str, count: int = 3, timeout: int = 2, iface: str = "") -> bool:
+        # iface 非空时（改 IP 验证）用 sudo + 绑接口：agent 进程被 owner-mark 打标走 table 100/eno1，
+        # 直连探测永远摸不到 wlan0 侧网关（8.20 改 wlan0 IP 误判失败实锤）；root 身份绕过 mark
+        if iface:
+            try:
+                r = subprocess.run(["sudo", "-n", "ping", "-I", iface,
+                                    "-c", str(count), "-W", str(timeout), target],
+                                   capture_output=True, text=True, timeout=count * timeout + 5)
+                if r.returncode == 0:
+                    return True
+                if "password" in (r.stderr or ""):
+                    pass  # sudoers 未放行则落回普通 ping
+                else:
+                    return False  # sudo 通了但 ping 不通 = 真不通
+            except Exception:
+                pass
         try:
             r = subprocess.run(["ping", "-c", str(count), "-W", str(timeout), target],
                                capture_output=True, text=True, timeout=count * timeout + 5)
@@ -1782,8 +1944,8 @@ class Agent:
         # 3. 等网络生效
         time.sleep(3)
 
-        # 4. ping 测试
-        if self._ping(ping_target):
+        # 4. ping 测试（sudo+绑接口，绕 PBR 打标，探目标接口真实连通性）
+        if self._ping(ping_target, iface=iface):
             # 通 → 写持久化
             persisted = self._persist_ip(iface, new_ip, prefix, gateway)
             return {"ok": True, "old_ip": old_ip, "new_ip": new_ip,
