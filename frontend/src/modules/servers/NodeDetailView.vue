@@ -1627,10 +1627,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 .stat-item b { color: var(--text-hi); font-weight: 600; font-variant-numeric: tabular-nums; margin-left: 4px; }
 .stat-row.total .stat-item b { color: var(--accent); }
 
-.ghost-btn {
-  background: transparent; border: 1px solid var(--accent-dim); color: var(--accent);
-  border-radius: var(--radius-sm); padding: 4px 12px; cursor: pointer; font-size: 12px;
-}
+/* ghost-btn 基础样式已上移到全局 style.css */
 .mon-add { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
 .mon-add input, .mon-add select {
   background: var(--bg-base); border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1769,8 +1766,6 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 .dk-state.up { color: #7be39a; }
 .dk-state.down { color: var(--text-faint); }
 .dk-ops { white-space: nowrap; text-align: right; }
-.ghost-btn.sm { padding: 2px 10px; font-size: 11px; }
-.ghost-btn.sm.danger:hover { color: #ff8f8f; border-color: #ff8f8f; }
 
 /* ── 命令输出（防火墙规则 / PBR 路由表）── */
 .cmd-output {

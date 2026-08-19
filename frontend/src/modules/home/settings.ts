@@ -7,7 +7,7 @@ export const settingsOpen = ref(false);
 /** 背景图管理浮窗开关 */
 export const bgManagerOpen = ref(false);
 
-export const DEFAULT_HOME_BG = "/assets/homebg/default-bg-kimono.jpeg";
+export const DEFAULT_HOME_BG = "/assets/homebg/default-bg-kimono-1920.webp";
 
 /** 站点背景（管理员设置，未登录访客看到这个；登录后各用各的 localStorage 背景） */
 export const siteBackground = ref("");

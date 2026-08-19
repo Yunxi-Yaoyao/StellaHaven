@@ -34,6 +34,17 @@ API_PREFIXES = (
 
 app = FastAPI(title="StellaHaven")
 
+
+@app.middleware("http")
+async def assets_cache_control(request: Request, call_next):
+    """全局资源（/assets/*，主页背景/挂件素材）加浏览器缓存头。
+    StaticFiles 默认只有 etag，每次访问都要条件请求回源（经 frp 隧道多一次往返）；
+    用户上传的背景文件名是内容哈希（改名即换 URL），默认图带版本后缀，长缓存安全。"""
+    resp = await call_next(request)
+    if request.url.path.startswith("/assets/") and resp.status_code == 200:
+        resp.headers["Cache-Control"] = "public, max-age=604800"  # 7 天
+    return resp
+
 app.include_router(workspace_router)
 app.include_router(user_router)
 app.include_router(tag_router)
