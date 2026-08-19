@@ -417,6 +417,11 @@ onUnmounted(() => {
 .mtr-status.pending, .mtr-status.running { color: var(--text-faint, #5b6373); }
 .mtr-sum { color: var(--text-lo, #8b93a7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hops { margin: 2px 0 8px 18px; border-left: 2px solid rgba(255,255,255,0.07); padding-left: 12px; }
+/* 移动端：九列约 470px 超屏宽，横滑 */
+@media (max-width: 768px) {
+  .hops { overflow-x: auto; margin-left: 0; border-left: none; padding-left: 0; }
+  .hops .hop { min-width: 470px; }
+}
 .hop { display: grid; grid-template-columns: 26px minmax(120px, 1fr) repeat(7, 46px); gap: 5px; font-size: 11px; font-family: var(--font-mono, monospace); color: var(--text-lo, #8b93a7); padding: 2px 0; }
 .hop span:not(.hop-host) { text-align: right; }
 .hop span:first-child { text-align: left; }

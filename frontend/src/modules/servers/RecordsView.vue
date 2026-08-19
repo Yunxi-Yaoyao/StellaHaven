@@ -241,6 +241,10 @@ watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immedia
 .mc-value { font-size: 14px; color: var(--text-hi); font-weight: 475; margin-top: 2px; }
 .mtr-table { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
 .mtr-row { display: grid; grid-template-columns: 40px 1fr 70px 56px 90px; gap: 8px; padding: 4px 6px; border-radius: 4px; }
+@media (max-width: 768px) {
+  .mtr-table { overflow-x: auto; }
+  .mtr-table .mtr-row { min-width: 380px; }
+}
 .mtr-hd { color: var(--text-faint); font-size: 11px; }
 .mtr-hop { color: var(--text-faint); }
 .mtr-host { color: var(--text-hi); font-family: var(--font-mono, monospace); }

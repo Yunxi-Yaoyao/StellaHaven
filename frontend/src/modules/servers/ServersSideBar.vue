@@ -130,4 +130,24 @@ function toggleTools() {
 .bi-label { flex: 1; }
 .vi-arrow { opacity: 0.6; }
 .bar-item.sub { padding-left: 30px; font-size: 12.5px; }
+
+/* 移动端：横排 tab 条。桌面折叠记忆在移动端不生效——始终展开成 tab（v-show 内联 none 用 !important 盖掉） */
+@media (max-width: 768px) {
+  .list-strip { display: none; }
+  .servers-bar {
+    display: flex !important;
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 8px 10px;
+    gap: 6px;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .fold-btn { display: none; }
+  .bar-item { padding: 6px 10px; font-size: 12.5px; }
+  .bar-item.sub { padding-left: 10px; }
+  .bi-label { flex: none; }
+}
 </style>

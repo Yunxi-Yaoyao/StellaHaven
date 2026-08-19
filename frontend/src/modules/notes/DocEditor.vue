@@ -1242,15 +1242,6 @@ function fmtDraftTime(iso: string) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-/* 移动端：标题和操作按钮换行排列，不挤压 */
-@media (max-width: 768px) {
-  .toolbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
-  .title-input { min-width: 0; flex: 1 1 100%; font-size: 15px; }
-  .editor-toolbar { padding: 6px 12px; }
-  .panes.split { flex-direction: column; }
-  .panes.split .input-wrap { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.05); }
-  .breadcrumb { padding: 8px 12px 0; }
-}
 .title-input {
   flex: 1;
   background: transparent;
@@ -1625,5 +1616,20 @@ function fmtDraftTime(iso: string) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 移动端：标题和操作按钮换行排列，不挤压 */
+@media (max-width: 768px) {
+  .toolbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  /* 标题独占整行（否则被按钮挤成竖排）。注意：媒体查询不加权重，本块在 .title-input 基础规则之前，
+     必须用 .toolbar .title-input 提权重才能盖住后面的 flex:1（8.20 实锤竖排根因） */
+  .toolbar .title-input { min-width: 0; flex: 1 1 100%; font-size: 17px; word-break: break-word; overflow-wrap: anywhere; }
+  .editor-toolbar { padding: 6px 12px; overflow-x: auto; }
+  .panes.split { flex-direction: column; }
+  .panes.split .input-wrap { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .breadcrumb { padding: 8px 12px 0; flex-wrap: wrap; row-gap: 4px; }
+  /* 状态条：来源标签可能很长（IP+地名），允许换行 + 截断 */
+  .status-bar { flex-wrap: wrap; row-gap: 2px; padding: 8px 12px; }
+  .status-bar .device { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 </style>

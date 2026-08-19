@@ -9,6 +9,10 @@ export default defineConfig({
     // 与业务全局资源（data/assets → /assets：主页背景/挂件/头像）分离，
     // 否则两者抢同一个 /assets 前缀，构建产物 404 导致生产白屏。
     assetsDir: "static",
+    // CSS 目标压到 Chrome 90：默认 target（Chrome 107+）会让压缩器把
+    // @media (max-width:768px) 改写成 range 语法 (width<=768px)，
+    // 旧 WebView（如 XBrowser）整段媒体查询被丢弃 → 移动端布局全失效（8.20 实锤）。
+    cssTarget: "chrome90",
   },
   server: {
     host: true,

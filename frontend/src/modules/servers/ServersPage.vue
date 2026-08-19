@@ -26,4 +26,10 @@ import ServersSideBar from "./ServersSideBar.vue";
   display: flex;
 }
 .view-body > * { flex: 1; min-width: 0; }
+
+/* 移动端：二级侧栏改顶部横排 tab（ServersSideBar 配合），内容吃满宽度 */
+@media (max-width: 768px) {
+  .servers-page { flex-direction: column; }
+  .view-body { min-height: 0; }
+}
 </style>

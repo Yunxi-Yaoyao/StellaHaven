@@ -151,7 +151,8 @@ function toggleSidebar() {
 }
 
 @media (max-width: 768px) {
-  .content { padding: 14px 12px; }
+  /* 顶部留出固定位：内容不许滑到汉堡按钮底下（left:12 + 38 + 8 间隙） */
+  .content { padding: 58px 12px 14px; }
 }
 
 /* 移动端遮罩 + 汉堡 */

@@ -1095,6 +1095,11 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 /* MTR 终端式九列表格（对齐 mtr -r 的 HOST/Loss%/Snt/Last/Avg/Best/Wrst/StDev） */
 .mtr-table { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; max-width: 720px; }
 .mtr-row { display: grid; grid-template-columns: 30px minmax(150px, 1fr) repeat(7, 58px); gap: 6px; padding: 3px 6px; font-size: 12px; align-items: center; }
+/* 移动端：九列约 620px 必然超出 393 屏宽，整表可横向滑动 */
+@media (max-width: 768px) {
+  .mtr-table { overflow-x: auto; max-width: 100%; }
+  .mtr-table .mtr-row { min-width: 620px; }
+}
 .mtr-row.mtr-hd { color: var(--text-faint); font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 5px; }
 .mtr-hop { color: var(--text-faint); font-family: var(--font-mono); }
 .mtr-host { color: var(--text-hi); font-family: var(--font-mono); word-break: break-all; }
