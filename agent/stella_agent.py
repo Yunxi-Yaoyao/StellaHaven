@@ -39,9 +39,11 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.3.0"
+AGENT_VERSION = "0.5.0"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
+MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
+MTR_FAIL_DEBOUNCE = 600   # 失败触发 MTR 防抖（10 分钟）
 POLL_INTERVAL = 1         # 任务轮询间隔（秒）——打流领取要快，1s 让图表几乎秒出
 UPDATE_CHECK_INTERVAL = 300  # 版本自更新检查间隔（秒）
 QUEUE_MAX = 24 * 3600 // REPORT_INTERVAL  # 队列上限 = 24h 的采样点数
@@ -76,16 +78,30 @@ class Agent:
         iperf3 = shutil.which("iperf3") is not None
         speedtest = any(shutil.which(x) for x in ("speedtest-go", "speedtest", "speedtest-cli")) \
             or os.path.exists(os.path.join(self._agent_bin(), "speedtest-go"))
-        return {"iperf3": iperf3, "speedtest": speedtest, "firewall": self._check_firewall()}
+        return {"iperf3": iperf3, "speedtest": speedtest, "firewall": self._check_firewall(),
+                "docker": self._check_docker(), "mtr": shutil.which("mtr") is not None}
+
+    def _check_docker(self) -> dict:
+        """检测 Docker：是否安装 + 守护进程是否运行（systemctl is-active 查询不需要 root）。"""
+        installed = shutil.which("docker") is not None
+        running = False
+        if installed:
+            try:
+                r = subprocess.run(["systemctl", "is-active", "docker"], capture_output=True, text=True, timeout=5)
+                running = (r.stdout or "").strip() == "active"
+            except Exception:
+                pass
+        return {"installed": installed, "running": running}
 
     def _check_firewall(self) -> dict:
-        """检测防火墙：ufw / iptables 是否安装 + ufw 是否启用。"""
+        """检测防火墙：ufw / iptables 是否安装 + ufw 是否启用。
+        ufw status 要 root（sudo -n，install.sh 白名单已放），不带 sudo 会误报未启用。"""
         ufw_installed = shutil.which("ufw") is not None
         ufw_active = False
         if ufw_installed:
             try:
-                r = subprocess.run(["ufw", "status"], capture_output=True, text=True, timeout=5)
-                ufw_active = "active" in (r.stdout or "")
+                r = subprocess.run(["sudo", "-n", "ufw", "status"], capture_output=True, text=True, timeout=5)
+                ufw_active = "Status: active" in (r.stdout or "")
             except Exception:
                 pass
         iptables_installed = shutil.which("iptables") is not None
@@ -284,6 +300,52 @@ class Agent:
             disk = psutil.disk_usage("/").percent
         return {"ts": now, "cpu_pct": cpu, "mem_pct": mem, "disk_pct": disk}
 
+    # os_info 缓存：os_name/kernel/cpu_model/cpu_cores 基本不变，只读一次；负载/开机时间每次现算
+    _os_static_cache: dict | None = None
+
+    def _os_info(self) -> dict:
+        """采集 OS 信息：发行版名/内核/CPU 型号/核数/负载/开机时间（前端基本信息面板用）。"""
+        if self._os_static_cache is None:
+            static: dict = {}
+            if platform.system() == "Linux":
+                # PRETTY_NAME：/etc/os-release 里的发行版友好名（如 "Arch Linux" / "Ubuntu 22.04 LTS"）
+                try:
+                    with open("/etc/os-release", encoding="utf-8") as f:
+                        for line in f:
+                            if line.startswith("PRETTY_NAME="):
+                                static["os_name"] = line.split("=", 1)[1].strip().strip('"')
+                                break
+                except OSError:
+                    pass
+                # CPU 型号：/proc/cpuinfo 第一颗的 model name
+                try:
+                    with open("/proc/cpuinfo", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            if line.lower().startswith("model name"):
+                                static["cpu_model"] = line.split(":", 1)[1].strip()
+                                break
+                except OSError:
+                    pass
+            else:
+                # Windows：platform.platform() 给 "Windows-11-10.0.22631-SP0" 这类串
+                static["os_name"] = platform.platform()
+                static["cpu_model"] = platform.processor() or None
+            static.setdefault("os_name", None)
+            static.setdefault("cpu_model", None)
+            static["kernel"] = platform.release() or None
+            static["arch"] = platform.machine() or None
+            static["cpu_cores"] = (psutil.cpu_count(logical=True) if psutil else os.cpu_count()) or None
+            self._os_static_cache = static
+        info = dict(self._os_static_cache)
+        # 动态：负载（仅 Linux 有 getloadavg）+ 开机时间（前端算 uptime）
+        try:
+            la = os.getloadavg()
+            info["load1"], info["load5"], info["load15"] = round(la[0], 2), round(la[1], 2), round(la[2], 2)
+        except (OSError, AttributeError):
+            info["load1"] = info["load5"] = info["load15"] = None
+        info["boot_time"] = psutil.boot_time() if psutil else None
+        return info
+
     def _physical_disks(self) -> list:
         """用 lsblk 列整块物理盘：容量=整盘 size，已用=盘上各文件系统分区已用之和。
 
@@ -374,6 +436,7 @@ class Agent:
         self.queue.append({
             "metrics": metrics, "sys_metrics": sys_metrics,
             "components": self._check_components(),
+            "os_info": self._os_info(),
         })
 
         # 尝试把队列里的所有数据按顺序补传
@@ -444,10 +507,19 @@ class Agent:
         """到点的监控项执行探测，结果上报中心。"""
         now = time.time()
         for mid, m in self.monitors.items():
+            # MTR 定时通道（与探测节奏解耦）
+            if now >= m.get("next_mtr", float("inf")):
+                m["next_mtr"] = now + MTR_INTERVAL
+                self._run_mtr_for_monitor(mid, m, "periodic")
             if now < m["next_run"]:
                 continue
             m["next_run"] = now + m["interval"]  # 先排下次，避免探测慢堆积
             success, latency, loss = self.probe(m["type"], m["target"], m["timeout"])
+            # 失败触发 MTR（防抖 10 分钟，挂了立刻有路径快照）
+            if not success and now - m.get("last_fail_mtr", 0) > MTR_FAIL_DEBOUNCE:
+                m["last_fail_mtr"] = now
+                m["next_mtr"] = now + MTR_INTERVAL  # 失败这次顶掉定时那次
+                self._run_mtr_for_monitor(mid, m, "failure")
             try:
                 self._post("/agent/monitor-check", json_body={
                     "monitor_id": mid, "ts": datetime.now(timezone.utc).isoformat(),
@@ -473,6 +545,8 @@ class Agent:
 
     @staticmethod
     def _split_host_port(target: str):
+        # 输入容错：全角冒号/空白（后端已规范化，这里是存量配置的兜底）
+        target = target.replace("：", ":").strip()
         if ":" in target:
             host, port = target.rsplit(":", 1)
             return host, int(port)
@@ -489,6 +563,7 @@ class Agent:
             return (False, (time.time() - start) * 1000, None)
 
     def _probe_http(self, target, timeout, scheme):
+        target = target.replace("：", ":").strip()  # 全角冒号兜底
         url = target if target.startswith("http") else f"{scheme}://{target}"
         start = time.time()
         try:
@@ -500,13 +575,17 @@ class Agent:
             return (False, (time.time() - start) * 1000, None)
 
     def _probe_ping(self, target, timeout):
+        """10 包探测：拿真实丢包率（-c 1 只有 0/100 两个值）+ 平均延迟。"""
         n = "-n" if platform.system() == "Windows" else "-c"
-        start = time.time()
         try:
-            r = subprocess.run(["ping", n, "1", "-W", str(timeout), target],
-                               capture_output=True, text=True, timeout=timeout + 2)
-            latency = (time.time() - start) * 1000
-            return (r.returncode == 0, latency, None)
+            r = subprocess.run(["ping", n, "10", "-W", str(timeout), target],
+                               capture_output=True, text=True, timeout=timeout * 10 + 5)
+            out = r.stdout + r.stderr
+            loss_m = re.search(r"(\d+(?:\.\d+)?)%\s*packet\s*loss", out)
+            rtt_m = re.search(r"(?:rtt|round-trip).*?=\s*[\d.]+/([\d.]+)/", out)
+            loss = float(loss_m.group(1)) if loss_m else (0.0 if r.returncode == 0 else 100.0)
+            latency = float(rtt_m.group(1)) if rtt_m else None
+            return (r.returncode == 0 and loss < 100, latency, loss)
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return (False, None, None)
 
@@ -988,24 +1067,57 @@ class Agent:
                 time.sleep(1)
         return False
 
+    def _emit_stage_note(self, task_id: int, note: str) -> None:
+        """回传阶段提示点（speedtest 无秒级数据，用 note 点让前端显示进行到哪一步）。"""
+        try:
+            self._post(f"/agent/iperf-tasks/{task_id}/progress", token=self.token,
+                       ts=datetime.now(timezone.utc).isoformat(), bitrate=0,
+                       role="stage", note=note)
+        except Exception:
+            pass
+
     def _run_speedtest(self, task) -> dict:
-        """公共 speedtest（用 speedtest-go 或 speedtest-cli，都没有则报错）。"""
+        """公共 speedtest（用 speedtest-go 或 speedtest-cli，都没有则报错）。
+        task.speedtest_server 指定测速服务器 ID（speedtest-go 的 -s 参数），None=自动。"""
         exes = ["speedtest-go", "speedtest", "speedtest-cli"]
         bin_st = os.path.join(self._agent_bin(), "speedtest-go")
         if os.path.exists(bin_st):
             exes.insert(0, bin_st)  # 优先 agent bin 里代装的
+        st_server = task.get("speedtest_server")
+        self._emit_stage_note(task["id"], "选择测速服务器…" if not st_server else f"连接指定服务器 #{st_server}…")
+        last_err = "未安装 speedtest-go / speedtest-cli"
         for exe in exes:
             try:
+                cmd = [exe, "--json"]
+                # -s 只有 speedtest-go 支持；speedtest-cli 用 --server
+                if st_server:
+                    cmd += ["-s", str(st_server)] if "speedtest-go" in exe else ["--server", str(st_server)]
                 # 完整测速含 ping + 下载 + 上传 + 丢包分析，可能 ~60s，留足超时
-                out = subprocess.run([exe, "--json"], capture_output=True, text=True, timeout=90)
-                if out.returncode == 0:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                # 阶段心跳：子进程跑期间每 15s 报一次「测速中」，前端不再黑屏干等
+                waited = 0
+                while proc.poll() is None:
+                    time.sleep(5)
+                    waited += 5
+                    if waited % 15 == 0:
+                        self._emit_stage_note(task["id"], f"测速中（ping → 下载 → 上传）… 已进行 {waited}s")
+                    if waited >= 90:
+                        proc.kill()
+                        raise subprocess.TimeoutExpired(cmd, 90)
+                out, err_out = proc.communicate()
+                if proc.returncode == 0:
                     try:
-                        return json.loads(out.stdout)
+                        return json.loads(out)
                     except json.JSONDecodeError:
-                        return {"raw": out.stdout[-2000:]}
-            except (FileNotFoundError, subprocess.TimeoutExpired):
+                        return {"raw": out[-2000:]}
+                # 非零退出：带上 stderr 真实原因（如网络不可达），别再误报「未安装」
+                last_err = f"speedtest 失败：{(err_out or out).strip()[-300:] or f'exit {proc.returncode}'}"
+            except FileNotFoundError:
                 continue
-        return {"error": "未安装 speedtest-go / speedtest-cli"}
+            except subprocess.TimeoutExpired:
+                last_err = "speedtest 超时（90s）"
+                continue
+        return {"error": last_err}
 
     def _run_component_install(self, task):
         """代装组件：iperf3 用 sudo 包管理器；speedtest 下载 speedtest-go 单文件。"""
@@ -1016,6 +1128,8 @@ class Agent:
                 err = self._install_iperf3()
             elif comp == "speedtest":
                 err = self._install_speedtest_go()
+            elif comp in ("ufw", "docker", "mtr"):
+                err = self._install_pkg(comp)
             else:
                 err = f"未知组件 {comp}"
             if err:
@@ -1045,6 +1159,34 @@ class Agent:
                 except Exception as e:
                     return str(e)
         return "未识别包管理器，无法代装 iperf3（请手动安装）"
+
+    def _install_pkg(self, pkg: str) -> str | None:
+        """通用包代装（ufw / docker / mtr）：sudo 白名单按「包管理器+包名」精确匹配，装不上报真实原因。"""
+        # docker 在 Debian/Ubuntu 仓库里叫 docker.io；mtr 在 Debian/Ubuntu 叫 mtr-tiny
+        names = {"docker": {"apt-get": "docker.io"}, "ufw": {}, "mtr": {"apt-get": "mtr-tiny"}}
+        binname = pkg  # 装完验证用的二进制名
+        pkgs = [("apt-get", ["sudo", "-n", "apt-get", "install", "-y"]),
+                ("dnf", ["sudo", "-n", "dnf", "install", "-y"]),
+                ("yum", ["sudo", "-n", "yum", "install", "-y"]),
+                ("apk", ["sudo", "-n", "apk", "add"]),
+                ("pacman", ["sudo", "-n", "pacman", "-S", "--noconfirm"])]
+        last = None
+        for mgr, base in pkgs:
+            if not shutil.which(mgr):
+                continue
+            pkgname = names.get(pkg, {}).get(mgr, pkg)
+            try:
+                out = subprocess.run(base + [pkgname], capture_output=True, text=True, timeout=600)
+                if out.returncode == 0 and shutil.which(binname):
+                    if pkg == "docker":
+                        # 装完顺手拉起守护进程（enable 失败不致命）
+                        subprocess.run(["sudo", "-n", "systemctl", "enable", "--now", "docker"],
+                                       capture_output=True, text=True, timeout=30)
+                    return None
+                last = (out.stderr or out.stdout)[-500:] or f"{pkg} 安装失败"
+            except Exception as e:
+                last = str(e)
+        return last or f"未识别包管理器，无法代装 {pkg}（请手动安装）"
 
     def _install_speedtest_go(self) -> str | None:
         """下载 speedtest-go 到 agent 目录 bin/。先 GitHub 直链，被限流则从后端兜底。"""
@@ -1106,16 +1248,26 @@ class Agent:
         except Exception as e:
             return str(e)
 
+    @staticmethod
+    def _mtr_cmd(target: str, proto: str) -> list[str]:
+        """组 mtr 命令。target 可带端口（host:port，tcp/udp 用）；icmp 忽略端口。"""
+        host, port = target, None
+        if ":" in target:
+            h, _, p = target.rpartition(":")
+            if h and p.isdigit():
+                host, port = h, int(p)
+        cmd = ["mtr", "-r", "-c", "10", "--json"]
+        if proto in ("udp", "tcp"):
+            cmd += ["--" + proto, "-P", str(port or 80)]
+        cmd.append(host)
+        return cmd
+
     def _run_mtr(self, task):
         """执行 mtr，回传结果。"""
         tid = task["id"]
-        target = task["target"]
-        proto = task.get("protocol", "icmp")
-        cmd = ["mtr", "-r", "-c", "5", "--json", "-P", str(12345), target]
-        if proto in ("udp", "tcp"):
-            cmd += ["--" + proto]
+        cmd = self._mtr_cmd(task["target"], task.get("protocol", "icmp"))
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if out.returncode != 0:
                 self._post(f"/agent/mtr-tasks/{tid}/result",
                            json_body={"error": out.stderr[-500:]},
@@ -1130,6 +1282,39 @@ class Agent:
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             self._post(f"/agent/mtr-tasks/{tid}/result",
                        json_body={"error": str(e)}, token=self.token, status="failed")
+
+    def _run_mtr_for_monitor(self, mid: int, m: dict, trigger: str):
+        """监控项的定时/失败触发 MTR：单独线程跑（10 包 ~15s，不阻塞探测循环），结果走 mtr-report。"""
+        if shutil.which("mtr") is None:
+            return  # 未装 mtr 就跳过（前端组件检测会提示可代装）
+        cmd = self._mtr_cmd(
+            f"{m['mtr_host']}:{m['mtr_port']}" if m.get("mtr_port") else m["mtr_host"],
+            m.get("mtr_proto", "icmp"))
+
+        def _job():
+            try:
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+                if out.returncode == 0:
+                    try:
+                        result = json.loads(out.stdout)
+                    except json.JSONDecodeError:
+                        result = {"raw": out.stdout[-2000:]}
+                    self._post("/agent/mtr-report", json_body={
+                        "monitor_id": mid, "trigger": trigger, "ok": True, "result_json": result},
+                        token=self.token)
+                else:
+                    self._post("/agent/mtr-report", json_body={
+                        "monitor_id": mid, "trigger": trigger, "ok": False,
+                        "error": (out.stderr or out.stdout)[-500:]}, token=self.token)
+            except Exception as e:
+                try:
+                    self._post("/agent/mtr-report", json_body={
+                        "monitor_id": mid, "trigger": trigger, "ok": False, "error": str(e)},
+                        token=self.token)
+                except Exception:
+                    pass
+
+        threading.Thread(target=_job, daemon=True).start()
 
     def _run_command(self, task):
         """执行命令，回传 stdout/stderr/exit_code。"""
@@ -1148,22 +1333,155 @@ class Agent:
 
     # ── 网络操作任务（改 IP 回退 / 防火墙修改）──
     def _run_net_task(self, task):
-        """执行网络操作任务。kind=ip_change 走回退流程；kind=firewall_apply 走命令执行。"""
+        """执行网络操作任务。kind=ip_change 走回退流程；kind=firewall_scan 结构化采集防火墙。"""
         tid = task["id"]
         try:
             if task["kind"] == "ip_change":
                 result = self._run_ip_change(task)
+            elif task["kind"] == "firewall_scan":
+                result = self._firewall_scan()
+            elif task["kind"] == "docker_scan":
+                result = self._docker_scan()
+            elif task["kind"] == "docker_ctl":
+                result = self._docker_ctl(task.get("payload") or {})
             else:
                 result = {"error": f"未知任务类型 {task['kind']}"}
             if isinstance(result, dict) and result.get("error"):
                 self._post(f"/agent/net-tasks/{tid}/result",
-                           token=self.token, status="failed", result_json=result)
+                           token=self.token, status="failed", json_body=result)
             else:
                 self._post(f"/agent/net-tasks/{tid}/result",
-                           token=self.token, status="done", result_json=result)
+                           token=self.token, status="done", json_body=result)
         except Exception as e:
             self._post(f"/agent/net-tasks/{tid}/result",
-                       token=self.token, status="failed", result_json={"error": str(e)})
+                       token=self.token, status="failed", json_body={"error": str(e)})
+
+    # ── 防火墙结构化采集（一期：只读展示，不写规则）──
+    def _firewall_scan(self) -> dict:
+        """采集 ufw + iptables 结构化状态。ufw 用 status numbered/verbose，iptables 用 iptables-save 解析五表。"""
+        return {"ufw": self._scan_ufw(), "iptables": self._scan_iptables()}
+
+    @staticmethod
+    def _sudo_run(cmd: list[str], timeout: int = 10) -> str | None:
+        """sudo 只读命令：成功返回 stdout，失败返回 None（不抛异常，采集器各自降级）。"""
+        try:
+            r = subprocess.run(["sudo", "-n"] + cmd, capture_output=True, text=True, timeout=timeout)
+            return r.stdout if r.returncode == 0 else None
+        except Exception:
+            return None
+
+    # ── Docker 面板：容器列表 + 启停重启 ──
+    def _docker_scan(self) -> dict:
+        """容器列表：docker ps -a --format json 逐行 JSON 解析。"""
+        if not shutil.which("docker"):
+            return {"installed": False}
+        out = self._sudo_run(["docker", "ps", "-a", "--format", "{{json .}}"], timeout=20)
+        if out is None:
+            return {"installed": True, "error": "docker 命令需要 root（sudo 白名单未含 docker）"}
+        containers = []
+        for line in out.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                j = json.loads(line)
+                containers.append({
+                    "id": j.get("ID"), "name": j.get("Names"), "image": j.get("Image"),
+                    "status": j.get("Status"), "state": j.get("State"),
+                    "ports": j.get("Ports") or "", "created": j.get("CreatedAt") or j.get("RunningFor") or "",
+                })
+            except json.JSONDecodeError:
+                continue
+        return {"installed": True, "containers": containers}
+
+    def _docker_ctl(self, payload: dict) -> dict:
+        """容器启停重启。action 白名单 + 容器名校验（防注入）。"""
+        action = payload.get("action")
+        name = str(payload.get("container") or "")
+        if action not in ("start", "stop", "restart"):
+            return {"error": f"不支持的操作 {action}"}
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.\-]*", name):
+            return {"error": "容器名不合法"}
+        try:
+            r = subprocess.run(["sudo", "-n", "docker", action, name],
+                               capture_output=True, text=True, timeout=60)
+            if r.returncode == 0:
+                return {"ok": True, "action": action, "container": name}
+            return {"error": (r.stderr or r.stdout).strip()[-300:]}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _scan_ufw(self) -> dict:
+        if not shutil.which("ufw"):
+            return {"installed": False}
+        verbose = self._sudo_run(["ufw", "status", "verbose"]) or ""
+        numbered = self._sudo_run(["ufw", "status", "numbered"]) or ""
+        active = "Status: active" in verbose
+        # Default: deny (incoming), allow (outgoing), disabled (routed)
+        m = re.search(r"^Default:\s*(.+)$", verbose, re.M)
+        defaults = m.group(1).strip() if m else None
+        m = re.search(r"^Logging:\s*(.+)$", verbose, re.M)
+        logging = m.group(1).strip() if m else None
+        # 规则行：[ 1] 22/tcp  ALLOW IN  Anywhere   /  [ 2] Anywhere  ALLOW OUT  22/tcp  (out)  / 尾部可能有 (v6)
+        rules = []
+        for line in numbered.splitlines():
+            rm = re.match(r"^\[\s*(\d+)\]\s+(\S+(?:\s+\S+?)?)\s{2,}(ALLOW IN|ALLOW OUT|DENY IN|DENY OUT|LIMIT IN|LIMIT OUT|REJECT IN|REJECT OUT)\s{2,}(.+?)(\s+\(v6\))?\s*$", line)
+            if rm:
+                rules.append({
+                    "num": int(rm.group(1)),
+                    "to": rm.group(2).strip(),
+                    "action": rm.group(3),
+                    "from": rm.group(4).strip(),
+                    "v6": bool(rm.group(5)),
+                })
+        return {"installed": True, "active": active, "defaults": defaults, "logging": logging,
+                "rules": rules, "raw": (numbered or verbose)[-4000:]}
+
+    def _scan_iptables(self) -> dict:
+        if not shutil.which("iptables-save"):
+            return {"installed": False}
+        raw = self._sudo_run(["iptables-save"], timeout=15)
+        if raw is None:
+            return {"installed": True, "error": "iptables-save 需要 root（sudo 白名单未生效）"}
+        tables: dict = {}
+        cur: str | None = None
+        for line in raw.splitlines():
+            if line.startswith("*"):
+                cur = line[1:].strip()
+                tables[cur] = {"chains": [], "rules": []}
+            elif line.startswith(":") and cur:
+                # :INPUT ACCEPT [123:4567]  —— 链名 策略 [包:字节]；策略为 "-" 的是自定义链
+                m = re.match(r"^:(\S+)\s+(\S+)\s+\[(\d+):(\d+)\]", line)
+                if m:
+                    tables[cur]["chains"].append({
+                        "name": m.group(1), "policy": None if m.group(2) == "-" else m.group(2),
+                        "packets": int(m.group(3)), "bytes": int(m.group(4)),
+                    })
+            elif line.startswith("-A") and cur:
+                tables[cur]["rules"].append(self._parse_iptables_rule(line))
+        return {"installed": True, "tables": tables, "raw": raw[-4000:]}
+
+    @staticmethod
+    def _parse_iptables_rule(line: str) -> dict:
+        """把 -A 规则拆成列：链/目标/协议/端口/源/目的/入出接口。raw 保留完整原文。"""
+        toks = line.split()
+        d: dict = {"raw": line, "chain": toks[1] if len(toks) > 1 else None,
+                   "target": None, "proto": None, "sport": None, "dport": None,
+                   "source": None, "dest": None, "in_iface": None, "out_iface": None}
+        i = 2
+        while i < len(toks):
+            t = toks[i]
+            nxt = toks[i + 1] if i + 1 < len(toks) else None
+            if t == "-j": d["target"] = nxt; i += 1
+            elif t == "-p": d["proto"] = nxt; i += 1
+            elif t == "-s": d["source"] = nxt; i += 1
+            elif t == "-d": d["dest"] = nxt; i += 1
+            elif t == "-i": d["in_iface"] = nxt; i += 1
+            elif t == "-o": d["out_iface"] = nxt; i += 1
+            elif t == "--dport": d["dport"] = nxt; i += 1
+            elif t == "--sport": d["sport"] = nxt; i += 1
+            i += 1
+        return d
 
     @staticmethod
     def _ping(target: str, count: int = 3, timeout: int = 2) -> bool:
@@ -1336,13 +1654,20 @@ class Agent:
                 self.monitors[mid] = {
                     "type": m["type"], "target": m["target"],
                     "interval": m["interval"], "timeout": m["timeout"],
+                    "mtr_host": m.get("mtr_host", m["target"]),
+                    "mtr_proto": m.get("mtr_proto", "icmp"),
+                    "mtr_port": m.get("mtr_port"),
                     "next_run": now,  # 立即探测一次
+                    "next_mtr": now + 60,  # 首次 MTR 错开 1 分钟（避免和首批探测挤一起）
                 }
             else:
                 cur["type"] = m["type"]
                 cur["target"] = m["target"]
                 cur["interval"] = m["interval"]
                 cur["timeout"] = m["timeout"]
+                cur["mtr_host"] = m.get("mtr_host", m["target"])
+                cur["mtr_proto"] = m.get("mtr_proto", "icmp")
+                cur["mtr_port"] = m.get("mtr_port")
         for mid in list(self.monitors.keys()):
             if mid not in new_ids:
                 del self.monitors[mid]
@@ -1406,6 +1731,7 @@ class Agent:
                 "agent_version": AGENT_VERSION,
                 "storage": self.list_storage(),
                 "components": self._check_components(),
+                "os_info": self._os_info(),
                 "public_ip_info": self._probe_public_ip(),
             }, token=self.token)
         except Exception as e:

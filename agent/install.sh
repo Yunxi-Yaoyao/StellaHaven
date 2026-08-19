@@ -90,6 +90,16 @@ _CMDS="${_SYSCTL} stop stella-agent, ${_SYSCTL} disable stella-agent, ${_SYSCTL}
 [ -n "$_YUM" ] && _CMDS="${_CMDS}, ${_YUM} install -y iperf3"
 [ -n "$_APK" ] && _CMDS="${_CMDS}, ${_APK} add iperf3"
 [ -n "$_PACMAN" ] && _CMDS="${_CMDS}, ${_PACMAN} -S --noconfirm iperf3"
+# 组件代装：ufw / docker（Debian 系 docker 包名是 docker.io）/ mtr（Debian 系叫 mtr-tiny）+ 装完拉起 docker 守护
+[ -n "$_APT" ] && _CMDS="${_CMDS}, ${_APT} install -y ufw, ${_APT} install -y docker.io, ${_APT} install -y mtr-tiny"
+[ -n "$_DNF" ] && _CMDS="${_CMDS}, ${_DNF} install -y ufw, ${_DNF} install -y docker, ${_DNF} install -y mtr"
+[ -n "$_YUM" ] && _CMDS="${_CMDS}, ${_YUM} install -y ufw, ${_YUM} install -y docker, ${_YUM} install -y mtr"
+[ -n "$_APK" ] && _CMDS="${_CMDS}, ${_APK} add ufw, ${_APK} add docker, ${_APK} add mtr"
+[ -n "$_PACMAN" ] && _CMDS="${_CMDS}, ${_PACMAN} -S --noconfirm ufw, ${_PACMAN} -S --noconfirm docker, ${_PACMAN} -S --noconfirm mtr"
+_CMDS="${_CMDS}, ${_SYSCTL} enable --now docker"
+# Docker 面板：容器列表/启停重启（只读+容器级操作，不放开镜像/网络管理）
+_DOCKER=$(command -v docker)
+[ -n "$_DOCKER" ] && _CMDS="${_CMDS}, ${_DOCKER}"
 # 网络操作（改 IP 回退 / 防火墙查看 / PBR 查看）：允许 stella sudo 执行这些网络配置/只读命令
 _IP=$(command -v ip)
 _NMCLI=$(command -v nmcli)

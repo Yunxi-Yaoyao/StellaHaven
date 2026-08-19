@@ -37,6 +37,18 @@ def remove(db: Session, monitor_id: int) -> None:
     db.commit()
 
 
+def update(db: Session, monitor_id: int, fields: dict) -> Monitor | None:
+    """编辑监控项。探测历史挂在 monitor_id 上，改配置不动历史。"""
+    m = db.get(Monitor, monitor_id)
+    if m is None:
+        return None
+    for k, v in fields.items():
+        setattr(m, k, v)
+    db.commit()
+    db.refresh(m)
+    return m
+
+
 # ── 探测结果 ──
 def insert_check(db: Session, monitor_id: int, ts: datetime, success: bool,
                  latency_ms: float | None, loss_pct: float | None) -> int:
@@ -62,6 +74,17 @@ def list_checks(db: Session, monitor_id: int, limit: int = 200) -> list[MonitorC
     """探测结果历史，最近的在前面（可用率计算用）。"""
     return db.query(MonitorCheck).filter(MonitorCheck.monitor_id == monitor_id)\
         .order_by(MonitorCheck.ts.desc()).limit(limit).all()
+
+
+def list_checks_range(db: Session, monitor_id: int, start: datetime | None = None,
+                      end: datetime | None = None, limit: int = 5000) -> list[MonitorCheck]:
+    """时间范围内的探测结果，升序（画延迟曲线用）。limit 是安全上限。"""
+    q = db.query(MonitorCheck).filter(MonitorCheck.monitor_id == monitor_id)
+    if start is not None:
+        q = q.filter(MonitorCheck.ts >= start)
+    if end is not None:
+        q = q.filter(MonitorCheck.ts <= end)
+    return q.order_by(MonitorCheck.ts.asc()).limit(limit).all()
 
 
 # ── 调度：找该探测的监控项 ──

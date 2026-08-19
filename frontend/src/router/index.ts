@@ -47,10 +47,26 @@ const router = createRouter({
       meta: { title: "网盘" },
     },
     {
+      // 服务器模块：ServersPage 是布局（侧栏 + router-view），右侧内容全部走子路由。
+      // 详情页 /status/:id 独立路由——SPA 前端路由切换不刷新页面，左侧外壳不重载。
       path: "/status",
-      name: "status",
       component: () => import("../modules/servers/ServersPage.vue"),
       meta: { title: "服务器" },
+      children: [
+        {
+          path: "",
+          name: "status",
+          component: () => import("../modules/servers/ServersHome.vue"),
+          meta: { title: "服务器" },
+        },
+        {
+          path: ":id(\\d+)",
+          name: "status-node",
+          component: () => import("../modules/servers/NodeDetailView.vue"),
+          props: (route: { params: { id: string } }) => ({ nodeId: Number(route.params.id) }),
+          meta: { title: "节点详情" },
+        },
+      ],
     },
   ],
 });

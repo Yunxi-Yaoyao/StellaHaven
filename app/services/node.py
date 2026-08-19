@@ -1,4 +1,5 @@
 """节点域 services：节点纳管 + agent 上报处理。"""
+import platform
 from sqlalchemy.orm import Session
 
 from app.repositories import node as repo
@@ -35,7 +36,7 @@ def handle_report(db: Session, token: str, report: AgentReport) -> Node:
     if node is None or node.status == "removed":
         raise ValueError("invalid token")
     # 心跳 + 状态转换（pending/offline → online）；带网卡清单则更新（首次上报时）
-    repo.heartbeat(db, node.id, agent_version=report.agent_version, interfaces=report.interfaces, storage=report.storage, components=report.components)
+    repo.heartbeat(db, node.id, agent_version=report.agent_version, interfaces=report.interfaces, storage=report.storage, components=report.components, os_info=report.os_info)
     # 公网 IP 探测结果（agent 首次上报时带一次）：写 public_ip + 地区
     if report.public_ip_info:
         apply_public_ip_info(db, node.id, report.public_ip_info)
@@ -63,10 +64,10 @@ def get_host_node(db: Session) -> Node | None:
 
 
 def ensure_host_node(db: Session) -> Node:
-    """找到或创建宿主机「Stella」节点。OS 探一次存 platform。"""
+    """找到或创建宿主机「Stella」节点。platform 存系统类别（linux/windows），发行版名走 os_name。"""
     node = repo.get_by_name(db, "Stella")
     if node is None:
-        node = repo.create(db, "Stella", host_svc.detect_os(), "127.0.0.1")
+        node = repo.create(db, "Stella", platform.system().lower(), "127.0.0.1")
     return node
 
 

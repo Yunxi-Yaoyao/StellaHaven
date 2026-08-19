@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 服务器模块左侧列表栏：总览 / 服务器 / 工具（二级），可折叠，与笔记样式统一。
 // ServersPage 和节点详情页共用，点击项通过路由切换视图。
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "../../shell/Icon.vue";
 
@@ -14,24 +14,33 @@ function toggleCollapsed() {
   localStorage.setItem("stella_servers_fold", collapsed.value ? "1" : "0");
 }
 
-// 工具二级展开（记忆）
+// 工具二级展开（记忆）；当前在工具视图时强制展开（否则子项高亮看不见）
 const toolsOpen = ref(localStorage.getItem("stella_tools_open") === "1");
-function toggleTools() {
-  toolsOpen.value = !toolsOpen.value;
-  localStorage.setItem("stella_tools_open", toolsOpen.value ? "1" : "0");
-}
 
 const view = computed(() => (route.query.view as string) || "nodes");
 const tool = computed(() => (route.query.tool as string) || "iperf");
+// 详情页（/status/:id）时列表视图不高亮
+const inDetail = computed(() => route.name === "status-node");
 
-const emit = defineEmits<{ navigate: [] }>();
+// 进入工具视图自动展开子项（含刷新直达/详情页跳入），不收起记忆、只是展示
+watch(() => route.query.view, (v) => { if (v === "tools") toolsOpen.value = true; }, { immediate: true });
+
 function goView(v: string) {
-  emit("navigate");
   router.push({ path: "/status", query: { view: v } });
 }
 function goTool(t: string) {
-  emit("navigate");
+  toolsOpen.value = true;
+  localStorage.setItem("stella_tools_open", "1");
   router.push({ path: "/status", query: { view: "tools", tool: t } });
+}
+// 点「工具」：展开子项 + 跳到默认子项（打流）
+function toggleTools() {
+  if (!toolsOpen.value) {
+    goTool("iperf");
+    return;
+  }
+  toolsOpen.value = false;
+  localStorage.setItem("stella_tools_open", "0");
 }
 </script>
 
@@ -42,17 +51,16 @@ function goTool(t: string) {
   <!-- 列表栏 -->
   <aside v-show="!collapsed" class="servers-bar">
     <button class="fold-btn" title="收起列表" @click="toggleCollapsed">«</button>
-    <div class="bar-head">服务器</div>
 
-    <button class="bar-item" :class="{ active: view === 'overview' }" @click="goView('overview')">
+    <button class="bar-item" :class="{ active: !inDetail && view === 'overview' }" @click="goView('overview')">
       <Icon name="activity" :size="15" /><span class="bi-label">总览</span>
     </button>
 
-    <button class="bar-item" :class="{ active: view === 'nodes' }" @click="goView('nodes')">
+    <button class="bar-item" :class="{ active: !inDetail && view === 'nodes' }" @click="goView('nodes')">
       <Icon name="server" :size="15" /><span class="bi-label">服务器</span>
     </button>
 
-    <button class="bar-item" @click="toggleTools">
+    <button class="bar-item" :class="{ 'active-parent': !inDetail && view === 'tools' }" @click="toggleTools">
       <Icon name="zap" :size="15" /><span class="bi-label">工具</span>
       <Icon :name="toolsOpen ? 'chevron-down' : 'chevron'" :size="12" class="vi-arrow" />
     </button>
@@ -65,6 +73,9 @@ function goTool(t: string) {
       </button>
       <button class="bar-item sub" :class="{ active: view === 'tools' && tool === 'command' }" @click="goTool('command')">
         <span class="bi-label">命令</span>
+      </button>
+      <button class="bar-item sub" :class="{ active: view === 'tools' && tool === 'records' }" @click="goTool('records')">
+        <span class="bi-label">记录</span>
       </button>
     </template>
   </aside>
@@ -114,6 +125,8 @@ function goTool(t: string) {
 }
 .bar-item:hover { background: var(--bg-raised); color: var(--text-hi); }
 .bar-item.active { background: var(--bg-raised); color: var(--accent); }
+/* 父项高亮（比子项淡）：工具视图下「工具」也有位置感 */
+.bar-item.active-parent { color: var(--accent); opacity: 0.85; }
 .bi-label { flex: 1; }
 .vi-arrow { opacity: 0.6; }
 .bar-item.sub { padding-left: 30px; font-size: 12.5px; }

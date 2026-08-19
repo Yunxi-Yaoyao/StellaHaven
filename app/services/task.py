@@ -1,4 +1,6 @@
 """任务域 services：打流 / MTR / 命令 的发起 + agent 轮询领取 + 结果回传。"""
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 
 from app.repositories import task as repo
@@ -6,26 +8,85 @@ from app.repositories import node as node_repo
 from app.models.task import IperfTask, MtrTask, AgentCommand, ComponentTask, NetTask
 
 
+# ── 打流看门狗（惰性清扫：列表/详情被读时顺手扫，不开后台任务）──
+def _iperf_timeout_sec(t: IperfTask) -> int:
+    """running 任务的合理最长耗时。speedtest 全程 ~90s 阻塞；数据量模式速率未知给宽限。"""
+    if t.mode == "speedtest":
+        return 150
+    if t.bytes:
+        return 300
+    return t.duration + 60
+
+
+def sweep_stale_iperf(db: Session) -> None:
+    """把卡死的打流任务标 failed：
+    - running 超过合理时长（agent 失联/进程挂死，结果永远回不来）
+    - pending 超过 5 分钟没人领（节点离线）——卡住的 pending 会一直占着「已有任务进行中」的并发锁
+    """
+    now = datetime.now(timezone.utc)
+    dirty = False
+    for t in db.query(IperfTask).filter(IperfTask.status == "running").all():
+        base = t.started_at or t.created_at
+        if base is None:
+            continue
+        if base.tzinfo is None:
+            base = base.replace(tzinfo=timezone.utc)
+        if (now - base).total_seconds() > _iperf_timeout_sec(t):
+            t.status = "failed"
+            t.result_json = {"error": "agent 失联：任务超时未完成（看门狗清理）"}
+            dirty = True
+    for t in db.query(IperfTask).filter(IperfTask.status == "pending").all():
+        base = t.created_at
+        if base is None:
+            continue
+        if base.tzinfo is None:
+            base = base.replace(tzinfo=timezone.utc)
+        if (now - base).total_seconds() > 300:
+            t.status = "failed"
+            t.result_json = {"error": "agent 超过 5 分钟未领取（节点离线？）"}
+            dirty = True
+    if dirty:
+        db.commit()
+
+
 # ── 发起（前端工具页）──
 def create_iperf(db: Session, server_node_id: int | None, client_node_id: int,
                  mode: str, direction: str, duration: int, parallel: int,
                  udp: bool = False, bitrate: str | None = None, port: int = 5201,
                  window: str | None = None, length: str | None = None,
-                 omit: int = 0, zerocopy: bool = False, bytes: str | None = None) -> IperfTask:
+                 omit: int = 0, zerocopy: bool = False, bytes: str | None = None,
+                 speedtest_server: str | None = None) -> IperfTask:
     # 打流并发限制：同一时间只允许一个 running/pending 打流任务（防打满带宽拖垮代理）
+    sweep_stale_iperf(db)  # 先清卡死任务，别让僵尸占着并发锁
     active = db.query(IperfTask).filter(IperfTask.status.in_(["pending", "running"])).count()
     if active > 0:
         raise ValueError("已有打流任务进行中")
+    # 节点约束：两端都必须在线；iperf3 互打时服务端必须是公网节点（client 要能连到 5201），且两端不同机
+    client = node_repo.get_by_id(db, client_node_id)
+    if client is None or client.status != "online":
+        raise ValueError("客户端节点不在线")
+    if mode == "iperf3":
+        if server_node_id is None:
+            raise ValueError("iperf3 互打需要选择服务端节点")
+        if server_node_id == client_node_id:
+            raise ValueError("服务端和客户端不能是同一台")
+        server = node_repo.get_by_id(db, server_node_id)
+        if server is None or server.status != "online":
+            raise ValueError("服务端节点不在线")
+        if server.net_type != "public":
+            raise ValueError(f"服务端 {server.name} 不是公网节点，客户端连不到它的 5201 端口")
     return repo.create_iperf(db, server_node_id, client_node_id, mode, direction,
                              duration, parallel, udp, bitrate, port, window, length,
-                             omit, zerocopy, bytes)
+                             omit, zerocopy, bytes, speedtest_server)
 
 
 def list_iperf(db: Session) -> list[IperfTask]:
+    sweep_stale_iperf(db)
     return repo.list_iperf(db)
 
 
 def get_iperf(db: Session, task_id: int) -> IperfTask | None:
+    sweep_stale_iperf(db)
     return repo.get_iperf(db, task_id)
 
 
@@ -44,6 +105,36 @@ def create_mtr(db: Session, node_id: int, target: str, protocol: str) -> MtrTask
     return repo.create_mtr(db, node_id, target, protocol)
 
 
+def create_mtr_for_monitor(db: Session, monitor) -> MtrTask:
+    """监控项浮窗的「立即 MTR」：按类型映射协议（http→tcp:80/443），target 存 host[:port]。"""
+    from app.services.monitor import mtr_spec
+    host, proto, port = mtr_spec(monitor.type, monitor.target)
+    target = f"{host}:{port}" if port else host
+    return repo.create_mtr(db, monitor.node_id, target, proto,
+                           monitor_id=monitor.id, trigger="manual")
+
+
+def report_mtr(db: Session, token: str, monitor_id: int, trigger: str,
+               ok: bool, result_json: dict | None, error: str | None) -> MtrTask:
+    """agent 主动上报的监控项 MTR（定时/失败触发）。校验 token 与监控项归属。"""
+    from app.services.monitor import mtr_spec
+    from app.repositories import monitor as monitor_repo
+    node = node_repo.get_by_token(db, token)
+    if node is None:
+        raise ValueError("无效的 agent token")
+    m = monitor_repo.get_by_id(db, monitor_id)
+    if m is None or m.node_id != node.id:
+        raise ValueError("监控项不存在")
+    host, proto, port = mtr_spec(m.type, m.target)
+    target = f"{host}:{port}" if port else host
+    return repo.insert_mtr_report(db, node.id, monitor_id, target, proto,
+                                  trigger, ok, result_json, error)
+
+
+def list_mtr_for_monitor(db: Session, monitor_id: int) -> list[MtrTask]:
+    return repo.list_mtr_for_monitor(db, monitor_id)
+
+
 def list_mtr(db: Session) -> list[MtrTask]:
     return repo.list_mtr(db)
 
@@ -58,7 +149,7 @@ def list_commands(db: Session) -> list[AgentCommand]:
 
 # ── 组件代装（前端点「安装」）──
 def install_component(db: Session, node_id: int, component: str) -> ComponentTask:
-    if component not in ("iperf3", "speedtest"):
+    if component not in ("iperf3", "speedtest", "ufw", "docker", "mtr"):
         raise ValueError("未知组件")
     # 同一节点同一组件若已有 pending/running 任务，直接复用，不重复下发
     existing = db.query(ComponentTask).filter(
@@ -102,11 +193,13 @@ def poll_tasks(db: Session, token: str) -> dict:
     if uninstall:
         node.uninstall_status = "running"
 
-    # 领取：server 标记已起 -s（不抢 status，client 还能领）；client 领取 status→running
+    # 领取：server 标记已起 -s（不抢 status，client 还能领）；client 领取 status→running + 记领取时刻（看门狗基准）
+    now = datetime.now(timezone.utc)
     for t in server_iperf:
         t.server_started = True
     for t in client_iperf:
         t.status = "running"
+        t.started_at = now
     for t in mtr:
         t.status = "running"
     for c in cmds:
@@ -141,6 +234,7 @@ def poll_tasks(db: Session, token: str) -> dict:
                 "parallel": t.parallel,
                 "udp": t.udp, "bitrate": t.bitrate, "port": t.port,
                 "window": t.window, "length": t.length, "omit": t.omit, "zerocopy": t.zerocopy,
+                "speedtest_server": t.speedtest_server,
             }
             for t in server_iperf
         ] + [
@@ -157,6 +251,7 @@ def poll_tasks(db: Session, token: str) -> dict:
                 "parallel": t.parallel,
                 "udp": t.udp, "bitrate": t.bitrate, "port": t.port,
                 "window": t.window, "length": t.length, "omit": t.omit, "zerocopy": t.zerocopy,
+                "speedtest_server": t.speedtest_server,
             }
             for t in client_iperf
         ],
@@ -208,6 +303,36 @@ def create_ip_change(db: Session, node_id: int, iface: str, new_ip: str,
     payload = {"iface": iface, "new_ip": new_ip, "prefix": prefix,
                "gateway": gateway, "ping_target": ping_target}
     return repo.create_net_task(db, node_id, "ip_change", payload)
+
+
+def create_firewall_scan(db: Session, node_id: int) -> NetTask:
+    """下发防火墙结构化采集任务（ufw numbered + iptables-save 五表，只读）。"""
+    node = node_repo.get_by_id(db, node_id)
+    if node is None or node.status != "online":
+        raise ValueError("节点不在线")
+    return repo.create_net_task(db, node_id, "firewall_scan", None)
+
+
+def create_docker_scan(db: Session, node_id: int) -> NetTask:
+    """下发 Docker 容器列表采集（只读）。"""
+    node = node_repo.get_by_id(db, node_id)
+    if node is None or node.status != "online":
+        raise ValueError("节点不在线")
+    return repo.create_net_task(db, node_id, "docker_scan", None)
+
+
+def create_docker_ctl(db: Session, node_id: int, action: str, container: str) -> NetTask:
+    """容器启停重启（agent 侧再校验 action 白名单 + 容器名合法性）。"""
+    if action not in ("start", "stop", "restart"):
+        raise ValueError("不支持的操作")
+    node = node_repo.get_by_id(db, node_id)
+    if node is None or node.status != "online":
+        raise ValueError("节点不在线")
+    return repo.create_net_task(db, node_id, "docker_ctl", {"action": action, "container": container})
+
+
+def get_net_task(db: Session, task_id: int) -> NetTask | None:
+    return db.get(NetTask, task_id)
 
 
 def finish_net_task(db: Session, task_id: int, status: str, result_json: dict | None) -> None:

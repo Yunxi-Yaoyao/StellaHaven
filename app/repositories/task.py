@@ -1,10 +1,21 @@
 """任务域 repositories：打流 / MTR / 命令 的 CRUD + agent 轮询领取 + 结果回传。"""
 import json
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from app.models.task import IperfTask, MtrTask, AgentCommand, ComponentTask, NetTask
+
+# 每类任务记录保留上限（惰性清理：新增时顺带裁掉旧记录）
+KEEP = 100
+
+
+def trim_old(db: Session, model, keep: int = KEEP) -> None:
+    """只保留最新 keep 条，多余的从老到新删除。惰性清理，随 create 调用。"""
+    ids = [r[0] for r in db.query(model.id).order_by(model.id.desc()).offset(keep).all()]
+    if ids:
+        db.query(model).filter(model.id.in_(ids)).delete(synchronize_session=False)
 
 
 # ── iperf 打流 ──
@@ -12,18 +23,22 @@ def create_iperf(db: Session, server_node_id: int | None, client_node_id: int,
                  mode: str, direction: str, duration: int, parallel: int,
                  udp: bool = False, bitrate: str | None = None, port: int = 5201,
                  window: str | None = None, length: str | None = None,
-                 omit: int = 0, zerocopy: bool = False, bytes: str | None = None) -> IperfTask:
+                 omit: int = 0, zerocopy: bool = False, bytes: str | None = None,
+                 speedtest_server: str | None = None) -> IperfTask:
     t = IperfTask(server_node_id=server_node_id, client_node_id=client_node_id,
                   mode=mode, direction=direction, duration=duration, parallel=parallel,
                   udp=udp, bitrate=bitrate, port=port, window=window,
-                  length=length, omit=omit, zerocopy=zerocopy, bytes=bytes)
+                  length=length, omit=omit, zerocopy=zerocopy, bytes=bytes,
+                  speedtest_server=speedtest_server)
     db.add(t)
+    db.commit()
+    trim_old(db, IperfTask)
     db.commit()
     db.refresh(t)
     return t
 
 
-def list_iperf(db: Session, limit: int = 30) -> list[IperfTask]:
+def list_iperf(db: Session, limit: int = 100) -> list[IperfTask]:
     return db.query(IperfTask).order_by(IperfTask.id.desc()).limit(limit).all()
 
 
@@ -32,15 +47,43 @@ def get_iperf(db: Session, task_id: int) -> IperfTask | None:
 
 
 # ── MTR ──
-def create_mtr(db: Session, node_id: int, target: str, protocol: str) -> MtrTask:
-    t = MtrTask(node_id=node_id, target=target, protocol=protocol)
+def create_mtr(db: Session, node_id: int, target: str, protocol: str,
+               monitor_id: int | None = None, trigger: str = "manual") -> MtrTask:
+    t = MtrTask(node_id=node_id, target=target, protocol=protocol,
+                monitor_id=monitor_id, trigger=trigger)
+    db.add(t)
+    db.commit()
+    trim_old(db, MtrTask)
+    db.commit()
+    db.refresh(t)
+    return t
+
+
+def insert_mtr_report(db: Session, node_id: int, monitor_id: int, target: str,
+                      protocol: str, trigger: str, ok: bool,
+                      result_json: dict | None, error: str | None) -> MtrTask:
+    """agent 主动上报的 MTR 结果（监控项定时/失败触发）——直接落成 done/failed 行。"""
+    payload = result_json or {}
+    if error:
+        payload = {**payload, "error": error}
+    t = MtrTask(node_id=node_id, monitor_id=monitor_id, target=target, protocol=protocol,
+                trigger=trigger, status="done" if ok else "failed", result_json=payload or None)
     db.add(t)
     db.commit()
     db.refresh(t)
     return t
 
 
-def list_mtr(db: Session, limit: int = 50) -> list[MtrTask]:
+def list_mtr_for_monitor(db: Session, monitor_id: int, limit: int = 200) -> list[MtrTask]:
+    """监控项的 MTR 历史（近 60 天）。惰性清扫：读的时候顺手删 60 天前的（全表）。"""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=60)
+    db.query(MtrTask).filter(MtrTask.created_at < cutoff).delete()
+    db.commit()
+    return db.query(MtrTask).filter(MtrTask.monitor_id == monitor_id)\
+        .order_by(MtrTask.id.desc()).limit(limit).all()
+
+
+def list_mtr(db: Session, limit: int = 100) -> list[MtrTask]:
     return db.query(MtrTask).order_by(MtrTask.id.desc()).limit(limit).all()
 
 
@@ -53,11 +96,13 @@ def create_command(db: Session, node_id: int, command: str) -> AgentCommand:
     c = AgentCommand(node_id=node_id, command=command)
     db.add(c)
     db.commit()
+    trim_old(db, AgentCommand)
+    db.commit()
     db.refresh(c)
     return c
 
 
-def list_commands(db: Session, limit: int = 50) -> list[AgentCommand]:
+def list_commands(db: Session, limit: int = 100) -> list[AgentCommand]:
     return db.query(AgentCommand).order_by(AgentCommand.id.desc()).limit(limit).all()
 
 
@@ -112,8 +157,47 @@ def pending_commands_for_node(db: Session, node_id: int) -> list[AgentCommand]:
 
 
 # ── 结果回传 ──
+def _iperf_summary(task: IperfTask, r: dict) -> dict:
+    """从 result_json 提取摘要列（带宽/丢包/抖动），双格式兼容（iperf3 自建 / speedtest-go / ookla）。
+
+    列语义：avg_mbps=主速率（iperf=接收均值，speedtest=下载），peak_mbps=次速率（iperf=峰值，speedtest=上传）。
+    数据异常（suspicious）的任务不落列——避免脏数据混进历史摘要。
+    """
+    out: dict = {"avg_mbps": None, "peak_mbps": None, "lost_pct": None, "jitter_ms": None}
+    if not isinstance(r, dict) or r.get("suspicious"):
+        return out
+    if task.mode == "speedtest":
+        srv = (r.get("servers") or [{}])[0] or {}
+        dl = srv.get("dl_speed")
+        ul = srv.get("ul_speed")
+        jit = srv.get("jitter")
+        if jit is not None and dl is not None:
+            jit = jit / 1e6  # speedtest-go：jitter 是纳秒（Go time.Duration 序列化），有 dl_speed 即为该格式
+        if dl is None and r.get("download", {}).get("bandwidth") is not None:
+            dl = r["download"]["bandwidth"]
+        if ul is None and r.get("upload", {}).get("bandwidth") is not None:
+            ul = r["upload"]["bandwidth"]
+        ping = r.get("ping") or {}
+        if jit is None and ping.get("jitter") is not None:
+            jit = ping["jitter"]  # ookla/librespeed：ms，直接用
+        out["avg_mbps"] = round(dl * 8 / 1e6, 2) if dl is not None else None
+        out["peak_mbps"] = round(ul * 8 / 1e6, 2) if ul is not None else None
+        out["jitter_ms"] = round(jit, 3) if jit is not None else None
+        return out
+    if r.get("avg_bitrate") is not None:
+        out["avg_mbps"] = round(r["avg_bitrate"] / 1e6, 2)
+    if r.get("peak_bitrate") is not None:
+        out["peak_mbps"] = round(r["peak_bitrate"] / 1e6, 2)
+    if r.get("lost_pct") is not None:
+        out["lost_pct"] = r["lost_pct"]
+    if r.get("jitter_ms") is not None:
+        out["jitter_ms"] = r["jitter_ms"]
+    return out
+
+
 def finish_iperf(db: Session, task_id: int, status: str, result_json: dict) -> None:
-    """回传打流结果。server 只是辅助（起 -s 等服务），结果以 client 为准，server 回传不覆盖。"""
+    """回传打流结果。server 只是辅助（起 -s 等服务），结果以 client 为准，server 回传不覆盖。
+    done 时顺带把摘要落到独立列（列表/历史查询不用扛整包 result_json）。"""
     task = db.get(IperfTask, task_id)
     if task is None:
         return
@@ -124,6 +208,9 @@ def finish_iperf(db: Session, task_id: int, status: str, result_json: dict) -> N
         return  # server 端结果（含 timeout）不覆盖 client 的实时曲线/汇总
     task.status = status
     task.result_json = result_json
+    if status == "done":
+        for k, v in _iperf_summary(task, result_json).items():
+            setattr(task, k, v)
     db.commit()
 
 
@@ -167,7 +254,7 @@ def create_component(db: Session, node_id: int, component: str) -> ComponentTask
     return t
 
 
-def list_components(db: Session, limit: int = 50) -> list[ComponentTask]:
+def list_components(db: Session, limit: int = 100) -> list[ComponentTask]:
     return db.query(ComponentTask).order_by(ComponentTask.id.desc()).limit(limit).all()
 
 

@@ -7,9 +7,10 @@ from app.database import get_db
 from app.models.user import User
 from app.routers.auth import current_user
 from app.schemas.monitor import (
-    NodeCreate, NodeRead, NodeDetail, NodeUpdate, NetTypeUpdate, IpChangeCreate, MetricPoint, SysMetricPoint,
+    NodeCreate, NodeRead, NodeDetail, NodeUpdate, NetTypeUpdate, IpChangeCreate, NetTaskRead, DockerCtlCreate, MetricPoint, SysMetricPoint,
     AgentReport, AgentConfig, MonitorForAgent,
-    MonitorCreate, MonitorRead, MonitorCheckRead, MonitorCheckReport,
+    MonitorCreate, MonitorUpdate, MonitorRead, MonitorCheckRead, MonitorCheckReport, MonitorCheckPoint,
+    MtrReport, MtrTaskRead,
 )
 from app.services import node as node_svc
 from app.services import monitor as monitor_svc
@@ -37,7 +38,8 @@ def get_host(user: User = Depends(current_user), db: Session = Depends(get_db)):
     node = node_svc.get_host_node(db)
     installed = host_svc.is_agent_installed()
     return {
-        "os": node.platform if node else host_svc.detect_os(),
+        # OS 显示名：优先 agent 采集的发行版友好名，退化为 platform/本机探测
+        "os": (node.os_name if node and node.os_name else (node.platform if node else host_svc.detect_os())),
         "installed": installed,
         "node_id": node.id if node else None,
         "node_status": node.status if node else None,
@@ -121,6 +123,43 @@ def change_ip(node_id: int, data: IpChangeCreate,
                                      data.prefix, data.gateway, data.ping_target)
 
 
+@node_router.post("/{node_id}/firewall-scan", response_model=NetTaskRead, status_code=201)
+def firewall_scan(node_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """下发防火墙结构化采集任务（ufw numbered + iptables-save 五表，只读不改规则）。"""
+    try:
+        return task_svc.create_firewall_scan(db, node_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@node_router.get("/net-tasks/{task_id}", response_model=NetTaskRead)
+def read_net_task(task_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """查网络操作任务结果（防火墙扫描/改 IP 进度轮询用）。"""
+    t = task_svc.get_net_task(db, task_id)
+    if t is None:
+        raise HTTPException(404, "任务不存在")
+    return t
+
+
+@node_router.post("/{node_id}/docker-scan", response_model=NetTaskRead, status_code=201)
+def docker_scan(node_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """下发 Docker 容器列表采集（只读）。"""
+    try:
+        return task_svc.create_docker_scan(db, node_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@node_router.post("/{node_id}/docker-ctl", response_model=NetTaskRead, status_code=201)
+def docker_ctl(node_id: int, data: DockerCtlCreate,
+               user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """容器启停重启。"""
+    try:
+        return task_svc.create_docker_ctl(db, node_id, data.action, data.container)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
 @node_router.get("/{node_id}", response_model=NodeDetail)
 def read_node(node_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """单节点详情：基础信息 + 实时快照（各监控网卡最新流量 + 最新系统指标）。"""
@@ -161,8 +200,27 @@ def agent_config(token: str, db: Session = Depends(get_db)):
         node_id=node.id,
         monitored_ifaces=node.monitored_ifaces,
         monitors_version=config_repo.get_monitors_version(db),
-        monitors=[MonitorForAgent.model_validate(m) for m in monitors],
+        monitors=[_monitor_for_agent(m) for m in monitors],
     )
+
+
+def _monitor_for_agent(m) -> MonitorForAgent:
+    """ORM → 下发模型，附带预计算的 MTR 规格（agent 不做协议映射，只执行）。"""
+    host, proto, port = monitor_svc.mtr_spec(m.type, m.target)
+    return MonitorForAgent(id=m.id, type=m.type, target=m.target, interval=m.interval,
+                           timeout=m.timeout, mtr_host=host, mtr_proto=proto, mtr_port=port)
+
+
+@agent_router.post("/mtr-report")
+def agent_mtr_report(token: str, report: MtrReport, db: Session = Depends(get_db)):
+    """agent 主动上报监控项 MTR 结果（定时/失败触发）。手动触发的走 mtr-tasks result 通道。"""
+    from app.services import task as task_svc
+    try:
+        task_svc.report_mtr(db, token, report.monitor_id, report.trigger,
+                            report.ok, report.result_json, report.error)
+    except ValueError as e:
+        raise HTTPException(401 if "token" in str(e) else 404, str(e))
+    return {"ok": True}
 
 
 @agent_router.post("/monitor-check")
@@ -238,11 +296,46 @@ def create_monitor(data: MonitorCreate, user: User = Depends(current_user), db: 
         raise HTTPException(404, "探测节点不存在")
 
 
+@monitor_router.patch("/{monitor_id}", response_model=MonitorRead)
+def update_monitor(monitor_id: int, data: MonitorUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    try:
+        return monitor_svc.update_monitor(db, monitor_id, data.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 @monitor_router.delete("/{monitor_id}", status_code=204)
 def delete_monitor(monitor_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     monitor_svc.remove_monitor(db, monitor_id)
 
 
+@monitor_router.get("/{monitor_id}/mtr", response_model=list[MtrTaskRead])
+def monitor_mtr_history(monitor_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """监控项的 MTR 历史（近 60 天，惰性清扫超期数据）。"""
+    from app.services import task as task_svc
+    if monitor_svc.get_monitor(db, monitor_id) is None:
+        raise HTTPException(404, "监控项不存在")
+    return task_svc.list_mtr_for_monitor(db, monitor_id)
+
+
+@monitor_router.post("/{monitor_id}/mtr", response_model=MtrTaskRead, status_code=201)
+def monitor_mtr_run(monitor_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """浮窗「立即 MTR」：按监控类型自动映射协议（http→tcp:80/443），走 mtr_tasks 轮询管道。"""
+    from app.services import task as task_svc
+    m = monitor_svc.get_monitor(db, monitor_id)
+    if m is None:
+        raise HTTPException(404, "监控项不存在")
+    return task_svc.create_mtr_for_monitor(db, m)
+
+
 @monitor_router.get("/{monitor_id}/checks", response_model=list[MonitorCheckRead])
 def monitor_checks(monitor_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     return monitor_svc.list_checks(db, monitor_id)
+
+
+@monitor_router.get("/{monitor_id}/series", response_model=list[MonitorCheckPoint])
+def monitor_series(monitor_id: int, start: datetime | None = None, end: datetime | None = None,
+                   step: int | None = None, limit: int = 5000,
+                   user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """延迟曲线数据：start/end 时间范围 + step 秒分桶降采样。"""
+    return monitor_svc.list_checks_range(db, monitor_id, start, end, step, limit)

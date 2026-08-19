@@ -1,26 +1,36 @@
 <script setup lang="ts">
 // 节点详情页：基本信息 + 流量图（时间范围/时区/网卡多选/单位/统计卡）+ 系统指标 + 监控项
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import * as echarts from "echarts";
 import Icon from "../../shell/Icon.vue";
 import {
   getNodeDetail, getNodeMetrics, getNodeSysMetrics, getTrafficStats, updateNodeIfaces, updateNetType, changeIp,
-  listMonitors, createMonitor, removeMonitor, createCommand, listCommands,
-  type NodeDetail, type Monitor, type TrafficStats,
+  listMonitors, getMonitorSeries, createCommand, listCommands, scanFirewall, getNetTask, scanDocker, ctlDocker,
+  type NodeDetail, type Monitor, type MonitorCheckPoint, type TrafficStats, type FirewallData, type DockerContainer,
 } from "../../api/servers";
 import { toast } from "../../composables/useToast";
 import Dropdown from "../../shell/Dropdown.vue";
+import MonitorDetailModal from "./MonitorDetailModal.vue";
 
-// 由父组件（ServersPage）传入当前查看的节点 id；返回时 emit back（URL 不变，刷新回列表）
+// 节点 id 由路由 /status/:id 经 props 传入（router/index.ts props 映射）；返回 = router 回列表
 const props = defineProps<{ nodeId: number }>();
-const emit = defineEmits<{ back: [] }>();
 const nodeId = computed(() => props.nodeId);
+const router = useRouter();
 
 const detail = ref<NodeDetail | null>(null);
 const monitors = ref<Monitor[]>([]);
 
+// ── 监控项详情浮窗（与总览页共用组件：图表 / MTR / 编辑）──
+const monModal = ref<Monitor | null>(null);
+function openMonModal(m: Monitor) { monModal.value = m; }
+
 // ── 详情页标签页：概览 / 网络（标记+IP+防火墙）/ 服务监控 ──
-const activeTab = ref<"overview" | "network" | "services">("overview");
+// 支持 ?tab= 直达（如总览页监控卡点击 → ?tab=services）
+type TabKey = "overview" | "network" | "services";
+const route = useRoute();
+const activeTab = ref<TabKey>((route.query.tab as TabKey) || "overview");
+watch(() => route.query.tab, (t) => { if (t && t !== activeTab.value) activeTab.value = t as TabKey; });
 
 // ── 网络标记（内网/公网）──
 const netType = ref<"internal" | "public">("internal");
@@ -30,17 +40,25 @@ const netTypeOptions = [
   { value: "public", label: "公网" },
 ];
 
-// ── 网卡列表（默认隐藏 docker/容器网卡）──
-const showDocker = ref(false);
+// ── 网卡列表（默认只显示物理/主网卡，隐藏 docker/容器/lo 回环）──
+const showAllIfaces = ref(false);
 type IfaceItem = { name: string; is_default: boolean; up: boolean; is_physical?: boolean; docker?: boolean; ip?: string | null };
-const filteredIfaces = computed<IfaceItem[]>(() => {
+const allIfaces = computed<IfaceItem[]>(() => {
   const ifs = detail.value?.interfaces || {};
-  return Object.entries(ifs)
-    .filter(([, meta]) => showDocker.value || !(meta as IfaceItem).docker)
-    .map(([name, meta]) => {
-      const m = meta as IfaceItem;
-      return { name, is_default: m.is_default, up: m.up, is_physical: m.is_physical, docker: m.docker, ip: m.ip };
-    });
+  return Object.entries(ifs).map(([name, meta]) => {
+    const m = meta as IfaceItem;
+    return { name, is_default: m.is_default, up: m.up, is_physical: m.is_physical, docker: m.docker, ip: m.ip };
+  });
+});
+// lo 回环判定：名字是 lo 或 ip 是 127.x / ::1
+function isLoopback(m: IfaceItem): boolean {
+  if (m.name === "lo" || m.name.startsWith("lo")) return true;
+  const ip = m.ip || "";
+  return ip.startsWith("127.") || ip === "::1";
+}
+const filteredIfaces = computed<IfaceItem[]>(() => {
+  if (showAllIfaces.value) return allIfaces.value;
+  return allIfaces.value.filter((m) => !m.docker && !isLoopback(m));
 });
 
 // ── 防火墙检测状态 ──
@@ -68,14 +86,94 @@ async function runNodeCommand(cmd: string): Promise<string> {
 }
 
 async function viewFirewall() {
+  // 结构化扫描（一期）：agent 采集 ufw numbered + iptables-save 五表，前端表格展示
   fwLoading.value = true;
   fwOutput.value = "";
+  fwData.value = null;
   try {
-    fwOutput.value = await runNodeCommand(
-      "sudo ufw status verbose 2>&1; echo '=== iptables ==='; sudo iptables-save 2>&1 | head -120"
-    );
-  } catch { fwOutput.value = "查看失败"; }
+    const t = await scanFirewall(nodeId.value);
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const cur = await getNetTask(t.id);
+      if (cur.status === "done") {
+        fwData.value = cur.result_json as FirewallData;
+        // 默认选中第一个有数据的表
+        const tbls = fwData.value?.iptables?.tables || {};
+        fwIptTab.value = IPT_TABLE_ORDER.find((k) => tbls[k]) || Object.keys(tbls)[0] || "";
+        fwLoading.value = false;
+        return;
+      }
+      if (cur.status === "failed") {
+        toast("防火墙扫描失败喵~");
+        fwLoading.value = false;
+        return;
+      }
+    }
+    toast("扫描超时了喵~");
+  } catch { toast("下发扫描失败"); }
   fwLoading.value = false;
+}
+
+// ── 防火墙结构化数据视图 ──
+const fwData = ref<FirewallData | null>(null);
+const fwView = ref<"ufw" | "iptables">("ufw");      // 顶层视图：UFW / iptables
+const fwIptTab = ref("");                            // iptables 五表 tab
+const fwShowRaw = ref(false);                        // 原文折叠
+const IPT_TABLE_ORDER = ["filter", "nat", "mangle", "raw", "security"];
+const iptTables = computed(() => {
+  const tbls = fwData.value?.iptables?.tables || {};
+  return IPT_TABLE_ORDER.filter((k) => tbls[k]).concat(Object.keys(tbls).filter((k) => !IPT_TABLE_ORDER.includes(k)));
+});
+// 大表（k3s 宿主 nat/filter 上千条）默认折叠，点开才渲染行
+const fwChainsOpen = ref<Record<string, boolean>>({});
+function toggleChain(key: string) { fwChainsOpen.value = { ...fwChainsOpen.value, [key]: !fwChainsOpen.value[key] }; }
+
+// ── Docker 面板 ──
+const dkData = ref<{ installed: boolean; error?: string; containers?: DockerContainer[] } | null>(null);
+const dkLoading = ref(false);
+const dkBusy = ref<Record<string, boolean>>({});   // container -> 操作进行中
+const dkComp = computed(() => (detail.value?.components as any)?.docker || null);  // 心跳里的检测状态
+
+async function loadDocker() {
+  dkLoading.value = true;
+  try {
+    const t = await scanDocker(nodeId.value);
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const cur = await getNetTask(t.id);
+      if (cur.status === "done") {
+        dkData.value = cur.result_json as any;
+        dkLoading.value = false;
+        return;
+      }
+      if (cur.status === "failed") { toast("Docker 扫描失败喵~"); dkLoading.value = false; return; }
+    }
+    toast("扫描超时了喵~");
+  } catch { toast("下发扫描失败"); }
+  dkLoading.value = false;
+}
+
+async function dockerCtl(c: DockerContainer, action: "start" | "stop" | "restart") {
+  if (dkBusy.value[c.name]) return;
+  dkBusy.value = { ...dkBusy.value, [c.name]: true };
+  try {
+    const t = await ctlDocker(nodeId.value, action, c.name);
+    for (let i = 0; i < 35; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const cur = await getNetTask(t.id);
+      if (cur.status === "done") {
+        toast(`${action === "start" ? "已启动" : action === "stop" ? "已停止" : "已重启"} ${c.name} 喵~`);
+        await loadDocker();  // 刷新列表
+        return;
+      }
+      if (cur.status === "failed") {
+        toast(`${action} 失败：${(cur.result_json as any)?.error || "未知原因"}`);
+        return;
+      }
+    }
+    toast("操作超时了喵~");
+  } catch { toast("下发失败"); }
+  finally { dkBusy.value = { ...dkBusy.value, [c.name]: false }; }
 }
 
 async function viewPbr() {
@@ -179,31 +277,37 @@ async function saveNetType() {
 const statusLabel: Record<string, string> = { online: "在线", offline: "离线", pending: "待报到", removed: "已移除" };
 const typeLabel: Record<string, string> = { ping: "PING", tcp: "TCP", udp: "UDP", http: "HTTP", https: "HTTPS" };
 
-// ── 时间范围 ──
-type RangeKey = "1h" | "6h" | "24h" | "7d" | "30d" | "thismonth" | "lastmonth" | "custom";
+// ── 时间范围（流量图 + 系统指标共享一组控件）──
+type RangeKey = "1h" | "6h" | "24h" | "7d" | "30d" | "90d" | "180d" | "thismonth" | "lastmonth" | "custom";
 const PRESETS: { key: RangeKey; label: string; seconds?: number }[] = [
   { key: "1h", label: "1小时", seconds: 3600 },
   { key: "6h", label: "6小时", seconds: 21600 },
   { key: "24h", label: "24小时", seconds: 86400 },
   { key: "7d", label: "7天", seconds: 604800 },
   { key: "30d", label: "近30天", seconds: 2592000 },
+  { key: "90d", label: "近90天", seconds: 7776000 },
+  { key: "180d", label: "近180天", seconds: 15552000 },
   { key: "thismonth", label: "本月" },
   { key: "lastmonth", label: "上月" },
+  { key: "custom", label: "自定义" },
 ];
 const timeRange = ref<RangeKey>("1h");
 const presetOpen = ref(false);
 const customEditOpen = ref(false);
 const customStart = ref("");
 const customEnd = ref("");
-// 系统指标独立时间范围（60s 颗粒，默认 1h）
-const sysTimeRange = ref<RangeKey>("1h");
-const sysPresetOpen = ref(false);
-const sysCustomEditOpen = ref(false);
-const sysCustomStart = ref("");
-const sysCustomEnd = ref("");
-const sysTzOpen = ref(false);
 
-// ── 时区（分钟偏移，默认 UTC+8）──
+// ── 实时模式：窗口跟随当前时间滚动，每 3s 增量拉取新点追加 ──
+const LIVE_WINDOWS = [
+  { s: 300, label: "5分钟" }, { s: 900, label: "15分钟" }, { s: 1800, label: "30分钟" },
+  { s: 3600, label: "1小时" }, { s: 7200, label: "2小时" },
+];
+const liveMode = ref(false);
+const liveWindow = ref(300);
+const liveOpen = ref(false);   // 窗长下拉
+let liveTimer: ReturnType<typeof setInterval> | null = null;
+
+// ── 时区（分钟偏移，默认 UTC+8，两图共享）──
 const TZ_OPTIONS = [
   { label: "UTC+8", offset: 480 },
   { label: "UTC+0", offset: 0 },
@@ -212,8 +316,7 @@ const TZ_OPTIONS = [
   { label: "UTC-5", offset: -300 },
   { label: "UTC-8", offset: -480 },
 ];
-const tzOffset = ref(480);        // 流量图时区
-const sysTzOffset = ref(480);     // 系统指标时区（独立于流量图）
+const tzOffset = ref(480);
 const tzOpen = ref(false);
 function nowInTz(off: number = tzOffset.value) { return new Date(Date.now() + off * 60000); }
 // 目标时区「本月第一天 00:00:00」对应的 UTC 时间戳
@@ -273,27 +376,37 @@ function computeSpan(tr: RangeKey, cStart: string, cEnd: string, off: number = t
   const r = PRESETS.find((p) => p.key === tr) || PRESETS[0];
   return { startMs: now - (r.seconds || 3600) * 1000, endMs: now };
 }
-const span = computed(() => computeSpan(timeRange.value, customStart.value, customEnd.value, tzOffset.value));
-const sysSpan = computed(() => computeSpan(sysTimeRange.value, sysCustomStart.value, sysCustomEnd.value, sysTzOffset.value));
+// 实时模式下 span = [now - 窗长, now]，跟随当前时间滚动
+const span = computed(() => {
+  if (liveMode.value) {
+    const now = Date.now();
+    return { startMs: now - liveWindow.value * 1000, endMs: now };
+  }
+  return computeSpan(timeRange.value, customStart.value, customEnd.value, tzOffset.value);
+});
 
 // 查询参数：start/end（ISO）+ limit/step（按跨度自动降采样）
 function getRange(): { start: string; end: string; limit: number; step?: number } {
   const s = span.value;
   const seconds = (s.endMs - s.startMs) / 1000;
   let limit = 720, step: number | undefined;
-  if (seconds > 86400 * 7) { step = 900; limit = 3000; }
+  if (seconds > 86400 * 60) { step = 7200; limit = 2200; }       // >60d
+  else if (seconds > 86400 * 30) { step = 3600; limit = 2200; }  // >30d
+  else if (seconds > 86400 * 7) { step = 900; limit = 3000; }
   else if (seconds > 86400) { step = 300; limit = 2016; }
   else if (seconds > 21600) { step = undefined; limit = 17280; }
   else if (seconds > 3600) { step = undefined; limit = 4320; }
   else { step = undefined; limit = 720; }
   return { start: new Date(s.startMs).toISOString(), end: new Date(s.endMs).toISOString(), limit, step };
 }
-// 系统指标查询参数（60s 颗粒，降采样阈值不同）
+// 系统指标查询参数（60s 颗粒，与流量图共享时间范围，降采样阈值不同）
 function getSysRange(): { start: string; end: string; limit: number; step?: number } {
-  const s = sysSpan.value;
+  const s = span.value;
   const seconds = (s.endMs - s.startMs) / 1000;
   let limit = 1440, step: number | undefined;
-  if (seconds > 86400 * 7) { step = 900; limit = 3000; }
+  if (seconds > 86400 * 60) { step = 7200; limit = 2200; }
+  else if (seconds > 86400 * 30) { step = 3600; limit = 2200; }
+  else if (seconds > 86400 * 7) { step = 900; limit = 3000; }
   else if (seconds > 86400) { step = 300; limit = 2016; }
   else if (seconds > 21600) { step = undefined; limit = 1500; }  // 24h
   else if (seconds > 3600) { step = undefined; limit = 400; }   // 6h
@@ -307,16 +420,20 @@ const rangeLabel = computed(() => {
   if (timeRange.value === "custom") return "自定义";
   return PRESETS.find((p) => p.key === timeRange.value)?.label || "1小时";
 });
-const sysRangeLabel = computed(() => {
-  if (sysTimeRange.value === "custom") return "自定义";
-  return PRESETS.find((p) => p.key === sysTimeRange.value)?.label || "1小时";
-});
-
 // 目标时区下的墙上时间：YYYY/MM/DD-HH:MM:SS
 function fmtTime(ms: number, off: number = tzOffset.value): string {
   const d = new Date(ms + off * 60000);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getUTCFullYear()}/${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())}-${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+// 起止按钮短格式：今天内 HH:mm，跨天 MM-DD HH:mm（目标时区）
+function fmtTimeShort(ms: number, off: number = tzOffset.value): string {
+  const d = new Date(ms + off * 60000);
+  const n = new Date(Date.now() + off * 60000);
+  const p = (x: number) => String(x).padStart(2, "0");
+  const hm = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+  const sameDay = d.getUTCFullYear() === n.getUTCFullYear() && d.getUTCMonth() === n.getUTCMonth() && d.getUTCDate() === n.getUTCDate();
+  return sameDay ? hm : `${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${hm}`;
 }
 // 图表 x 轴短格式（目标时区）：MM/DD HH:MM
 function fmtAxisTime(ms: number, off: number = tzOffset.value): string {
@@ -417,6 +534,7 @@ function fmtVal(v: number): string {
   return v.toFixed(5);
 }
 
+// 状态类加载（节点详情 + 监控项）：5s 轮询只走这里，不碰图表
 async function load() {
   try {
     detail.value = await getNodeDetail(nodeId.value);
@@ -425,8 +543,12 @@ async function load() {
     monitors.value = (await listMonitors()).filter((m) => m.node_id === nodeId.value);
     const ifaces = monitoredIfaces(detail.value);
     if (!selectedIfaces.value.length) selectedIfaces.value = ifaces;
-    await Promise.all([renderTraffic(), renderSys(), loadStats()]);
   } catch { /* 静默 */ }
+}
+
+// 图表全量加载：进入页面 / 切范围 / 开实时 时整段重取一次
+async function loadCharts() {
+  await Promise.all([fetchTraffic(true), fetchSys(true), loadStats()]);
 }
 
 const COLORS = ["#ff9ec7", "#7be39a", "#7bd0e3", "#f0c060", "#bf7aff", "#ff8f8f"];
@@ -440,37 +562,90 @@ function fmtSize(bytes: number): string {
 }
 const physicalDisks = computed(() => (detail.value?.storage || []).filter((s) => s.kind === "physical"));
 const virtualDisks = computed(() => (detail.value?.storage || []).filter((s) => s.kind !== "physical"));
+
+// ── 基本信息面板（OS/内核/CPU/负载/运行时间，来自 agent os_info）──
+const si = computed(() => detail.value?.sys_info || null);
+// 30s 心跳 tick：让 uptime 文本自己走（detail 5s 刷新时 sys_info 不变的话 computed 不重算）
+const uptimeTick = ref(0);
+let uptimeTimer: ReturnType<typeof setInterval> | null = null;
+const uptimeText = computed(() => {
+  void uptimeTick.value;
+  const bt = si.value?.boot_time;
+  if (!bt) return null;
+  let sec = Math.max(0, Math.floor(Date.now() / 1000 - bt));
+  const d = Math.floor(sec / 86400); sec %= 86400;
+  const h = Math.floor(sec / 3600); sec %= 3600;
+  const m = Math.floor(sec / 60);
+  if (d > 0) return `${d} 天 ${h} 小时`;
+  if (h > 0) return `${h} 小时 ${m} 分钟`;
+  return `${m} 分钟`;
+});
 const RING_R = 42;
 const RING_CIRC = 2 * Math.PI * RING_R;
 
 let trafficRenderSeq = 0;  // 请求序号：丢弃乱序返回的旧渲染
-async function renderTraffic() {
+
+// ── 图表数据层：full=整段重取，delta=只取上次之后的新点（实时模式用）──
+const trafficPoints = ref<Record<string, MetricPoint[]>>({});  // 每网卡时序（时间正序）
+const sysPoints = ref<SysMetricPoint[]>([]);
+
+async function fetchTraffic(full: boolean) {
+  const seq = ++trafficRenderSeq;
+  // 首屏 detail 还没回来时 monitoredIfaces 会炸，直接跳过等下一轮
+  const ifaces = selectedIfaces.value.length ? selectedIfaces.value : (detail.value ? monitoredIfaces(detail.value) : []);
+  if (!ifaces.length) return;
+  const base = getRange();
+  const next: Record<string, MetricPoint[]> = full ? {} : { ...trafficPoints.value };
+  for (const iface of ifaces) {
+    let start = base.start, end = base.end, limit = base.limit, step = base.step;
+    const existing = next[iface] || [];
+    if (!full && existing.length) {
+      // 增量：只拉最后一点之后的新数据
+      start = new Date(new Date(existing[existing.length - 1].ts).getTime() + 1000).toISOString();
+      end = new Date().toISOString();
+      limit = 300; step = undefined;
+    }
+    try {
+      const data = await getNodeMetrics(nodeId.value, { iface, start, end, limit, step });
+      if (seq !== trafficRenderSeq) return;  // 已有更新请求，丢弃
+      const points = [...data].reverse();
+      if (full) {
+        next[iface] = points;
+      } else {
+        const lastTs = existing.length ? new Date(existing[existing.length - 1].ts).getTime() : 0;
+        let merged = [...existing, ...points.filter((pt) => new Date(pt.ts).getTime() > lastTs)];
+        if (liveMode.value) merged = merged.filter((pt) => new Date(pt.ts).getTime() >= Date.now() - liveWindow.value * 1000);
+        next[iface] = merged;
+      }
+    } catch { /* 单网卡失败不影响其他 */ }
+  }
+  if (seq !== trafficRenderSeq) return;
+  // 丢掉不再选中的网卡
+  trafficPoints.value = Object.fromEntries(Object.entries(next).filter(([k]) => ifaces.includes(k)));
+  paintTraffic();
+}
+
+function paintTraffic() {
   if (!trafficEl.value) return;
   if (!trafficChart) trafficChart = echarts.init(trafficEl.value);
-  const seq = ++trafficRenderSeq;
-  const range = getRange();
+  const ifaces = Object.keys(trafficPoints.value);
   const series: any[] = [];
   let times: string[] = [];
-  const ifaces = selectedIfaces.value.length ? selectedIfaces.value : monitoredIfaces(detail.value!);
-  for (let i = 0; i < ifaces.length; i++) {
-    const iface = ifaces[i];
-    const data = await getNodeMetrics(nodeId.value, { iface, start: range.start, end: range.end, limit: range.limit, step: range.step });
-    if (seq !== trafficRenderSeq) return;  // 已有更新请求，丢弃
-    const points = [...data].reverse();
-    if (!times.length) times = points.map((p) => fmtAxisTime(new Date(p.ts).getTime()));
+  ifaces.forEach((iface, i) => {
+    const points = trafficPoints.value[iface];
+    if (!times.length) times = points.map((pt) => fmtAxisTime(new Date(pt.ts).getTime()));
     const color = COLORS[i % COLORS.length];
     series.push({
-      name: `${iface} ↓`, type: "line", smooth: true, showSymbol: false,
-      data: points.map((p) => chartRate(p.rx_delta)),
+      name: `${iface} ↓`, type: "line", smooth: true, showSymbol: false, animation: false,
+      data: points.map((pt) => chartRate(pt.rx_delta)),
       lineStyle: { width: 1.5 }, itemStyle: { color }, areaStyle: { opacity: 0.08 },
     });
     series.push({
-      name: `${iface} ↑`, type: "line", smooth: true, showSymbol: false,
-      data: points.map((p) => chartRate(p.tx_delta)),
+      name: `${iface} ↑`, type: "line", smooth: true, showSymbol: false, animation: false,
+      data: points.map((pt) => chartRate(pt.tx_delta)),
       lineStyle: { width: 1.5, type: "dashed" }, itemStyle: { color },
     });
-  }
-  if (seq !== trafficRenderSeq) return;  // 已有更新请求，丢弃本次渲染
+  });
   trafficChart.setOption({
     backgroundColor: "transparent",
     grid: { left: 52, right: 16, top: 34, bottom: 26 },
@@ -480,7 +655,7 @@ async function renderTraffic() {
         if (!params || !params.length) return "";
         const unit = chartUnit();
         let html = `${params[0].axisValue}<br/>`;
-        for (const p of params) html += `${p.marker}${p.seriesName}：<b>${fmtVal(p.value)} ${unit}</b><br/>`;
+        for (const prm of params) html += `${prm.marker}${prm.seriesName}：<b>${fmtVal(prm.value)} ${unit}</b><br/>`;
         return html;
       },
     },
@@ -488,14 +663,14 @@ async function renderTraffic() {
     xAxis: { type: "category", data: times, boundaryGap: false, axisLine: { lineStyle: { color: "#2a2d35" } }, axisLabel: { color: "#9aa0aa" } },
     yAxis: { type: "value", name: chartUnit(), axisLabel: { color: "#9aa0aa" }, splitLine: { lineStyle: { color: "#1f2229" } } },
     series,
-  }, { notMerge: true });  // notMerge：取消勾选网卡时彻底清掉旧 series，否则残留
+  }, { notMerge: true });  // notMerge：取消勾选网卡时彻底清掉旧 series，否则残留；animation:false 保证增量刷新不闪
 }
 
 let statsSeq = 0;  // 请求序号：丢弃乱序返回的旧统计
 async function loadStats() {
   const seq = ++statsSeq;
   const range = getRange();
-  const ifaces = selectedIfaces.value.length ? selectedIfaces.value : monitoredIfaces(detail.value!);
+  const ifaces = selectedIfaces.value.length ? selectedIfaces.value : (detail.value ? monitoredIfaces(detail.value) : []);
   if (!ifaces.length) { trafficStats.value = null; return; }
   try {
     const s = await getTrafficStats(nodeId.value, { ifaces, start: range.start, end: range.end });
@@ -508,8 +683,7 @@ function applyCustom() {
   if (!customStart.value || !customEnd.value) { toast("请选择起止时间喵~"); return; }
   if (new Date(customEnd.value) <= new Date(customStart.value)) { toast("结束时间要晚于开始时间喵~"); return; }
   customEditOpen.value = false;
-  renderTraffic();
-  loadStats();
+  loadCharts();
 }
 function openCustomEdit() {
   customStart.value = toLocalInput(span.value.startMs);
@@ -520,42 +694,70 @@ function onCustomEdit() {
   timeRange.value = "custom";  // 手动改起止时间 → 按钮变「自定义」
 }
 function selectPreset(key: RangeKey) {
-  timeRange.value = key;
   presetOpen.value = false;
-  renderTraffic();
-  loadStats();
-}
-// 系统指标时间范围操作
-function sysApplyCustom() {
-  if (!sysCustomStart.value || !sysCustomEnd.value) { toast("请选择起止时间喵~"); return; }
-  if (new Date(sysCustomEnd.value) <= new Date(sysCustomStart.value)) { toast("结束时间要晚于开始时间喵~"); return; }
-  sysCustomEditOpen.value = false;
-  renderSys();
-}
-function sysOpenCustomEdit() {
-  sysCustomStart.value = toLocalInput(sysSpan.value.startMs);
-  sysCustomEnd.value = toLocalInput(sysSpan.value.endMs);
-  sysCustomEditOpen.value = !sysCustomEditOpen.value;
-}
-function sysOnCustomEdit() {
-  sysTimeRange.value = "custom";
-}
-function sysSelectPreset(key: RangeKey) {
-  sysTimeRange.value = key;
-  sysPresetOpen.value = false;
-  renderSys();
+  if (key === "custom") { openCustomEdit(); return; }  // 先编辑起止时间，确定后再加载
+  timeRange.value = key;
+  loadCharts();
 }
 
-let sysRenderSeq = 0;  // 请求序号：只让最新一次渲染 setOption，丢弃乱序返回的旧请求
-async function renderSys() {
+// ── 实时模式控制 ──
+async function liveTick() {
+  await Promise.all([fetchTraffic(false), fetchSys(false)]);
+  loadStats();
+}
+function startLive() {
+  stopLive();
+  liveTimer = setInterval(liveTick, 3000);
+}
+function stopLive() {
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+}
+function toggleLive() {
+  liveMode.value = !liveMode.value;
+}
+function pickLiveWindow(s: number) {
+  liveWindow.value = s;
+  liveOpen.value = false;
+}
+watch(liveMode, (on) => {
+  if (on) { loadCharts(); startLive(); }
+  else stopLive();
+});
+watch(liveWindow, () => { if (liveMode.value) loadCharts(); });
+
+
+let sysRenderSeq = 0;  // 防乱序：只认最后一次请求的结果
+async function fetchSys(full: boolean) {
+  const seq = ++sysRenderSeq;
+  const base = getSysRange();
+  let start = base.start, end = base.end, limit = base.limit, step = base.step;
+  const existing = sysPoints.value;
+  if (!full && existing.length) {
+    start = new Date(new Date(existing[existing.length - 1].ts).getTime() + 1000).toISOString();
+    end = new Date().toISOString();
+    limit = 100; step = undefined;
+  }
+  try {
+    const data = await getNodeSysMetrics(nodeId.value, { start, end, limit, step });
+    if (seq !== sysRenderSeq) return;  // 已有更新的请求，丢弃本次旧结果
+    const points = [...data].reverse();
+    if (full) {
+      sysPoints.value = points;
+    } else {
+      const lastTs = existing.length ? new Date(existing[existing.length - 1].ts).getTime() : 0;
+      let merged = [...existing, ...points.filter((pt) => new Date(pt.ts).getTime() > lastTs)];
+      if (liveMode.value) merged = merged.filter((pt) => new Date(pt.ts).getTime() >= Date.now() - liveWindow.value * 1000);
+      sysPoints.value = merged;
+    }
+    paintSys();
+  } catch { /* 静默 */ }
+}
+
+function paintSys() {
   if (!sysEl.value) return;
   if (!sysChart) sysChart = echarts.init(sysEl.value);
-  const seq = ++sysRenderSeq;
-  const range = getSysRange();
-  const data = await getNodeSysMetrics(nodeId.value, { start: range.start, end: range.end, limit: range.limit, step: range.step });
-  if (seq !== sysRenderSeq) return;  // 已有更新的请求，丢弃本次旧结果
-  const points = [...data].reverse();
-  const times = points.map((p) => fmtAxisTime(new Date(p.ts).getTime(), sysTzOffset.value));
+  const points = sysPoints.value;
+  const times = points.map((pt) => fmtAxisTime(new Date(pt.ts).getTime()));
   sysChart.setOption({
     backgroundColor: "transparent",
     grid: { left: 52, right: 16, top: 30, bottom: 26 },
@@ -564,7 +766,7 @@ async function renderSys() {
       formatter: (params: any) => {
         if (!params || !params.length) return "";
         let html = `${params[0].axisValue}<br/>`;
-        for (const p of params) html += `${p.marker}${p.seriesName}：<b>${fmtVal(p.value)} %</b><br/>`;
+        for (const prm of params) html += `${prm.marker}${prm.seriesName}：<b>${fmtVal(prm.value)} %</b><br/>`;
         return html;
       },
     },
@@ -572,11 +774,11 @@ async function renderSys() {
     xAxis: { type: "category", data: times, boundaryGap: false, axisLine: { lineStyle: { color: "#2a2d35" } }, axisLabel: { color: "#9aa0aa" } },
     yAxis: { type: "value", name: "%", max: 100, axisLabel: { color: "#9aa0aa" }, splitLine: { lineStyle: { color: "#1f2229" } } },
     series: [
-      { name: "CPU", type: "line", smooth: true, showSymbol: false, data: points.map((p) => p.cpu_pct), lineStyle: { width: 1.5 }, itemStyle: { color: "#ff9ec7" } },
-      { name: "内存", type: "line", smooth: true, showSymbol: false, data: points.map((p) => p.mem_pct), lineStyle: { width: 1.5 }, itemStyle: { color: "#f0c060" } },
-      { name: "磁盘", type: "line", smooth: true, showSymbol: false, data: points.map((p) => p.disk_pct), lineStyle: { width: 1.5 }, itemStyle: { color: "#7bd0e3" } },
+      { name: "CPU", type: "line", smooth: true, showSymbol: false, animation: false, data: points.map((pt) => pt.cpu_pct), lineStyle: { width: 1.5 }, itemStyle: { color: "#ff9ec7" } },
+      { name: "内存", type: "line", smooth: true, showSymbol: false, animation: false, data: points.map((pt) => pt.mem_pct), lineStyle: { width: 1.5 }, itemStyle: { color: "#f0c060" } },
+      { name: "磁盘", type: "line", smooth: true, showSymbol: false, animation: false, data: points.map((pt) => pt.disk_pct), lineStyle: { width: 1.5 }, itemStyle: { color: "#7bd0e3" } },
     ],
-  }, { notMerge: true });  // notMerge：切时间范围彻底替换 xAxis/series，否则 merge 模式数据不刷新
+  }, { notMerge: true });  // notMerge：切时间范围彻底替换 xAxis/series；animation:false 增量不闪
 }
 
 // ── 网卡选择（下拉多选，自动保存为监控网卡）──
@@ -585,7 +787,7 @@ function toggleIface(name: string) {
   if (i >= 0) selectedIfaces.value.splice(i, 1);
   else selectedIfaces.value.push(name);
   saveIfaces();
-  renderTraffic();
+  fetchTraffic(true);
   loadStats();
 }
 async function saveIfaces() {
@@ -597,34 +799,89 @@ async function saveIfaces() {
   } catch { /* 静默 */ }
 }
 // 切换时间/单位/时区/网卡时刷新
-watch(timeRange, () => { renderTraffic(); loadStats(); });
-watch(unitMode, () => { renderTraffic(); loadStats(); });
-watch(tzOffset, () => { renderTraffic(); loadStats(); });  // 流量图时区
-watch(sysTimeRange, () => { renderSys(); });
-watch(sysTzOffset, () => { renderSys(); });  // 系统指标时区（独立）
+watch(timeRange, () => { loadCharts(); });
+watch(unitMode, () => { paintTraffic(); loadStats(); });  // 单位只影响格式化，不重拉数据
+watch(tzOffset, () => { paintTraffic(); paintSys(); loadStats(); });  // 时区只影响轴标签，不重拉数据
 
-// ── 监控项 ──
-const showAdd = ref(false);
-const newMon = ref({ name: "", type: "tcp", target: "" });
-async function addMonitor() {
-  if (!newMon.value.name.trim() || !newMon.value.target.trim()) { toast("名称和目标都要填喵~"); return; }
-  try {
-    await createMonitor({ name: newMon.value.name.trim(), type: newMon.value.type, target: newMon.value.target.trim(), node_id: nodeId.value });
-    showAdd.value = false;
-    newMon.value = { name: "", type: "tcp", target: "" };
-    monitors.value = (await listMonitors()).filter((m) => m.node_id === nodeId.value);
-  } catch { toast("添加失败喵~"); }
+// ── 监控项（只读：列表 + 状态 + 延迟曲线；增删在总览页）──
+const expandedMonId = ref<number | null>(null);
+const monRange = ref<"1h" | "6h" | "24h" | "7d" | "30d">("24h");
+const monSeries = ref<MonitorCheckPoint[]>([]);
+const monAvail = ref<{ pct: number; avg: number | null; total: number } | null>(null);
+let monChart: echarts.ECharts | null = null;
+// 范围 → 降采样 step（秒）：目标 300~400 个点
+const MON_RANGES: { key: "1h" | "6h" | "24h" | "7d" | "30d"; label: string; sec: number; step?: number }[] = [
+  { key: "1h", label: "1小时", sec: 3600 },
+  { key: "6h", label: "6小时", sec: 21600, step: 60 },
+  { key: "24h", label: "24小时", sec: 86400, step: 300 },
+  { key: "7d", label: "7天", sec: 604800, step: 1800 },
+  { key: "30d", label: "30天", sec: 2592000, step: 7200 },
+];
+async function toggleMon(id: number) {
+  expandedMonId.value = expandedMonId.value === id ? null : id;
+  if (expandedMonId.value !== null) await loadMonSeries();
 }
-async function delMonitor(id: number) {
+async function pickMonRange(key: typeof monRange.value) {
+  monRange.value = key;
+  await loadMonSeries();
+}
+async function loadMonSeries() {
+  const id = expandedMonId.value;
+  if (id === null) return;
+  const r = MON_RANGES.find((x) => x.key === monRange.value)!;
+  const end = new Date();
+  const start = new Date(end.getTime() - r.sec * 1000);
   try {
-    await removeMonitor(id);
-    monitors.value = (await listMonitors()).filter((m) => m.node_id === nodeId.value);
-  } catch { toast("删除失败喵~"); }
+    // 曲线（范围内，按 step 降采样）
+    monSeries.value = await getMonitorSeries(id, {
+      start: start.toISOString(), end: end.toISOString(), step: r.step,
+    });
+    // 24h 可用率：独立取原始点（不降采样，成功率按探测次数算才准）
+    const raw24 = await getMonitorSeries(id, { start: new Date(end.getTime() - 86400000).toISOString(), end: end.toISOString(), limit: 3000 });
+    const okCount = raw24.filter((c) => c.success).length;
+    const lats = raw24.filter((c) => c.success && c.latency_ms != null).map((c) => c.latency_ms!);
+    monAvail.value = raw24.length
+      ? { pct: okCount / raw24.length * 100, avg: lats.length ? lats.reduce((a, b) => a + b, 0) / lats.length : null, total: raw24.length }
+      : null;
+    await nextTick();
+    paintMonChart(id);
+  } catch { /* 静默 */ }
+}
+function paintMonChart(id: number) {
+  const el = document.getElementById(`mon-chart-${id}`);
+  if (!el) return;
+  monChart = echarts.getInstanceByDom(el) || echarts.init(el);
+  const pts = monSeries.value;
+  monChart.setOption({
+    backgroundColor: "transparent",
+    grid: { left: 48, right: 16, top: 24, bottom: 24 },
+    tooltip: {
+      trigger: "axis",
+      formatter: (params: any) => {
+        if (!params || !params.length) return "";
+        let html = `${params[0].axisValue}<br/>`;
+        for (const prm of params) html += `${prm.marker}${prm.seriesName}：<b>${prm.value ?? "-"} ms</b><br/>`;
+        return html;
+      },
+    },
+    xAxis: {
+      type: "category", boundaryGap: false,
+      data: pts.map((c) => fmtAxisTime(new Date(c.ts).getTime())),
+      axisLine: { lineStyle: { color: "#2a2d35" } }, axisLabel: { color: "#9aa0aa" },
+    },
+    yAxis: { type: "value", name: "ms", axisLabel: { color: "#9aa0aa" }, splitLine: { lineStyle: { color: "#1f2229" } } },
+    series: [{
+      name: "延迟", type: "line", smooth: true, showSymbol: false, animation: false,
+      data: pts.map((c) => (c.success && c.latency_ms != null ? +c.latency_ms.toFixed(1) : null)),
+      lineStyle: { width: 1.5 }, itemStyle: { color: "#9eb7e5" }, areaStyle: { opacity: 0.08 },
+      connectNulls: false,  // 失败的点断开，曲线上的缺口 = 不可达
+    }],
+  }, { notMerge: true });
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
 function onResize() { trafficChart?.resize(); sysChart?.resize(); }
-function onDocClick() { ifaceDropdownOpen.value = false; presetOpen.value = false; unitOpen.value = false; tzOpen.value = false; sysPresetOpen.value = false; sysTzOpen.value = false; }
+function onDocClick() { ifaceDropdownOpen.value = false; presetOpen.value = false; unitOpen.value = false; tzOpen.value = false; liveOpen.value = false; opsOpen.value = false; }
 
 // 切换节点（props.nodeId 变化，组件复用 setup 不重跑）：重置状态并重新加载
 watch(() => props.nodeId, (newId, oldId) => {
@@ -632,24 +889,41 @@ watch(() => props.nodeId, (newId, oldId) => {
   selectedIfaces.value = [];
   trafficStats.value = null;
   detail.value = null;
+  trafficPoints.value = {};
+  sysPoints.value = [];
+  expandedMonId.value = null;
+  monAvail.value = null;
   load();
+  loadCharts();
 });
 
-onMounted(() => {
-  load();
-  timer = setInterval(load, 5000);
+onMounted(async () => {
+  await load();        // 先拿节点详情（网卡清单），再画图表
+  loadCharts();
+  timer = setInterval(load, 5000);  // 5s 只刷状态类，图表不动
+  uptimeTimer = setInterval(() => { uptimeTick.value++; }, 30000);
   window.addEventListener("resize", onResize);
   document.addEventListener("click", onDocClick);
 });
 onUnmounted(() => {
   if (timer) clearInterval(timer);
+  if (uptimeTimer) clearInterval(uptimeTimer);
+  stopLive();
   window.removeEventListener("resize", onResize);
   document.removeEventListener("click", onDocClick);
   trafficChart?.dispose();
   sysChart?.dispose();
+  monChart?.dispose();
 });
 
-function goBack() { emit("back"); }
+function goBack() { router.push({ path: "/status", query: { view: "nodes" } }); }
+
+// ── 头部「操作」下拉：对本节点打流/MTR/命令（跳转工具页并预填本节点）──
+const opsOpen = ref(false);
+function goTool(t: "iperf" | "mtr" | "command" | "records") {
+  opsOpen.value = false;
+  router.push({ path: "/status", query: { view: "tools", tool: t, node: String(nodeId.value) } });
+}
 </script>
 
 <template>
@@ -665,6 +939,18 @@ function goBack() { emit("back"); }
         <span v-if="detail?.agent_version">agent v{{ detail.agent_version }}</span>
         <span v-if="detail?.last_seen_at">心跳 {{ new Date(detail.last_seen_at).toLocaleString("zh-CN") }}</span>
       </span>
+      <!-- 操作下拉：对本节点发起工具（跳转预填，无刷新） -->
+      <div class="ops" @click.stop>
+        <button class="ops-btn" @click="opsOpen = !opsOpen">
+          <Icon name="zap" :size="13" /> 操作 <Icon name="chevron" :size="11" :class="{ rot: opsOpen }" />
+        </button>
+        <div v-if="opsOpen" class="ops-menu">
+          <button @click="goTool('iperf')">打流测速</button>
+          <button @click="goTool('mtr')">MTR 路径测试</button>
+          <button @click="goTool('command')">下发命令</button>
+          <button @click="goTool('records')">此节点记录</button>
+        </div>
+      </div>
     </header>
 
     <!-- 标签页导航 -->
@@ -676,6 +962,23 @@ function goBack() { emit("back"); }
 
     <!-- Tab 1 概览：基本信息 + 存储 + 流量 + 系统指标 -->
     <div v-show="activeTab === 'overview'" class="tab-body">
+
+    <!-- 基本信息 + 存储 并排双栏 -->
+    <div class="duo-grid">
+    <!-- 基本信息面板 -->
+    <section class="panel">
+      <div class="panel-head"><span class="ph-title">基本信息</span></div>
+      <div v-if="!detail?.sys_info && !detail?.os_name" class="empty">等待 agent 上报系统信息…</div>
+      <div v-else class="info-grid">
+        <div class="info-row"><span class="ik">系统</span><span class="iv">{{ detail!.os_name || detail!.platform }}</span></div>
+        <div class="info-row" v-if="si?.kernel"><span class="ik">内核</span><span class="iv mono">{{ si.kernel }}</span></div>
+        <div class="info-row" v-if="si?.cpu_model"><span class="ik">CPU</span><span class="iv">{{ si.cpu_model }}<template v-if="si.cpu_cores"> · {{ si.cpu_cores }} 核</template></span></div>
+        <div class="info-row" v-if="si?.load1 != null"><span class="ik">负载</span><span class="iv mono">{{ si.load1 }} / {{ si.load5 }} / {{ si.load15 }}</span></div>
+        <div class="info-row" v-if="uptimeText"><span class="ik">运行</span><span class="iv">{{ uptimeText }}</span></div>
+        <div class="info-row" v-if="detail!.arch"><span class="ik">架构</span><span class="iv">{{ detail!.arch }}</span></div>
+        <div class="info-row" v-if="detail!.agent_version"><span class="ik">agent</span><span class="iv">v{{ detail!.agent_version }}</span></div>
+      </div>
+    </section>
 
     <!-- 存储面板 -->
     <section class="panel">
@@ -726,23 +1029,53 @@ function goBack() { emit("back"); }
         </div>
       </template>
     </section>
+    </div><!-- /duo-grid -->
+
+    <!-- 共享时间工具条：流量 + 系统指标 共用一组时间控件 -->
+    <div class="chart-toolbar">
+      <span class="tl-label">时间</span>
+      <button class="range-btn" title="点击编辑起止时间" @click="openCustomEdit">
+        {{ fmtTimeShort(span.startMs) }} <span class="range-sep">~</span> {{ fmtTimeShort(span.endMs) }}
+      </button>
+      <div class="pop-wrap">
+        <button class="preset-btn" :class="{ active: timeRange !== '1h' }" :disabled="liveMode" @click.stop="presetOpen = !presetOpen">{{ rangeLabel }} ▾</button>
+        <div v-if="presetOpen && !liveMode" class="pop-menu" @click.stop>
+          <button v-for="p in PRESETS" :key="p.key" class="pop-item" :class="{ active: timeRange === p.key }" @click="selectPreset(p.key)">{{ p.label }}</button>
+        </div>
+      </div>
+
+      <!-- 实时模式：窗口跟随当前时间滚动，每 3s 增量拉取 -->
+      <button class="live-btn" :class="{ on: liveMode }" title="实时模式：窗口滚动，3s 增量刷新" @click="toggleLive">
+        <span class="live-dot" /> 实时
+      </button>
+      <div v-if="liveMode" class="pop-wrap">
+        <button class="ctrl-btn" @click.stop="liveOpen = !liveOpen">{{ LIVE_WINDOWS.find((w) => w.s === liveWindow)?.label || "5分钟" }} ▾</button>
+        <div v-if="liveOpen" class="pop-menu" @click.stop>
+          <button v-for="w in LIVE_WINDOWS" :key="w.s" class="pop-item" :class="{ active: liveWindow === w.s }" @click="pickLiveWindow(w.s)">{{ w.label }}</button>
+        </div>
+      </div>
+
+      <!-- 时区下拉（两图共享） -->
+      <div class="pop-wrap">
+        <button class="ctrl-btn" @click.stop="tzOpen = !tzOpen">{{ TZ_OPTIONS.find((t) => t.offset === tzOffset)?.label || "UTC+8" }} ▾</button>
+        <div v-if="tzOpen" class="pop-menu tz-menu" @click.stop>
+          <button v-for="t in TZ_OPTIONS" :key="t.offset" class="pop-item" :class="{ active: tzOffset === t.offset }" @click="tzOffset = t.offset; tzOpen = false">{{ t.label }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 自定义时间编辑（深色主题弹层） -->
+    <div v-if="customEditOpen" class="custom-range">
+      <input type="datetime-local" v-model="customStart" @change="onCustomEdit" />
+      <span class="cr-sep">~</span>
+      <input type="datetime-local" v-model="customEnd" @change="onCustomEdit" />
+      <button class="ghost-btn" @click="applyCustom">确定</button>
+    </div>
 
     <!-- 流量面板 -->
     <section class="panel">
       <div class="panel-head">
         <span class="ph-title">流量</span>
-
-        <!-- 时间范围：起止显示 + 预设按钮 -->
-        <span class="tl-label">时间</span>
-        <button class="range-btn" title="点击编辑起止时间" @click="openCustomEdit">
-          {{ fmtTime(span.startMs) }} <span class="range-sep">~</span> {{ fmtTime(span.endMs) }}
-        </button>
-        <div class="pop-wrap">
-          <button class="preset-btn" :class="{ active: timeRange !== '1h' }" @click.stop="presetOpen = !presetOpen">{{ rangeLabel }} ▾</button>
-          <div v-if="presetOpen" class="pop-menu" @click.stop>
-            <button v-for="p in PRESETS" :key="p.key" class="pop-item" :class="{ active: timeRange === p.key }" @click="selectPreset(p.key)">{{ p.label }}</button>
-          </div>
-        </div>
 
         <!-- 网卡下拉多选 -->
         <div class="pop-wrap">
@@ -767,22 +1100,6 @@ function goBack() { emit("back"); }
             <button v-for="u in UNITS" :key="u.key" class="pop-item" :class="{ active: unitMode === u.key }" @click="unitMode = u.key as any; unitOpen = false">{{ u.label }}</button>
           </div>
         </div>
-
-        <!-- 时区下拉 -->
-        <div class="pop-wrap">
-          <button class="ctrl-btn" @click.stop="tzOpen = !tzOpen">{{ TZ_OPTIONS.find((t) => t.offset === tzOffset)?.label || "UTC+8" }} ▾</button>
-          <div v-if="tzOpen" class="pop-menu tz-menu" @click.stop>
-            <button v-for="t in TZ_OPTIONS" :key="t.offset" class="pop-item" :class="{ active: tzOffset === t.offset }" @click="tzOffset = t.offset; tzOpen = false">{{ t.label }}</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 自定义时间编辑 -->
-      <div v-if="customEditOpen" class="custom-range">
-        <input type="datetime-local" v-model="customStart" @change="onCustomEdit" />
-        <span class="cr-sep">~</span>
-        <input type="datetime-local" v-model="customEnd" @change="onCustomEdit" />
-        <button class="ghost-btn" @click="applyCustom">确定</button>
       </div>
 
       <div ref="trafficEl" class="chart"></div>
@@ -814,33 +1131,7 @@ function goBack() { emit("back"); }
     <section class="panel">
       <div class="panel-head">
         <span class="ph-title">系统指标</span>
-
-        <!-- 时间范围：起止显示 + 预设按钮（独立于流量图） -->
-        <span class="tl-label">时间</span>
-        <button class="range-btn" title="点击编辑起止时间" @click="sysOpenCustomEdit">
-          {{ fmtTime(sysSpan.startMs, sysTzOffset) }} <span class="range-sep">~</span> {{ fmtTime(sysSpan.endMs, sysTzOffset) }}
-        </button>
-        <div class="pop-wrap">
-          <button class="preset-btn" :class="{ active: sysTimeRange !== '1h' }" @click.stop="sysPresetOpen = !sysPresetOpen">{{ sysRangeLabel }} ▾</button>
-          <div v-if="sysPresetOpen" class="pop-menu" @click.stop>
-            <button v-for="p in PRESETS" :key="p.key" class="pop-item" :class="{ active: sysTimeRange === p.key }" @click="sysSelectPreset(p.key)">{{ p.label }}</button>
-          </div>
-        </div>
-
-        <!-- 时区（独立于流量图） -->
-        <div class="pop-wrap">
-          <button class="ctrl-btn" @click.stop="sysTzOpen = !sysTzOpen">{{ TZ_OPTIONS.find((t) => t.offset === sysTzOffset)?.label || "UTC+8" }} ▾</button>
-          <div v-if="sysTzOpen" class="pop-menu tz-menu" @click.stop>
-            <button v-for="t in TZ_OPTIONS" :key="t.offset" class="pop-item" :class="{ active: sysTzOffset === t.offset }" @click="sysTzOffset = t.offset; sysTzOpen = false">{{ t.label }}</button>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="sysCustomEditOpen" class="custom-range">
-        <input type="datetime-local" v-model="sysCustomStart" @change="sysOnCustomEdit" />
-        <span class="cr-sep">~</span>
-        <input type="datetime-local" v-model="sysCustomEnd" @change="sysOnCustomEdit" />
-        <button class="ghost-btn" @click="sysApplyCustom">确定</button>
+        <span v-if="liveMode" class="live-hint"><span class="live-dot" /> 实时</span>
       </div>
 
       <div ref="sysEl" class="chart"></div>
@@ -873,7 +1164,7 @@ function goBack() { emit("back"); }
       <section class="panel">
         <div class="panel-head">
           <span class="ph-title">网卡</span>
-          <label class="nt-check"><input type="checkbox" v-model="showDocker" /> 显示容器/虚拟网卡</label>
+          <button class="ghost-btn" @click="showAllIfaces = !showAllIfaces">{{ showAllIfaces ? '收起虚拟网卡' : `全部 ${allIfaces.length} 张` }}</button>
         </div>
         <div v-if="!filteredIfaces.length" class="empty">该节点暂无网卡数据</div>
         <div v-for="iface in filteredIfaces" :key="iface.name" class="iface-row">
@@ -925,7 +1216,8 @@ function goBack() { emit("back"); }
       <section class="panel">
         <div class="panel-head">
           <span class="ph-title">防火墙</span>
-          <button class="ghost-btn" @click="viewFirewall">{{ fwLoading ? '查询中…' : '查看规则' }}</button>
+          <button class="ghost-btn" @click="viewFirewall">{{ fwLoading ? '扫描中…' : '扫描规则' }}</button>
+          <button v-if="fwData" class="ghost-btn" @click="fwShowRaw = !fwShowRaw">{{ fwShowRaw ? '收起原文' : '原文' }}</button>
           <button class="danger-btn" @click="fwModOpen = !fwModOpen">{{ fwModOpen ? '收起' : '修改规则' }}</button>
         </div>
         <div class="fw-row">
@@ -938,6 +1230,81 @@ function goBack() { emit("back"); }
           <span v-if="fw.iptables?.installed" class="fw-st on">已安装</span>
           <span v-else class="fw-st off">未检测到</span>
         </div>
+
+        <!-- 结构化扫描结果 -->
+        <div v-if="fwData" class="fw-scan">
+          <div class="fw-view-tabs">
+            <button class="fw-vtab" :class="{ active: fwView === 'ufw' }" @click="fwView = 'ufw'">UFW</button>
+            <button class="fw-vtab" :class="{ active: fwView === 'iptables' }" @click="fwView = 'iptables'">iptables</button>
+          </div>
+
+          <!-- UFW 视图 -->
+          <div v-if="fwView === 'ufw'" class="fw-body">
+            <template v-if="fwData.ufw?.installed">
+              <div class="fw-meta">
+                <span class="fw-st" :class="fwData.ufw.active ? 'on' : 'off'">{{ fwData.ufw.active ? '已启用' : '未启用' }}</span>
+                <span v-if="fwData.ufw.defaults" class="fw-defaults">默认策略：{{ fwData.ufw.defaults }}</span>
+                <span v-if="fwData.ufw.logging" class="fw-defaults">日志：{{ fwData.ufw.logging }}</span>
+              </div>
+              <table v-if="fwData.ufw.rules?.length" class="fw-table">
+                <thead><tr><th>#</th><th>目标（To）</th><th>动作</th><th>来源（From）</th></tr></thead>
+                <tbody>
+                  <tr v-for="r in fwData.ufw.rules" :key="r.num + (r.v6 ? '-v6' : '')">
+                    <td class="mono">{{ r.num }}</td>
+                    <td class="mono">{{ r.to }}</td>
+                    <td><span class="fw-act" :class="r.action.startsWith('ALLOW') ? 'allow' : 'deny'">{{ r.action }}</span></td>
+                    <td class="mono">{{ r.from }}{{ r.v6 ? ' (v6)' : '' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-else class="empty">没有规则（{{ fwData.ufw.active ? '启用中但规则为空' : '未启用' }}）</div>
+            </template>
+            <div v-else class="empty">该节点未安装 UFW</div>
+          </div>
+
+          <!-- iptables 五表视图 -->
+          <div v-else class="fw-body">
+            <template v-if="fwData.iptables?.installed && !fwData.iptables.error">
+              <div class="fw-view-tabs sub">
+                <button v-for="t in iptTables" :key="t" class="fw-vtab" :class="{ active: fwIptTab === t }" @click="fwIptTab = t">
+                  {{ t }}<span class="fw-count">{{ fwData.iptables!.tables![t].rules.length }}</span>
+                </button>
+              </div>
+              <template v-if="fwIptTab && fwData.iptables!.tables![fwIptTab]">
+                <!-- 链概览 -->
+                <div class="fw-chains">
+                  <span v-for="ch in fwData.iptables!.tables![fwIptTab].chains" :key="ch.name" class="fw-chain" :title="`${ch.packets} 包 / ${(ch.bytes / 1e6).toFixed(1)} MB`">
+                    {{ ch.name }}<b v-if="ch.policy" class="fw-pol" :class="ch.policy.toLowerCase()">{{ ch.policy }}</b>
+                  </span>
+                </div>
+                <!-- 规则表：默认折叠防大表卡页面 -->
+                <div class="fw-toggle" @click="toggleChain(fwIptTab)">
+                  {{ fwChainsOpen[fwIptTab] ? '收起规则' : `展开 ${fwData.iptables!.tables![fwIptTab].rules.length} 条规则` }}
+                </div>
+                <div v-if="fwChainsOpen[fwIptTab]" class="fw-rules-wrap">
+                  <table class="fw-table">
+                    <thead><tr><th>链</th><th>目标</th><th>协议</th><th>端口</th><th>源</th><th>目的</th><th>接口</th></tr></thead>
+                    <tbody>
+                      <tr v-for="(r, i) in fwData.iptables!.tables![fwIptTab].rules" :key="i" :title="r.raw">
+                        <td class="mono">{{ r.chain }}</td>
+                        <td><span v-if="r.target" class="fw-act" :class="['ACCEPT', 'RETURN'].includes(r.target) ? 'allow' : (['DROP', 'REJECT'].includes(r.target) ? 'deny' : '')">{{ r.target }}</span></td>
+                        <td class="mono">{{ r.proto || '*' }}</td>
+                        <td class="mono">{{ r.dport ? ':' + r.dport : (r.sport ? 's:' + r.sport : '*') }}</td>
+                        <td class="mono">{{ r.source || '*' }}</td>
+                        <td class="mono">{{ r.dest || '*' }}</td>
+                        <td class="mono">{{ [r.in_iface && 'in:' + r.in_iface, r.out_iface && 'out:' + r.out_iface].filter(Boolean).join(' ') || '*' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+            </template>
+            <div v-else-if="fwData.iptables?.error" class="empty">{{ fwData.iptables.error }}</div>
+            <div v-else class="empty">该节点未安装 iptables</div>
+          </div>
+        </div>
+        <pre v-if="fwShowRaw && fwData" class="cmd-output">{{ (fwData.ufw?.raw || '') + '\n=== iptables ===\n' + (fwData.iptables?.raw || '') }}</pre>
+        <pre v-if="fwOutput" class="cmd-output">{{ fwOutput }}</pre>
         <!-- 修改区域（高危） -->
         <div v-if="fwModOpen" class="fw-mod">
           <div class="danger-banner">⚠️ 高危操作：修改防火墙规则可能锁死服务器（尤其 iptables）。请确认规则正确后再执行。</div>
@@ -992,6 +1359,41 @@ function goBack() { emit("back"); }
         </div>
         <pre v-if="pbrOutput" class="cmd-output">{{ pbrOutput }}</pre>
       </section>
+
+      <!-- Docker 面板：容器列表 + 启停重启 -->
+      <section class="panel">
+        <div class="panel-head">
+          <span class="ph-title">Docker</span>
+          <span v-if="dkComp?.installed" class="fw-st" :class="dkComp.running ? 'on' : 'off'">{{ dkComp.running ? '运行中' : '已安装（守护未运行）' }}</span>
+          <span v-else-if="dkComp && !dkComp.installed" class="fw-st off">未安装</span>
+          <button v-if="dkComp?.installed" class="ghost-btn" @click="loadDocker">{{ dkLoading ? '加载中…' : (dkData ? '刷新' : '加载容器') }}</button>
+        </div>
+        <div v-if="dkComp && !dkComp.installed" class="empty">该节点未安装 Docker（代装在「工具 → 打流」页的服务器组件里）</div>
+        <template v-if="dkData?.installed">
+          <div v-if="dkData.error" class="empty">{{ dkData.error }}</div>
+          <div v-else-if="!dkData.containers?.length" class="empty">没有容器</div>
+          <div v-else class="dk-list-wrap">
+            <table class="fw-table dk-table">
+              <thead><tr><th>容器</th><th>镜像</th><th>状态</th><th>端口</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="ct in dkData.containers" :key="ct.id">
+                  <td class="mono dk-name">{{ ct.name }}</td>
+                  <td class="mono dk-image" :title="ct.image">{{ ct.image }}</td>
+                  <td><span class="dk-state" :class="ct.state === 'running' ? 'up' : 'down'">{{ ct.status }}</span></td>
+                  <td class="mono dk-ports" :title="ct.ports">{{ ct.ports || '—' }}</td>
+                  <td class="dk-ops">
+                    <template v-if="ct.state === 'running'">
+                      <button class="ghost-btn sm" :disabled="dkBusy[ct.name]" @click="dockerCtl(ct, 'restart')">重启</button>
+                      <button class="ghost-btn sm danger" :disabled="dkBusy[ct.name]" @click="dockerCtl(ct, 'stop')">停止</button>
+                    </template>
+                    <button v-else class="ghost-btn sm" :disabled="dkBusy[ct.name]" @click="dockerCtl(ct, 'start')">启动</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </section>
     </div>
 
     <!-- Tab 3 服务监控 -->
@@ -1000,32 +1402,45 @@ function goBack() { emit("back"); }
     <section class="panel">
       <div class="panel-head">
         <span class="ph-title">服务监控</span>
-        <button class="ghost-btn" @click="showAdd = !showAdd">添加</button>
-      </div>
-      <div v-if="showAdd" class="mon-add">
-        <input v-model="newMon.name" placeholder="名称" />
-        <select v-model="newMon.type">
-          <option value="ping">PING</option>
-          <option value="tcp">TCP</option>
-          <option value="udp">UDP</option>
-          <option value="http">HTTP</option>
-          <option value="https">HTTPS</option>
-        </select>
-        <input v-model="newMon.target" placeholder="目标（IP/域名/端口）" />
-        <button class="ghost-btn" @click="addMonitor">确定</button>
+        <span class="ph-hint">增删在总览页 · 点击展开延迟曲线</span>
       </div>
       <div class="mon-list">
         <div v-if="!monitors.length" class="empty">该节点还没有监控项</div>
-        <div v-for="m in monitors" :key="m.id" class="mon-row">
-          <span class="mon-type">{{ typeLabel[m.type] }}</span>
-          <span class="mon-name">{{ m.name }}</span>
-          <span class="mon-target">{{ m.target }}</span>
-          <span class="mon-status" :class="m.status">{{ m.status === "up" ? "UP" : m.status === "down" ? "DOWN" : "—" }}</span>
-          <button class="del" title="删除" @click="delMonitor(m.id)"><Icon name="trash" :size="13" /></button>
-        </div>
+        <template v-for="m in monitors" :key="m.id">
+          <div class="mon-row clickable" :class="{ open: expandedMonId === m.id }" @click="toggleMon(m.id)">
+            <span class="mon-type">{{ typeLabel[m.type] }}</span>
+            <span class="mon-name">{{ m.name }}</span>
+            <span class="mon-target">{{ m.target }}</span>
+            <span v-if="m.last_latency_ms != null" class="mon-lat">{{ m.last_latency_ms.toFixed(1) }}ms</span>
+            <span class="mon-status" :class="m.status">{{ m.status === "up" ? "UP" : m.status === "down" ? "DOWN" : "—" }}</span>
+            <button class="mon-op" title="详情浮窗（图表 / MTR / 编辑）" @click.stop="openMonModal(m)"><Icon name="activity" :size="13" /></button>
+            <Icon name="chevron" :size="12" class="mon-chev" :class="{ rot: expandedMonId === m.id }" />
+          </div>
+          <div v-if="expandedMonId === m.id" class="mon-detail">
+            <div v-if="monAvail" class="mon-stats">
+              24h 可用率 <b :class="{ bad: monAvail.pct < 99 }">{{ monAvail.pct.toFixed(1) }}%</b>
+              <template v-if="monAvail.avg != null"> · 平均延迟 <b>{{ monAvail.avg.toFixed(1) }} ms</b></template>
+              · 探测 {{ monAvail.total }} 次
+            </div>
+            <div class="mon-ranges">
+              <button v-for="r in MON_RANGES" :key="r.key" class="range-chip" :class="{ active: monRange === r.key }" @click.stop="pickMonRange(r.key)">{{ r.label }}</button>
+            </div>
+            <div :id="`mon-chart-${m.id}`" class="mon-chart"></div>
+            <div v-if="!monSeries.length" class="empty">该范围内暂无探测数据</div>
+          </div>
+        </template>
       </div>
     </section>
     </div>
+
+    <!-- 监控项详情浮窗（图表 / MTR 记录 / 编辑） -->
+    <MonitorDetailModal
+      v-if="monModal"
+      :monitor="monModal"
+      :node-name="detail?.name ?? ''"
+      @close="monModal = null"
+      @saved="monModal = null; load()"
+    />
   </div>
 </template>
 
@@ -1041,6 +1456,51 @@ function goBack() { emit("back"); }
   gap: 14px;
 }
 .d-head { display: flex; align-items: center; gap: 12px; }
+/* 共享时间工具条 */
+.chart-toolbar { display: flex; align-items: center; gap: 10px; margin: 0 0 12px 2px; flex-wrap: wrap; }
+/* 实时开关 */
+.live-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 1px solid rgba(255,255,255,0.12); color: var(--text-lo);
+  border-radius: 999px; padding: 5px 14px; cursor: pointer; font-size: 12.5px;
+  transition: all var(--transition);
+}
+.live-btn:hover { border-color: var(--accent-dim); color: var(--text-hi); }
+.live-btn.on { border-color: var(--pink); color: var(--pink); background: rgba(255,158,199,0.08); }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.5; }
+.live-btn.on .live-dot { opacity: 1; animation: livePulse 1.6s ease-in-out infinite; }
+@keyframes livePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.live-hint { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--pink); font-weight: 400; }
+.live-hint .live-dot { opacity: 1; animation: livePulse 1.6s ease-in-out infinite; }
+/* 深色主题的原生日期时间控件（color-scheme 让 Chrome 用深色 picker） */
+.custom-range input[type="datetime-local"] {
+  color-scheme: dark;
+  background: var(--bg-raised); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius-sm); color: var(--text-hi);
+  padding: 6px 10px; font-size: 12.5px; outline: none;
+}
+.custom-range input[type="datetime-local"]:focus { border-color: var(--accent-dim); }
+/* 操作下拉 */
+.ops { position: relative; }
+.ops-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 1px solid rgba(255,255,255,0.12); color: var(--text-lo);
+  border-radius: var(--radius-sm); padding: 6px 12px; cursor: pointer; font-size: 13px;
+  transition: all var(--transition);
+}
+.ops-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+.ops-menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; min-width: 140px;
+  background: var(--bg-raised); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-sm); padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4); display: flex; flex-direction: column;
+}
+.ops-menu button {
+  background: transparent; border: none; color: var(--text-lo); text-align: left;
+  padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+  transition: all var(--transition); white-space: nowrap;
+}
+.ops-menu button:hover { background: var(--bg-panel); color: var(--accent); }
 .back {
   display: flex; align-items: center; gap: 4px;
   background: transparent; border: 1px solid var(--accent-dim); color: var(--accent);
@@ -1066,6 +1526,14 @@ function goBack() { emit("back"); }
 .chart { height: 250px; }
 
 /* ── 存储面板 ── */
+/* 基本信息 + 存储 并排双栏（窄屏自动单列） */
+.duo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 1100px) { .duo-grid { grid-template-columns: 1fr; } }
+.info-grid { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+.info-row { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; }
+.ik { color: var(--text-faint); flex-shrink: 0; width: 34px; }
+.iv { color: var(--text-hi); word-break: break-all; }
+.iv.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .disk-group { margin-top: 6px; }
 .disk-group-title { font-size: 12px; color: var(--text-faint); margin-bottom: 8px; }
 .disk-row { display: flex; gap: 32px; flex-wrap: wrap; }
@@ -1160,6 +1628,26 @@ function goBack() { emit("back"); }
 .empty { font-size: 13px; color: var(--text-faint); padding: 12px 0; }
 .mon-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 4px; }
 .mon-row:hover { background: var(--bg-raised); }
+.mon-row.clickable { cursor: pointer; }
+.mon-row.open { background: var(--bg-raised); }
+.ph-hint { font-size: 11px; color: var(--text-faint); font-weight: 400; }
+.mon-lat { font-size: 12px; color: var(--accent); }
+.mon-chev { color: var(--text-faint); transition: transform var(--transition); }
+.mon-chev.rot { transform: rotate(90deg); }
+.mon-op { border: none; background: transparent; color: var(--text-faint); cursor: pointer; padding: 3px; }
+.mon-op:hover { color: var(--accent); }
+.mon-detail { padding: 8px 10px 12px; border-radius: 0 0 4px 4px; background: var(--bg-raised); margin-bottom: 6px; }
+.mon-stats { font-size: 12px; color: var(--text-lo); margin-bottom: 8px; }
+.mon-stats b { color: var(--text-hi); font-weight: 475; }
+.mon-stats b.bad { color: #e58a8a; }
+.mon-ranges { display: flex; gap: 4px; margin-bottom: 8px; }
+.range-chip {
+  background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-lo);
+  border-radius: 999px; padding: 3px 12px; font-size: 11.5px; cursor: pointer; transition: all var(--transition);
+}
+.range-chip:hover { border-color: var(--accent-dim); color: var(--text-hi); }
+.range-chip.active { border-color: var(--accent-dim); color: var(--accent); background: rgba(158,183,229,0.08); }
+.mon-chart { height: 180px; }
 .mon-type { font-size: 11px; color: var(--accent); font-family: var(--font-mono); width: 40px; }
 .mon-name { font-size: 13px; color: var(--text-hi); }
 .mon-target { font-size: 12px; color: var(--text-lo); font-family: var(--font-mono); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1215,6 +1703,62 @@ function goBack() { emit("back"); }
 .fw-st { font-size: 12px; color: var(--text-lo); }
 .fw-st.on { color: #7be39a; }
 .fw-st.off { color: var(--text-faint); }
+
+/* ── 防火墙结构化扫描 ── */
+.fw-scan { margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 10px; }
+.fw-view-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.fw-view-tabs.sub { margin-bottom: 8px; }
+.fw-vtab {
+  background: transparent; border: 1px solid rgba(255, 255, 255, 0.08); color: var(--text-lo);
+  border-radius: var(--radius-sm); padding: 3px 12px; font-size: 12px; cursor: pointer;
+  font-family: var(--font-mono); display: inline-flex; align-items: center; gap: 6px;
+}
+.fw-vtab:hover { border-color: var(--accent-dim); color: var(--text-hi); }
+.fw-vtab.active { border-color: var(--pink); color: var(--pink); }
+.fw-count {
+  font-size: 10px; background: rgba(255, 255, 255, 0.08); border-radius: 8px;
+  padding: 0 6px; color: var(--text-faint);
+}
+.fw-vtab.active .fw-count { background: rgba(255, 158, 199, 0.15); color: var(--pink); }
+.fw-meta { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; flex-wrap: wrap; }
+.fw-defaults { font-size: 12px; color: var(--text-faint); }
+.fw-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fw-table th {
+  text-align: left; color: var(--text-faint); font-weight: 500; padding: 5px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08); font-size: 11px;
+}
+.fw-table td { padding: 5px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); color: var(--text-lo); }
+.fw-table td.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.fw-table tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
+.fw-act { font-size: 11px; font-family: var(--font-mono); color: var(--text-lo); }
+.fw-act.allow { color: #7be39a; }
+.fw-act.deny { color: #ff8f8f; }
+.fw-chains { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.fw-chain {
+  font-size: 11px; font-family: var(--font-mono); color: var(--text-lo);
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 2px 8px;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.fw-pol { font-weight: 600; font-size: 10px; }
+.fw-pol.accept { color: #7be39a; }
+.fw-pol.drop { color: #ff8f8f; }
+.fw-toggle {
+  font-size: 12px; color: var(--accent-hi); cursor: pointer; padding: 4px 0; user-select: none;
+}
+.fw-toggle:hover { color: var(--pink); }
+.fw-rules-wrap { max-height: 420px; overflow: auto; }
+
+/* ── Docker 面板 ── */
+.dk-list-wrap { max-height: 420px; overflow: auto; margin-top: 8px; }
+.dk-table .dk-name { color: var(--text-hi); }
+.dk-image { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-ports { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.dk-state { white-space: nowrap; font-size: 12px; }
+.dk-state.up { color: #7be39a; }
+.dk-state.down { color: var(--text-faint); }
+.dk-ops { white-space: nowrap; text-align: right; }
+.ghost-btn.sm { padding: 2px 10px; font-size: 11px; }
+.ghost-btn.sm.danger:hover { color: #ff8f8f; border-color: #ff8f8f; }
 
 /* ── 命令输出（防火墙规则 / PBR 路由表）── */
 .cmd-output {

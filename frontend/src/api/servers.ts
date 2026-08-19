@@ -34,6 +34,8 @@ export interface Node {
   uninstall_status: string | null;
   uninstall_error: string | null;
   installed: boolean;
+  os_name: string | null;
+  sys_info: { kernel: string | null; cpu_model: string | null; cpu_cores: number | null; load1: number | null; load5: number | null; load15: number | null; boot_time: number | null } | null;
   created_at: string;
 }
 
@@ -76,18 +78,29 @@ export interface IperfTask {
   omit: number;
   zerocopy: boolean;
   status: "pending" | "running" | "done" | "failed";
+  server_started: boolean;        // server 端已起 -s（阶段提示用）
+  started_at: string | null;      // client 领取时刻
+  // 结果摘要列（done 时后端落列；iperf=接收均值/峰值，speedtest=下载/上传）
+  avg_mbps: number | null;
+  peak_mbps: number | null;
+  lost_pct: number | null;
+  jitter_ms: number | null;
+  speedtest_server: string | null;   // speedtest 测速服务器 ID
   result_json: Record<string, unknown> | null;
-  progress_json: { ts: string; bitrate: number; lost_pct?: number; jitter_ms?: number; role?: string; retry?: boolean; attempt?: number; reason?: string }[] | null;
+  progress_json: { ts: string; bitrate: number; lost_pct?: number; jitter_ms?: number; role?: string; retry?: boolean; attempt?: number; reason?: string; note?: string }[] | null;
   created_at: string;
 }
 
+export interface MtrHop { count: number; host: string; "Loss%": number; Avg: number; Best: number; Wrst: number; }
 export interface MtrTask {
   id: number;
   node_id: number;
+  monitor_id?: number | null;      // 非空=挂在监控项上的 MTR 历史
   target: string;
   protocol: string;
+  trigger?: "manual" | "periodic" | "failure";
   status: "pending" | "running" | "done" | "failed";
-  result_json: Record<string, unknown> | null;
+  result_json: ({ report?: { hubs?: MtrHop[] }; error?: string; raw?: string } & Record<string, unknown>) | null;
   created_at: string;
 }
 
@@ -173,16 +186,64 @@ export const updateNetType = (id: number, net_type: string, public_ip: string | 
 export const changeIp = (id: number, data: { iface: string; new_ip: string; prefix: number; gateway: string | null; ping_target: string }) =>
   api(`/nodes/${id}/ip-change`, { method: "POST", body: JSON.stringify(data) });
 
+// ── 防火墙结构化扫描（一期：只读）──
+export interface FwUfwRule { num: number; to: string; action: string; from: string; v6: boolean }
+export interface FwIptChain { name: string; policy: string | null; packets: number; bytes: number }
+export interface FwIptRule { raw: string; chain: string | null; target: string | null; proto: string | null; sport: string | null; dport: string | null; source: string | null; dest: string | null; in_iface: string | null; out_iface: string | null }
+export interface FirewallData {
+  ufw: { installed: boolean; active?: boolean; defaults?: string | null; logging?: string | null; rules?: FwUfwRule[]; raw?: string } | null;
+  iptables: { installed: boolean; error?: string; tables?: Record<string, { chains: FwIptChain[]; rules: FwIptRule[] }>; raw?: string } | null;
+}
+export interface NetTask {
+  id: number; node_id: number; kind: string;
+  status: "pending" | "running" | "done" | "failed";
+  result_json: FirewallData | Record<string, unknown> | null;
+  created_at: string;
+}
+export const scanFirewall = (id: number) => api<NetTask>(`/nodes/${id}/firewall-scan`, { method: "POST" });
+export const getNetTask = (taskId: number) => api<NetTask>(`/nodes/net-tasks/${taskId}`);
+
+// ── Docker 面板 ──
+export interface DockerContainer { id: string; name: string; image: string; status: string; state: string; ports: string; created: string }
+export const scanDocker = (id: number) => api<NetTask>(`/nodes/${id}/docker-scan`, { method: "POST" });
+export const ctlDocker = (id: number, action: "start" | "stop" | "restart", container: string) =>
+  api<NetTask>(`/nodes/${id}/docker-ctl`, { method: "POST", body: JSON.stringify({ action, container }) });
+
 // ── 监控项 ──
 export const listMonitors = () => api<Monitor[]>("/monitors/");
 export const createMonitor = (data: { name: string; type: string; target: string; node_id: number; interval?: number; timeout?: number }) =>
   api<Monitor>("/monitors/", { method: "POST", body: JSON.stringify(data) });
+export const updateMonitor = (id: number, data: Partial<{ name: string; type: string; target: string; node_id: number; interval: number; timeout: number }>) =>
+  api<Monitor>(`/monitors/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 export const removeMonitor = (id: number) => api<void>(`/monitors/${id}`, { method: "DELETE" });
 export const listMonitorChecks = (id: number) => api<MonitorCheck[]>(`/monitors/${id}/checks`);
 
+// 监控项的 MTR 历史（近 60 天）+ 手动触发
+export const listMonitorMtr = (id: number) => api<MtrTask[]>(`/monitors/${id}/mtr`);
+export const runMonitorMtr = (id: number) => api<MtrTask>(`/monitors/${id}/mtr`, { method: "POST" });
+
+// 延迟曲线点（范围/降采样）
+export interface MonitorCheckPoint {
+  ts: string;
+  success: boolean;
+  latency_ms: number | null;
+  loss_pct: number | null;
+}
+export const getMonitorSeries = (id: number, opts?: { start?: string; end?: string; step?: number; limit?: number }) => {
+  const q = new URLSearchParams();
+  if (opts?.start) q.set("start", opts.start);
+  if (opts?.end) q.set("end", opts.end);
+  if (opts?.step) q.set("step", String(opts.step));
+  if (opts?.limit) q.set("limit", String(opts.limit));
+  const qs = q.toString();
+  return api<MonitorCheckPoint[]>(`/monitors/${id}/series${qs ? "?" + qs : ""}`);
+};
+
 // ── 任务 ──
 export const listIperfTasks = () => api<IperfTask[]>("/iperf-tasks");
-export const getIperfTask = (id: number) => api<IperfTask>(`/iperf-tasks/${id}`);
+// progressAfter=N：progress_json 只返回第 N 点之后的增量（append-only，下标稳定），实时轮询省流量
+export const getIperfTask = (id: number, opts?: { progressAfter?: number }) =>
+  api<IperfTask>(`/iperf-tasks/${id}${opts?.progressAfter != null ? `?progress_after=${opts.progressAfter}` : ""}`);
 export const cancelIperfTask = (id: number) => api<{ ok: boolean }>(`/iperf-tasks/${id}/cancel`, { method: "POST" });
 export const createIperfTask = (data: {
   server_node_id: number | null;
@@ -199,6 +260,7 @@ export const createIperfTask = (data: {
   length?: string | null;
   omit?: number;
   zerocopy?: boolean;
+  speedtest_server?: string | null;
 }) => api<IperfTask>("/iperf-tasks", { method: "POST", body: JSON.stringify(data) });
 
 export const listMtrTasks = () => api<MtrTask[]>("/mtr-tasks");

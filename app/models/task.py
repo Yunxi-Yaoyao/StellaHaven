@@ -28,6 +28,13 @@ class IperfTask(Base):
     zerocopy: Mapped[bool] = mapped_column(nullable=False, default=False)        # 零拷贝（-Z）
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending / running / done / failed
     server_started: Mapped[bool] = mapped_column(nullable=False, default=False)  # server 端是否已起 -s（独立标记，避免 server/client 竞争领取互抢）
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # client 领取时刻（看门狗超时基准）
+    # ── 结果摘要落列：finish 时从 result_json 提取，列表查询/历史展示不用扛整包 JSON ──
+    avg_mbps: Mapped[float | None] = mapped_column(nullable=True)      # 平均速率 Mbps（iperf=接收，speedtest=下载）
+    peak_mbps: Mapped[float | None] = mapped_column(nullable=True)     # 峰值 Mbps（speedtest=上传）
+    speedtest_server: Mapped[str | None] = mapped_column(String(32), nullable=True)  # speedtest 指定测速服务器 ID（-s 参数，None=自动）
+    lost_pct: Mapped[float | None] = mapped_column(nullable=True)      # UDP 丢包率 %
+    jitter_ms: Mapped[float | None] = mapped_column(nullable=True)     # 抖动 ms
     result_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # 含 interval 时序，供实时曲线
     progress_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # 实时进度：[{ts, bitrate}, ...]，client agent 每秒回传
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -47,14 +54,20 @@ class ComponentTask(Base):
 
 
 class MtrTask(Base):
-    """MTR 任务：从某节点到目标的逐跳路径/丢包/延迟。"""
+    """MTR 任务：从某节点到目标的逐跳路径/丢包/延迟。
+
+    monitor_id 非空 = 挂在监控项上的 MTR 历史（定时/失败触发/浮窗手动），
+    为空 = 工具页一次性 MTR。trigger: manual / periodic / failure。
+    """
 
     __tablename__ = "mtr_tasks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     node_id: Mapped[int] = mapped_column(Integer, ForeignKey("nodes.id"), nullable=False)
+    monitor_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("monitors.id"), nullable=True)
     target: Mapped[str] = mapped_column(String(256), nullable=False)
     protocol: Mapped[str] = mapped_column(String(8), nullable=False, default="icmp")  # icmp / udp / tcp
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending / running / done / failed
     result_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # 逐跳结果
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -30,6 +30,8 @@ class Node(Base):
     monitored_ifaces: Mapped[dict | None] = mapped_column(JSONB, nullable=True)    # 监控网卡列表（设置勾选后下发）
     storage: Mapped[list | None] = mapped_column(JSONB, nullable=True)             # 存储视图：挂载点列表（容量/已用/占用率/类型，agent 首次上报）
     components: Mapped[dict | None] = mapped_column(JSONB, nullable=True)          # 组件检测状态：{"iperf3": bool, "speedtest": bool}（agent 心跳上报）
+    os_name: Mapped[str | None] = mapped_column(String(128), nullable=True)        # 发行版友好名（agent 采集 /etc/os-release PRETTY_NAME）
+    sys_info: Mapped[dict | None] = mapped_column(JSONB, nullable=True)            # 基本信息面板：{kernel, cpu_model, cpu_cores, load1/5/15, boot_time}
     # ── 标记：内网/公网 + 公网 IP 信息 ──
     net_type: Mapped[str] = mapped_column(String(16), nullable=False, default="internal")  # internal / public
     public_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)               # 公网 IP

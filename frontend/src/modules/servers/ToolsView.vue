@@ -7,11 +7,12 @@ import {
   listCommands, createCommand, installComponent,
   type Node, type IperfTask, type MtrTask, type Command,
 } from "../../api/servers";
+import { useRouter } from "vue-router";
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
 import Dropdown from "../../shell/Dropdown.vue";
 
-const props = defineProps<{ tool: "iperf" | "mtr" | "command" }>();
+const props = defineProps<{ tool: "iperf" | "mtr" | "command"; presetNode?: number | null }>();
 
 const TITLES: Record<string, { title: string; hint: string }> = {
   iperf: { title: "打流测速", hint: "iperf3 服务器互打 / 公共 speedtest" },
@@ -23,6 +24,17 @@ const toolHint = computed(() => TITLES[props.tool]?.hint || "");
 
 const nodes = ref<Node[]>([]);
 const iperfTasks = ref<IperfTask[]>([]);
+const router = useRouter();
+// 工具页只留进行中 + 最近 3 条，完整历史去记录页
+function activePlusRecent<T extends { status: string }>(list: T[], n = 3): T[] {
+  const active = list.filter((t) => t.status === "pending" || t.status === "running");
+  const rest = list.filter((t) => !active.includes(t)).slice(0, n);
+  return [...active, ...rest];
+}
+const iperfRecent = computed(() => activePlusRecent(iperfTasks.value));
+const mtrRecent = computed(() => activePlusRecent(mtrTasks.value));
+const cmdRecent = computed(() => activePlusRecent(commands.value));
+function goRecords() { router.push({ path: "/status", query: { view: "tools", tool: "records" } }); }
 const mtrTasks = ref<MtrTask[]>([]);
 const commands = ref<Command[]>([]);
 
@@ -76,7 +88,13 @@ const modeOptions = [
   { value: "iperf3", label: "服务器互打（iperf3）" },
   { value: "speedtest", label: "公共 speedtest" },
 ];
-const nodeOptions = computed(() => onlineNodes().map((n) => ({ value: n.id, label: n.name })));
+const nodeOptions = computed(() => onlineNodes().map((n) => ({ value: n.id, label: n.name + (n.net_type === "public" ? " · 公网" : "") })));
+// 打流服务端：只列公网在线节点（client 要直连它的 5201）；只有一台时自动选中
+const iperfServerOptions = computed(() =>
+  onlineNodes().filter((n) => n.net_type === "public").map((n) => ({ value: n.id, label: n.name + " · 公网" })));
+// 打流客户端：在线节点，排除已选服务端（两端不能同机）
+const iperfClientOptions = computed(() =>
+  onlineNodes().filter((n) => n.id !== iperfServerId.value).map((n) => ({ value: n.id, label: n.name + (n.net_type === "public" ? " · 公网" : "") })));
 const limitOptions = [
   { value: "time", label: "按时长" },
   { value: "bytes", label: "按数据量" },
@@ -104,8 +122,24 @@ const chartRef = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
 const activeTaskId = ref<number | null>(null);
 const activeTask = ref<IperfTask | null>(null);
-const chartPoints = ref<{ ts: string; bitrate: number; lost_pct?: number; jitter_ms?: number; role?: string; retry?: boolean; attempt?: number; reason?: string }[]>([]);
+const chartPoints = ref<{ ts: string; bitrate: number; lost_pct?: number; jitter_ms?: number; role?: string; retry?: boolean; attempt?: number; reason?: string; note?: string }[]>([]);
 const retryEvents = computed(() => chartPoints.value.filter((p) => p.retry));
+// speedtest 阶段提示：agent 回传的 note 点（选择服务器/测速中…），取最新一条
+const stageNote = computed(() => [...chartPoints.value].reverse().find((p) => p.note)?.note || "");
+// 任务阶段提示：从 status + server_started + 进度点数推导（后端零改动）
+const phaseHint = computed(() => {
+  const t = activeTask.value;
+  if (!t) return "";
+  if (t.status === "pending") {
+    if (t.mode === "speedtest") return "等待客户端领取任务…";
+    return t.server_started ? "服务端已就绪，等待客户端领取…" : "等待服务端领取并起 iperf3 -s…";
+  }
+  if (t.status === "running") {
+    if (t.mode === "speedtest") return stageNote.value || "测速中（选服务器 → ping → 下载 → 上传，约 1 分钟）…";
+    if (!chartPoints.value.filter((p) => !p.retry && !p.note).length) return "已领取，连接服务端中…";
+  }
+  return "";
+});
 const installing = ref<Record<string, boolean>>({}); // "nodeId:component" -> 代装中
 
 // 实时指标（running 时显示最新值，不用等完成）——吞吐/丢包都用接收端真实数据
@@ -174,13 +208,31 @@ async function refresh() {
     [nodes.value, iperfTasks.value, mtrTasks.value, commands.value] = await Promise.all([
       listNodes(), listIperfTasks(), listMtrTasks(), listCommands(),
     ]);
-    if (iperfClientId.value === null && nodes.value.length) iperfClientId.value = nodes.value[0].id;
-    if (iperfServerId.value === null && nodes.value.length) iperfServerId.value = nodes.value[0].id;
+    // 默认选中：服务端选唯一公网在线节点（多台公网时选第一台），客户端选第一台在线（且≠服务端）
+    if (iperfServerId.value === null || !iperfServerOptions.value.some((o) => o.value === iperfServerId.value)) {
+      iperfServerId.value = iperfServerOptions.value[0]?.value ?? null;
+    }
+    if (iperfClientId.value === null || !iperfClientOptions.value.some((o) => o.value === iperfClientId.value)) {
+      iperfClientId.value = iperfClientOptions.value[0]?.value ?? null;
+    }
     if (mtrNodeId.value === null && nodes.value.length) mtrNodeId.value = nodes.value[0].id;
     if (cmdNodeId.value === null && nodes.value.length) cmdNodeId.value = nodes.value[0].id;
   } catch { /* 静默 */ }
 }
-onMounted(() => { refresh(); timer = setInterval(refresh, 5000); });
+let presetApplied = false;
+function applyPresetNode() {
+  // 详情页「操作」跳入：预填本节点（iperf：公网节点预填服务端、内网预填客户端；mtr/command=目标节点），只应用一次
+  if (presetApplied || props.presetNode == null) return;
+  const n = nodes.value.find((x) => x.id === props.presetNode && x.status === "online");
+  if (!n) return;
+  if (n.net_type === "public") iperfServerId.value = n.id;
+  else iperfClientId.value = n.id;
+  mtrNodeId.value = n.id;
+  cmdNodeId.value = n.id;
+  presetApplied = true;
+}
+
+onMounted(() => { refresh().then(applyPresetNode); timer = setInterval(refresh, 5000); });
 onUnmounted(() => {
   if (timer) clearInterval(timer);
   stopPoll();
@@ -189,13 +241,18 @@ onUnmounted(() => {
 
 const onlineNodes = () => nodes.value.filter((n) => n.status === "online");
 
-function compState(n: Node, key: "iperf3" | "speedtest"): boolean | null {
-  const c = n.components;
-  if (!c || typeof c[key] !== "boolean") return null; // 未知（agent 未上报）
-  return c[key];
+type CompKey = "iperf3" | "speedtest" | "ufw" | "docker" | "mtr";
+const COMP_LABEL: Record<CompKey, string> = { iperf3: "iperf3", speedtest: "speedtest", ufw: "ufw", docker: "docker", mtr: "mtr" };
+
+function compState(n: Node, key: CompKey): boolean | null {
+  const c = n.components as any;
+  if (!c) return null;  // 未知（agent 未上报）
+  if (key === "ufw") return c.firewall?.ufw?.installed ?? null;
+  if (key === "docker") return c.docker?.installed ?? null;
+  return typeof c[key] === "boolean" ? c[key] : null;
 }
 
-async function doInstall(n: Node, component: "iperf3" | "speedtest") {
+async function doInstall(n: Node, component: CompKey) {
   const k = `${n.id}:${component}`;
   if (installing.value[k]) return;
   installing.value[k] = true;
@@ -251,6 +308,7 @@ async function startIperf() {
       length: iperfLength.value || null,
       omit: iperfOmit.value,
       zerocopy: iperfZerocopy.value,
+      speedtest_server: iperfMode.value === "speedtest" && stServerId.value ? stServerId.value : null,
     });
     toast("打流任务已下发");
     // 开始实时跟踪
@@ -269,10 +327,14 @@ function startPoll() {
   pollTimer = setInterval(async () => {
     if (activeTaskId.value === null) return;
     try {
-      const t = await getIperfTask(activeTaskId.value);
+      // 增量拉取：只取上次之后的进度点（progress 是 append-only，下标稳定），
+      // 不用每秒扛全量数组——10s 任务全量也就 20 点，60s 长任务省 95% 流量
+      const t = await getIperfTask(activeTaskId.value, { progressAfter: chartPoints.value.length });
       activeTask.value = t;
-      chartPoints.value = t.progress_json || [];
-      renderChart();
+      if (t.progress_json?.length) {
+        chartPoints.value = chartPoints.value.concat(t.progress_json);
+        renderChart();
+      }
       if (t.status === "done" || t.status === "failed") {
         stopPoll();
         await refresh(); // 历史记录刷新
@@ -360,8 +422,8 @@ function buildChartOption(x: string[], y: number[], sendY?: number[], lost?: (nu
 
 // 从混合的 progress 点里提取接收/发送速率和丢包率。
 // 接收端=真实速率（正向 server、反向 client），发送端=发送速率（虚线基准，UDP 时=目标带宽）。
-function splitChartPoints(pts: { ts: string; bitrate: number; lost_pct?: number; jitter_ms?: number; role?: string; retry?: boolean }[], direction: string) {
-  const data = pts.filter((p) => !p.retry);  // 重试事件点（bitrate=0 占位）不画进吞吐曲线
+function splitChartPoints(pts: { ts: string; bitrate: number; lost_pct?: number; jitter_ms?: number; role?: string; retry?: boolean; note?: string }[], direction: string) {
+  const data = pts.filter((p) => !p.retry && !p.note);  // 重试事件/阶段提示点（bitrate=0 占位）不画进吞吐曲线
   const clientPts = data.filter((p) => (p.role || "client") !== "server");
   const serverPts = data.filter((p) => p.role === "server");
   const recvPts = direction === "reverse" ? clientPts : serverPts;
@@ -377,8 +439,8 @@ function splitChartPoints(pts: { ts: string; bitrate: number; lost_pct?: number;
 }
 
 // 取接收端进度点（吞吐用接收端真实数据，sender 统计可能虚高）
-function recvPoints(pts: { ts: string; bitrate: number; lost_pct?: number; jitter_ms?: number; role?: string; retry?: boolean }[], direction: string) {
-  const data = pts.filter((p) => !p.retry);
+function recvPoints(pts: { ts: string; bitrate: number; lost_pct?: number; jitter_ms?: number; role?: string; retry?: boolean; note?: string }[], direction: string) {
+  const data = pts.filter((p) => !p.retry && !p.note);
   const clientPts = data.filter((p) => (p.role || "client") !== "server");
   const serverPts = data.filter((p) => p.role === "server");
   const recv = direction === "reverse" ? clientPts : serverPts;
@@ -419,6 +481,19 @@ function fmtBandwidth(t: IperfTask): string {
 
 // 历史记录展开（互斥：同一时间只展开一个）
 const expandedTaskId = ref<number | null>(null);
+const expandedCmdId = ref<number | null>(null);
+function toggleCmd(id: number) { expandedCmdId.value = expandedCmdId.value === id ? null : id; }
+
+// 记录时间：今天内显示 HH:mm，跨年/跨天显示 MM-DD HH:mm；悬浮 title 给完整时间
+function fmtTime(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  if (d.toDateString() === now.toDateString()) return hm;
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${hm}`;
+}
 function toggleExpand(id: number) {
   expandedTaskId.value = expandedTaskId.value === id ? null : id;
 }
@@ -439,12 +514,16 @@ function mtrHops(t: MtrTask): { host: string; loss: number; avg: number }[] {
   }));
 }
 
-// 展开历史记录时渲染该任务的吞吐曲线
+// 展开历史记录时渲染该任务的吞吐曲线。
+// 列表接口不再带 progress_json（省流量），展开时懒加载单任务全量详情。
 watch(expandedTaskId, async (id) => {
-  await nextTick();
   if (id === null) return;
-  const el = document.getElementById(`hist-chart-${id}`);
   const t = iperfTasks.value.find((x) => x.id === id);
+  if (t && t.status === "done" && !t.progress_json) {
+    try { Object.assign(t, await getIperfTask(id)); } catch { /* 静默 */ }
+  }
+  await nextTick();
+  const el = document.getElementById(`hist-chart-${id}`);
   if (el && t && t.progress_json?.length) {
     const c = echarts.getInstanceByDom(el) || echarts.init(el);
     const { x, y, sendY, lost } = splitChartPoints(t.progress_json, t.direction || "forward");
@@ -551,6 +630,61 @@ async function startCmd() {
     await refresh();
   } catch { toast("下发失败"); }
 }
+
+// ── speedtest 服务器选择：「获取列表」让客户端节点跑 speedtest-go --list --json，解析成下拉 ──
+const stServerId = ref<string>("");  // "" = 自动（延迟最低）
+const stServerList = ref<{ id: string | number; name: string; country?: string }[]>([]);
+const stListLoading = ref(false);
+const stServerOptions = computed(() => [
+  { value: "", label: "自动（延迟最低）" },
+  ...stServerList.value.map((s) => ({ value: String(s.id), label: `${s.name}${s.country ? " · " + s.country : ""}` })),
+]);
+// 换客户端节点后旧列表作废
+watch(iperfClientId, () => { stServerList.value = []; stServerId.value = ""; });
+
+async function fetchStServers() {
+  if (iperfClientId.value === null) { toast("先选客户端节点喵~"); return; }
+  stListLoading.value = true;
+  try {
+    const cmd = await createCommand({
+      node_id: iperfClientId.value,
+      command: "speedtest-go --list 2>/dev/null || /opt/stella-agent/bin/speedtest-go --list",
+    });
+    // 轮询这条命令的结果（agent 1s 领取，--list 本身要约 10s）
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const list = await listCommands();
+      const c = list.find((x) => x.id === cmd.id);
+      if (c && (c.status === "done" || c.status === "failed")) {
+        if (c.status === "done" && c.stdout?.trim()) {
+          // speedtest-go --list 是纯文本表格：「[ 1345]  12386.43km 227ms \tHays, KS (United States) by …」
+          // （--json 对 --list 不生效，v1.7.11 实测）；留 JSON 解析兜底兼容未来版本
+          const out = c.stdout.trim();
+          let arr: { id: string; name: string; country?: string }[] = [];
+          try {
+            const j = JSON.parse(out);
+            const raw = Array.isArray(j) ? j : (j.servers || []);
+            arr = raw.map((s: any) => ({ id: String(s.id), name: s.name || s.sponsor || `#${s.id}`, country: s.country }));
+          } catch {
+            const re = /^\[\s*(\d+)\]\s+[\d.]+km\s+(\d+)ms\s+\t(.+?)\s*$/gm;
+            let mm: RegExpExecArray | null;
+            while ((mm = re.exec(out)) !== null) {
+              arr.push({ id: mm[1], name: `${mm[3].trim()} · ${mm[2]}ms` });
+            }
+          }
+          stServerList.value = arr.slice(0, 30);
+          toast(stServerList.value.length ? `拿到 ${stServerList.value.length} 个测速服务器喵~` : "列表是空的，用自动吧喵~");
+        } else {
+          toast("节点上没找到 speedtest-go，先在上方代装喵~");
+        }
+        stListLoading.value = false;
+        return;
+      }
+    }
+    toast("获取超时了喵~");
+  } catch { toast("下发失败"); }
+  stListLoading.value = false;
+}
 </script>
 
 <template>
@@ -571,7 +705,7 @@ async function startCmd() {
             <span v-if="n.status !== 'online'" class="nc-off">离线</span>
           </span>
           <span
-            v-for="comp in (['iperf3', 'speedtest'] as const)"
+            v-for="comp in (['iperf3', 'speedtest', 'ufw', 'docker', 'mtr'] as const)"
             :key="comp"
             class="comp"
             :class="{
@@ -582,7 +716,7 @@ async function startCmd() {
             }"
           >
             <span class="c-dot" />
-            <span class="c-label">{{ comp === 'iperf3' ? 'iperf3' : 'speedtest' }}</span>
+            <span class="c-label">{{ COMP_LABEL[comp] }}</span>
             <button
               v-if="compState(n, comp) === false && n.status === 'online'"
               class="c-install"
@@ -602,12 +736,20 @@ async function startCmd() {
           <Dropdown v-model="iperfMode" :options="modeOptions" />
         </div>
         <div class="form-row" v-if="iperfMode === 'iperf3'">
-          <label>服务端</label>
-          <Dropdown v-model="iperfServerId" :options="nodeOptions" />
+          <label>服务端 <span class="tip" title="客户端要直连服务端的 5201 端口，所以服务端必须是公网节点（有公网 IP 或被穿透）">ⓘ</span></label>
+          <Dropdown v-model="iperfServerId" :options="iperfServerOptions" />
+        </div>
+        <div v-if="iperfMode === 'iperf3' && !iperfServerOptions.length" class="hint-empty" style="padding: 0 2px;">
+          没有在线的公网节点喵~ 在「服务器」页把节点设为公网（或确认公网节点在线）再来互打
         </div>
         <div class="form-row">
           <label>客户端</label>
-          <Dropdown v-model="iperfClientId" :options="nodeOptions" />
+          <Dropdown v-model="iperfClientId" :options="iperfMode === 'iperf3' ? iperfClientOptions : nodeOptions" />
+        </div>
+        <div class="form-row" v-if="iperfMode === 'speedtest'">
+          <label>测速服务器 <span class="tip" title="默认自动选延迟最低的服务器；点「获取列表」从客户端节点拉取可选服务器">ⓘ</span></label>
+          <Dropdown v-model="stServerId" :options="stServerOptions" />
+          <button class="st-fetch" :disabled="stListLoading" @click="fetchStServers">{{ stListLoading ? "拉取中…" : "获取列表" }}</button>
         </div>
         <div class="form-row preset-row">
           <label>预制方案</label>
@@ -680,6 +822,7 @@ async function startCmd() {
       <div v-if="activeTask && (activeTask.status === 'running' || activeTask.status === 'pending' || chartPoints.length)" class="live-chart">
         <div class="lc-head">
           <span>实时吞吐 · 任务 #{{ activeTask.id }}</span>
+          <span v-if="phaseHint" class="lc-phase">{{ phaseHint }}</span>
           <span class="lc-st" :style="{ color: statusColor[activeTask.status] }">{{ statusLabel[activeTask.status] }}</span>
           <button v-if="activeTask.status === 'running' || activeTask.status === 'pending'" class="cancel-btn" @click="cancelTask">中止</button>
         </div>
@@ -700,7 +843,7 @@ async function startCmd() {
             <span v-if="liveJitter" class="metric"><span class="m-label">抖动</span><b class="m-val">{{ liveJitter }}</b></span>
           </template>
           <template v-else-if="activeTask.status === 'pending'">
-            <span class="metric"><span class="m-label">状态</span><b class="m-val">等待 server 就绪喵~</b></span>
+            <span class="metric"><span class="m-label">状态</span><b class="m-val">{{ phaseHint || "排队中喵~" }}</b></span>
           </template>
           <template v-else-if="activeTask.status === 'done'">
             <span v-for="m in resultMetrics(activeTask)" :key="m.label" class="metric">
@@ -712,8 +855,8 @@ async function startCmd() {
 
       <!-- 历史打流记录 -->
       <div class="task-list">
-        <div class="th">历史打流记录</div>
-        <template v-for="t in iperfTasks" :key="t.id">
+        <div class="th">历史打流记录 <button class="more-link" @click="goRecords">更多记录 →</button></div>
+        <template v-for="t in iperfRecent" :key="t.id">
           <div class="task-row" :class="{ open: expandedTaskId === t.id }" @click="toggleExpand(t.id)">
             <span class="t-dot" :style="{ background: statusColor[t.status] }" />
             <span class="t-name">
@@ -722,6 +865,7 @@ async function startCmd() {
               <template v-else>{{ nodeName(t.client_node_id) }} · speedtest</template>
             </span>
             <span class="t-params">{{ fmtParams(t) }}</span>
+            <span class="t-time" :title="new Date(t.created_at).toLocaleString('zh-CN')">{{ fmtTime(t.created_at) }}</span>
             <span class="t-st">{{ statusLabel[t.status] }}</span>
             <span class="t-bw" v-if="t.status === 'done'">{{ fmtBandwidth(t) }}</span>
             <Icon name="chevron" :size="12" :class="{ rot: expandedTaskId === t.id }" class="t-expand" />
@@ -760,10 +904,12 @@ async function startCmd() {
         <button class="go-btn" @click="startMtr"><Icon name="globe" :size="14" /> 开始 MTR</button>
       </div>
       <div class="task-list">
-        <template v-for="t in mtrTasks.slice(0, 10)" :key="t.id">
+        <div class="th">历史记录 <button class="more-link" @click="goRecords">更多记录 →</button></div>
+        <template v-for="t in mtrRecent" :key="t.id">
           <div class="task-row" :class="{ open: expandedMtrId === t.id }" @click="toggleMtr(t.id)">
             <span class="t-dot" :style="{ background: statusColor[t.status] }" />
-            <span class="t-name"><b class="t-id">#{{ t.id }}</b>{{ t.target }} <span class="t-params">{{ t.protocol.toUpperCase() }}</span></span>
+            <span class="t-name"><b class="t-id">#{{ t.id }}</b><span class="cmd-node">{{ nodeName(t.node_id) }}</span> {{ t.target }} <span class="t-params">{{ t.protocol.toUpperCase() }}</span></span>
+            <span class="t-time" :title="new Date(t.created_at).toLocaleString('zh-CN')">{{ fmtTime(t.created_at) }}</span>
             <span class="t-st">{{ statusLabel[t.status] }}</span>
             <Icon name="chevron" :size="12" :class="{ rot: expandedMtrId === t.id }" class="t-expand" />
           </div>
@@ -800,12 +946,21 @@ async function startCmd() {
         <button class="go-btn" @click="startCmd"><Icon name="terminal" :size="14" /> 执行</button>
       </div>
       <div class="cmd-list">
-        <div v-for="c in commands.slice(0, 5)" :key="c.id" class="cmd-row">
-          <span class="t-dot" :style="{ background: statusColor[c.status] }" />
-          <code class="cmd-text">{{ c.command }}</code>
-          <span class="t-st">{{ statusLabel[c.status] }}</span>
-          <pre v-if="c.stdout" class="cmd-out">{{ c.stdout }}</pre>
-        </div>
+        <div class="th">历史记录 <button class="more-link" @click="goRecords">更多记录 →</button></div>
+        <template v-for="c in cmdRecent" :key="c.id">
+          <div class="cmd-row clickable" @click="toggleCmd(c.id)">
+            <span class="t-dot" :style="{ background: statusColor[c.status] }" />
+            <span class="cmd-node">{{ nodeName(c.node_id) }}</span>
+            <code class="cmd-text">{{ c.command }}</code>
+            <span class="t-time">{{ fmtTime(c.created_at) }}</span>
+            <span class="t-st">{{ statusLabel[c.status] }}</span>
+            <Icon v-if="c.stdout || c.stderr" name="chevron" :size="12" class="t-expand" :class="{ rot: expandedCmdId === c.id }" />
+          </div>
+          <div v-if="expandedCmdId === c.id && (c.stdout || c.stderr)" class="cmd-expand">
+            <pre v-if="c.stdout" class="cmd-out">{{ c.stdout }}</pre>
+            <pre v-if="c.stderr" class="cmd-out err">{{ c.stderr }}</pre>
+          </div>
+        </template>
         <div v-if="!commands.length" class="hint-empty">暂无命令记录</div>
       </div>
     </section>
@@ -841,6 +996,12 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 }
 .form-row select:hover { border-color: var(--accent-dim); }
 .tip { color: var(--text-faint); cursor: help; font-style: normal; }
+.st-fetch {
+  background: transparent; border: 1px solid var(--accent-dim); color: var(--text-lo);
+  border-radius: var(--radius-sm); padding: 3px 12px; font-size: 12px; cursor: pointer; flex-shrink: 0;
+}
+.st-fetch:hover:not(:disabled) { color: var(--pink); border-color: var(--pink); }
+.st-fetch:disabled { opacity: 0.5; cursor: default; }
 .iperf-form { align-items: flex-end; }
 .preset-row { min-width: 210px; }
 .preset-row select { min-width: 190px; }
@@ -899,7 +1060,13 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 .t-err { color: var(--text-faint); font-size: 11px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hint-empty { color: var(--text-faint); font-size: 12px; padding: 8px 0; }
 .cmd-row { display: flex; align-items: center; gap: 9px; padding: 6px 0; font-size: 12.5px; }
-.cmd-text { color: var(--accent); font-family: var(--font-mono); font-size: 12px; }
+.cmd-row.clickable { cursor: pointer; border-radius: var(--radius-sm); }
+.cmd-row.clickable:hover { background: rgba(255,255,255,0.03); }
+.cmd-node { color: var(--text-faint); font-size: 11px; flex-shrink: 0; }
+.t-time { color: var(--text-faint); font-size: 11px; flex-shrink: 0; font-family: var(--font-mono); }
+.cmd-expand { margin-left: 16px; }
+.cmd-out.err { color: var(--pink); }
+.cmd-text { color: var(--accent); font-family: var(--font-mono); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmd-out {
   width: 100%; margin: 4px 0 4px 16px; padding: 8px; background: var(--bg-base);
   border-radius: var(--radius-sm); font-size: 11.5px; color: var(--text-lo);
@@ -918,7 +1085,12 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 
 /* 服务器组件列表 */
 .node-comp-list { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-.nc-head { font-size: 11px; color: var(--text-faint); margin-bottom: 8px; letter-spacing: 1px; }
+.th { font-size: 12px; color: var(--text-faint); margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; }
+.more-link {
+  background: none; border: none; color: var(--accent-dim); font-size: 11.5px;
+  cursor: pointer; padding: 0; transition: color var(--transition);
+}
+.more-link:hover { color: var(--accent); }
 .nc-row { display: flex; align-items: center; gap: 12px; padding: 5px 0; }
 .nc-name { display: flex; align-items: center; gap: 7px; width: 180px; color: var(--text-hi); font-size: 13px; }
 .nc-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
@@ -949,6 +1121,7 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 /* 实时曲线 */
 .live-chart { padding: 6px 16px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .lc-head { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 6px 0; color: var(--text-hi); }
+.lc-phase { font-size: 11px; color: var(--text-faint); }
 .lc-st { font-size: 11px; }
 .cancel-btn {
   margin-left: auto; background: transparent; color: #ff5d6c; border: 1px solid rgba(255,93,108,0.4);

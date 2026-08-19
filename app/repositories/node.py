@@ -100,7 +100,7 @@ def insert_sys_metrics(db: Session, node_id: int, points: list) -> int:
 # ── 心跳 / 状态 ──
 def heartbeat(db: Session, node_id: int, agent_version: str | None = None,
               interfaces: dict | None = None, storage: list | None = None,
-              components: dict | None = None) -> Node:
+              components: dict | None = None, os_info: dict | None = None) -> Node:
     """上报即心跳：更新 last_seen_at，若之前是 pending/offline → online 并记状态事件。"""
     node = get_by_id(db, node_id)
     if node is None:
@@ -125,6 +125,14 @@ def heartbeat(db: Session, node_id: int, agent_version: str | None = None,
         node.storage = storage
     if components is not None:
         node.components = components
+    if os_info is not None:
+        # OS 采集：os_name 单列（卡片展示/筛选），其余塞 sys_info 面板
+        if os_info.get("os_name"):
+            node.os_name = os_info["os_name"]
+        if os_info.get("arch") and not node.arch:
+            node.arch = os_info["arch"]
+        node.sys_info = {k: os_info.get(k) for k in
+                         ("kernel", "cpu_model", "cpu_cores", "load1", "load5", "load15", "boot_time")}
     # agent 重新上线 → 已结束的卸载状态（done/failed）复位：说明卸载没成功或已重装，别让「已删除」和「在线」打架
     if node.uninstall_status in ("done", "failed"):
         node.uninstall_status = None

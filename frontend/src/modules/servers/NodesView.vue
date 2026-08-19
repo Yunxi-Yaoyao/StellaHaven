@@ -177,11 +177,9 @@ function goSettings() {
   router.push("/settings?tab=misc");
 }
 
-const emit = defineEmits<{ open: [id: number] }>();
-
-// 点卡片 → 通知父组件打开节点详情（URL 不变，刷新回列表）
+// 点卡片 → 独立路由进详情（SPA 切换不刷新，刷新/后退行为正常）
 function goDetail(n: Node) {
-  emit("open", n.id);
+  router.push(`/status/${n.id}`);
 }
 
 const statusLabel: Record<string, string> = {
@@ -224,7 +222,8 @@ const uninstallLabel: Record<string, string> = {
         <div class="card-top">
           <span class="dot" :style="{ background: statusColor[n.status] }" />
           <span class="name">{{ n.name }}</span>
-          <span class="plat">{{ n.platform }}</span>
+          <span class="plat">{{ n.os_name || n.platform }}</span>
+          <span v-if="n.net_type === 'public'" class="pub-badge" title="公网节点：可作为打流服务端">公网</span>
           <span class="actions">
             <button title="agent" @click.stop="openAgent(n)"><Icon name="terminal" :size="14" /></button>
             <button title="移除" @click.stop="askRemove(n)"><Icon name="trash" :size="14" /></button>
@@ -376,6 +375,7 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .name { font-size: 15px; font-weight: 600; }
 .plat { font-size: 10.5px; color: var(--text-faint); border: 1px solid var(--text-faint); padding: 1px 7px; border-radius: 999px; }
+.pub-badge { font-size: 10.5px; color: var(--accent); border: 1px solid var(--accent-dim); padding: 1px 7px; border-radius: 999px; }
 .actions { margin-left: auto; display: flex; gap: 4px; }
 .actions button { border: none; background: transparent; color: var(--text-faint); cursor: pointer; padding: 4px; border-radius: 4px; }
 .actions button:hover { color: var(--accent); background: var(--bg-panel); }
