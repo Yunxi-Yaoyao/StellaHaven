@@ -4,13 +4,14 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import * as echarts from "echarts";
 import {
   listNodes, listIperfTasks, getIperfTask, createIperfTask, cancelIperfTask, listMtrTasks, createMtrTask,
-  listCommands, createCommand, installComponent,
-  type Node, type IperfTask, type MtrTask, type Command,
+  listCommands, createCommand,
+  mtrHopRows, type Node, type IperfTask, type MtrTask, type Command, type MtrHopRow,
 } from "../../api/servers";
 import { useRouter } from "vue-router";
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
 import Dropdown from "../../shell/Dropdown.vue";
+import NodeComponents from "./NodeComponents.vue";
 
 const props = defineProps<{ tool: "iperf" | "mtr" | "command"; presetNode?: number | null }>();
 
@@ -140,7 +141,7 @@ const phaseHint = computed(() => {
   }
   return "";
 });
-const installing = ref<Record<string, boolean>>({}); // "nodeId:component" -> 代装中
+
 
 // 实时指标（running 时显示最新值，不用等完成）——吞吐/丢包都用接收端真实数据
 const chartDir = computed(() => activeTask.value?.direction || "forward");
@@ -191,10 +192,17 @@ const liveBytes = computed(() => {
   return fmtBytes(totalBits / 8);
 });
 
-// MTR 表单
+// MTR 表单（主机/端口分栏，tcp/udp 才显示端口；全角冒号容错）
 const mtrNodeId = ref<number | null>(null);
-const mtrTarget = ref("");
+const mtrHost = ref("");
+const mtrPort = ref("");
 const mtrProtocol = ref("icmp");
+// 高级参数（对应 mtr -c/-i/-m/-s，后端有范围校验）
+const mtrAdv = ref(false);
+const mtrCount = ref(10);
+const mtrInterval = ref(1);
+const mtrMaxHops = ref(30);
+const mtrPsize = ref(64);
 
 // 命令表单
 const cmdNodeId = ref<number | null>(null);
@@ -236,54 +244,11 @@ onMounted(() => { refresh().then(applyPresetNode); timer = setInterval(refresh, 
 onUnmounted(() => {
   if (timer) clearInterval(timer);
   stopPoll();
+  if (mtrLiveTimer) clearInterval(mtrLiveTimer);
   chart?.dispose();
 });
 
 const onlineNodes = () => nodes.value.filter((n) => n.status === "online");
-
-type CompKey = "iperf3" | "speedtest" | "ufw" | "docker" | "mtr";
-const COMP_LABEL: Record<CompKey, string> = { iperf3: "iperf3", speedtest: "speedtest", ufw: "ufw", docker: "docker", mtr: "mtr" };
-
-function compState(n: Node, key: CompKey): boolean | null {
-  const c = n.components as any;
-  if (!c) return null;  // 未知（agent 未上报）
-  if (key === "ufw") return c.firewall?.ufw?.installed ?? null;
-  if (key === "docker") return c.docker?.installed ?? null;
-  return typeof c[key] === "boolean" ? c[key] : null;
-}
-
-async function doInstall(n: Node, component: CompKey) {
-  const k = `${n.id}:${component}`;
-  if (installing.value[k]) return;
-  installing.value[k] = true;
-  try {
-    await installComponent(n.id, component);
-    toast(`已下发 ${component} 安装，agent 代装中喵~`);
-    // 等 agent 代装 + 心跳上报新状态（最多轮询 ~30s）
-    let tries = 0;
-    const poll = setInterval(async () => {
-      tries++;
-      try {
-        const list = await listNodes();
-        const nn = list.find((x) => x.id === n.id);
-        if (nn?.components?.[component] === true) {
-          clearInterval(poll);
-          installing.value[k] = false;
-          toast(`${component} 已装好喵~`);
-          await refresh();
-        } else if (tries >= 30) {
-          clearInterval(poll);
-          installing.value[k] = false;
-          toast(`${component} 安装可能失败，看看节点日志喵~`);
-          await refresh();
-        }
-      } catch { /* 继续 */ }
-    }, 2000);
-  } catch (e: any) {
-    installing.value[k] = false;
-    toast(e?.status ? "下发安装失败" : "下发安装失败");
-  }
-}
 
 async function startIperf() {
   if (iperfMode.value === "iperf3" && (iperfServerId.value === null || iperfClientId.value === null)) {
@@ -315,6 +280,7 @@ async function startIperf() {
     activeTaskId.value = t.id;
     activeTask.value = t;
     chartPoints.value = [];
+    progressCursor = 0;
     startPoll();
     await refresh();
   } catch (e: any) {
@@ -322,24 +288,42 @@ async function startIperf() {
   }
 }
 
+// 实时进度游标：独立于 chartPoints.length——之前直接用数组长度当 cursor，
+// 两次轮询并发时旧请求带回重复点把长度推高，后续点被永久跳过（发送端虚线最常丢）。
+let progressCursor = 0;
+let pollInFlight = false;
+
 function startPoll() {
   stopPoll();
   pollTimer = setInterval(async () => {
-    if (activeTaskId.value === null) return;
+    if (activeTaskId.value === null || pollInFlight) return;  // 串行化：上一次没回来就跳过这轮
+    pollInFlight = true;
     try {
-      // 增量拉取：只取上次之后的进度点（progress 是 append-only，下标稳定），
+      // 增量拉取：只取游标之后的进度点（progress 是 append-only，下标稳定），
       // 不用每秒扛全量数组——10s 任务全量也就 20 点，60s 长任务省 95% 流量
-      const t = await getIperfTask(activeTaskId.value, { progressAfter: chartPoints.value.length });
+      const t = await getIperfTask(activeTaskId.value, { progressAfter: progressCursor });
       activeTask.value = t;
       if (t.progress_json?.length) {
         chartPoints.value = chartPoints.value.concat(t.progress_json);
+        progressCursor += t.progress_json.length;  // 游标只按真实新增推进，不吃重复
         renderChart();
       }
       if (t.status === "done" || t.status === "failed") {
         stopPoll();
+        // 收尾全量补拉一次：server 端最后几秒的进度点可能晚于 client 的 done 回传，
+        // 增量轮询已停，不全量补一次实时曲线会比历史记录少尾巴
+        try {
+          const full = await getIperfTask(activeTaskId.value);
+          if (full.progress_json?.length) {
+            chartPoints.value = full.progress_json;
+            progressCursor = full.progress_json.length;
+            renderChart();
+          }
+        } catch { /* 静默 */ }
         await refresh(); // 历史记录刷新
       }
     } catch { /* 静默 */ }
+    finally { pollInFlight = false; }
   }, 1000);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
@@ -502,17 +486,26 @@ function toggleMtr(id: number) {
   expandedMtrId.value = expandedMtrId.value === id ? null : id;
 }
 
-// 解析 MTR 结果里的每一跳（mtr --json 的 report.hubs）
-function mtrHops(t: MtrTask): { host: string; loss: number; avg: number }[] {
+// 解析 MTR 结果里的每一跳（mtr --json 大写键 / agent 0.6.0 raw 聚合小写键都兼容）
+function mtrRows(t: MtrTask): MtrHopRow[] {
   const r = t.result_json as any;
-  const hubs = r?.report?.hubs || r?.hubs || [];
-  if (!Array.isArray(hubs)) return [];
-  return hubs.map((h: any) => ({
-    host: h.host || h.Host || "?",
-    loss: typeof h["Loss%"] === "number" ? h["Loss%"] : (parseFloat(h["Loss%"]) || 0),
-    avg: typeof h.Avg === "number" ? h.Avg : (parseFloat(h.Avg) || 0),
-  }));
+  return mtrHopRows(r?.report?.hubs || r?.hubs || []);
 }
+// 运行中的 MTR 实时逐跳表（agent --raw 每 ~2s 覆写 live_json，2s 轮询跟终端一样边跑边刷）
+const runningMtr = computed(() =>
+  mtrTasks.value.find((t) => t.status === "running" || t.status === "pending") || null);
+const mtrLiveRows = computed(() => mtrHopRows(runningMtr.value?.live_json?.hops));
+const mtrLiveCount = computed(() => runningMtr.value?.params_json?.count ?? 10);
+
+let mtrLiveTimer: ReturnType<typeof setInterval> | null = null;
+watch([runningMtr, () => props.tool], ([rm, tool]) => {
+  if (mtrLiveTimer) { clearInterval(mtrLiveTimer); mtrLiveTimer = null; }
+  if (rm && tool === "mtr") {
+    mtrLiveTimer = setInterval(async () => {
+      try { mtrTasks.value = await listMtrTasks(); } catch { /* 静默 */ }
+    }, 2000);
+  }
+}, { immediate: true });
 
 // 展开历史记录时渲染该任务的吞吐曲线。
 // 列表接口不再带 progress_json（省流量），展开时懒加载单任务全量详情。
@@ -612,13 +605,23 @@ function resultMetrics(t: IperfTask): { label: string; value: string }[] {
 }
 
 async function startMtr() {
-  if (mtrNodeId.value === null || !mtrTarget.value.trim()) { toast("节点和目标都要填喵~"); return; }
+  if (mtrNodeId.value === null || !mtrHost.value.trim()) { toast("节点和目标都要填喵~"); return; }
+  const host = mtrHost.value.trim().replace(/：/g, ":").replace(/\s+/g, "");
+  let target = host;
+  if (mtrProtocol.value !== "icmp") {
+    const p = parseInt(mtrPort.value.trim().replace(/：/g, ":"), 10);
+    if (!p || p < 1 || p > 65535) { toast("TCP/UDP 要填端口号（1-65535）喵~"); return; }
+    target = `${host}:${p}`;
+  }
   try {
-    await createMtrTask({ node_id: mtrNodeId.value, target: mtrTarget.value.trim(), protocol: mtrProtocol.value });
+    await createMtrTask({
+      node_id: mtrNodeId.value, target, protocol: mtrProtocol.value,
+      params: { count: mtrCount.value, interval: mtrInterval.value, max_hops: mtrMaxHops.value, psize: mtrPsize.value },
+    });
     toast("MTR 任务已下发");
-    mtrTarget.value = "";
+    mtrHost.value = "";
     await refresh();
-  } catch { toast("下发失败"); }
+  } catch (e: any) { toast(e?.data?.detail || "下发失败"); }
 }
 
 async function startCmd() {
@@ -695,38 +698,8 @@ async function fetchStServers() {
     <section v-if="tool === 'iperf'" class="panel">
       <div class="p-head"><Icon name="zap" :size="15" /> 打流测速</div>
 
-      <!-- 服务器组件列表 -->
-      <div class="node-comp-list">
-        <div class="nc-head">服务器组件（绿=已装，红=未装，悬浮红点可代装）</div>
-        <div v-for="n in nodes" :key="n.id" class="nc-row">
-          <span class="nc-name">
-            <span class="nc-dot" :style="{ background: n.status === 'online' ? 'var(--pink)' : 'var(--text-faint)' }" />
-            {{ n.name }}
-            <span v-if="n.status !== 'online'" class="nc-off">离线</span>
-          </span>
-          <span
-            v-for="comp in (['iperf3', 'speedtest', 'ufw', 'docker', 'mtr'] as const)"
-            :key="comp"
-            class="comp"
-            :class="{
-              ok: compState(n, comp) === true,
-              bad: compState(n, comp) === false && n.status === 'online',
-              off: compState(n, comp) === false && n.status !== 'online',
-              unknown: compState(n, comp) === null,
-            }"
-          >
-            <span class="c-dot" />
-            <span class="c-label">{{ COMP_LABEL[comp] }}</span>
-            <button
-              v-if="compState(n, comp) === false && n.status === 'online'"
-              class="c-install"
-              :disabled="installing[`${n.id}:${comp}`]"
-              @click="doInstall(n, comp)"
-            >{{ installing[`${n.id}:${comp}`] ? '安装中…' : '安装' }}</button>
-          </span>
-        </div>
-        <div v-if="!nodes.length" class="hint-empty">还没有纳管服务器</div>
-      </div>
+      <!-- 打流相关组件状态（全量组件在服务器页） -->
+      <NodeComponents :nodes="nodes" :comps="['iperf3', 'speedtest']" style="border-bottom: 1px solid rgba(255,255,255,0.05);" @refresh="refresh" />
 
       <!-- 打流表单 -->
       <div class="p-body iperf-form">
@@ -894,36 +867,81 @@ async function fetchStServers() {
           <Dropdown v-model="mtrNodeId" :options="nodeOptions" />
         </div>
         <div class="form-row">
-          <label>目标</label>
-          <input v-model="mtrTarget" placeholder="如 8.8.8.8 或 example.com" />
-        </div>
-        <div class="form-row">
           <label>协议</label>
           <Dropdown v-model="mtrProtocol" :options="mtrProtoOptions" />
         </div>
+        <div class="form-row">
+          <label>主机</label>
+          <input v-model="mtrHost" placeholder="如 8.8.8.8 或 example.com" @keydown.enter="startMtr" />
+        </div>
+        <div class="form-row" v-if="mtrProtocol !== 'icmp'">
+          <label>端口</label>
+          <input v-model="mtrPort" placeholder="如 443" style="width: 110px;" @keydown.enter="startMtr" />
+        </div>
+        <button class="adv-toggle" @click="mtrAdv = !mtrAdv">
+          {{ mtrAdv ? "收起参数" : "参数" }}（-c {{ mtrCount }} 包 · -i {{ mtrInterval }}s · -m {{ mtrMaxHops }} 跳 · -s {{ mtrPsize }}B）
+        </button>
+        <div v-if="mtrAdv" class="mtr-adv">
+          <div class="form-row"><label>包数 -c</label><input type="number" v-model.number="mtrCount" min="1" max="100" /></div>
+          <div class="form-row"><label>间隔 -i（秒）</label><input type="number" v-model.number="mtrInterval" min="1" max="60" step="0.5" title="mtr 非 root 用户最小 1 秒" /></div>
+          <div class="form-row"><label>最大跳数 -m</label><input type="number" v-model.number="mtrMaxHops" min="1" max="255" /></div>
+          <div class="form-row"><label>包大小 -s（B）</label><input type="number" v-model.number="mtrPsize" min="24" max="9000" /></div>
+        </div>
         <button class="go-btn" @click="startMtr"><Icon name="globe" :size="14" /> 开始 MTR</button>
       </div>
+
+      <!-- 实时路径：agent --raw 每 ~2s 覆写快照，和终端 mtr 一样边跑边刷 -->
+      <div v-if="runningMtr" class="mtr-live">
+        <div class="th">
+          实时路径 · #{{ runningMtr.id }} {{ runningMtr.target }}（{{ runningMtr.protocol.toUpperCase() }}）
+          <span class="lc-phase">{{ runningMtr.status === "pending" ? "等待节点领取…" : `探测中 · 每跳 ${mtrLiveCount} 包` }}</span>
+        </div>
+        <div v-if="mtrLiveRows.length" class="mtr-table live">
+          <div class="mtr-row mtr-hd"><span>跳</span><span>主机</span><span>Loss%</span><span>Snt</span><span>Last</span><span>Avg</span><span>Best</span><span>Wrst</span><span>StDev</span></div>
+          <div v-for="h in mtrLiveRows" :key="h.hop" class="mtr-row">
+            <span class="mtr-hop">{{ h.hop }}</span>
+            <span class="mtr-host">{{ h.host }}</span>
+            <span class="mtr-num" :class="{ bad: h.loss > 0 }">{{ h.loss.toFixed(1) }}</span>
+            <span class="mtr-num">{{ h.snt ?? "-" }}</span>
+            <span class="mtr-num">{{ h.last != null ? h.last.toFixed(1) : "-" }}</span>
+            <span class="mtr-num">{{ h.avg != null ? h.avg.toFixed(1) : "-" }}</span>
+            <span class="mtr-num">{{ h.best != null ? h.best.toFixed(1) : "-" }}</span>
+            <span class="mtr-num">{{ h.wrst != null ? h.wrst.toFixed(1) : "-" }}</span>
+            <span class="mtr-num">{{ h.stdev != null ? h.stdev.toFixed(1) : "-" }}</span>
+          </div>
+        </div>
+        <div v-else class="hint-empty">正在发起探测…</div>
+      </div>
+
       <div class="task-list">
         <div class="th">历史记录 <button class="more-link" @click="goRecords">更多记录 →</button></div>
         <template v-for="t in mtrRecent" :key="t.id">
           <div class="task-row" :class="{ open: expandedMtrId === t.id }" @click="toggleMtr(t.id)">
             <span class="t-dot" :style="{ background: statusColor[t.status] }" />
-            <span class="t-name"><b class="t-id">#{{ t.id }}</b><span class="cmd-node">{{ nodeName(t.node_id) }}</span> {{ t.target }} <span class="t-params">{{ t.protocol.toUpperCase() }}</span></span>
+            <span class="t-name"><b class="t-id">#{{ t.id }}</b><span class="cmd-node">{{ nodeName(t.node_id) }}</span> {{ t.target }} <span class="t-params">{{ t.protocol.toUpperCase() }} · {{ t.params_json?.count ?? 10 }} 包</span></span>
             <span class="t-time" :title="new Date(t.created_at).toLocaleString('zh-CN')">{{ fmtTime(t.created_at) }}</span>
             <span class="t-st">{{ statusLabel[t.status] }}</span>
             <Icon name="chevron" :size="12" :class="{ rot: expandedMtrId === t.id }" class="t-expand" />
           </div>
           <div v-if="expandedMtrId === t.id" class="task-expand">
-            <div v-if="t.status === 'done' && mtrHops(t).length" class="mtr-table">
-              <div class="mtr-row mtr-hd"><span>跳</span><span>主机</span><span>丢包</span><span>平均</span></div>
-              <div v-for="(h, i) in mtrHops(t)" :key="i" class="mtr-row">
-                <span class="mtr-hop">{{ i + 1 }}</span>
+            <div class="mtr-params-line">
+              {{ t.protocol.toUpperCase() }} · -c {{ t.params_json?.count ?? 10 }} 包/跳 · -i {{ t.params_json?.interval ?? 1 }}s · -m {{ t.params_json?.max_hops ?? 30 }} 跳 · -s {{ t.params_json?.psize ?? 64 }}B
+            </div>
+            <div v-if="t.status === 'done' && mtrRows(t).length" class="mtr-table">
+              <div class="mtr-row mtr-hd"><span>跳</span><span>主机</span><span>Loss%</span><span>Snt</span><span>Last</span><span>Avg</span><span>Best</span><span>Wrst</span><span>StDev</span></div>
+              <div v-for="h in mtrRows(t)" :key="h.hop" class="mtr-row">
+                <span class="mtr-hop">{{ h.hop }}</span>
                 <span class="mtr-host">{{ h.host }}</span>
-                <span class="mtr-loss" :class="{ bad: h.loss > 0 }">{{ h.loss.toFixed(1) }}%</span>
-                <span class="mtr-avg">{{ h.avg.toFixed(1) }} ms</span>
+                <span class="mtr-num" :class="{ bad: h.loss > 0 }">{{ h.loss.toFixed(1) }}</span>
+                <span class="mtr-num">{{ h.snt ?? "-" }}</span>
+                <span class="mtr-num">{{ h.last != null ? h.last.toFixed(1) : "-" }}</span>
+                <span class="mtr-num">{{ h.avg != null ? h.avg.toFixed(1) : "-" }}</span>
+                <span class="mtr-num">{{ h.best != null ? h.best.toFixed(1) : "-" }}</span>
+                <span class="mtr-num">{{ h.wrst != null ? h.wrst.toFixed(1) : "-" }}</span>
+                <span class="mtr-num">{{ h.stdev != null ? h.stdev.toFixed(1) : "-" }}</span>
               </div>
             </div>
-            <div v-if="t.status === 'done' && !mtrHops(t).length" class="hint-empty">无路径数据（可能被目标过滤）</div>
+            <div v-if="t.status === 'done' && !mtrRows(t).length" class="hint-empty">无路径数据（可能被目标过滤）</div>
             <div v-if="t.status === 'failed'" class="t-err">{{ (t.result_json as any)?.error }}</div>
           </div>
         </template>
@@ -1074,49 +1092,35 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 }
 
 /* MTR 路径表 */
-.mtr-table { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; max-width: 560px; }
-.mtr-row { display: grid; grid-template-columns: 32px 1fr 64px 80px; gap: 8px; padding: 3px 6px; font-size: 12px; align-items: center; }
+/* MTR 终端式九列表格（对齐 mtr -r 的 HOST/Loss%/Snt/Last/Avg/Best/Wrst/StDev） */
+.mtr-table { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; max-width: 720px; }
+.mtr-row { display: grid; grid-template-columns: 30px minmax(150px, 1fr) repeat(7, 58px); gap: 6px; padding: 3px 6px; font-size: 12px; align-items: center; }
 .mtr-row.mtr-hd { color: var(--text-faint); font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 5px; }
 .mtr-hop { color: var(--text-faint); font-family: var(--font-mono); }
 .mtr-host { color: var(--text-hi); font-family: var(--font-mono); word-break: break-all; }
-.mtr-loss { color: var(--text-lo); font-family: var(--font-mono); text-align: right; }
-.mtr-loss.bad { color: #ff5d6c; }
-.mtr-avg { color: var(--text-lo); font-family: var(--font-mono); text-align: right; }
+.mtr-num { color: var(--text-lo); font-family: var(--font-mono); text-align: right; }
+.mtr-num.bad { color: #ff5d6c; }
+.mtr-table.live .mtr-row { background: rgba(255,255,255,0.015); border-radius: 4px; }
+.mtr-live { padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.mtr-live .th { display: flex; align-items: center; gap: 10px; }
+.mtr-params-line { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); margin: 2px 0 6px; }
+.adv-toggle {
+  align-self: flex-start; background: transparent; border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-lo); border-radius: 999px; padding: 4px 12px; font-size: 11.5px;
+  cursor: pointer; font-family: var(--font-mono); transition: all var(--transition);
+}
+.adv-toggle:hover { color: var(--text-hi); border-color: rgba(255,255,255,0.2); }
+.mtr-adv { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; width: 100%; }
+.mtr-adv input { width: 90px; }
 
 /* 服务器组件列表 */
-.node-comp-list { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+/* 服务器组件列表样式已搬到 NodeComponents.vue */
 .th { font-size: 12px; color: var(--text-faint); margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; }
 .more-link {
   background: none; border: none; color: var(--accent-dim); font-size: 11.5px;
   cursor: pointer; padding: 0; transition: color var(--transition);
 }
 .more-link:hover { color: var(--accent); }
-.nc-row { display: flex; align-items: center; gap: 12px; padding: 5px 0; }
-.nc-name { display: flex; align-items: center; gap: 7px; width: 180px; color: var(--text-hi); font-size: 13px; }
-.nc-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.nc-off { font-size: 10px; color: var(--text-faint); }
-.comp {
-  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
-  border-radius: 999px; font-size: 12px; border: 1px solid rgba(255,255,255,0.08);
-  background: var(--bg-panel); color: var(--text-lo); position: relative; cursor: default;
-}
-.c-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.comp.ok .c-dot { background: #3ddc84; }
-.comp.ok { color: #3ddc84; border-color: rgba(61,220,132,0.3); }
-.comp.bad .c-dot { background: #ff5d6c; }
-.comp.bad { color: #ff5d6c; border-color: rgba(255,93,108,0.3); }
-.comp.off .c-dot { background: #ff5d6c; opacity: 0.5; }
-.comp.off { color: var(--text-faint); border-color: rgba(255,255,255,0.08); opacity: 0.7; }
-.comp.unknown .c-dot { background: var(--text-faint); }
-.comp.unknown { color: var(--text-faint); }
-.c-install {
-  opacity: 0; transition: opacity 0.15s;
-  background: #ff5d6c; color: #fff; border: none; border-radius: 5px;
-  font-size: 11px; padding: 2px 8px; cursor: pointer; margin-left: 2px;
-}
-.comp.bad:hover .c-install { opacity: 1; }
-.c-install:disabled { opacity: 0.6; cursor: default; }
-.c-label { font-size: 11.5px; }
 
 /* 实时曲线 */
 .live-chart { padding: 6px 16px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); }

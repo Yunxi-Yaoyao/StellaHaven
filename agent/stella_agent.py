@@ -19,8 +19,10 @@ import json
 import os
 import platform
 import re
+import select
 import shutil
 import socket
+import statistics
 import subprocess
 import sys
 import threading
@@ -39,7 +41,7 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.5.0"
+AGENT_VERSION = "0.6.0"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
@@ -1076,9 +1078,56 @@ class Agent:
         except Exception:
             pass
 
+    def _proxy_reachable(self, proxy_url: str) -> bool:
+        """探测本机 socks5 代理端口是否可达（127.0.0.1:1080 之类）。"""
+        try:
+            host_port = proxy_url.split("://", 1)[1]
+            host, _, port = host_port.rpartition(":")
+            with socket.create_connection((host, int(port)), timeout=2):
+                return True
+        except Exception:
+            return False
+
+    def _run_speedtest_once(self, exe: str, task, proxy: str | None) -> dict | None:
+        """跑一轮 speedtest；返回结果 dict，或 {"error": ...}。proxy 非 None 时走代理。"""
+        cmd = [exe, "--json"]
+        # -s 只有 speedtest-go 支持；speedtest-cli 用 --server
+        st_server = task.get("speedtest_server")
+        if st_server:
+            cmd += ["-s", str(st_server)] if "speedtest-go" in exe else ["--server", str(st_server)]
+        env = None
+        if proxy:
+            if "speedtest-go" in exe:
+                cmd += ["--proxy", proxy]
+            else:
+                # speedtest-cli 没有 --proxy，用标准环境变量
+                env = dict(os.environ, HTTPS_PROXY=proxy, HTTP_PROXY=proxy)
+        # 完整测速含 ping + 下载 + 上传 + 丢包分析，可能 ~60s，留足超时
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        # 阶段心跳：子进程跑期间每 15s 报一次「测速中」，前端不再黑屏干等
+        waited = 0
+        while proc.poll() is None:
+            time.sleep(5)
+            waited += 5
+            if waited % 15 == 0:
+                self._emit_stage_note(task["id"], f"测速中（ping → 下载 → 上传）… 已进行 {waited}s")
+            if waited >= 90:
+                proc.kill()
+                raise subprocess.TimeoutExpired(cmd, 90)
+        out, err_out = proc.communicate()
+        if proc.returncode == 0:
+            try:
+                return json.loads(out)
+            except json.JSONDecodeError:
+                return {"raw": out[-2000:]}
+        # 非零退出：带上 stderr 真实原因（如网络不可达），别再误报「未安装」
+        return {"error": f"speedtest 失败：{(err_out or out).strip()[-300:] or f'exit {proc.returncode}'}"}
+
     def _run_speedtest(self, task) -> dict:
         """公共 speedtest（用 speedtest-go 或 speedtest-cli，都没有则报错）。
-        task.speedtest_server 指定测速服务器 ID（speedtest-go 的 -s 参数），None=自动。"""
+        task.speedtest_server 指定测速服务器 ID（speedtest-go 的 -s 参数），None=自动。
+        直连失败且本机有 xray 代理（127.0.0.1:1080 可达）时自动走代理重试——
+        PBR 让 agent 直连物理网卡，家宽直连 Cloudflare(speedtest.net) 会被墙。"""
         exes = ["speedtest-go", "speedtest", "speedtest-cli"]
         bin_st = os.path.join(self._agent_bin(), "speedtest-go")
         if os.path.exists(bin_st):
@@ -1086,37 +1135,30 @@ class Agent:
         st_server = task.get("speedtest_server")
         self._emit_stage_note(task["id"], "选择测速服务器…" if not st_server else f"连接指定服务器 #{st_server}…")
         last_err = "未安装 speedtest-go / speedtest-cli"
+        proxy = "socks5://127.0.0.1:1080"
+        use_proxy = False
         for exe in exes:
-            try:
-                cmd = [exe, "--json"]
-                # -s 只有 speedtest-go 支持；speedtest-cli 用 --server
-                if st_server:
-                    cmd += ["-s", str(st_server)] if "speedtest-go" in exe else ["--server", str(st_server)]
-                # 完整测速含 ping + 下载 + 上传 + 丢包分析，可能 ~60s，留足超时
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                # 阶段心跳：子进程跑期间每 15s 报一次「测速中」，前端不再黑屏干等
-                waited = 0
-                while proc.poll() is None:
-                    time.sleep(5)
-                    waited += 5
-                    if waited % 15 == 0:
-                        self._emit_stage_note(task["id"], f"测速中（ping → 下载 → 上传）… 已进行 {waited}s")
-                    if waited >= 90:
-                        proc.kill()
-                        raise subprocess.TimeoutExpired(cmd, 90)
-                out, err_out = proc.communicate()
-                if proc.returncode == 0:
-                    try:
-                        return json.loads(out)
-                    except json.JSONDecodeError:
-                        return {"raw": out[-2000:]}
-                # 非零退出：带上 stderr 真实原因（如网络不可达），别再误报「未安装」
-                last_err = f"speedtest 失败：{(err_out or out).strip()[-300:] or f'exit {proc.returncode}'}"
-            except FileNotFoundError:
-                continue
-            except subprocess.TimeoutExpired:
-                last_err = "speedtest 超时（90s）"
-                continue
+            for attempt in range(2):  # 0=直连, 1=代理重试（仅代理可达时）
+                if attempt == 1:
+                    if not self._proxy_reachable(proxy):
+                        break
+                    use_proxy = True
+                    self._emit_stage_note(task["id"], "直连失败，切换代理通道重试…")
+                try:
+                    r = self._run_speedtest_once(exe, task, proxy if use_proxy else None)
+                    if r is not None and "error" not in r:
+                        if use_proxy:
+                            r["via_proxy"] = True  # 标记走的代理，结果页可区分
+                        return r
+                    last_err = (r or {}).get("error", last_err)
+                    # 直连失败才有下一轮（代理重试）；代理也失败就换下一个 exe
+                    if use_proxy:
+                        break
+                except FileNotFoundError:
+                    break
+                except subprocess.TimeoutExpired:
+                    last_err = "speedtest 超时（90s）"
+                    continue
         return {"error": last_err}
 
     def _run_component_install(self, task):
@@ -1249,37 +1291,174 @@ class Agent:
             return str(e)
 
     @staticmethod
-    def _mtr_cmd(target: str, proto: str) -> list[str]:
-        """组 mtr 命令。target 可带端口（host:port，tcp/udp 用）；icmp 忽略端口。"""
+    def _mtr_cmd(target: str, proto: str, params: dict | None = None) -> list[str]:
+        """组 mtr 命令（--raw 流式输出，逐包解析做实时显示）。
+        target 可带端口（host:port，tcp/udp 用）；icmp 忽略端口。
+        params: count(-c 包数)/interval(-i 秒)/max_hops(-m)/psize(-s 字节)，后端已校验范围。"""
+        p = params or {}
         host, port = target, None
         if ":" in target:
-            h, _, p = target.rpartition(":")
-            if h and p.isdigit():
-                host, port = h, int(p)
-        cmd = ["mtr", "-r", "-c", "10", "--json"]
+            h, _, ps = target.rpartition(":")
+            if h and ps.isdigit():
+                host, port = h, int(ps)
+        cmd = ["mtr", "--raw", "-c", str(int(p.get("count", 10)))]
+        if p.get("interval"):
+            # mtr 限制：非 root 用户 -i 最小 1.0 秒，钳住防失败
+            cmd += ["-i", str(max(float(p["interval"]), 1.0))]
+        if p.get("max_hops"):
+            cmd += ["-m", str(int(p["max_hops"]))]
+        if p.get("psize"):
+            cmd += ["-s", str(int(p["psize"]))]
         if proto in ("udp", "tcp"):
             cmd += ["--" + proto, "-P", str(port or 80)]
         cmd.append(host)
         return cmd
 
-    def _run_mtr(self, task):
-        """执行 mtr，回传结果。"""
-        tid = task["id"]
-        cmd = self._mtr_cmd(task["target"], task.get("protocol", "icmp"))
+    def _mtr_stream(self, target: str, proto: str, params: dict | None = None,
+                    live_cb=None) -> dict:
+        """跑 mtr --raw 并流式聚合逐跳统计（x=发包 h=主机 d=DNS名 p=回包，rtt 单位 µs）。
+
+        返回 mtr --json 兼容结构（hub 多带 name/last/stdev，前端终端式表格直接用）。
+        live_cb(hubs) 每 ~2s 回调一次最新快照（工具页实时逐跳表）。"""
+        p = params or {}
+        count = int(p.get("count", 10))
+        interval = float(p.get("interval", 1.0))
+        cmd = self._mtr_cmd(target, proto, params)
+        # 解析目标 IP：raw 流里目的跳被应答后，mtr 会往「目的+1」再发一个幻影探针
+        # （同 IP、只发一次），后处理要靠它把幻影跳剔掉
+        target_host = cmd[-1]
+        target_ips: set[str] = set()
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if out.returncode != 0:
-                self._post(f"/agent/mtr-tasks/{tid}/result",
-                           json_body={"error": out.stderr[-500:]},
-                           token=self.token, status="failed")
-                return
+            for fam, _, _, _, sa in socket.getaddrinfo(target_host, None):
+                if fam in (socket.AF_INET, socket.AF_INET6):
+                    target_ips.add(str(sa[0]))
+        except OSError:
+            pass
+        hops: dict[int, dict] = {}
+
+        def snapshot() -> list[dict]:
+            hubs = []
+            for idx in sorted(hops):
+                h = hops[idx]
+                rtts = h["rtts"]
+                snt = h["sent"]
+                recv = len(rtts)
+                hubs.append({
+                    "count": idx + 1,
+                    "host": h.get("name") or h.get("host") or "???",
+                    "loss%": round((snt - recv) / snt * 100, 1) if snt else 0.0,
+                    "snt": snt,
+                    "last": round(rtts[-1], 3) if rtts else None,
+                    "avg": round(sum(rtts) / recv, 3) if rtts else None,
+                    "best": round(min(rtts), 3) if rtts else None,
+                    "wrst": round(max(rtts), 3) if rtts else None,
+                    "stdev": round(statistics.pstdev(rtts), 3) if recv > 1 else (0.0 if rtts else None),
+                })
+            return hubs
+
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, bufsize=1)
+        assert proc.stdout is not None
+        deadline = time.time() + count * max(interval, 1.0) + 45
+        last_emit = 0.0
+        completed = False  # 正常跑完（raw 模式对目的跳有少打 x/p 行的怪癖，跑完才能按 count 校准 Snt）
+        try:
+            while True:
+                if time.time() > deadline:
+                    proc.kill()
+                    raise subprocess.TimeoutExpired(cmd, int(deadline))
+                # select 1s 轮询读行：readline 裸阻塞会让 deadline 失效
+                r, _, _ = select.select([proc.stdout], [], [], 1.0)
+                if not r:
+                    if proc.poll() is not None:
+                        completed = True  # 进程结束且管道已读空
+                        break
+                    continue
+                line = proc.stdout.readline()
+                if not line:
+                    if proc.poll() is not None:
+                        completed = True
+                        break
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                kind = parts[0]
+                try:
+                    idx = int(parts[1])
+                except ValueError:
+                    continue
+                h = hops.setdefault(idx, {"host": None, "name": None, "sent": 0, "rtts": []})
+                if kind == "x":
+                    h["sent"] += 1
+                elif kind == "h" and len(parts) >= 3:
+                    if not h["host"]:
+                        h["host"] = parts[2]
+                elif kind == "d" and len(parts) >= 3:
+                    h["name"] = parts[2]
+                elif kind == "p" and len(parts) >= 3:
+                    try:
+                        h["rtts"].append(int(parts[2]) / 1000.0)  # µs → ms
+                    except ValueError:
+                        pass
+                now = time.time()
+                if live_cb and now - last_emit >= 2.0:
+                    last_emit = now
+                    live_cb(snapshot())
+            proc.wait(timeout=10)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+        if completed:
+            # 剔幻影跳：raw 流里目的跳被应答后，mtr 会往「目的+1」多发一个探针
+            # （同 IP、只发一次）。找到第一个主机==目标 IP（或解析名==目标）的跳，
+            # 它后面的都是幻影，直接丢掉（幻影的回包不并入目的跳，否则 recv>snt）。
+            if target_ips and hops:
+                dest_idx = None
+                for idx in sorted(hops):
+                    h = hops[idx]
+                    if (h.get("host") in target_ips) or (h.get("name") in target_ips) \
+                            or (h.get("name") == target_host) or (h.get("host") == target_host):
+                        dest_idx = idx
+                        break
+                if dest_idx is not None:
+                    for idx in [i for i in hops if i > dest_idx]:
+                        del hops[idx]
+            # 正常跑完：每一跳的发包数都等于 count（对照 mtr -r 的 Snt 列语义）。
+            # raw 流对目的跳只打 1 行 x/p（mtr 自身怪癖），不校准会把末跳 Snt 显示成 1。
+            for h in hops.values():
+                h["sent"] = count
+        err = ""
+        try:
+            err = proc.stderr.read() if proc.stderr else ""
+        except Exception:
+            pass
+        hubs = snapshot()
+        if proc.returncode not in (0, None) and not hubs:
+            raise RuntimeError((err or f"mtr exit {proc.returncode}")[-500:])
+        result = {"report": {"mtr": {"dst": target, "tos": 0,
+                                     "psize": int(p.get("psize", 64)),
+                                     "bitpattern": 0, "tests": count},
+                             "hubs": hubs}}
+        return result
+
+    def _run_mtr(self, task):
+        """执行 mtr（--raw 流式：边跑边回传实时快照，结束回传完整结果）。"""
+        tid = task["id"]
+
+        def live(hubs):
             try:
-                result = json.loads(out.stdout)
-            except json.JSONDecodeError:
-                result = {"raw": out.stdout[-2000:]}
+                self._post(f"/agent/mtr-tasks/{tid}/live",
+                           json_body={"hops": hubs}, token=self.token)
+            except Exception:
+                pass  # 实时快照丢了不致命，下一秒还会再发
+
+        try:
+            result = self._mtr_stream(task["target"], task.get("protocol", "icmp"),
+                                      task.get("params"), live_cb=live)
             self._post(f"/agent/mtr-tasks/{tid}/result",
                        json_body=result, token=self.token, status="done")
-        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        except (subprocess.TimeoutExpired, FileNotFoundError, RuntimeError) as e:
             self._post(f"/agent/mtr-tasks/{tid}/result",
                        json_body={"error": str(e)}, token=self.token, status="failed")
 
@@ -1287,25 +1466,15 @@ class Agent:
         """监控项的定时/失败触发 MTR：单独线程跑（10 包 ~15s，不阻塞探测循环），结果走 mtr-report。"""
         if shutil.which("mtr") is None:
             return  # 未装 mtr 就跳过（前端组件检测会提示可代装）
-        cmd = self._mtr_cmd(
-            f"{m['mtr_host']}:{m['mtr_port']}" if m.get("mtr_port") else m["mtr_host"],
-            m.get("mtr_proto", "icmp"))
+        target = f"{m['mtr_host']}:{m['mtr_port']}" if m.get("mtr_port") else m["mtr_host"]
+        proto = m.get("mtr_proto", "icmp")
 
         def _job():
             try:
-                out = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-                if out.returncode == 0:
-                    try:
-                        result = json.loads(out.stdout)
-                    except json.JSONDecodeError:
-                        result = {"raw": out.stdout[-2000:]}
-                    self._post("/agent/mtr-report", json_body={
-                        "monitor_id": mid, "trigger": trigger, "ok": True, "result_json": result},
-                        token=self.token)
-                else:
-                    self._post("/agent/mtr-report", json_body={
-                        "monitor_id": mid, "trigger": trigger, "ok": False,
-                        "error": (out.stderr or out.stdout)[-500:]}, token=self.token)
+                result = self._mtr_stream(target, proto)
+                self._post("/agent/mtr-report", json_body={
+                    "monitor_id": mid, "trigger": trigger, "ok": True, "result_json": result},
+                    token=self.token)
             except Exception as e:
                 try:
                     self._post("/agent/mtr-report", json_body={

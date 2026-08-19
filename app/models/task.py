@@ -70,6 +70,10 @@ class MtrTask(Base):
     trigger: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending / running / done / failed
     result_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # 逐跳结果
+    # 探测参数（-c 包数 / -i 间隔 / -m 最大跳数 / -s 包大小），空=默认
+    params_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # 实时逐跳快照（--raw 流式解析，跑的过程中反复覆写，槽位制不追加）
+    live_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

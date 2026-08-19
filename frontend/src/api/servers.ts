@@ -91,7 +91,30 @@ export interface IperfTask {
   created_at: string;
 }
 
-export interface MtrHop { count: number; host: string; "Loss%": number; Avg: number; Best: number; Wrst: number; }
+// 两种键格式并存：旧数据是 mtr --json 原生大写键，agent 0.6.0 起是 --raw 聚合的小写键（多 snt/last/stdev）
+export interface MtrHop {
+  count: number; host: string;
+  "Loss%"?: number; Snt?: number; Last?: number; Avg?: number; Best?: number; Wrst?: number; StDev?: number;
+  "loss%"?: number; snt?: number; last?: number | null; avg?: number | null;
+  best?: number | null; wrst?: number | null; stdev?: number | null;
+}
+// 终端式表格用的归一化跳结构
+export interface MtrHopRow { hop: number; host: string; loss: number; snt: number | null;
+  last: number | null; avg: number | null; best: number | null; wrst: number | null; stdev: number | null; }
+export function mtrHopRows(hubs: MtrHop[] | undefined | null): MtrHopRow[] {
+  return (hubs || []).map((h) => ({
+    hop: h.count,
+    host: h.host,
+    loss: h["loss%"] ?? h["Loss%"] ?? 0,
+    snt: h.snt ?? h.Snt ?? null,
+    last: h.last ?? h.Last ?? null,
+    avg: h.avg ?? h.Avg ?? null,
+    best: h.best ?? h.Best ?? null,
+    wrst: h.wrst ?? h.Wrst ?? null,
+    stdev: h.stdev ?? h.StDev ?? null,
+  }));
+}
+export interface MtrParams { count?: number; interval?: number; max_hops?: number; psize?: number }
 export interface MtrTask {
   id: number;
   node_id: number;
@@ -101,6 +124,8 @@ export interface MtrTask {
   trigger?: "manual" | "periodic" | "failure";
   status: "pending" | "running" | "done" | "failed";
   result_json: ({ report?: { hubs?: MtrHop[] }; error?: string; raw?: string } & Record<string, unknown>) | null;
+  params_json?: MtrParams | null;
+  live_json?: { hops?: MtrHop[] } | null;  // 跑的过程中 agent 每 ~2s 覆写的实时逐跳快照
   created_at: string;
 }
 
@@ -264,7 +289,7 @@ export const createIperfTask = (data: {
 }) => api<IperfTask>("/iperf-tasks", { method: "POST", body: JSON.stringify(data) });
 
 export const listMtrTasks = () => api<MtrTask[]>("/mtr-tasks");
-export const createMtrTask = (data: { node_id: number; target: string; protocol?: string }) =>
+export const createMtrTask = (data: { node_id: number; target: string; protocol?: string; params?: MtrParams }) =>
   api<MtrTask>("/mtr-tasks", { method: "POST", body: JSON.stringify(data) });
 
 export const listCommands = () => api<Command[]>("/commands");

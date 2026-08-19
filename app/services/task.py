@@ -101,8 +101,42 @@ def cancel_iperf(db: Session, task_id: int) -> IperfTask | None:
     return t
 
 
-def create_mtr(db: Session, node_id: int, target: str, protocol: str) -> MtrTask:
-    return repo.create_mtr(db, node_id, target, protocol)
+# MTR 参数合法范围（对应 mtr 的 -c/-i/-m/-s）
+_MTR_PARAM_RULES = {
+    "count": (int, 1, 100),      # -c 发包数
+    "interval": (float, 1.0, 60.0),  # -i 秒（mtr 非 root 下限 1.0）
+    "max_hops": (int, 1, 255),   # -m
+    "psize": (int, 24, 9000),    # -s 字节
+}
+
+
+def _valid_mtr_params(params: dict | None) -> dict | None:
+    """过滤非法参数键/值，越界直接拒绝（防止 agent 拿到奇葩参数跑飞）。"""
+    if not params:
+        return None
+    out: dict = {}
+    for k, v in params.items():
+        rule = _MTR_PARAM_RULES.get(k)
+        if rule is None:
+            continue
+        typ, lo, hi = rule
+        try:
+            v2 = typ(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"参数 {k} 格式不对")
+        if not (lo <= v2 <= hi):
+            raise ValueError(f"参数 {k} 超出范围 {lo}~{hi}")
+        out[k] = v2
+    return out or None
+
+
+def create_mtr(db: Session, node_id: int, target: str, protocol: str,
+               params: dict | None = None) -> MtrTask:
+    return repo.create_mtr(db, node_id, target, protocol, params=_valid_mtr_params(params))
+
+
+def update_mtr_live(db: Session, task_id: int, live: dict) -> None:
+    repo.update_mtr_live(db, task_id, live)
 
 
 def create_mtr_for_monitor(db: Session, monitor) -> MtrTask:
@@ -256,7 +290,7 @@ def poll_tasks(db: Session, token: str) -> dict:
             for t in client_iperf
         ],
         "mtr_tasks": [
-            {"id": t.id, "target": t.target, "protocol": t.protocol}
+            {"id": t.id, "target": t.target, "protocol": t.protocol, "params": t.params_json}
             for t in mtr
         ],
         "commands": [

@@ -71,7 +71,10 @@ def list_mtr(user: User = Depends(current_user), db: Session = Depends(get_db)):
 
 @router.post("/mtr-tasks", response_model=MtrTaskRead, status_code=201)
 def create_mtr(data: MtrTaskCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return task_svc.create_mtr(db, data.node_id, data.target, data.protocol)
+    try:
+        return task_svc.create_mtr(db, data.node_id, data.target, data.protocol, data.params)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/commands", response_model=list[CommandRead])
@@ -185,6 +188,12 @@ def download_speedtest_go(token: str, db: Session = Depends(get_db)):
 @agent_task_router.post("/mtr-tasks/{task_id}/result")
 def finish_mtr(task_id: int, token: str, status: str, result_json: dict, db: Session = Depends(get_db)):
     task_svc.finish_mtr(db, task_id, status, result_json)
+
+
+@agent_task_router.post("/mtr-tasks/{task_id}/live")
+def mtr_live(task_id: int, token: str, live_json: dict, db: Session = Depends(get_db)):
+    """agent 跑 mtr --raw 过程中每 ~2s 覆写一次实时逐跳快照（前端轮询显示，跟终端一样实时刷）。"""
+    task_svc.update_mtr_live(db, task_id, live_json)
     return {"ok": True}
 
 

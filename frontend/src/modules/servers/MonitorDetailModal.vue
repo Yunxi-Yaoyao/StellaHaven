@@ -7,7 +7,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import * as echarts from "echarts";
 import {
   getMonitorSeries, updateMonitor, listMonitorMtr, runMonitorMtr,
-  type Monitor, type MtrTask, type MonitorCheckPoint,
+  mtrHopRows, type Monitor, type MtrTask, type MonitorCheckPoint, type MtrHopRow,
 } from "../../api/servers";
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
@@ -151,12 +151,22 @@ const mtrOpenId = ref<number | null>(null);
 const TRIGGER_LABEL: Record<string, string> = { manual: "手动", periodic: "定时", failure: "失败触发" };
 
 function mtrSummary(t: MtrTask): string {
-  const hops = t.result_json?.report?.hubs;
-  if (t.status === "pending" || t.status === "running") return "执行中…";
-  if (t.status === "failed") return t.result_json?.error?.slice(0, 60) || "失败";
-  if (!hops?.length) return "无逐跳数据";
-  const last = hops[hops.length - 1];
-  return `${hops.length} 跳 · 末跳 ${last.host} · 丢包 ${last["Loss%"].toFixed(0)}% · 平均 ${last.Avg.toFixed(1)}ms`;
+  if (t.status === "pending") return "等待节点领取…";
+  if (t.status === "running") {
+    const live = t.live_json?.hops?.length ?? 0;
+    return live ? `实时探测中 · 已到 ${live} 跳` : "执行中…";
+  }
+  if (t.status === "failed") return (t.result_json as any)?.error?.slice(0, 60) || "失败";
+  const rows = mtrHopRows(t.result_json?.report?.hubs);
+  if (!rows.length) return "无逐跳数据";
+  const last = rows[rows.length - 1];
+  return `${rows.length} 跳 · 末跳 ${last.host} · 丢包 ${last.loss.toFixed(0)}% · 平均 ${last.avg != null ? last.avg.toFixed(1) : "-"}ms`;
+}
+
+// 展开的逐跳表：done 用最终结果，running 用实时快照（--raw 流式，跟终端一样边跑边刷）
+function hopRows(t: MtrTask): MtrHopRow[] {
+  if (t.status === "done") return mtrHopRows(t.result_json?.report?.hubs);
+  return mtrHopRows(t.live_json?.hops);
 }
 
 async function loadMtr() {
@@ -313,17 +323,20 @@ onUnmounted(() => {
               <span class="mtr-status" :class="t.status">{{ t.status === "done" ? "完成" : t.status === "failed" ? "失败" : "执行中" }}</span>
               <span class="mtr-sum">{{ mtrSummary(t) }}</span>
             </div>
-            <div v-if="mtrOpenId === t.id && t.result_json?.report?.hubs?.length" class="hops">
+            <div v-if="mtrOpenId === t.id && hopRows(t).length" class="hops">
               <div class="hop hop-head">
-                <span>跳</span><span>主机</span><span>丢包%</span><span>平均</span><span>最优</span><span>最差</span>
+                <span>跳</span><span>主机</span><span>Loss%</span><span>Snt</span><span>Last</span><span>Avg</span><span>Best</span><span>Wrst</span><span>StDev</span>
               </div>
-              <div v-for="h in t.result_json.report.hubs" :key="h.count" class="hop">
-                <span>{{ h.count }}</span>
+              <div v-for="h in hopRows(t)" :key="h.hop" class="hop">
+                <span>{{ h.hop }}</span>
                 <span class="hop-host">{{ h.host }}</span>
-                <span :class="{ bad: h['Loss%'] > 0 }">{{ h["Loss%"].toFixed(0) }}</span>
-                <span>{{ h.Avg.toFixed(1) }}ms</span>
-                <span>{{ h.Best.toFixed(1) }}</span>
-                <span>{{ h.Wrst.toFixed(1) }}</span>
+                <span :class="{ bad: h.loss > 0 }">{{ h.loss.toFixed(1) }}</span>
+                <span>{{ h.snt ?? "-" }}</span>
+                <span>{{ h.last != null ? h.last.toFixed(1) : "-" }}</span>
+                <span>{{ h.avg != null ? h.avg.toFixed(1) : "-" }}</span>
+                <span>{{ h.best != null ? h.best.toFixed(1) : "-" }}</span>
+                <span>{{ h.wrst != null ? h.wrst.toFixed(1) : "-" }}</span>
+                <span>{{ h.stdev != null ? h.stdev.toFixed(1) : "-" }}</span>
               </div>
             </div>
             <div v-else-if="mtrOpenId === t.id" class="hops empty">{{ t.result_json?.error || "无逐跳数据" }}</div>
@@ -404,7 +417,9 @@ onUnmounted(() => {
 .mtr-status.pending, .mtr-status.running { color: var(--text-faint, #5b6373); }
 .mtr-sum { color: var(--text-lo, #8b93a7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hops { margin: 2px 0 8px 18px; border-left: 2px solid rgba(255,255,255,0.07); padding-left: 12px; }
-.hop { display: grid; grid-template-columns: 30px 1fr 56px 64px 56px 56px; gap: 6px; font-size: 11px; font-family: var(--font-mono, monospace); color: var(--text-lo, #8b93a7); padding: 2px 0; }
+.hop { display: grid; grid-template-columns: 26px minmax(120px, 1fr) repeat(7, 46px); gap: 5px; font-size: 11px; font-family: var(--font-mono, monospace); color: var(--text-lo, #8b93a7); padding: 2px 0; }
+.hop span:not(.hop-host) { text-align: right; }
+.hop span:first-child { text-align: left; }
 .hop-head { color: var(--text-faint, #5b6373); }
 .hop-host { color: var(--text-hi, #e8edf7); overflow: hidden; text-overflow: ellipsis; }
 .hop .bad { color: #e5534b; }

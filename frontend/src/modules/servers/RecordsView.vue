@@ -3,7 +3,7 @@
 // 数据不另存，直接读三类任务表（每类后端只留最近 100 条）；5s 轮询让进行中的任务原地更新。
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import {
-  listNodes, listIperfTasks, listMtrTasks, listCommands,
+  listNodes, listIperfTasks, listMtrTasks, listCommands, mtrHopRows,
   type Node, type IperfTask, type MtrTask, type Command,
 } from "../../api/servers";
 import { fmtTime, fmtBandwidth, fmtParams, resultMetrics, TASK_STATUS } from "./record-helpers";
@@ -92,15 +92,10 @@ const rows = computed<Row[]>(() => {
 const expanded = ref<string | null>(null);
 function toggle(key: string) { expanded.value = expanded.value === key ? null : key; }
 
-function mtrHops(t: MtrTask): { host: string; loss: number; avg: number }[] {
+function mtrHops(t: MtrTask): { host: string; loss: number; snt: number | null; avg: number | null }[] {
+  // mtrHopRows 兼容旧 --json 大写键和新 raw 聚合小写键；记录页只展示摘要四列
   const r = t.result_json as any;
-  const hubs = r?.report?.hubs || r?.hubs || [];
-  if (!Array.isArray(hubs)) return [];
-  return hubs.map((h: any) => ({
-    host: h.host || h.Host || "?",
-    loss: typeof h["Loss%"] === "number" ? h["Loss%"] : (parseFloat(h["Loss%"]) || 0),
-    avg: typeof h.Avg === "number" ? h.Avg : (parseFloat(h.Avg) || 0),
-  }));
+  return mtrHopRows(r?.report?.hubs || r?.hubs).map((h) => ({ host: h.host, loss: h.loss, snt: h.snt, avg: h.avg }));
 }
 
 const KIND_LABEL: Record<string, string> = { iperf: "打流", mtr: "MTR", command: "命令" };
@@ -161,12 +156,13 @@ watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immedia
           <!-- MTR：跳数表 -->
           <template v-else-if="r.kind === 'mtr'">
             <div v-if="mtrHops(r.raw as MtrTask).length" class="mtr-table">
-              <div class="mtr-row mtr-hd"><span>跳</span><span>主机</span><span>丢包</span><span>平均</span></div>
+              <div class="mtr-row mtr-hd"><span>跳</span><span>主机</span><span>丢包</span><span>发包</span><span>平均</span></div>
               <div v-for="(h, i) in mtrHops(r.raw as MtrTask)" :key="i" class="mtr-row">
                 <span class="mtr-hop">{{ i + 1 }}</span>
                 <span class="mtr-host">{{ h.host }}</span>
                 <span class="mtr-loss" :class="{ bad: h.loss > 0 }">{{ h.loss.toFixed(1) }}%</span>
-                <span class="mtr-avg">{{ h.avg.toFixed(1) }} ms</span>
+                <span class="mtr-avg">{{ h.snt ?? "-" }}</span>
+                <span class="mtr-avg">{{ h.avg != null ? h.avg.toFixed(1) + " ms" : "-" }}</span>
               </div>
             </div>
             <div v-else-if="(r.raw as MtrTask).status === 'done'" class="r-hint">无路径数据（可能被目标过滤）</div>
@@ -244,7 +240,7 @@ watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immedia
 .mc-label { font-size: 11px; color: var(--text-faint); }
 .mc-value { font-size: 14px; color: var(--text-hi); font-weight: 475; margin-top: 2px; }
 .mtr-table { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
-.mtr-row { display: grid; grid-template-columns: 40px 1fr 70px 90px; gap: 8px; padding: 4px 6px; border-radius: 4px; }
+.mtr-row { display: grid; grid-template-columns: 40px 1fr 70px 56px 90px; gap: 8px; padding: 4px 6px; border-radius: 4px; }
 .mtr-hd { color: var(--text-faint); font-size: 11px; }
 .mtr-hop { color: var(--text-faint); }
 .mtr-host { color: var(--text-hi); font-family: var(--font-mono, monospace); }

@@ -48,15 +48,22 @@ def get_iperf(db: Session, task_id: int) -> IperfTask | None:
 
 # ── MTR ──
 def create_mtr(db: Session, node_id: int, target: str, protocol: str,
-               monitor_id: int | None = None, trigger: str = "manual") -> MtrTask:
+               monitor_id: int | None = None, trigger: str = "manual",
+               params: dict | None = None) -> MtrTask:
     t = MtrTask(node_id=node_id, target=target, protocol=protocol,
-                monitor_id=monitor_id, trigger=trigger)
+                monitor_id=monitor_id, trigger=trigger, params_json=params)
     db.add(t)
     db.commit()
     trim_old(db, MtrTask)
     db.commit()
     db.refresh(t)
     return t
+
+
+def update_mtr_live(db: Session, task_id: int, live: dict) -> None:
+    """覆写 MTR 实时逐跳快照（槽位制：只留最新一份，不追加）。"""
+    db.query(MtrTask).filter(MtrTask.id == task_id).update({"live_json": live})
+    db.commit()
 
 
 def insert_mtr_report(db: Session, node_id: int, monitor_id: int, target: str,

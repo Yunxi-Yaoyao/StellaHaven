@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { listNodes, createNode, removeNode, getHost, installHost, getPublicHost, requestUninstall, type Node, type HostInfo } from "../../api/servers";
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
+import NodeComponents from "./NodeComponents.vue";
 
 const nodes = ref<Node[]>([]);
 const loading = ref(false);
@@ -256,6 +257,9 @@ const uninstallLabel: Record<string, string> = {
       </div>
     </div>
 
+    <!-- 全量组件状态（打流页只显示 iperf3/speedtest） -->
+    <NodeComponents v-if="nodes.length" class="comp-panel" :nodes="nodes" :comps="['iperf3', 'speedtest', 'ufw', 'docker', 'mtr']" @refresh="refresh" />
+
     <!-- 添加节点弹窗 -->
     <div v-if="showAdd" class="mask" @click.self="showAdd = false">
       <div class="dialog">
@@ -362,6 +366,7 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 }
 .add-btn:hover { background: var(--bg-raised); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.comp-panel { margin-top: 16px; background: var(--bg-panel); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); }
 .card {
   background: var(--bg-raised);
   border: 1px solid rgba(255, 255, 255, 0.06);

@@ -261,6 +261,8 @@ class MtrTaskCreate(BaseModel):
     node_id: int
     target: str
     protocol: str = "icmp"
+    # 探测参数：count(-c 包数) / interval(-i 秒) / max_hops(-m) / psize(-s 字节)，空=默认
+    params: dict | None = None
 
 
 class MtrTaskRead(BaseModel):
@@ -272,6 +274,8 @@ class MtrTaskRead(BaseModel):
     trigger: str = "manual"
     status: str
     result_json: dict | None = None
+    params_json: dict | None = None
+    live_json: dict | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

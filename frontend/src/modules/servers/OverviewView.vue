@@ -584,11 +584,12 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 }
 .ms-btn:hover { color: var(--text-hi); }
 .ms-btn.active { background: var(--bg-raised); color: var(--accent); }
-.mon-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+/* grid 等宽列：flex+min-width 会让卡片按内容自适应，同行宽度不一致 */
+.mon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
 .mon-card {
   display: flex; align-items: flex-start; gap: 10px;
   background: var(--bg-raised); border: 1px solid rgba(255,255,255,0.06);
-  border-radius: var(--radius-sm); padding: 10px 14px; min-width: 280px;
+  border-radius: var(--radius-sm); padding: 10px 14px; min-width: 0;
 }
 .mon-card .dot { margin-top: 5px; }
 .mon-info { flex: 1; min-width: 0; }
