@@ -18,7 +18,19 @@ from authlib.jose import JsonWebKey, jwt
 # ── 基础配置 ──
 # issuer = Stella 对外地址（OpenList/Immich 容器 + 浏览器都要能访问）。
 # 注意：Immich 的 openid-client v6 强制 HTTPS issuer，故用公网域名（nginx/frp 终结 TLS 反代到本服务）。
-ISSUER = "https://stella.xiya.live"
+DEFAULT_ISSUER = "https://stella.xiya.live"
+
+# 支持多域名入口冗余：根据请求 Host 返回对应 issuer，让 xiya.live / yunxi.life 都能做 IdP。
+ALLOWED_HOSTS = {
+    "stella.xiya.live": "https://stella.xiya.live",
+    "stella.yunxi.life": "https://stella.yunxi.life",
+}
+
+
+def resolve_issuer(host: str) -> str:
+    host = host.lower().split(":")[0]
+    return ALLOWED_HOSTS.get(host, DEFAULT_ISSUER)
+
 
 OIDC_DIR = Path(__file__).resolve().parents[2] / "data" / "oidc"
 PRIVATE_KEY_PATH = OIDC_DIR / "private.json"  # 私钥 JWK（含公钥）
@@ -101,13 +113,13 @@ def get_client_secret(client_id: str) -> str:
 
 
 # ── 发现文档 / JWKS ──
-def openid_configuration() -> dict:
+def openid_configuration(issuer: str = DEFAULT_ISSUER) -> dict:
     return {
-        "issuer": ISSUER,
-        "authorization_endpoint": f"{ISSUER}/oauth/authorize",
-        "token_endpoint": f"{ISSUER}/oauth/token",
-        "userinfo_endpoint": f"{ISSUER}/oauth/userinfo",
-        "jwks_uri": f"{ISSUER}/oauth/jwks",
+        "issuer": issuer,
+        "authorization_endpoint": f"{issuer}/oauth/authorize",
+        "token_endpoint": f"{issuer}/oauth/token",
+        "userinfo_endpoint": f"{issuer}/oauth/userinfo",
+        "jwks_uri": f"{issuer}/oauth/jwks",
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["RS256"],
@@ -125,12 +137,12 @@ def jwks() -> dict:
 
 # ── id_token 签发 ──
 def _sign_id_token(user_id: str, username: str, email: str, nonce: str | None,
-                   client_id: str) -> str:
+                   client_id: str, issuer: str = DEFAULT_ISSUER) -> str:
     key = _get_key()
     now = int(time.time())
     header = {"alg": "RS256", "kid": KID, "typ": "JWT"}
     claims = {
-        "iss": ISSUER,
+        "iss": issuer,
         "sub": str(user_id),
         "aud": client_id,
         "iat": now,
@@ -147,7 +159,8 @@ def _sign_id_token(user_id: str, username: str, email: str, nonce: str | None,
 
 # ── 授权码流程 ──
 def create_authorization_code(client_id: str, redirect_uri: str, user_id: str,
-                              username: str, email: str, nonce: str | None) -> str:
+                              username: str, email: str, nonce: str | None,
+                              issuer: str = DEFAULT_ISSUER) -> str:
     code = secrets.token_urlsafe(32)
     _codes[code] = {
         "client_id": client_id,
@@ -156,6 +169,7 @@ def create_authorization_code(client_id: str, redirect_uri: str, user_id: str,
         "email": email or "",
         "redirect_uri": redirect_uri,
         "nonce": nonce,
+        "issuer": issuer,
         "expires": time.time() + CODE_TTL,
     }
     return code
@@ -179,8 +193,9 @@ def exchange_code(code: str, client_id: str, client_secret: str,
         return None
     _codes.pop(code, None)
 
+    issuer = rec.get("issuer", DEFAULT_ISSUER)
     id_token = _sign_id_token(rec["user_id"], rec["username"], rec["email"],
-                              rec["nonce"], client_id)
+                              rec["nonce"], client_id, issuer=issuer)
     access_token = secrets.token_urlsafe(32)
     _tokens[access_token] = {
         "user_id": rec["user_id"],

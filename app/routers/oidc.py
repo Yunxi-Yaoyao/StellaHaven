@@ -13,8 +13,14 @@ from app.routers.auth import current_user
 
 router = APIRouter(tags=["oidc"])
 
-# 前端登录页（未登录时跳转）
-FRONTEND_LOGIN = f"{oidc_svc.ISSUER}/login"
+
+def _frontend_login(issuer: str) -> str:
+    return f"{issuer}/login"
+
+
+def _host_issuer(request: Request) -> str:
+    host = request.headers.get("host", "")
+    return oidc_svc.resolve_issuer(host)
 
 
 def _optional_user(request: Request, response: Response, db: Session = Depends(get_db)):
@@ -32,8 +38,8 @@ def _optional_user(request: Request, response: Response, db: Session = Depends(g
 
 
 @router.get("/.well-known/openid-configuration")
-def openid_configuration():
-    return oidc_svc.openid_configuration()
+def openid_configuration(request: Request):
+    return oidc_svc.openid_configuration(_host_issuer(request))
 
 
 @router.get("/oauth/jwks")
@@ -45,6 +51,7 @@ def jwks():
 def authorize(request: Request, response_type: str = "code", client_id: str = "",
               redirect_uri: str = "", scope: str = "openid", state: str = "",
               nonce: str = "", user: User | None = Depends(_optional_user)):
+    issuer = _host_issuer(request)
     # 校验 client + redirect_uri
     if not oidc_svc._get_client(client_id):
         return JSONResponse({"error": "invalid_client", "error_description": "未知客户端"}, status_code=400)
@@ -56,13 +63,14 @@ def authorize(request: Request, response_type: str = "code", client_id: str = ""
     # 未登录 → 跳前端登录页，登录后回 authorize
     if user is None:
         next_url = str(request.url)
-        return RedirectResponse(f"{FRONTEND_LOGIN}?next={next_url}")
+        return RedirectResponse(f"{_frontend_login(issuer)}?next={next_url}")
 
     # 已登录 → 直接发授权码
     code = oidc_svc.create_authorization_code(
         client_id=client_id, redirect_uri=redirect_uri,
         user_id=str(user.id), username=user.username,
         email=user.email or "", nonce=nonce or None,
+        issuer=issuer,
     )
     params = {"code": code}
     if state:

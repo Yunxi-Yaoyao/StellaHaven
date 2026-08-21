@@ -1,6 +1,6 @@
 """图库（Immich）路由：容器状态探测 + 启停管理 + 免登录连接端点。"""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
 from app.models.user import User
@@ -12,11 +12,13 @@ router = APIRouter(dependencies=[Depends(current_user)], prefix="/gallery", tags
 
 
 @router.get("/connect")
-def connect(user: User = Depends(current_user)):
-    """iframe 免登录入口：Stella 已登录才放行，302 到 Immich。
-    Immich 已配 autoLaunch + OIDC(Stella)，未登录会自动走 OAuth 流程；
-    链路全在 xiya.live 下（SameSite=Lax 按 eTLD+1 判同站，iframe 内导航 cookie 照发），
-    Stella authorize 能读到登录态直接签 code，全程无需用户操作。"""
+def connect(request: Request, user: User = Depends(current_user)):
+    """iframe 免登录入口：Stella 已登录才放行，按当前域名选择 Immich 入口做 302。
+    冗余：yunxi.life 子域走 LA 上的 immich.yunxi.life，其他回退到 immich.xiya.live。
+    Immich 已配 autoLaunch + OIDC(Stella)，未登录会自动走 OAuth 流程。"""
+    host = request.headers.get("host", "").lower().split(":")[0]
+    if host.endswith((".yunxi.life", "yunxi.life")):
+        return RedirectResponse("https://immich.yunxi.life/")
     return RedirectResponse("https://immich.xiya.live/")
 
 
