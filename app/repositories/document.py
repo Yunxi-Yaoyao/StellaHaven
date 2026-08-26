@@ -50,7 +50,9 @@ def list_by_workspace(db: Session, workspace_id: UUID, parent_id: UUID | None = 
     )
     if parent_id is not None:
         q = q.filter(Document.parent_id == parent_id)
-    return q.offset(skip).limit(limit).all()
+    # 排序是硬要求：分页（offset/limit）下无 ORDER BY 时 PG 返回顺序不定，
+    # 前端分页拉全量会漏/重文档（8.26 limit=200 截掉 v3 文件夹事故的根因之一）
+    return q.order_by(Document.created_at, Document.id).offset(skip).limit(limit).all()
 
 
 def list_trash(db: Session, workspace_id: UUID) -> list[Document]:

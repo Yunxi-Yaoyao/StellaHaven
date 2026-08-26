@@ -107,8 +107,18 @@ export const deleteWorkspace = (id: string, force = false) =>
   api<void>(`/workspaces/${id}?force=${force}`, { method: "DELETE" });
 
 // ── 文档接口 ──
-export const listDocs = (wsId: string) =>
-  api<Doc[]>(`/documents/?workspace_id=${wsId}&limit=200`);
+// 分页拉全量：目录树/缓存都需要完整列表，单一 limit 上限会在文档增长后截断
+// （8.26 事故：limit=200 × 299 篇 → v3 文件夹整支不渲染）。后端已排序保证翻页稳定。
+export const listDocs = async (wsId: string) => {
+  const PAGE = 500;
+  const all: Doc[] = [];
+  for (let skip = 0; ; skip += PAGE) {
+    const page = await api<Doc[]>(`/documents/?workspace_id=${wsId}&skip=${skip}&limit=${PAGE}`);
+    all.push(...page);
+    if (page.length < PAGE) break;
+  }
+  return all;
+};
 
 export const searchDocs = (wsId: string, q: string) =>
   api<Doc[]>(`/documents/search?q=${encodeURIComponent(q)}&workspace_id=${wsId}`);
