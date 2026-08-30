@@ -6,9 +6,10 @@ import * as echarts from "echarts";
 import Icon from "../../shell/Icon.vue";
 import {
   getNodeDetail, getNodeMetrics, getNodeSysMetrics, getTrafficStats, updateNodeIfaces, updateNetType, changeIp,
-  listMonitors, getMonitorSeries, createCommand, listCommands, scanFirewall, getNetTask,
+  listMonitors, getMonitorSeries, createCommand, scanFirewall, getNetTask,
   latestNetTask, scanPbr,
   type NodeDetail, type Monitor, type MonitorCheckPoint, type TrafficStats, type FirewallData,
+  type MetricPoint, type SysMetricPoint,
 } from "../../api/servers";
 import { toast } from "../../composables/useToast";
 import Dropdown from "../../shell/Dropdown.vue";
@@ -412,12 +413,6 @@ const rangeLabel = computed(() => {
   if (timeRange.value === "custom") return "自定义";
   return PRESETS.find((p) => p.key === timeRange.value)?.label || "1小时";
 });
-// 目标时区下的墙上时间：YYYY/MM/DD-HH:MM:SS
-function fmtTime(ms: number, off: number = tzOffset.value): string {
-  const d = new Date(ms + off * 60000);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getUTCFullYear()}/${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())}-${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
-}
 // 起止按钮短格式：今天内 HH:mm，跨天 MM-DD HH:mm（目标时区）
 function fmtTimeShort(ms: number, off: number = tzOffset.value): string {
   const d = new Date(ms + off * 60000);

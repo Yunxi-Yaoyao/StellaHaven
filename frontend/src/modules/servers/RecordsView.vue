@@ -124,7 +124,7 @@ watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immedia
       <div class="kind-tabs">
         <button v-for="t in KIND_TABS" :key="t.key" class="kind-chip" :class="{ active: kind === t.key }" @click="kind = t.key">{{ t.label }}</button>
       </div>
-      <Dropdown :model-value="filterNode ?? 0" :options="nodeOptions" @update:model-value="(v: number) => filterNode = v || null" />
+      <Dropdown :model-value="filterNode ?? 0" :options="nodeOptions" @update:model-value="(v: string | number | boolean) => filterNode = typeof v === 'number' ? (v || null) : null" />
     </div>
 
     <!-- 时间线 -->
