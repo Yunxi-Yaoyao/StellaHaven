@@ -1,8 +1,10 @@
-# Stella CI — GitLab 版（翻译自 .github/workflows/ci.yml）
-# 双 job 并行：后端 pytest + 前端 build
+# Stella CI/CD — 全自动流水线
+# test（双job并行）→ build（烤镜像推Registry）→ deploy（滚k3s）
 
 stages:
   - test
+  - build
+  - deploy
 
 backend-test:
   stage: test
@@ -13,7 +15,7 @@ backend-test:
     POSTGRES_USER: stalla
     POSTGRES_PASSWORD: St@106954021
     POSTGRES_DB: stella
-    POSTGRES_HOST: postgres        # GitLab service 的主机名就是服务名
+    POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
   before_script:
     - apt-get update -qq && apt-get install -y -qq postgresql-client > /dev/null
@@ -34,3 +36,35 @@ frontend-build:
     - cd frontend
     - npm ci
     - npm run build
+
+# 烤镜像：两个镜像都打 commit SHA 标签 + latest
+build-images:
+  stage: build
+  image: docker:27
+  needs: ["backend-test", "frontend-build"]   # 测试绿了才烤
+  variables:
+    REGISTRY: gitlab-registry.xiya.live/yaoyao/stellahaven
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login gitlab-registry.xiya.live -u "$CI_REGISTRY_USER" --password-stdin
+  script:
+    - docker build --network=host -t $REGISTRY:$CI_COMMIT_SHORT_SHA -t $REGISTRY:latest .
+    - docker build --network=host -f Dockerfile.pg -t $REGISTRY/pg-patroni:$CI_COMMIT_SHORT_SHA -t $REGISTRY/pg-patroni:latest .
+    - docker push $REGISTRY:$CI_COMMIT_SHORT_SHA
+    - docker push $REGISTRY:latest
+    - docker push $REGISTRY/pg-patroni:$CI_COMMIT_SHORT_SHA
+    - docker push $REGISTRY/pg-patroni:latest
+
+# 部署：滚动更新 k3s（镜像标签=commit SHA，精确到这次提交）
+deploy-k3s:
+  stage: deploy
+  image: alpine/kubectl:1.35.0
+  needs: ["build-images"]
+  environment:
+    name: production
+  script:
+    - kubectl rollout status deployment/pg-nyarch -n stella --timeout=60s || true
+    - kubectl set image deployment/stella-local stella=gitlab-registry.xiya.live/yaoyao/stellahaven:$CI_COMMIT_SHORT_SHA -n stella
+    - kubectl set image deployment/stella-us stella=gitlab-registry.xiya.live/yaoyao/stellahaven:$CI_COMMIT_SHORT_SHA -n stella
+    - kubectl rollout status deployment/stella-local -n stella --timeout=180s
+    - kubectl rollout status deployment/stella-us -n stella --timeout=180s
+    - echo "🎉 deployed $CI_COMMIT_SHORT_SHA"
