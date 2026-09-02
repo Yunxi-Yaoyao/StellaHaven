@@ -1,0 +1,75 @@
+# PG 三节点 Patroni 集群 — 每个节点一个 Deployment（钉死节点+专属PVC）
+# 用法: kubectl apply -f deploy/k8s/pg/
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stella
+---
+# Patroni 回调要给 pod 打标签 → 需要 RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patroni
+  namespace: stella
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: patroni
+  namespace: stella
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: patroni
+  namespace: stella
+subjects:
+  - kind: ServiceAccount
+    name: patroni
+roleRef:
+  kind: Role
+  name: patroni
+  apiGroup: rbac.authorization.k8s.io
+---
+# 数据库密码（一次性，之后由 k8s 保管）
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pg-credentials
+  namespace: stella
+type: Opaque
+stringData:
+  super-password: "PgS106954021."
+  repl-password: "PgR106954021."
+  app-password: "St@106954021"
+---
+# 主库 Service（label selector 指向 pg-role=primary 的 pod）
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-rw
+  namespace: stella
+spec:
+  selector:
+    app: pg
+    pg-role: primary
+  ports:
+    - port: 5432
+---
+# 副本 Service（只读流量）
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-ro
+  namespace: stella
+spec:
+  selector:
+    app: pg
+    pg-role: replica
+  ports:
+    - port: 5432

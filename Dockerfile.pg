@@ -1,0 +1,14 @@
+# PG + Patroni 镜像：PostgreSQL 18 + Patroni（etcd DCS）+ kubectl（回调打标签用）
+FROM postgres:18-bookworm
+
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      python3-pip python3-venv curl ca-certificates \
+    && pip install --break-system-packages --no-cache-dir 'patroni[etcd3]==4.0.5' psycopg2-binary \
+    && curl -sSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl" \
+    && chmod +x /usr/local/bin/kubectl \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY deploy/k8s/pg/patroni-entrypoint.sh /usr/local/bin/patroni-entrypoint.sh
+RUN chmod +x /usr/local/bin/patroni-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/patroni-entrypoint.sh"]

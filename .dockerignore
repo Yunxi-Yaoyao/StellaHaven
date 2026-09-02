@@ -1,0 +1,10 @@
+# 不烤进镜像的东西
+.git
+.venv
+__pycache__
+data/
+frontend/node_modules
+frontend/dist
+*.pyc
+.github
+docs

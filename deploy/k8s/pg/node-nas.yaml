@@ -1,0 +1,80 @@
+# PG 节点实例 — 由 CI/脚本按节点生成三份
+# 占位符: nas (nyarch|nas|us), yaoyao-nas (yaoyao-y7p|yaoyao-nas|racknerd-b436b54)
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-data-nas
+  namespace: stella
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-nas
+  namespace: stella
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # 有状态，禁止双开
+  selector:
+    matchLabels:
+      app: pg
+      pg-node: nas
+  template:
+    metadata:
+      labels:
+        app: pg
+        pg-node: nas
+    spec:
+      serviceAccountName: patroni
+      nodeSelector:
+        kubernetes.io/hostname: yaoyao-nas
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: gitlab-registry.xiya.live/yaoyao/stellahaven/pg-patroni:latest
+          env:
+            - name: PG_NODE_NAME
+              value: "nas"
+            - name: PG_NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: ETCD_HOSTS
+              value: "10.66.0.2:2379,10.66.0.3:2379,10.66.0.1:2379"
+            - name: PG_PASSWORD_SUPER
+              valueFrom:
+                secretKeyRef:
+                  name: pg-credentials
+                  key: super-password
+            - name: PG_PASSWORD_REPL
+              valueFrom:
+                secretKeyRef:
+                  name: pg-credentials
+                  key: repl-password
+            - name: PG_PASSWORD_APP
+              valueFrom:
+                secretKeyRef:
+                  name: pg-credentials
+                  key: app-password
+          ports:
+            - containerPort: 5432
+            - containerPort: 8008   # Patroni REST（健康检查/状态）
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: pg-data-nas

@@ -1,0 +1,74 @@
+# 内网直达 GitLab/Registry — 供集群内节点（美西/NAS）通过 WG 拉镜像换 token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab-web
+  namespace: stella
+spec:
+  ports:
+    - port: 80
+      targetPort: 12090
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: gitlab-web
+  namespace: stella
+subsets:
+  - addresses:
+      - ip: 10.66.0.2        # Nyarch 宿主 WG IP（GitLab docker 容器）
+    ports:
+      - port: 12090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab-registry
+  namespace: stella
+spec:
+  ports:
+    - port: 80
+      targetPort: 12093
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: gitlab-registry
+  namespace: stella
+subsets:
+  - addresses:
+      - ip: 10.66.0.2
+    ports:
+      - port: 12093
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gitlab-internal
+  namespace: stella
+spec:
+  tls:
+    - hosts: ["gitlab.xiya.live", "gitlab-registry.xiya.live"]
+      secretName: wildcard-xiya-tls
+  rules:
+    - host: gitlab.xiya.live
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gitlab-web
+                port:
+                  number: 80
+    - host: gitlab-registry.xiya.live
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gitlab-registry
+                port:
+                  number: 80
