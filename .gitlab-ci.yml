@@ -1,0 +1,36 @@
+# Stella CI — GitLab 版（翻译自 .github/workflows/ci.yml）
+# 双 job 并行：后端 pytest + 前端 build
+
+stages:
+  - test
+
+backend-test:
+  stage: test
+  image: python:3.13
+  services:
+    - postgres:18
+  variables:
+    POSTGRES_USER: stalla
+    POSTGRES_PASSWORD: St@106954021
+    POSTGRES_DB: stella
+    POSTGRES_HOST: postgres        # GitLab service 的主机名就是服务名
+    POSTGRES_PORT: "5432"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq postgresql-client > /dev/null
+    - pip install uv -q
+  script:
+    - uv sync --all-groups
+    - PGPASSWORD="$POSTGRES_PASSWORD" psql -h postgres -U stalla -d stella -c 'CREATE DATABASE stella_test;' || true
+    - uv run pytest -q
+
+frontend-build:
+  stage: test
+  image: node:22
+  cache:
+    key: frontend-npm
+    paths:
+      - frontend/node_modules/
+  script:
+    - cd frontend
+    - npm ci
+    - npm run build
