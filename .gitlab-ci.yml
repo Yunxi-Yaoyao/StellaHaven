@@ -57,7 +57,9 @@ build-images:
 # 部署：滚动更新 k3s（镜像标签=commit SHA，精确到这次提交）
 deploy-k3s:
   stage: deploy
-  image: alpine/kubectl:1.35.0
+  image:
+    name: alpine/kubectl:1.35.0
+    entrypoint: [""]      # 镜像 ENTRYPOINT 是 kubectl 本体，必须清空否则 shell 命令被当 kubectl 参数
   needs: ["build-images"]
   environment:
     name: production
