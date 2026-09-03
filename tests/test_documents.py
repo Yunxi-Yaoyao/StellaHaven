@@ -55,6 +55,23 @@ def test_list_documents(client, workspace_id):
     assert {"文档A", "文档B"} <= titles
 
 
+def test_list_documents_summary_only(client, workspace_id):
+    """列表型接口只回摘要：不含 content 正文（目录树不需要，全量正文会把列表拖到秒级）"""
+    make_doc(client, workspace_id, "正文很长的文档")
+
+    for url in (
+        f"/documents/?workspace_id={workspace_id}",
+        f"/documents/recent?workspace_id={workspace_id}",
+        f"/documents/trash?workspace_id={workspace_id}",
+        f"/documents/search?q=正文&workspace_id={workspace_id}",
+    ):
+        r = client.get(url)
+        assert r.status_code == 200, url
+        for d in r.json():
+            assert "content" not in d, f"{url} 泄漏了正文"
+            assert d["title"] and d["content_hash"], url  # 元数据仍在
+
+
 def test_update_document_ok(client, workspace_id):
     """带正确 updated_at 更新 → 200，乐观锁放行"""
     doc = make_doc(client, workspace_id).json()

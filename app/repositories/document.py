@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta
 from uuid import UUID
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy import update as sql_update, or_
 
 from app.models.document import Document
 from app.schemas.document import DocumentCreate, DocumentUpdate
+
+# 列表型查询都不取正文（PG TOAST 外置存储，捞 content 要额外 I/O；摘要模型也不会用它）
+_SUMMARY_ONLY = [defer(Document.content)]
 
 
 def get_by_id(db: Session, doc_id: UUID) -> Document | None:
@@ -35,7 +38,7 @@ def descendants_of(db: Session, doc_id: UUID, only_deleted: bool = False) -> lis
 
 def list_recent(db: Session, workspace_id: UUID, limit: int = 8) -> list[Document]:
     """最近查看：按 last_viewed_at 倒序，没看过的不要"""
-    return db.query(Document).filter(
+    return db.query(Document).options(*_SUMMARY_ONLY).filter(
         Document.workspace_id == workspace_id,
         Document.deleted_at.is_(None),
         Document.last_viewed_at.isnot(None),
@@ -44,7 +47,7 @@ def list_recent(db: Session, workspace_id: UUID, limit: int = 8) -> list[Documen
 
 def list_by_workspace(db: Session, workspace_id: UUID, parent_id: UUID | None = None, skip: int = 0, limit: int = 20) -> list[Document]:
     """正常列表：不含回收站里的"""
-    q = db.query(Document).filter(
+    q = db.query(Document).options(*_SUMMARY_ONLY).filter(
         Document.workspace_id == workspace_id,
         Document.deleted_at.is_(None),
     )
@@ -57,7 +60,7 @@ def list_by_workspace(db: Session, workspace_id: UUID, parent_id: UUID | None = 
 
 def list_trash(db: Session, workspace_id: UUID) -> list[Document]:
     """回收站列表：只有被软删的，最近删的排前面"""
-    return db.query(Document).filter(
+    return db.query(Document).options(*_SUMMARY_ONLY).filter(
         Document.workspace_id == workspace_id,
         Document.deleted_at.isnot(None),
     ).order_by(Document.deleted_at.desc()).all()
@@ -74,7 +77,7 @@ def purge_expired_trash(db: Session, retention_days: int) -> int:
 def search(db: Session, workspace_id: UUID, keyword: str, limit: int = 50) -> list[Document]:
     """全文搜索：标题 + 正文，ILIKE 子串匹配（pg_trgm GIN 索引加速），不含回收站"""
     like = f"%{keyword}%"
-    return db.query(Document).filter(
+    return db.query(Document).options(*_SUMMARY_ONLY).filter(
         Document.workspace_id == workspace_id,
         Document.deleted_at.is_(None),
         or_(Document.title.ilike(like), Document.content.ilike(like)),

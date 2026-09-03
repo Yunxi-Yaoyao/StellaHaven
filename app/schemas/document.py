@@ -34,7 +34,8 @@ class DocumentUpdate(BaseModel):
     parent_id: UUID | None = None
 
 
-class DocumentRead(BaseModel):
+class DocumentListItem(BaseModel):
+    """列表/树用摘要：不含正文。目录树只需要元数据，正文走 /documents/{id} 单篇取"""
     id: UUID
     title: str
     file_path: str
@@ -48,7 +49,6 @@ class DocumentRead(BaseModel):
     status: str
     word_count: int | None
     content_hash: str
-    content: str | None = None  # 正文
     created_at: datetime
     updated_at: datetime
     # 草稿元信息（内容不随文档返回，要看走 /documents/{id}/draft）
@@ -57,6 +57,11 @@ class DocumentRead(BaseModel):
     has_draft: bool = False  # 由 router 按 10 分钟惰性规则算好挂上去
 
     model_config = {"from_attributes": True}
+
+
+class DocumentRead(DocumentListItem):
+    """单篇详情 = 摘要 + 正文"""
+    content: str | None = None  # 正文
 
 
 class DraftRead(BaseModel):

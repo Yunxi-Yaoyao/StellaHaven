@@ -34,15 +34,22 @@ API_PREFIXES = (
 
 app = FastAPI(title="StellaHaven")
 
+# gzip 压缩：API JSON（文档列表等大 payload）和构建产物都受益，跨 frp/HK 链路尤其明显
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 
 @app.middleware("http")
 async def assets_cache_control(request: Request, call_next):
-    """全局资源（/assets/*，主页背景/挂件素材）加浏览器缓存头。
+    """指纹化静态资源加浏览器缓存头。
     StaticFiles 默认只有 etag，每次访问都要条件请求回源（经 frp 隧道多一次往返）；
-    用户上传的背景文件名是内容哈希（改名即换 URL），默认图带版本后缀，长缓存安全。"""
+    /assets/* 用户上传的背景文件名是内容哈希（改名即换 URL），/static/* 是 vite 构建
+    的指纹文件（index-Bme-6Xb_.js 改内容必改名），长缓存都安全。index.html 不带指纹
+    不在此列，保持每次回源拿最新。"""
     resp = await call_next(request)
-    if request.url.path.startswith("/assets/") and resp.status_code == 200:
-        resp.headers["Cache-Control"] = "public, max-age=604800"  # 7 天
+    p = request.url.path
+    if resp.status_code == 200 and (p.startswith("/assets/") or p.startswith("/static/")):
+        resp.headers["Cache-Control"] = "public, max-age=604800, immutable"  # 7 天
     return resp
 
 app.include_router(workspace_router)

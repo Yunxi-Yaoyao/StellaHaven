@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentRead, DraftRead
+from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentRead, DocumentListItem, DraftRead
 from app.routers.auth import current_user, require_ws_owner, require_doc_owner
 from app.services.document import (
     get_document, list_documents, create_document, update_document, delete_document,
@@ -21,21 +21,21 @@ router = APIRouter(dependencies=[Depends(current_user)], prefix="/documents", ta
 # ⚠️ /search /trash /recent 固定路径必须声明在 /{doc_id} 之前——否则被当 UUID 解析直接 422
 
 
-@router.get("/search", response_model=list[DocumentRead])
+@router.get("/search", response_model=list[DocumentListItem])
 def search_docs(q: str, workspace_id: UUID, limit: int = 50, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """全文搜索：标题 + 正文子串匹配（pg_trgm 索引加速），不含回收站"""
     require_ws_owner(db, workspace_id, user)  # 数据隔离
     return search_documents(db, workspace_id, q, limit)
 
 
-@router.get("/recent", response_model=list[DocumentRead])
+@router.get("/recent", response_model=list[DocumentListItem])
 def recent_docs(workspace_id: UUID, limit: int = 8, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """最近查看"""
     require_ws_owner(db, workspace_id, user)  # 数据隔离
     return list_recent_documents(db, workspace_id, limit)
 
 
-@router.get("/trash", response_model=list[DocumentRead])
+@router.get("/trash", response_model=list[DocumentListItem])
 def read_trash(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """回收站列表。访问时顺手惰性清理超过保留期的（默认 30 天）"""
     require_ws_owner(db, workspace_id, user)  # 数据隔离
@@ -82,14 +82,14 @@ def read_draft(doc_id: UUID, db: Session = Depends(get_db), user: User = Depends
     return DraftRead(content=doc.draft_content, updated_at=doc.draft_updated_at, device=doc.draft_device)
 
 
-@router.get("/{doc_id}/backlinks", response_model=list[DocumentRead])
+@router.get("/{doc_id}/backlinks", response_model=list[DocumentListItem])
 def read_backlinks(doc_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """反链：哪些页面链接到了这篇"""
     require_doc_owner(db, doc_id, user)  # 数据隔离
     return get_backlinks(db, doc_id)
 
 
-@router.get("/", response_model=list[DocumentRead])
+@router.get("/", response_model=list[DocumentListItem])
 def read_all(workspace_id: UUID, parent_id: UUID | None = None, skip: int = 0, limit: int = 20, db: Session = Depends(get_db), user: User = Depends(current_user)):
     require_ws_owner(db, workspace_id, user)  # 数据隔离
     return list_documents(db, workspace_id, parent_id, skip, limit)
