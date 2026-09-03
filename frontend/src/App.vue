@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { ref, reactive, watch } from "vue";
+import { ref, reactive, watch, computed } from "vue";
 import SideBar from "./shell/SideBar.vue";
 import SettingsPanel from "./shell/SettingsPanel.vue";
 import BgManager from "./modules/home/BgManager.vue";
 import { toasts } from "./composables/useToast";
 import { auth, loggedIn, fetchMe } from "./modules/home/auth";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { onMounted, onUnmounted } from "vue";
 
 const router = useRouter();
+const route = useRoute();
+
+// 主页背景要铺满整个内容区，不吃全局 padding（其他页面保留内缩）
+const flushPage = computed(() => route.name === "home");
 
 // 会话巡检：被别处踢下线（refresh 已吊销）时，30 秒内感知并滚去登录页
 let sessionWatchdog: ReturnType<typeof setInterval> | undefined;
@@ -91,7 +95,7 @@ function toggleSidebar() {
     <!-- 背景图库浮窗 -->
     <BgManager />
 
-    <main class="content">
+    <main class="content" :class="{ flush: flushPage }">
       <RouterView v-slot="{ Component }">
         <Transition name="fade" mode="out-in">
           <component :is="Component" />
@@ -135,6 +139,10 @@ function toggleSidebar() {
   flex: 1;
   overflow-y: auto;
   padding: 28px 32px;
+}
+/* 主页全幅：去掉内缩，让背景铺到侧边栏/窗口边缘 */
+.content.flush {
+  padding: 0;
 }
 
 /* 页面切换过渡 */
