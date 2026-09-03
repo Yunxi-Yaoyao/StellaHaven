@@ -1,0 +1,31 @@
+# Stella data 共享存储 — NAS NFS（stella-local 双 pod 共挂）
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: stella-data-nfs
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  mountOptions:
+    - hard
+    - nfsvers=4.1
+    - noatime
+  nfs:
+    server: 10.66.0.3          # NAS（WG 内网地址）
+    path: /vol1/1000/nfs/stella-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: stella-data
+  namespace: stella
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: stella-data-nfs
+  resources:
+    requests:
+      storage: 5Gi
