@@ -10,6 +10,10 @@
 id_token 用 RS256 签名，密钥持久化在 data/oidc/。
 """
 import secrets
+import json
+import os
+import fcntl
+from contextlib import contextmanager
 import time
 from pathlib import Path
 
@@ -48,9 +52,30 @@ DEFAULT_CLIENT = {
     ],
 }
 
-# ── 内存态：授权码 / access token ──
-_codes: dict[str, dict] = {}   # code -> {client_id, user_id, username, email, redirect_uri, nonce, expires}
-_tokens: dict[str, dict] = {}  # access_token -> {user_id, username, email, expires}
+# Shared PVC state; one lock covers validation + one-time code consumption.
+@contextmanager
+def _shared_state():
+    directory = OIDC_DIR / "runtime"
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (directory / "state.lock").open("a+") as lock:
+        os.chmod(directory / "state.lock", 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = directory / "state.json"
+        state = json.loads(path.read_text()) if path.exists() else {"codes": {}, "tokens": {}}
+        now = time.time()
+        for key in ("codes", "tokens"):
+            state[key] = {k: v for k, v in state[key].items() if v["expires"] > now}
+        try:
+            yield state
+            tmp = directory / ("state." + secrets.token_hex(8) + ".tmp")
+            try:
+                with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as out:
+                    json.dump(state, out)
+                os.replace(tmp, path)
+            finally:
+                tmp.unlink(missing_ok=True)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 CODE_TTL = 600          # 授权码 10 分钟
 ACCESS_TOKEN_TTL = 86400  # access token 1 天
@@ -162,47 +187,42 @@ def create_authorization_code(client_id: str, redirect_uri: str, user_id: str,
                               username: str, email: str, nonce: str | None,
                               issuer: str = DEFAULT_ISSUER) -> str:
     code = secrets.token_urlsafe(32)
-    _codes[code] = {
-        "client_id": client_id,
-        "user_id": str(user_id),
-        "username": username,
-        "email": email or "",
-        "redirect_uri": redirect_uri,
-        "nonce": nonce,
-        "issuer": issuer,
-        "expires": time.time() + CODE_TTL,
-    }
+    with _shared_state() as state:
+        state["codes"][code] = {
+            "client_id": client_id,
+            "user_id": str(user_id),
+            "username": username,
+            "email": email or "",
+            "redirect_uri": redirect_uri,
+            "nonce": nonce,
+            "issuer": issuer,
+            "expires": time.time() + CODE_TTL,
+        }
     return code
 
 
 def exchange_code(code: str, client_id: str, client_secret: str,
                   redirect_uri: str | None) -> dict | None:
     """授权码换 token。返回 id_token 等，失败返回 None。"""
-    rec = _codes.get(code)
-    if not rec:
-        return None
-    if rec["expires"] < time.time():
-        _codes.pop(code, None)
-        return None
-    if rec["client_id"] != client_id:
-        return None
-    if rec["redirect_uri"] != redirect_uri:
-        return None
-    # client_secret 校验
-    if client_secret != get_client_secret(client_id):
-        return None
-    _codes.pop(code, None)
+    with _shared_state() as state:
+        rec = state["codes"].get(code)
+        if not rec or rec["client_id"] != client_id or rec["redirect_uri"] != redirect_uri:
+            return None
+        if not secrets.compare_digest(client_secret, get_client_secret(client_id)):
+            return None
+        state["codes"].pop(code)
 
     issuer = rec.get("issuer", DEFAULT_ISSUER)
     id_token = _sign_id_token(rec["user_id"], rec["username"], rec["email"],
                               rec["nonce"], client_id, issuer=issuer)
     access_token = secrets.token_urlsafe(32)
-    _tokens[access_token] = {
-        "user_id": rec["user_id"],
-        "username": rec["username"],
-        "email": rec["email"],
-        "expires": time.time() + ACCESS_TOKEN_TTL,
-    }
+    with _shared_state() as state:
+        state["tokens"][access_token] = {
+            "user_id": rec["user_id"],
+            "username": rec["username"],
+            "email": rec["email"],
+            "expires": time.time() + ACCESS_TOKEN_TTL,
+        }
     return {
         "access_token": access_token,
         "id_token": id_token,
@@ -212,7 +232,8 @@ def exchange_code(code: str, client_id: str, client_secret: str,
 
 
 def userinfo(access_token: str) -> dict | None:
-    rec = _tokens.get(access_token)
+    with _shared_state() as state:
+        rec = state["tokens"].get(access_token)
     if not rec or rec["expires"] < time.time():
         return None
     return {
