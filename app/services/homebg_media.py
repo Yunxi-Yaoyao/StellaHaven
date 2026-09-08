@@ -17,7 +17,7 @@ from pathlib import Path
 from uuid import uuid4
 
 PREFIX = '/assets/homebg/'
-PROFILE = 'v1-h264-23-27-webp-85-75'
+PROFILE = 'v2-lowmem-h264-23-27-webp-85-75'
 SAFE_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]*\.(?:jpe?g|png|webp|gif|mp4)', re.I)
 _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix='homebg-media')
 # ThreadPoolExecutor itself has an unbounded queue: explicitly bound admission.
@@ -160,9 +160,9 @@ def _scale(longest: int, shortest: int | None = None, even: bool = False) -> str
 def _convert(source: Path, target: Path, options: list[str]) -> None:
     temp = target.with_name('.' + uuid4().hex + target.suffix)
     try:
-        subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-y', '-threads', '2',
-                        '-filter_threads', '2', *_input(source), '-map', '0:v:0',
-                        *options, '-threads', '2', str(temp)],
+        subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-y', '-threads', '1',
+                        '-filter_threads', '1', *_input(source), '-map', '0:v:0',
+                        *options, '-threads', '1', str(temp)],
                        capture_output=True, check=True, timeout=300)
         if not temp.is_file() or not temp.stat().st_size:
             raise ValueError('Empty derivative')
@@ -209,7 +209,8 @@ def _worker(source: Path, data: dict, lock) -> None:
                     if fps <= 0 or min(data['width'], data['height']) < 2:
                         raise ValueError('Unsupported video dimensions or frame rate')
                     options = ['-vf', _scale(longest, shortest, True) + f',fps={min(fps, cap)}',
-                               '-c:v', 'libx264', '-preset', 'medium', '-crf', str(crf),
+                               '-c:v', 'libx264', '-preset', 'fast', '-crf', str(crf),
+                               '-x264-params', 'rc-lookahead=4:sync-lookahead=0:ref=1',
                                '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an']
                 else:
                     options = ['-vf', _scale(longest), '-frames:v', '1',
