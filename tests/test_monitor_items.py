@@ -108,3 +108,33 @@ def test_monitor_version_bumps(client):
     _mk_monitor(client, n["id"])
     v1 = client.get(f"/agent/config?token={n['token']}").json()["monitors_version"]
     assert v1 > v0
+
+
+def test_delete_monitor_detaches_mtr_history_without_deleting_tasks(client, db_session):
+    from app.models.task import MtrTask
+    from app.models.monitor import MonitorCheck
+    n = _mk_node(client)
+    m = _mk_monitor(client, n['id'])
+    other = _mk_monitor(client, n['id'])
+    rows = [MtrTask(node_id=n['id'], monitor_id=m['id'], target='example.test',
+                    status=status, result_json={'kept': status})
+            for status in ('pending', 'running', 'done', 'failed')]
+    untouched = MtrTask(node_id=n['id'], monitor_id=other['id'], target='other.test', status='done')
+    db_session.add_all(rows + [untouched]); db_session.commit()
+    ids = [r.id for r in rows]; other_id = untouched.id
+    db_session.add(MonitorCheck(monitor_id=m['id'], ts=datetime.now(timezone.utc), success=True))
+    db_session.commit()
+    version = client.get(f"/agent/config?token={n['token']}").json()['monitors_version']
+    assert client.delete(f"/monitors/{m['id']}").status_code == 204
+    db_session.expire_all()
+    for tid in ids:
+        task = db_session.get(MtrTask, tid)
+        assert task is not None and task.monitor_id is None
+        assert task.result_json == {'kept': task.status}
+        assert task.target == 'example.test'
+    assert db_session.get(MtrTask, other_id).monitor_id == other['id']
+    assert db_session.query(MonitorCheck).filter_by(monitor_id=m['id']).count() == 0
+    config = client.get(f"/agent/config?token={n['token']}").json()
+    assert config['monitors_version'] > version
+    assert m['id'] not in {x['id'] for x in config['monitors']}
+    assert client.delete(f"/monitors/{m['id']}").status_code == 204

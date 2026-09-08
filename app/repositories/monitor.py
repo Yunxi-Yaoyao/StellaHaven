@@ -31,10 +31,22 @@ def create(db: Session, name: str, mtype: str, target: str,
 
 
 def remove(db: Session, monitor_id: int) -> None:
-    # 先清探测历史，再删监控项——否则 monitor_checks 外键约束会拦下硬删
-    db.query(MonitorCheck).filter(MonitorCheck.monitor_id == monitor_id).delete()
-    db.query(Monitor).filter(Monitor.id == monitor_id).delete()
-    db.commit()
+    from app.models.task import MtrTask
+    try:
+        # Lock the parent before removing references so concurrent inserts cannot
+        # attach a new task between the detach and delete statements.
+        monitor = db.query(Monitor).filter(Monitor.id == monitor_id).with_for_update().first()
+        if monitor is None:
+            db.rollback()
+            return
+        # MTR history remains readable by node/target after its monitor is removed.
+        db.query(MtrTask).filter(MtrTask.monitor_id == monitor_id).update({"monitor_id": None})
+        db.query(MonitorCheck).filter(MonitorCheck.monitor_id == monitor_id).delete()
+        db.delete(monitor)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def update(db: Session, monitor_id: int, fields: dict) -> Monitor | None:
