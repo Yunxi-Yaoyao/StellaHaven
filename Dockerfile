@@ -14,7 +14,9 @@ WORKDIR /app
 # uv 装依赖（只装生产依赖，不装 test 组）
 COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir --index-url https://pypi.tuna.tsinghua.edu.cn/simple --timeout 30 --retries 2 uv -q \
-    && UV_HTTP_TIMEOUT=30 UV_HTTP_RETRIES=2 uv sync --frozen --no-dev
+    && uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt \
+    && uv venv \
+    && UV_HTTP_TIMEOUT=30 UV_HTTP_RETRIES=2 uv pip sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple --require-hashes /tmp/requirements.txt
 
 # 后端代码 + 烤好的前端
 COPY . .

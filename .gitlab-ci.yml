@@ -32,9 +32,11 @@ backend-test:
   before_script:
     - pip install uv -q
   script:
-    - uv sync --all-groups
-    - uv run python deploy/ci/create-test-db.py
-    - uv run pytest -q
+    - uv export --frozen --all-groups --no-emit-project -o /tmp/ci-requirements.txt
+    - uv venv
+    - uv pip sync --index-url "$PIP_INDEX_URL" --require-hashes /tmp/ci-requirements.txt
+    - .venv/bin/python deploy/ci/create-test-db.py
+    - .venv/bin/pytest -q
 
 frontend-build:
   timeout: 15m
