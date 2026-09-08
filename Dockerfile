@@ -3,7 +3,7 @@
 FROM node:22-slim AS frontend
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci --include=dev --registry=https://registry.npmmirror.com --fetch-timeout=30000 --fetch-retries=2 --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
@@ -13,7 +13,8 @@ WORKDIR /app
 
 # uv 装依赖（只装生产依赖，不装 test 组）
 COPY pyproject.toml uv.lock ./
-RUN pip install --no-cache-dir uv -q && uv sync --frozen --no-dev
+RUN pip install --no-cache-dir --index-url https://pypi.tuna.tsinghua.edu.cn/simple --timeout 30 --retries 2 uv -q \
+    && UV_HTTP_TIMEOUT=30 UV_HTTP_RETRIES=2 uv sync --frozen --no-dev
 
 # 后端代码 + 烤好的前端
 COPY . .
