@@ -324,7 +324,9 @@ async function delMonitor(m: Monitor, ev: Event) {
 let timer: ReturnType<typeof setInterval> | null = null;
 async function refresh() {
   try {
-    [nodes.value, monitors.value] = await Promise.all([listNodes(), listMonitors()]);
+    const [newNodes, newMonitors] = await Promise.all([listNodes(), listMonitors()]);
+    nodes.value = newNodes;
+    monitors.value = [...newMonitors].sort((a, b) => a.id - b.id);
     // 逐台拿详情（latest_sys_metric 喂迷你条）——节点数少，量级可控
     const details = await Promise.all(nodes.value.filter((n) => n.status === "online").map((n) => getNodeDetail(n.id).catch(() => null)));
     const map: Record<number, NodeDetail> = {};

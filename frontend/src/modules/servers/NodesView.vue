@@ -207,7 +207,7 @@ const uninstallLabel: Record<string, string> = {
     <!-- 节点卡片网格 -->
     <div class="grid">
       <!-- 宿主机「本机」：未装 agent 时显示安装入口 -->
-      <div v-if="host && !host.installed" class="host-card">
+      <div v-if="host && host.local_install_supported !== false && !host.installed && !host.node_id" class="host-card">
         <div class="host-info">
           <span class="dot" style="background: var(--text-faint)" />
           <div>
@@ -286,7 +286,7 @@ const uninstallLabel: Record<string, string> = {
       <div class="dialog">
         <div class="d-head">agent — {{ installTarget.name }}</div>
         <div class="d-body">
-          <template v-if="isHostNode(installTarget) && installTarget.installed">
+          <template v-if="host?.local_install_supported !== false && isHostNode(installTarget) && installTarget.installed">
             <p class="hint">该节点已托管 · {{ statusLabel[installTarget.status] }}{{ installTarget.agent_version ? ' · v' + installTarget.agent_version : '' }}</p>
           </template>
           <template v-else>
@@ -297,7 +297,7 @@ const uninstallLabel: Record<string, string> = {
         </div>
         <div class="d-foot">
           <div class="foot-actions">
-            <template v-if="isHostNode(installTarget) && installTarget.installed">
+            <template v-if="host?.local_install_supported !== false && isHostNode(installTarget) && installTarget.installed">
               <button class="jump-settings" :disabled="installing" @click="doAutoInstall()">
                 <span v-if="installing" class="spin" />{{ installing ? "重新安装中…" : "重新安装" }}
               </button>
@@ -306,7 +306,7 @@ const uninstallLabel: Record<string, string> = {
             </template>
             <template v-else>
               <button v-if="!isHostNode(installTarget) && !publicHost" class="jump-settings" @click="goSettings">去设置公网地址</button>
-              <button v-if="isHostNode(installTarget)" class="confirm" :disabled="installing" @click="doAutoInstall">
+              <button v-if="host?.local_install_supported !== false && isHostNode(installTarget)" class="confirm" :disabled="installing" @click="doAutoInstall">
                 <span v-if="installing" class="spin" />{{ installing ? "安装中…" : "自动安装" }}
               </button>
               <button v-if="installTarget.installed && installTarget.status === 'online'" class="uninstall-btn danger" @click="askUninstall(installTarget, true)">卸载 agent</button>

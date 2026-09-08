@@ -1,5 +1,6 @@
 """宿主机（Stella 宿主本机）检测与一键安装。"""
 import platform
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -38,6 +39,11 @@ def _linux_distro() -> str:
             name = name[: -len(suffix)]
             break
     return name or "linux"
+
+
+def supports_local_install() -> bool:
+    """A container's local process namespace is not the managed host."""
+    return not (os.environ.get('KUBERNETES_SERVICE_HOST') or Path('/.dockerenv').exists() or Path('/run/.containerenv').exists())
 
 
 def is_agent_installed() -> bool:

@@ -8,12 +8,12 @@ from app.models.monitor import Monitor, MonitorCheck
 
 # ── 监控项 CRUD ──
 def list_all(db: Session, skip: int = 0, limit: int = 200) -> list[Monitor]:
-    return db.query(Monitor).offset(skip).limit(limit).all()
+    return db.query(Monitor).order_by(Monitor.id.asc()).offset(skip).limit(limit).all()
 
 
 def list_for_node(db: Session, node_id: int) -> list[Monitor]:
     """某节点负责的监控项（agent 拉配置用）。"""
-    return db.query(Monitor).filter(Monitor.node_id == node_id).all()
+    return db.query(Monitor).filter(Monitor.node_id == node_id).order_by(Monitor.id.asc()).all()
 
 
 def get_by_id(db: Session, monitor_id: int) -> Monitor | None:

@@ -323,6 +323,7 @@ export const latestNetTask = (nodeId: number, kind: string) =>
 
 // ── 宿主机 ──
 export interface HostInfo {
+  local_install_supported?: boolean;
   os: string;
   installed: boolean;
   node_id: number | null;

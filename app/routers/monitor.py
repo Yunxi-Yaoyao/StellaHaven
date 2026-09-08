@@ -36,11 +36,13 @@ def create_node(data: NodeCreate, user: User = Depends(current_user), db: Sessio
 def get_host(user: User = Depends(current_user), db: Session = Depends(get_db)):
     """本机：OS 用节点存的 platform（探一次存），agent 运行状态动态查。"""
     node = node_svc.get_host_node(db)
-    installed = host_svc.is_agent_installed()
+    local_install = host_svc.supports_local_install()
+    installed = bool(node.installed) if node else (host_svc.is_agent_installed() if local_install else False)
     return {
         # OS 显示名：优先 agent 采集的发行版友好名，退化为 platform/本机探测
         "os": (node.os_name if node and node.os_name else (node.platform if node else host_svc.detect_os())),
         "installed": installed,
+        "local_install_supported": local_install,
         "node_id": node.id if node else None,
         "node_status": node.status if node else None,
     }
@@ -48,7 +50,9 @@ def get_host(user: User = Depends(current_user), db: Session = Depends(get_db)):
 
 @node_router.post("/host/install", response_model=NodeRead, status_code=201)
 def install_host(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """本机一键安装 agent。"""
+    """仅裸机运行时提供本机安装，容器不能安装宿主 agent。"""
+    if not host_svc.supports_local_install():
+        raise HTTPException(409, "Stella 运行在容器内，请在目标服务器执行节点安装命令")
     return node_svc.install_host_node(db)
 
 
