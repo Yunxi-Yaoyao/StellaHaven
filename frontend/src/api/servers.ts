@@ -77,7 +77,7 @@ export interface IperfTask {
   length: string | null;
   omit: number;
   zerocopy: boolean;
-  status: "pending" | "running" | "done" | "failed";
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
   server_started: boolean;        // server 端已起 -s（阶段提示用）
   started_at: string | null;      // client 领取时刻
   // 结果摘要列（done 时后端落列；iperf=接收均值/峰值，speedtest=下载/上传）
@@ -122,7 +122,7 @@ export interface MtrTask {
   target: string;
   protocol: string;
   trigger?: "manual" | "periodic" | "failure";
-  status: "pending" | "running" | "done" | "failed";
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
   result_json: ({ report?: { hubs?: MtrHop[] }; error?: string; raw?: string } & Record<string, unknown>) | null;
   params_json?: MtrParams | null;
   live_json?: { hops?: MtrHop[] } | null;  // 跑的过程中 agent 每 ~2s 覆写的实时逐跳快照
@@ -133,7 +133,7 @@ export interface Command {
   id: number;
   node_id: number;
   command: string;
-  status: "pending" | "running" | "done" | "failed";
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
   stdout: string | null;
   stderr: string | null;
   exit_code: number | null;
@@ -221,12 +221,12 @@ export interface FirewallData {
 }
 export interface NetTask {
   id: number; node_id: number; kind: string;
-  status: "pending" | "running" | "done" | "failed";
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
   result_json: FirewallData | Record<string, unknown> | null;
   created_at: string;
 }
 export const scanFirewall = (id: number) => api<NetTask>(`/nodes/${id}/firewall-scan`, { method: "POST" });
-export const getNetTask = (taskId: number) => api<NetTask>(`/nodes/net-tasks/${taskId}`);
+export const getNetTask = (taskId: number, signal?: AbortSignal) => api<NetTask>(`/nodes/net-tasks/${taskId}`, { signal });
 
 // ── Docker 面板 ──
 export interface DockerContainer { id: string; name: string; image: string; status: string; state: string; ports: string; created: string }
@@ -244,7 +244,7 @@ export const removeMonitor = (id: number) => api<void>(`/monitors/${id}`, { meth
 export const listMonitorChecks = (id: number) => api<MonitorCheck[]>(`/monitors/${id}/checks`);
 
 // 监控项的 MTR 历史（近 60 天）+ 手动触发
-export const listMonitorMtr = (id: number) => api<MtrTask[]>(`/monitors/${id}/mtr`);
+export const listMonitorMtr = (id: number, signal?: AbortSignal) => api<MtrTask[]>(`/monitors/${id}/mtr`, { signal });
 export const runMonitorMtr = (id: number) => api<MtrTask>(`/monitors/${id}/mtr`, { method: "POST" });
 
 // 延迟曲线点（范围/降采样）
@@ -292,7 +292,7 @@ export const listMtrTasks = () => api<MtrTask[]>("/mtr-tasks");
 export const createMtrTask = (data: { node_id: number; target: string; protocol?: string; params?: MtrParams }) =>
   api<MtrTask>("/mtr-tasks", { method: "POST", body: JSON.stringify(data) });
 
-export const listCommands = () => api<Command[]>("/commands");
+export const listCommands = (signal?: AbortSignal) => api<Command[]>("/commands", { signal });
 export const createCommand = (data: { node_id: number; command: string }) =>
   api<Command>("/commands", { method: "POST", body: JSON.stringify(data) });
 
@@ -302,11 +302,11 @@ export interface ComponentTask {
   id: number;
   node_id: number;
   component: CompName;
-  status: "pending" | "running" | "done" | "failed";
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
   error: string | null;
   created_at: string;
 }
-export const listComponentInstalls = () => api<ComponentTask[]>("/component-installs");
+export const listComponentInstalls = (signal?: AbortSignal) => api<ComponentTask[]>("/component-installs", { signal });
 export const installComponent = (node_id: number, component: CompName) =>
   api<ComponentTask>("/component-installs", { method: "POST", body: JSON.stringify({ node_id, component }) });
 

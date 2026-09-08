@@ -41,7 +41,7 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.3"
+AGENT_VERSION = "0.6.4"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
@@ -49,6 +49,54 @@ MTR_FAIL_DEBOUNCE = 600   # 失败触发 MTR 防抖（10 分钟）
 POLL_INTERVAL = 1         # 任务轮询间隔（秒）——打流领取要快，1s 让图表几乎秒出
 UPDATE_CHECK_INTERVAL = 300  # 版本自更新检查间隔（秒）
 QUEUE_MAX = 24 * 3600 // REPORT_INTERVAL  # 队列上限 = 24h 的采样点数
+
+
+class _BackgroundScheduler:
+    """Bounded, single-flight lanes with no pending queue.
+
+    Closing stops admission, not running subprocesses. Daemon workers finish their
+    existing batch/result reporting; Python cannot safely interrupt these calls.
+    """
+    def __init__(self, max_workers=2):
+        self._limit = max_workers
+        self._lock = threading.Lock()
+        self._threads = {}
+        self._closed = False
+
+    def submit(self, key, operation):
+        with self._lock:
+            if self._closed or key in self._threads or len(self._threads) >= self._limit:
+                return False
+
+            def work():
+                try:
+                    operation()
+                except Exception as exc:
+                    print(f"[error] 后台任务 {key}: {exc}", file=sys.stderr)
+                finally:
+                    with self._lock:
+                        self._threads.pop(key, None)
+
+            thread = threading.Thread(target=work, name=f"stella-{key}", daemon=True)
+            self._threads[key] = thread
+            try:
+                thread.start()
+            except Exception:
+                self._threads.pop(key, None)
+                raise
+            return True
+
+    def idle(self):
+        with self._lock:
+            return not self._threads
+
+    def close(self, timeout=1):
+        with self._lock:
+            self._closed = True
+            threads = list(self._threads.values())
+        deadline = time.monotonic() + timeout
+        for thread in threads:
+            thread.join(max(0, deadline - time.monotonic()))
 
 
 class Agent:
@@ -542,7 +590,8 @@ class Agent:
     def run_due_probes(self):
         """到点的监控项执行探测，结果上报中心。"""
         now = time.time()
-        for mid, m in self.monitors.items():
+        # Config refresh may add/remove monitors on the heartbeat thread.
+        for mid, m in list(self.monitors.items()):
             # MTR 定时通道（与探测节奏解耦）
             if now >= m.get("next_mtr", float("inf")):
                 m["next_mtr"] = now + MTR_INTERVAL
@@ -661,6 +710,7 @@ class Agent:
                     self._emit_retry_event(tid, attempt, result["error"])
                     time.sleep(2)  # 给 server 端时间从 reset 恢复回监听，再重试
                     result = self._iperf_client(task)
+            if isinstance(result, dict): result["role"] = task.get("role", "client")
             if isinstance(result, dict) and result.get("error"):
                 self._post(f"/agent/iperf-tasks/{tid}/result",
                            json_body=result, token=self.token, status="failed")
@@ -669,7 +719,7 @@ class Agent:
                            json_body=result, token=self.token, status="done")
         except Exception as e:
             self._post(f"/agent/iperf-tasks/{tid}/result",
-                       json_body={"error": str(e)}, token=self.token, status="failed")
+                       json_body={"error": str(e), "role": task.get("role", "client")}, token=self.token, status="failed")
 
     def _iperf_server(self, task) -> dict:
         """起 iperf3 server（-s），流式读 stdout，服务完一个 client 立即退出释放端口。
@@ -2052,7 +2102,7 @@ class Agent:
         os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
 
     # ── 主循环 ──
-    def run(self):
+    def run(self, stop_event=None):
         print(f"[stella-agent {AGENT_VERSION}] 启动，中心 {self.url}", file=sys.stderr)
         # 首次上报网卡清单（含默认出口）+ 存储视图 + 拉配置
         try:
@@ -2069,45 +2119,50 @@ class Agent:
             print(f"[warn] 首次上报失败：{e}", file=sys.stderr)
         self.refresh_config()
 
+        stop_event = stop_event or threading.Event()
+        scheduler = _BackgroundScheduler(max_workers=2)
         last_sys = 0
         last_refresh = 0
         last_update = 0
         last_report = 0
-        while True:
-            try:
-                now = time.time()
+        try:
+            while not stop_event.is_set():
+                try:
+                    now = time.time()
 
-                # 流量：5s 采样上报（主循环 1s 一圈，流量上报仍保持 5s 粒度）
-                if now - last_report >= REPORT_INTERVAL:
-                    metrics = self.collect_metrics()
-                    sys_metrics = []
-                    if now - last_sys >= SYS_INTERVAL:
-                        sys_metrics = [self.collect_sys()]
-                        last_sys = now
-                    if metrics or sys_metrics:
-                        self.report(metrics, sys_metrics)
-                    last_report = now
+                    # 流量：5s 采样上报（主循环 1s 一圈，流量上报仍保持 5s 粒度）
+                    if now - last_report >= REPORT_INTERVAL:
+                        metrics = self.collect_metrics()
+                        sys_metrics = []
+                        if now - last_sys >= SYS_INTERVAL:
+                            sys_metrics = [self.collect_sys()]
+                            last_sys = now
+                        if metrics or sys_metrics:
+                            self.report(metrics, sys_metrics)
+                        last_report = now
 
-                # 配置：60s 拉一次
-                if now - last_refresh >= 60:
-                    self.refresh_config()
-                    last_refresh = now
+                    # 配置：60s 拉一次
+                    if now - last_refresh >= 60:
+                        self.refresh_config()
+                        last_refresh = now
 
-                # 版本自更新：每 5 分钟检查一次
-                if now - last_update >= UPDATE_CHECK_INTERVAL:
-                    self.check_update()
-                    last_update = now
+                    # 版本自更新：每 5 分钟检查一次
+                    if now - last_update >= UPDATE_CHECK_INTERVAL and scheduler.idle():
+                        self.check_update()
+                        last_update = now
 
-                # 监控项探测：到点的探测并上报
-                self.run_due_probes()
+                    # 监控项探测：到点的探测并上报
+                    scheduler.submit("probes", self.run_due_probes)
 
-                # 任务：1s 轮询（打流领取要快）
-                self.poll_and_execute()
+                    # 任务：1s 轮询（打流领取要快）
+                    scheduler.submit("tasks", self.poll_and_execute)
 
-            except Exception as e:
-                print(f"[error] 主循环异常：{e}", file=sys.stderr)
+                except Exception as e:
+                    print(f"[error] 主循环异常：{e}", file=sys.stderr)
 
-            time.sleep(POLL_INTERVAL)
+                stop_event.wait(POLL_INTERVAL)
+        finally:
+            scheduler.close()
 
 
 def main():

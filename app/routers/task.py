@@ -116,18 +116,14 @@ def poll_tasks(token: str, db: Session = Depends(get_db)):
 @agent_task_router.get("/iperf-tasks/{task_id}/status")
 def get_iperf_status(task_id: int, token: str, db: Session = Depends(get_db)):
     """agent 查询打流任务状态（用于检测是否被中止，cancelled 则 terminate iperf3 进程）。"""
-    node = node_repo.get_by_token(db, token)
-    if node is None:
-        raise HTTPException(401, "无效的 agent token")
-    t = task_svc.get_iperf(db, task_id)
-    if t is None:
-        raise HTTPException(404, "任务不存在")
+    t = task_svc.authorize_agent_task(db, token, "iperf", task_id, write=False)
     return {"status": t.status}
 
 
 @agent_task_router.post("/iperf-tasks/{task_id}/result")
 def finish_iperf(task_id: int, token: str, status: str, result_json: dict, db: Session = Depends(get_db)):
     """agent 回传打流结果。status: done / failed"""
+    task_svc.authorize_agent_task(db, token, "iperf", task_id, status=status, role=result_json.get("role", "client"))
     task_svc.finish_iperf(db, task_id, status, result_json)
     return {"ok": True}
 
@@ -143,6 +139,7 @@ def iperf_progress(task_id: int, token: str, ts: str, bitrate: float = 0,
     role=server 是接收端（UDP 正向时带真实丢包/抖动）。
     retry=True 是重试事件（前端显示「xx原因，重试第x次」，不画进吞吐曲线）。
     note 是阶段提示点（speedtest 选服务器/测速阶段等，bitrate=0 占位，前端只显示文字不画图）。"""
+    task_svc.authorize_agent_task(db, token, "iperf", task_id, role=role)
     point = {"ts": ts, "bitrate": bitrate, "role": role}
     if note:
         point["note"] = note
@@ -161,6 +158,7 @@ def iperf_progress(task_id: int, token: str, ts: str, bitrate: float = 0,
 @agent_task_router.post("/component-installs/{task_id}/result")
 def finish_component(task_id: int, token: str, status: str, error: str = "", db: Session = Depends(get_db)):
     """agent 回传组件安装结果。status: done / failed"""
+    task_svc.authorize_agent_task(db, token, "component", task_id, status=status)
     task_svc.finish_component(db, task_id, status, error)
     return {"ok": True}
 
@@ -169,6 +167,7 @@ def finish_component(task_id: int, token: str, status: str, error: str = "", db:
 def finish_net_task(task_id: int, token: str, status: str, result_json: dict | None = None,
                     db: Session = Depends(get_db)):
     """agent 回传网络操作任务结果（改 IP 回退 / 防火墙修改）。status: done / failed"""
+    task_svc.authorize_agent_task(db, token, "net", task_id, status=status)
     task_svc.finish_net_task(db, task_id, status, result_json)
     return {"ok": True}
 
@@ -187,12 +186,14 @@ def download_speedtest_go(token: str, db: Session = Depends(get_db)):
 
 @agent_task_router.post("/mtr-tasks/{task_id}/result")
 def finish_mtr(task_id: int, token: str, status: str, result_json: dict, db: Session = Depends(get_db)):
+    task_svc.authorize_agent_task(db, token, "mtr", task_id, status=status)
     task_svc.finish_mtr(db, task_id, status, result_json)
 
 
 @agent_task_router.post("/mtr-tasks/{task_id}/live")
 def mtr_live(task_id: int, token: str, live_json: dict, db: Session = Depends(get_db)):
     """agent 跑 mtr --raw 过程中每 ~2s 覆写一次实时逐跳快照（前端轮询显示，跟终端一样实时刷）。"""
+    task_svc.authorize_agent_task(db, token, "mtr", task_id)
     task_svc.update_mtr_live(db, task_id, live_json)
     return {"ok": True}
 
@@ -200,6 +201,7 @@ def mtr_live(task_id: int, token: str, live_json: dict, db: Session = Depends(ge
 @agent_task_router.post("/commands/{cmd_id}/result")
 def finish_command(cmd_id: int, token: str, status: str, stdout: str = "", stderr: str = "",
                    exit_code: int = 0, db: Session = Depends(get_db)):
+    task_svc.authorize_agent_task(db, token, "command", cmd_id, status=status)
     task_svc.finish_command(db, cmd_id, status, stdout, stderr, exit_code)
     return {"ok": True}
 

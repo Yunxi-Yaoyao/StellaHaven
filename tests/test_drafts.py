@@ -121,5 +121,7 @@ def test_draft_sync_does_not_break_save_token(client, db_session, doc_id):
 
 
 def test_draft_no_doc(client):
-    """给不存在的文档推草稿 → 不炸，安静忽略"""
-    send_draft(client, uuid4(), "幽灵草稿")  # 不断言异常，只要不 500
+    """不存在/无权访问的文档在握手前拒绝，不能接受任意草稿。"""
+    from starlette.websockets import WebSocketDisconnect
+    with pytest.raises(WebSocketDisconnect):
+        send_draft(client, uuid4(), "幽灵草稿")

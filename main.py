@@ -12,6 +12,7 @@ from app.routers.admin_email import router as admin_email_router
 from app.routers.monitor import node_router, agent_router, monitor_router
 from app.routers.task import router as task_router, agent_task_router
 from app.routers.config import router as config_router, public_router as config_public_router
+from app.routers.metrics_source import router as metrics_source_router
 from app.routers.drive import router as drive_router
 from app.routers.gallery import router as gallery_router
 from app.routers.oidc import router as oidc_router
@@ -48,7 +49,7 @@ async def assets_cache_control(request: Request, call_next):
     不在此列，保持每次回源拿最新。"""
     resp = await call_next(request)
     p = request.url.path
-    if resp.status_code == 200 and (p.startswith("/assets/") or p.startswith("/static/")):
+    if resp.status_code in (200, 206, 304) and (p.startswith("/assets/") or p.startswith("/static/")):
         resp.headers["Cache-Control"] = "public, max-age=604800, immutable"  # 7 天
     return resp
 
@@ -71,6 +72,7 @@ app.include_router(task_router)
 app.include_router(agent_task_router)
 app.include_router(config_router)
 app.include_router(config_public_router)
+app.include_router(metrics_source_router)
 app.include_router(drive_router)
 app.include_router(gallery_router)
 app.include_router(oidc_router)

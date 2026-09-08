@@ -25,9 +25,11 @@ def _mk_iperf(client, server_node_id, client_node_id):
     }).json()
 
 
-def _finish_iperf(client, task_id, token):
-    """清理：把 pending 打流任务 finish 成 done，释放并发限制。"""
-    client.post(f"/agent/iperf-tasks/{task_id}/result?token={token}&status=done", json={})
+def _finish_iperf(client, task_id, token, server_token):
+    """按真实领取顺序完成任务，不能跳过pending直接回传结果。"""
+    client.get(f"/agent/tasks?token={server_token}")
+    client.get(f"/agent/tasks?token={token}")
+    assert client.post(f"/agent/iperf-tasks/{task_id}/result?token={token}&status=done", json={}).status_code == 200
 
 
 def test_create_iperf_task(client):
@@ -37,7 +39,7 @@ def test_create_iperf_task(client):
     t = _mk_iperf(client, server["id"], c["id"])
     assert t["status"] == "pending"
     assert t["mode"] == "iperf3"
-    _finish_iperf(client, t["id"], c["token"])
+    _finish_iperf(client, t["id"], c["token"], server["token"])
 
 
 def test_iperf_concurrency_limit(client):
@@ -49,7 +51,7 @@ def test_iperf_concurrency_limit(client):
     assert client.post("/iperf-tasks", json={
         "server_node_id": server["id"], "client_node_id": c["id"],
     }).status_code == 409
-    _finish_iperf(client, t1["id"], c["token"])
+    _finish_iperf(client, t1["id"], c["token"], server["token"])
 
 
 def test_agent_poll_and_finish_iperf(client):
@@ -92,7 +94,8 @@ def test_agent_finish_command(client):
     """agent 回传命令结果 → stdout/stderr/exit_code 落库"""
     n = _mk_node(client)
     c = client.post("/commands", json={"node_id": n["id"], "command": "uname -a"}).json()
-    client.post(f"/agent/commands/{c['id']}/result?token={n['token']}&status=done&stdout=Linux&exit_code=0")
+    client.get(f"/agent/tasks?token={n['token']}")
+    assert client.post(f"/agent/commands/{c['id']}/result?token={n['token']}&status=done&stdout=Linux&exit_code=0").status_code == 200
     cmds = {x["id"]: x for x in client.get("/commands").json()}
     assert cmds[c["id"]]["status"] == "done"
     assert cmds[c["id"]]["stdout"] == "Linux"

@@ -2,6 +2,10 @@
 // 设置面板：右侧滑出。第一批设置项 = 主页主题 / 粒子氛围 / 背景图（附件系统）
 import { ref, computed, watch } from "vue";
 import { settingsOpen, bgManagerOpen, homeSettings, DEFAULT_HOME_BG } from "../modules/home/settings";
+import { auth, displayBg } from "../modules/home/auth";
+import Dropdown from "./Dropdown.vue";
+import { toast } from "../composables/useToast";
+import { backgroundEntries, loadBackgroundEntries, useBackgroundMedia, backgroundThumbnail, qualityOptions, setBackgroundQuality, optimizeBackground } from "../modules/home/backgroundMedia";
 
 const themes = [
   { key: "daybreak", name: "破晓", desc: "白天云海 · 黑胶唱片 · 衬线标题" },
@@ -11,41 +15,41 @@ const themes = [
 ];
 
 /* 背景图：当前项的名字 + 预览 */
-interface BgEntry { id: string; name: string; ext: string; url: string; isDefault: boolean; }
-const bgList = ref<BgEntry[]>([]);
+const bgList = backgroundEntries;
+const { media, quality, status } = useBackgroundMedia(computed(() => settingsOpen.value ? displayBg.value : ""));
 async function loadBgList() {
-  try {
-    const r = await fetch("/homebg/");
-    bgList.value = await r.json();
-  } catch { /* 后端没起就静默 */ }
+  try { await loadBackgroundEntries(); } catch { /* no notification spam */ }
 }
-watch(settingsOpen, (v) => { if (v) loadBgList(); });
-watch(bgManagerOpen, (v) => { if (!v) loadBgList(); }); // 管理窗关掉后刷新名字
+watch(settingsOpen, (v) => { if (v) loadBgList(); }, { immediate: true });
+watch(bgManagerOpen, (v) => { if (!v && settingsOpen.value) loadBgList(); });
+const currentBg = computed(() => bgList.value.find((e) => e.url === displayBg.value));
+const bgName = computed(() => currentBg.value?.name || displayBg.value.split("/").pop()?.replace(/\.[^.]+$/, "") || "无背景");
+const thumbnail = computed(() => backgroundThumbnail(displayBg.value));
+const resetting = ref(false);
+async function resetBg() {
+  if (resetting.value) return;
+  resetting.value = true;
+  try {
+    const r = await fetch("/auth/me", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ home_bg: DEFAULT_HOME_BG }),
+    });
+    if (!r.ok) throw new Error(`恢复默认失败 (${r.status})`);
+    const updated = await r.json();
+    if (updated.home_bg !== DEFAULT_HOME_BG) throw new Error("服务器未保存默认背景");
+    auth.me = updated;
+  } catch (e) { toast(e instanceof Error ? e.message : "恢复默认失败"); }
+  finally { resetting.value = false; }
+}
 
-const currentBg = computed(() => bgList.value.find((e) => e.url === homeSettings.bgImage));
-const bgName = computed(() => {
-  if (currentBg.value) return currentBg.value.name;
-  const seg = homeSettings.bgImage.split("/").pop() ?? "";
-  return seg.replace(/\.[^.]+$/, "") || "无背景";
-});
-const bgIsVideo = computed(() => homeSettings.bgImage.toLowerCase().endsWith(".mp4"));
-
-function resetBg() { homeSettings.bgImage = DEFAULT_HOME_BG; }
-
-/* 自绘下拉（原生 select 的选中蓝样式管不了，老婆实锤刺眼） */
-const selOpen = ref(false);
 const particleOptions = [
   { value: "stars", label: "星空点点" },
   { value: "motes", label: "浮尘微粒" },
   { value: "sakura", label: "樱花飘落" },
   { value: "off", label: "关闭" },
-] as const;
-const particleLabel = computed(() =>
-  particleOptions.find((o) => o.value === homeSettings.particles)?.label ?? "星空点点"
-);
-function pickParticle(v: string) {
-  (homeSettings as any).particles = v;
-  selOpen.value = false;
+];
+function pickParticle(v: string | number | boolean) {
+  if (v === "stars" || v === "motes" || v === "sakura" || v === "off") homeSettings.particles = v;
 }
 </script>
 
@@ -78,27 +82,7 @@ function pickParticle(v: string) {
 
         <section class="sec">
           <div class="sec-t">氛围粒子</div>
-          <div class="sel">
-            <button class="sel-btn" @click="selOpen = !selOpen">
-              <span>{{ particleLabel }}</span>
-              <span class="sel-arrow" :class="{ up: selOpen }">▾</span>
-            </button>
-            <Transition name="drop">
-              <div v-if="selOpen" class="sel-list">
-                <button
-                  v-for="o in particleOptions"
-                  :key="o.value"
-                  class="sel-opt"
-                  :class="{ on: homeSettings.particles === o.value }"
-                  @click="pickParticle(o.value)"
-                >
-                  <span>{{ o.label }}</span>
-                  <span class="tick">{{ homeSettings.particles === o.value ? "●" : "" }}</span>
-                </button>
-              </div>
-            </Transition>
-            <div v-if="selOpen" class="sel-mask" @click="selOpen = false" />
-          </div>
+          <Dropdown :model-value="homeSettings.particles" :options="particleOptions" @update:model-value="pickParticle" />
         </section>
 
         <section class="sec">
@@ -131,14 +115,23 @@ function pickParticle(v: string) {
           <div class="sec-t">背景图</div>
           <div class="bg-now">
             <div class="bg-preview">
-              <video v-if="bgIsVideo" :src="homeSettings.bgImage" muted preload="metadata" />
-              <img v-else-if="homeSettings.bgImage" :src="homeSettings.bgImage" alt="当前背景" />
-              <div v-else class="bg-none">无背景</div>
+              <img v-if="thumbnail" :src="thumbnail" alt="当前背景" loading="lazy" />
+              <div v-else class="bg-none">暂无缩略图</div>
             </div>
             <div class="bg-name" :title="bgName">{{ bgName }}</div>
           </div>
+          <div class="field" style="margin-top: 14px">
+            <span class="f-label">显示画质</span>
+            <Dropdown :model-value="quality" :options="qualityOptions" @update:model-value="setBackgroundQuality" />
+          </div>
+          <div class="bg-none" style="height: auto">仅保存在当前设备 · 未就绪时使用原画</div>
+          <p v-if="status === 'queued' || status === 'processing'" role="status">背景处理中…</p>
+          <p v-if="media?.error && status === 'ready'" role="status">{{ media.error }}</p>
+          <p v-if="status === 'error'" role="alert">{{ media?.error || '背景处理失败' }}
+            <button v-if="auth.me" class="mini-btn" @click="optimizeBackground(displayBg)">重试</button>
+          </p>
           <div class="bg-actions">
-            <button class="mini-btn" @click="resetBg">恢复默认</button>
+            <button class="mini-btn" :disabled="resetting || !auth.me" @click="resetBg">恢复默认</button>
             <button class="mini-btn" @click="bgManagerOpen = true">更换背景</button>
           </div>
         </section>
@@ -249,7 +242,7 @@ function pickParticle(v: string) {
   background: rgba(255, 255, 255, 0.04);
   flex-shrink: 0;
 }
-.bg-preview img, .bg-preview video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bg-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .bg-none {
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
@@ -264,50 +257,6 @@ function pickParticle(v: string) {
   object-fit: cover; flex-shrink: 0;
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
-/* 自绘下拉：和面板同质感（隐边按钮 + 深色浮层列表，无原生蓝） */
-.sel { position: relative; }
-.sel-btn {
-  width: 100%;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 11px 13px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text-hi);
-  font-size: 13.5px; font-family: inherit;
-  cursor: pointer;
-  transition: all 220ms;
-}
-.sel-btn:hover { background: rgba(255, 255, 255, 0.06); }
-.sel-arrow { font-size: 11px; color: var(--text-lo); transition: transform 220ms; }
-.sel-arrow.up { transform: rotate(180deg); }
-.sel-mask { position: fixed; inset: 0; z-index: 96; }
-.sel-list {
-  position: absolute; left: 0; right: 0; top: calc(100% + 6px);
-  z-index: 97;
-  background: var(--bg-panel);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-  padding: 5px;
-  overflow: hidden;
-}
-.sel-opt {
-  width: 100%;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 9px 11px;
-  border: none; border-radius: 8px;
-  background: transparent;
-  color: var(--text-lo);
-  font-size: 13px; font-family: inherit;
-  cursor: pointer;
-  transition: all 180ms;
-}
-.sel-opt:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-hi); }
-.sel-opt.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.tick { font-size: 10px; }
-.drop-enter-active, .drop-leave-active { transition: all 220ms cubic-bezier(0.22, 1, 0.36, 1); }
-.drop-enter-from, .drop-leave-to { opacity: 0; transform: translateY(-6px); }
 .bg-actions { display: flex; gap: 8px; margin-top: 10px; }
 .mini-btn {
   padding: 6px 14px;

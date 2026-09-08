@@ -1,49 +1,15 @@
-"""图库（Immich）服务：容器状态探测 + 启停管理。
-
-Immich 由 /opt/immich docker compose 部署（server/postgres/redis/machine_learning 四容器），
-Stella 只管理主容器 immich_server 的启停——不负责安装/卸载（compose 部署归宿主管）。
-"""
-from docker.errors import NotFound
-
-from app.services.drive import detect_docker, _client
-
-IMMICH_CONTAINER = "immich_server"
+"""Connect to an independently managed Immich instance."""
+from app.services import external_services as external
 
 
-def get_status() -> dict:
-    """docker 环境 + immich_server 容器状态。"""
-    docker_info = detect_docker()
-    container_exists = False
-    container_running = False
-    container_status = None
-    if docker_info["running"]:
-        try:
-            ct = _client().containers.get(IMMICH_CONTAINER)
-            container_exists = True
-            container_status = ct.status
-            container_running = ct.status == "running"
-        except NotFound:
-            pass
-        except Exception:
-            pass
-    return {
-        "docker": docker_info,
-        "container_exists": container_exists,
-        "container_running": container_running,
-        "container_status": container_status,
-    }
+def browser_url(db, hostname=''):
+    cfg = external.load(db, 'gallery')
+    host = hostname.lower().rstrip('.')
+    base = cfg.alternate_browser_url if cfg.alternate_browser_url and (host == 'yunxi.life' or host.endswith('.yunxi.life')) else cfg.browser_url
+    # Immich's global autoLaunch may be enabled; respect Stella's explicit manual choice.
+    return base + ('/auth/login?autoLaunch=0' if cfg.auth_mode == 'manual' else '/')
 
 
-def start_container() -> dict:
-    _client().containers.get(IMMICH_CONTAINER).start()
-    return get_status()
-
-
-def stop_container() -> dict:
-    _client().containers.get(IMMICH_CONTAINER).stop()
-    return get_status()
-
-
-def restart_container() -> dict:
-    _client().containers.get(IMMICH_CONTAINER).restart()
-    return get_status()
+def get_status(db):
+    cfg = external.load(db, 'gallery')
+    return {'configured': True, 'browser_url': cfg.browser_url, 'auth_mode': cfg.auth_mode}

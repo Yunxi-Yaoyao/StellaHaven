@@ -211,7 +211,7 @@ test('account change evicts cached notes instead of showing previous user conten
   await expect(page.locator('.rich-editor .ProseMirror')).toBeVisible();
   await page.locator('.rich-editor').evaluate(el => { (window as any).__cachedRichInstance = (el as any).__vueParentComponent; });
   await page.locator('a[href="/settings"]').first().click();
-  await page.evaluate(async () => { const path = '/src/modules/home/auth.ts'; const { auth } = await import(path); auth.me = null; });
+  await page.getByRole('button', { name: '退出登录', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__cachedRichInstance.isUnmounted)).toBe(true);
   await expect(page.locator('.notes-page')).toHaveCount(0);
 });

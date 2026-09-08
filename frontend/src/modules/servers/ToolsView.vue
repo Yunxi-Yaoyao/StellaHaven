@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 工具页：打流测速 / MTR / 下发命令（由 tool prop 决定渲染哪一个）
+import { waitForTask } from "./taskWait";
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import * as echarts from "echarts";
 import {
@@ -643,22 +644,22 @@ const stServerOptions = computed(() => [
   ...stServerList.value.map((s) => ({ value: String(s.id), label: `${s.name}${s.country ? " · " + s.country : ""}` })),
 ]);
 // 换客户端节点后旧列表作废
-watch(iperfClientId, () => { stServerList.value = []; stServerId.value = ""; });
+let commandLifecycle = new AbortController();
+onUnmounted(() => commandLifecycle.abort());
+watch(iperfClientId, () => { commandLifecycle.abort(); commandLifecycle = new AbortController(); stListLoading.value = false; stServerList.value = []; stServerId.value = ""; });
 
 async function fetchStServers() {
   if (iperfClientId.value === null) { toast("先选客户端节点喵~"); return; }
+  const signal = commandLifecycle.signal;
   stListLoading.value = true;
   try {
     const cmd = await createCommand({
       node_id: iperfClientId.value,
       command: "speedtest-go --list 2>/dev/null || /opt/stella-agent/bin/speedtest-go --list",
     });
-    // 轮询这条命令的结果（agent 1s 领取，--list 本身要约 10s）
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const list = await listCommands();
-      const c = list.find((x) => x.id === cmd.id);
-      if (c && (c.status === "done" || c.status === "failed")) {
+    if (signal.aborted) return;
+    const c = await waitForTask(async s => (await listCommands(s)).find(x => x.id === cmd.id), { signal, timeoutMs: 60000 });
+    if (signal.aborted) return;
         if (c.status === "done" && c.stdout?.trim()) {
           // speedtest-go --list 是纯文本表格：「[ 1345]  12386.43km 227ms \tHays, KS (United States) by …」
           // （--json 对 --list 不生效，v1.7.11 实测）；留 JSON 解析兜底兼容未来版本
@@ -682,10 +683,8 @@ async function fetchStServers() {
         }
         stListLoading.value = false;
         return;
-      }
-    }
-    toast("获取超时了喵~");
-  } catch { toast("下发失败"); }
+
+  } catch (e) { if (signal.aborted) return; toast(e instanceof Error ? e.message : "下发失败"); }
   stListLoading.value = false;
 }
 </script>

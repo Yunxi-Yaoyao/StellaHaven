@@ -75,6 +75,7 @@ def test_monitor_check_report(client):
     """agent 上报探测结果 → status 更新 + 落历史"""
     n = _mk_node(client)
     m = _mk_monitor(client, n["id"])
+    assert client.post(f"/agent/report?token={n['token']}", json={"agent_version": "test"}).status_code == 200
     now = datetime.now(timezone.utc)
     resp = client.post(f"/agent/monitor-check?token={n['token']}", json={
         "monitor_id": m["id"], "ts": now.isoformat(), "success": True, "latency_ms": 12.3,

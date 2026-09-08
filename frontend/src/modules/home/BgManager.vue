@@ -1,19 +1,12 @@
 <script setup lang="ts">
 // 主页背景附件管理浮窗：拖拽上传 / 缩略图网格 / 单击选中 / 双击进裁剪预览 / 重命名 / 删除（默认不可删）
 // 裁剪模型 = 源图分数区域（cx,cy 中心 + w,h 宽高），渲染时 cover-fit 铺满——窗口 resize 内容不散。
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch, effectScope } from "vue";
 import { bgManagerOpen, homeSettings } from "./settings";
 import { auth, displayBg } from "./auth";
 
-interface BgEntry {
-  id: string;
-  name: string;
-  ext: string;
-  url: string;
-  isDefault: boolean;
-}
-
-const list = ref<BgEntry[]>([]);
+import { backgroundEntries, loadBackgroundEntries, backgroundMedia, backgroundThumbnail, storeBackgroundMedia, useBackgroundMedia, optimizeBackground, type BackgroundEntry as BgEntry } from "./backgroundMedia";
+const list = backgroundEntries;
 const selectedId = ref<string | null>(null);
 const previewEntry = ref<BgEntry | null>(null);
 const renamingId = ref<string | null>(null);
@@ -37,18 +30,20 @@ const zoom = ref(100);                     // 缩放滑杆：100=整张图
 const cx = computed(() => cropW.value / 2 + (sliderX.value / 100) * (1 - cropW.value));
 const cy = computed(() => cropH.value / 2 + (sliderY.value / 100) * (1 - cropH.value));
 
+const { source: previewSource, media: previewMedia } = useBackgroundMedia(computed(() => previewEntry.value?.url || ""));
 async function load() {
   try {
-    const r = await fetch("/homebg/");
-    if (!r.ok) return; // 未登录时静默（管理窗本来要登录才开）
-    list.value = await r.json();
-    const cur = list.value.find((e) => e.url === displayBg.value);
-    selectedId.value = cur?.id ?? list.value[0]?.id ?? null;
-  } catch { /* 后端没起就静默 */ }
+    await loadBackgroundEntries();
+    selectedId.value = list.value.find(e => e.url === displayBg.value)?.id ?? null;
+  } catch (e) { errorMsg.value = e instanceof Error ? e.message : "图库加载失败"; }
 }
-
-onMounted(load);
-watch(bgManagerOpen, (v) => { if (v) { load(); errorMsg.value = ""; } });
+watch(bgManagerOpen, (v) => { if (v) { errorMsg.value = ""; void load(); } }, { immediate: true });
+// Grid entries are active consumers only while visible; no media element downloads.
+watch(() => bgManagerOpen.value ? list.value.map(e => e.url) : [], (urls, _, cleanup) => {
+  const scope = effectScope();
+  scope.run(() => { for (const url of urls) useBackgroundMedia(computed(() => url)); });
+  cleanup(() => scope.stop());
+}, { immediate: true });
 
 function select(e: BgEntry) {
   selectedId.value = e.id;
@@ -56,6 +51,7 @@ function select(e: BgEntry) {
 }
 
 async function upload(files: FileList | File[]) {
+  if (uploading.value) return;
   errorMsg.value = "";
   for (const f of Array.from(files)) {
     const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
@@ -66,15 +62,18 @@ async function upload(files: FileList | File[]) {
     uploading.value = true;
     const fd = new FormData();
     fd.append("file", f);
-    const r = await fetch("/homebg/upload", { method: "POST", body: fd });
-    uploading.value = false;
-    if (!r.ok) {
-      errorMsg.value = `「${f.name}」上传失败：${(await r.json()).detail ?? r.status}`;
-      continue;
-    }
-    const entry = await r.json();
-    list.value.push(entry);
-    selectedId.value = entry.id;
+    try {
+      const r = await fetch("/homebg/upload", { method: "POST", body: fd });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail ?? String(r.status));
+      }
+      const entry: BgEntry = await r.json();
+      if (entry.media) storeBackgroundMedia(entry.media);
+      list.value.push(entry);
+      selectedId.value = entry.id;
+    } catch (e) { errorMsg.value = `「${f.name}」上传失败：${e instanceof Error ? e.message : "网络错误"}`; }
+    finally { uploading.value = false; }
   }
 }
 
@@ -95,19 +94,25 @@ function openPreview(e: BgEntry) {
     h: 0,
   };
   stage.value.h = stage.value.w / aspect;
-  // 读源尺寸
+  // Prefer original metadata; variants retain the original aspect ratio.
   nat.value = { w: 0, h: 0 };
-  if (isVideo(e)) {
-    const v = document.createElement("video");
-    v.muted = true; v.preload = "metadata"; v.src = e.url;
-    v.onloadedmetadata = () => { nat.value = { w: v.videoWidth, h: v.videoHeight }; initFromSettings(); };
-  } else {
-    const img = new Image();
-    img.onload = () => { nat.value = { w: img.naturalWidth, h: img.naturalHeight }; initFromSettings(); };
-    img.src = e.url;
+  const m = previewMedia.value;
+  if (m?.width && m?.height) {
+    nat.value = { w: m.width, h: m.height };
+    initFromSettings();
   }
+
 }
 
+function previewLoaded(event: Event) {
+  if (nat.value.w) return;
+  const el = event.target;
+  const m = previewMedia.value;
+  if (m?.width && m?.height) nat.value = { w: m.width, h: m.height };
+  else if (el instanceof HTMLVideoElement) nat.value = { w: el.videoWidth, h: el.videoHeight };
+  else if (el instanceof HTMLImageElement) nat.value = { w: el.naturalWidth, h: el.naturalHeight };
+  initFromSettings();
+}
 function initFromSettings() {
   const c = homeSettings.bgCrop;
   if (c && c.w < 1) {
@@ -246,8 +251,8 @@ async function remove(e: BgEntry) {
               @dblclick="openPreview(e)"
             >
               <div class="thumb">
-                <video v-if="isVideo(e)" :src="e.url" muted preload="metadata" />
-                <img v-else :src="e.url" :alt="e.name" loading="lazy" />
+                <img v-if="backgroundThumbnail(e.url)" :src="backgroundThumbnail(e.url)" :alt="e.name" loading="lazy" />
+                <span v-else class="thumb-placeholder">{{ isVideo(e) ? '视频 · 暂无缩略图' : '暂无缩略图' }}</span>
                 <span v-if="e.isDefault" class="def-tag">默认</span>
               </div>
               <div class="meta">
@@ -264,6 +269,11 @@ async function remove(e: BgEntry) {
                 />
                 <span v-else class="name" :title="e.name" @dblclick.stop="startRename(e)">{{ e.name }}</span>
                 <span class="ext" :data-ext="e.ext">[{{ e.ext }}]</span>
+              </div>
+              <div v-if="['queued', 'processing'].includes(backgroundMedia[e.url]?.status || '')" class="media-status" role="status">处理中…</div>
+              <div v-if="backgroundMedia[e.url]?.status === 'error'" class="media-status" role="alert">
+                {{ backgroundMedia[e.url]?.error || '处理失败' }}
+                <button class="btn ghost" @click.stop="optimizeBackground(e.url)">重试</button>
               </div>
               <div class="cell-ops">
                 <button class="op" title="重命名" @click.stop="startRename(e)">✎</button>
@@ -288,11 +298,12 @@ async function remove(e: BgEntry) {
             <video
               v-if="isVideo(previewEntry)"
               class="crop-media"
-              :src="previewEntry!.url"
+              :src="previewSource"
               :style="mediaStyle"
+              :poster="previewMedia?.poster || undefined" @loadedmetadata="previewLoaded"
               autoplay muted loop playsinline
             />
-            <img v-else class="crop-media" :src="previewEntry!.url" :style="mediaStyle" alt="" />
+            <img v-else class="crop-media" :src="previewSource" :style="mediaStyle" alt="" @load="previewLoaded" />
             <div class="crop-scrim" />
             <!-- 主页组件 mock：构图预览用 -->
             <div class="mock-panel">
@@ -394,7 +405,9 @@ async function remove(e: BgEntry) {
 .cell:hover { background: rgba(255, 255, 255, 0.06); }
 .cell.on { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 .thumb { height: 96px; overflow: hidden; }
-.thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb-placeholder { display: grid; place-items: center; height: 100%; font-size: 12px; color: var(--text-faint); }
+.media-status { padding: 0 10px 8px; font-size: 11px; color: var(--text-lo); overflow-wrap: anywhere; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .def-tag {
   position: absolute; top: 6px; left: 6px;
   padding: 1px 8px; border-radius: 999px;

@@ -6,10 +6,13 @@ from app.repositories import monitor as repo
 from app.repositories import node as node_repo
 from app.repositories import config as config_repo
 from app.models.monitor import Monitor, MonitorCheck
+from app.schemas.monitor import MonitorRead
+from app.services.server_status import monitor_status
 
 
-def list_monitors(db: Session) -> list[Monitor]:
-    return repo.list_all(db)
+def list_monitors(db: Session) -> list[MonitorRead]:
+    return [MonitorRead.model_validate(m).model_copy(update={"status": monitor_status(m, node_repo.get_by_id(db, m.node_id))})
+            for m in repo.list_all(db)]
 
 
 def list_monitors_for_node(db: Session, node_id: int) -> list[Monitor]:

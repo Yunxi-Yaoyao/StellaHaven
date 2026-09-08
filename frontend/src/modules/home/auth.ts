@@ -43,30 +43,39 @@ export const currentAvatar = computed(() =>
 );
 
 let _refreshing: Promise<boolean> | null = null;
+let lastActivityReport = 0;
+/** Only actual input extends server idle time; background requests never do. */
+export async function reportActivity(event: Event): Promise<void> {
+  if (!event.isTrusted || document.visibilityState !== 'visible' || !auth.me) return;
+  const now = Date.now();
+  if (now - lastActivityReport < 60000) return;
+  lastActivityReport = now;
+  try {
+    const r = await fetch('/auth/activity', { method: 'POST' });
+    if (r.status === 401 && await refreshAccess()) {
+      await fetch('/auth/activity', { method: 'POST' });
+    }
+  } catch { lastActivityReport = 0; }
+}
 
 /** 单例 refresh：并发 401 时只发一个 refresh，避免旋转制 refresh token 被并发转废 */
 export function refreshAccess(): Promise<boolean> {
   if (!_refreshing) {
     _refreshing = (async () => {
+      let rejected = false;
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            const r = await fetch("/auth/refresh", { method: "POST" });
-            if (r.ok) {
-              auth.me = await r.json();
-              return true;
-            }
-            // 401 可能是同域名多 tab 并发旋转（另一个 tab 已更新 cookie），稍等后用新 cookie 重试
-            await new Promise((res) => setTimeout(res, 300));
-          } catch {
-            /* 网络错误 */
-          }
+            const r = await fetch('/auth/refresh', { method:'POST' });
+            if (r.ok) { auth.me = await r.json(); return true; }
+            if (r.status !== 401 && r.status !== 403) return false;
+            rejected = true;
+            if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 300));
+          } catch { return false; }
         }
-        auth.me = null; // 重试仍失败 → 会话真失效，清登录态
+        if (rejected) auth.me = null;
         return false;
-      } finally {
-        _refreshing = null;
-      }
+      } finally { _refreshing = null; }
     })();
   }
   return _refreshing;
@@ -74,23 +83,15 @@ export function refreshAccess(): Promise<boolean> {
 
 export async function fetchMe(): Promise<boolean> {
   try {
-    const r = await fetch("/auth/me");
+    const r = await fetch('/auth/me');
     if (r.ok) {
-      auth.me = await r.json();
-      auth.checked = true;
-      migrateLegacyBg(); // 迁旧背景
-      return true;
+      auth.me = await r.json(); auth.checked = true; migrateLegacyBg(); return true;
     }
-    // access 过期 → 试 refresh（单例）
-    if (await refreshAccess()) {
-      auth.checked = true;
-      migrateLegacyBg(); // 迁旧背景
-      return true;
-    }
-  } catch { /* 后端不在 */ }
-  auth.me = null;
+    if (r.status !== 401 && r.status !== 403) { auth.checked = true; return false; }
+    if (await refreshAccess()) { auth.checked = true; migrateLegacyBg(); return true; }
+  } catch { auth.checked = true; return false; }
   auth.checked = true;
-  loadSiteConfig(); // 未登录 → 拉初始化状态 + 管理员站点背景
+  if (!auth.me) void loadSiteConfig();
   return false;
 }
 
@@ -147,8 +148,10 @@ export async function register(username: string, password: string, displayName?:
 }
 
 export async function logout(): Promise<void> {
-  await fetch("/auth/logout", { method: "POST" });
+  const r = await fetch("/auth/logout", { method: "POST" });
+  if (!r.ok) throw new Error('退出未成功，请检查网络后重试');
   auth.me = null;
+  lastActivityReport = 0;
 }
 
 export async function authStatus(): Promise<boolean> {

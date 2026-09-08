@@ -203,16 +203,41 @@ async function doLogout() {
 interface SessionRow {
   id: string; device: string; ip: string; remember: boolean;
   created_at: string; last_seen: string; current: boolean;
-  owner: string; mine: boolean;
+  owner: string; mine: boolean; state?: 'expired' | 'revoked';
 }
 const sessions = ref<SessionRow[]>([]);
 const sessMsg = ref("");
+const activePage = ref(1);
+const historyPage = ref(1);
+const historyTotal = ref(0);
+const historyRows = ref<SessionRow[]>([]);
+const historyOpen = ref(false);
+const historyBusy = ref(false);
+const historyError = ref('');
+async function loadHistory(page = historyPage.value) {
+  if (historyBusy.value) return;
+  historyBusy.value = true;
+  historyError.value = '';
+  try {
+    const r = await fetch(`/auth/sessions/history?page=${page}&page_size=20`);
+    if (!r.ok) throw new Error('加载历史失败');
+    const data = await r.json();
+    historyRows.value = data.items;
+    historyTotal.value = data.total;
+    historyPage.value = data.page;
+  } catch { historyError.value = '加载历史失败，请重试'; }
+  finally { historyBusy.value = false; }
+}
+function toggleHistory(event: Event) {
+  historyOpen.value = (event.target as HTMLDetailsElement).open;
+  if (historyOpen.value) void loadHistory();
+}
 // 分组：当前账号 vs 其他账号（admin 可见其他）
 const mineSessions = computed(() => sessions.value.filter((s) => s.mine));
 const otherSessions = computed(() => sessions.value.filter((s) => !s.mine));
 
 async function loadSessions() {
-  const r = await fetch("/auth/sessions");
+  const r = await fetch(`/auth/sessions?page=${activePage.value}&page_size=20`);
   if (r.ok) sessions.value = await r.json();
 }
 
@@ -222,6 +247,7 @@ async function revoke(s: SessionRow) {
   if (r.ok) {
     sessMsg.value = "已踢下线";
     loadSessions();
+    if (historyOpen.value) void loadHistory(1);
   } else {
     sessMsg.value = (await r.json()).detail ?? "失败";
   }
@@ -402,10 +428,10 @@ onMounted(() => {
             <div v-for="s in mineSessions" :key="s.id" class="sess-row">
               <div class="sess-main">
                 <span class="sess-device">{{ s.device }}</span>
-                <span v-if="s.current" class="cur">本机</span>
+                <span v-if="s.current" class="cur">当前会话</span>
                 <span v-if="s.remember" class="rem">记住我</span>
               </div>
-              <div class="sess-sub">{{ s.ip || "局域网" }} · 登录 {{ fmtTime(s.created_at) }} · 活跃 {{ fmtTime(s.last_seen) }}</div>
+              <div class="sess-sub">{{ s.ip || "局域网" }} · 登录 {{ fmtTime(s.created_at) }} · 最近活动 {{ fmtTime(s.last_seen) }}</div>
               <button v-if="!s.current" class="mini danger" @click="revoke(s)">踢下线</button>
             </div>
           </template>
@@ -416,11 +442,32 @@ onMounted(() => {
                 <span class="sess-device">{{ s.device }}</span>
                 <span class="rem">{{ s.owner }}</span>
               </div>
-              <div class="sess-sub">{{ s.ip || "局域网" }} · 登录 {{ fmtTime(s.created_at) }} · 活跃 {{ fmtTime(s.last_seen) }}</div>
+              <div class="sess-sub">{{ s.ip || "局域网" }} · 登录 {{ fmtTime(s.created_at) }} · 最近活动 {{ fmtTime(s.last_seen) }}</div>
               <button class="mini danger" @click="revoke(s)">踢下线</button>
             </div>
           </template>
           <div v-if="!sessions.length" class="hint">暂无会话</div>
+          <div class="btn-row">
+            <button class="mini" :disabled="activePage <= 1" @click="activePage--; loadSessions()">上一页</button>
+            <span class="hint">有效会话 · 第 {{ activePage }} 页</span>
+            <button class="mini" :disabled="sessions.length < 20" @click="activePage++; loadSessions()">下一页</button>
+          </div>
+          <div class="hint">记住我：登录起 30 天；否则无操作 30 分钟退出。后台轮询不续期。</div>
+          <details @toggle="toggleHistory">
+            <summary class="sess-group">历史登录记录（已过期 / 已下线）</summary>
+            <div v-if="historyBusy" class="hint">加载中…</div>
+            <div v-if="historyError" role="alert">{{ historyError }} <button class="mini" @click="loadHistory()">重试</button></div>
+            <div v-for="s in historyRows" :key="s.id" class="sess-row">
+              <div class="sess-main">{{ s.owner }} · {{ s.device }} <span class="rem">{{ s.state === 'revoked' ? '已下线' : '已过期' }}</span></div>
+              <div class="sess-sub">{{ s.ip || '局域网' }} · 登录 {{ fmtTime(s.created_at) }} · 最近活动 {{ fmtTime(s.last_seen) }}</div>
+            </div>
+            <div v-if="!historyBusy && !historyError && !historyRows.length" class="hint">暂无历史记录</div>
+            <div class="btn-row">
+              <button class="mini" :disabled="historyBusy || historyPage <= 1" @click="loadHistory(historyPage - 1)">上一页</button>
+              <span class="hint">共 {{ historyTotal }} 条 · {{ historyPage }} / {{ Math.max(1, Math.ceil(historyTotal / 20)) }} 页</span>
+              <button class="mini" :disabled="historyBusy || historyPage * 20 >= historyTotal" @click="loadHistory(historyPage + 1)">下一页</button>
+            </div>
+          </details>
         </section>
       </template>
 

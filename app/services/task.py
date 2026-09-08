@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.repositories import task as repo
 from app.repositories import node as node_repo
 from app.models.task import IperfTask, MtrTask, AgentCommand, ComponentTask, NetTask
+from app.services.server_status import node_status
 
 
 # ── 打流看门狗（惰性清扫：列表/详情被读时顺手扫，不开后台任务）──
@@ -63,7 +64,7 @@ def create_iperf(db: Session, server_node_id: int | None, client_node_id: int,
         raise ValueError("已有打流任务进行中")
     # 节点约束：两端都必须在线；iperf3 互打时服务端必须是公网节点（client 要能连到 5201），且两端不同机
     client = node_repo.get_by_id(db, client_node_id)
-    if client is None or client.status != "online":
+    if node_status(client) != "online":
         raise ValueError("客户端节点不在线")
     if mode == "iperf3":
         if server_node_id is None:
@@ -71,7 +72,7 @@ def create_iperf(db: Session, server_node_id: int | None, client_node_id: int,
         if server_node_id == client_node_id:
             raise ValueError("服务端和客户端不能是同一台")
         server = node_repo.get_by_id(db, server_node_id)
-        if server is None or server.status != "online":
+        if server is None or node_status(server) != "online":
             raise ValueError("服务端节点不在线")
         if server.net_type != "public":
             raise ValueError(f"服务端 {server.name} 不是公网节点，客户端连不到它的 5201 端口")
@@ -308,6 +309,47 @@ def poll_tasks(db: Session, token: str) -> dict:
     }
 
 
+def authorize_agent_task(db: Session, token: str, kind: str, task_id: int,
+                         *, status: str | None = None, role: str | None = None,
+                         write: bool = True):
+    """Authenticate before lookup; lock through write to protect terminal states.
+
+    iperf server reports are auxiliary only; missing role means client (legacy).
+    Heartbeat staleness does not invalidate credentials: late replies still authenticate.
+    """
+    from fastapi import HTTPException
+    node = node_repo.get_by_token(db, token)
+    if node is None or node.status == "removed":
+        raise HTTPException(401, "无效的 agent token")
+    model = {"iperf": IperfTask, "mtr": MtrTask, "command": AgentCommand,
+             "component": ComponentTask, "net": NetTask}[kind]
+    task = db.query(model).filter(model.id == task_id).with_for_update().first() if write else db.get(model, task_id)
+    if task is None:
+        raise HTTPException(404, "任务不存在")
+    if kind == "iperf":
+        owners = {task.client_node_id}
+        if task.mode == "iperf3":
+            owners.add(task.server_node_id)
+        if node.id not in owners:
+            raise HTTPException(403, "任务不属于此节点")
+        if write:
+            if role not in ("client", "server"):
+                raise HTTPException(422, "无效的 iperf role")
+            expected = task.client_node_id if role == "client" else task.server_node_id
+            if node.id != expected or (role == "server" and task.mode != "iperf3"):
+                raise HTTPException(403, "节点与任务角色不匹配")
+    elif task.node_id != node.id:
+        raise HTTPException(403, "任务不属于此节点")
+    if status is not None and status not in ("done", "failed"):
+        raise HTTPException(422, "结果状态只能是 done / failed")
+    if write:
+        # Server may report startup failure before client has claimed the task.
+        server_pending = kind == "iperf" and role == "server" and task.status == "pending" and task.server_started
+        if task.status != "running" and not server_pending:
+            raise HTTPException(409, "任务未运行或已经结束")
+    return task
+
+
 # ── 结果回传 ──
 def finish_iperf(db: Session, task_id: int, status: str, result_json: dict) -> None:
     repo.finish_iperf(db, task_id, status, result_json)
@@ -342,7 +384,7 @@ def create_ip_change(db: Session, node_id: int, iface: str, new_ip: str,
 def create_firewall_scan(db: Session, node_id: int) -> NetTask:
     """下发防火墙结构化采集任务（ufw numbered + iptables-save 五表，只读）。"""
     node = node_repo.get_by_id(db, node_id)
-    if node is None or node.status != "online":
+    if node_status(node) != "online":
         raise ValueError("节点不在线")
     return repo.create_net_task(db, node_id, "firewall_scan", None)
 
@@ -350,7 +392,7 @@ def create_firewall_scan(db: Session, node_id: int) -> NetTask:
 def create_docker_scan(db: Session, node_id: int) -> NetTask:
     """下发 Docker 容器列表采集（只读）。"""
     node = node_repo.get_by_id(db, node_id)
-    if node is None or node.status != "online":
+    if node_status(node) != "online":
         raise ValueError("节点不在线")
     return repo.create_net_task(db, node_id, "docker_scan", None)
 
@@ -358,7 +400,7 @@ def create_docker_scan(db: Session, node_id: int) -> NetTask:
 def create_pbr_scan(db: Session, node_id: int) -> NetTask:
     """下发 PBR 结构化采集（ip rule / 各路由表 / mangle 打标链，只读）。"""
     node = node_repo.get_by_id(db, node_id)
-    if node is None or node.status != "online":
+    if node_status(node) != "online":
         raise ValueError("节点不在线")
     return repo.create_net_task(db, node_id, "pbr_scan", None)
 
@@ -366,7 +408,7 @@ def create_pbr_scan(db: Session, node_id: int) -> NetTask:
 def create_docker_logs(db: Session, node_id: int, container: str, tail: int = 150) -> NetTask:
     """下发容器日志读取（docker logs --tail，只读）。"""
     node = node_repo.get_by_id(db, node_id)
-    if node is None or node.status != "online":
+    if node_status(node) != "online":
         raise ValueError("节点不在线")
     tail = max(1, min(int(tail), 500))  # 上限 500 行防大包
     return repo.create_net_task(db, node_id, "docker_logs", {"container": container, "tail": tail})
@@ -375,7 +417,7 @@ def create_docker_logs(db: Session, node_id: int, container: str, tail: int = 15
 def create_docker_inspect(db: Session, node_id: int, container: str) -> NetTask:
     """下发容器配置查看（docker inspect 摘要化，只读）。"""
     node = node_repo.get_by_id(db, node_id)
-    if node is None or node.status != "online":
+    if node_status(node) != "online":
         raise ValueError("节点不在线")
     return repo.create_net_task(db, node_id, "docker_inspect", {"container": container})
 
@@ -389,7 +431,7 @@ def create_docker_ctl(db: Session, node_id: int, action: str, container: str) ->
     if action not in ("start", "stop", "restart"):
         raise ValueError("不支持的操作")
     node = node_repo.get_by_id(db, node_id)
-    if node is None or node.status != "online":
+    if node_status(node) != "online":
         raise ValueError("节点不在线")
     return repo.create_net_task(db, node_id, "docker_ctl", {"action": action, "container": container})
 

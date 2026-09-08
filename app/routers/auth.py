@@ -8,11 +8,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, Query
+from sqlalchemy import and_, or_
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.services.session_policy import expired, expires_at, utc
 from app.models.user import User, AuthSession, EmailCode
 from app.security import (
     ACCESS_MINUTES, REFRESH_DAYS,
@@ -34,12 +36,15 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not claims or not claims.get("uid"):
         raise HTTPException(401, "未登录")
     # 会话被吊销（别处踢下线）→ access 立即作废
-    sid = claims.get("sid")
-    if sid:
-        session = db.get(AuthSession, UUID(sid))
-        if not session or session.revoked:
-            raise HTTPException(401, "会话已下线")
-    user = db.get(User, UUID(claims["uid"]))
+    try:
+        sid = UUID(claims.get("sid", ""))
+        uid = UUID(claims["uid"])
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(401, "无效会话")
+    session = db.get(AuthSession, sid)
+    if not session or session.user_id != uid or session.revoked or expired(session):
+        raise HTTPException(401, "会话已下线")
+    user = db.get(User, uid)
     if not user or not user.is_active:
         raise HTTPException(401, "账号不可用")
     return user
@@ -86,13 +91,15 @@ def _device_label(ua: str) -> str:
 
 def _issue_cookies(response: Response, user: User, session: AuthSession, remember: bool) -> None:
     at = make_access_token(str(user.id), str(session.id))
-    response.set_cookie(AT_COOKIE, at, max_age=ACCESS_MINUTES * 60,
-                        httponly=True, samesite="lax", path="/")
+    access_kwargs = {"httponly": True, "samesite": "lax", "path": "/"}
+    if remember:
+        access_kwargs["max_age"] = min(ACCESS_MINUTES * 60, max(0, int((expires_at(session) - datetime.now(timezone.utc)).total_seconds())))
+    response.set_cookie(AT_COOKIE, at, **access_kwargs)
     # 记住我 → refresh cookie 30 天；否则会话级（无 max_age）
     rt_raw = session._rt_raw  # type: ignore[attr-defined]
     kwargs = {"httponly": True, "samesite": "lax", "path": "/"}
     if remember:
-        kwargs["max_age"] = REFRESH_DAYS * 86400
+        kwargs["max_age"] = max(0, int((expires_at(session) - datetime.now(timezone.utc)).total_seconds()))
     response.set_cookie(RT_COOKIE, rt_raw, **kwargs)
 
 
@@ -206,6 +213,9 @@ def login(data: LoginIn, request: Request, response: Response, db: Session = Dep
 
 def _create_session(db: Session, user: User, request: Request, response: Response,
                     remember: bool, device: str | None = None) -> AuthSession:
+    previous = _presented_session(request, db)
+    if previous and previous.user_id == user.id and not previous.revoked and not expired(previous):
+        previous.revoked = True
     rt_raw, rt_hash = make_refresh_token()
     # 真实 IP：反代/开发代理后面读 X-Forwarded-For 第一跳
     xff = request.headers.get("x-forwarded-for", "")
@@ -232,7 +242,7 @@ def rotate_refresh(request: Request, response: Response, db: Session) -> User:
         raise HTTPException(401, "无刷新令牌")
     # 行级锁：同域名多 tab 并发 refresh 时串行化，避免旋转制把对方 token 覆盖废掉
     session = db.query(AuthSession).filter(AuthSession.refresh_hash == hash_refresh(raw)).with_for_update().first()
-    if not session or session.revoked:
+    if not session or session.revoked or expired(session):
         raise HTTPException(401, "会话已失效")
     user = db.get(User, session.user_id)
     if not user or not user.is_active:
@@ -240,7 +250,7 @@ def rotate_refresh(request: Request, response: Response, db: Session) -> User:
     # 旋转：旧 refresh 作废，发新的
     rt_raw, rt_hash = make_refresh_token()
     session.refresh_hash = rt_hash
-    session.last_seen = datetime.now(timezone.utc)
+
     session._rt_raw = rt_raw  # type: ignore[attr-defined]
     _issue_cookies(response, user, session, session.remember)
     db.commit()
@@ -252,14 +262,28 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
     return _user_out(rotate_refresh(request, response, db))
 
 
-@router.post("/logout")
-def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+def _presented_session(request: Request, db: Session):
     raw = request.cookies.get(RT_COOKIE)
     if raw:
         session = db.query(AuthSession).filter(AuthSession.refresh_hash == hash_refresh(raw)).first()
         if session:
-            session.revoked = True
-            db.commit()
+            return session
+    claims = read_access_token(request.cookies.get(AT_COOKIE, "")) or {}
+    try:
+        session = db.get(AuthSession, UUID(claims["sid"]))
+        if session and str(session.user_id) == claims.get("uid"):
+            return session
+    except (KeyError, ValueError, TypeError):
+        pass
+    return None
+
+
+@router.post("/logout")
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    session = _presented_session(request, db)
+    if session:
+        session.revoked = True
+        db.commit()
     response.delete_cookie(AT_COOKIE, path="/")
     response.delete_cookie(RT_COOKIE, path="/")
     return {"ok": True}
@@ -268,6 +292,21 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 @router.get("/me")
 def me(user: User = Depends(current_user)):
     return _user_out(user)
+
+
+@router.post("/activity")
+def activity(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Explicit interaction only. Polling/refresh never extends idle lifetime."""
+    claims = read_access_token(request.cookies.get(AT_COOKIE, "")) or {}
+    sid = claims.get("sid")
+    if not sid:
+        raise HTTPException(401, "无会话")
+    session = db.query(AuthSession).filter(AuthSession.id == UUID(sid)).with_for_update().populate_existing().first()
+    if not session or session.user_id != user.id or session.revoked or expired(session):
+        raise HTTPException(401, "会话已失效")
+    session.last_seen = datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True, "expires_at": expires_at(session).isoformat()}
 
 
 class ProfileIn(BaseModel):
@@ -762,14 +801,15 @@ def register_invite(data: InviteRegisterIn, response: Response, request: Request
 
 
 @router.get("/sessions")
-def my_sessions(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def my_sessions(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db),
+                page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
     """登录记录：普通用户看自己的；admin 看所有人的（带归属）"""
     raw = request.cookies.get(RT_COOKIE)
     current_hash = hash_refresh(raw) if raw else None
-    q = db.query(AuthSession).filter(AuthSession.revoked == False)  # noqa: E712
+    q = db.query(AuthSession).filter(_active_sessions())
     if not user.is_admin:
         q = q.filter(AuthSession.user_id == user.id)
-    rows = q.order_by(AuthSession.last_seen.desc()).all()
+    rows = q.order_by(AuthSession.last_seen.desc(), AuthSession.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     out = []
     for s in rows:
         owner = db.get(User, s.user_id)
@@ -785,6 +825,29 @@ def my_sessions(request: Request, user: User = Depends(current_user), db: Sessio
             "mine": s.user_id == user.id,
         })
     return out
+
+
+def _active_sessions():
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    return and_(AuthSession.revoked == False, or_(  # noqa: E712
+        and_(AuthSession.remember == True, AuthSession.created_at > now - timedelta(days=30)),
+        and_(AuthSession.remember == False, AuthSession.last_seen > now - timedelta(minutes=30))))
+
+
+@router.get("/sessions/history")
+def session_history(user: User = Depends(current_user), db: Session = Depends(get_db),
+                    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
+    q = db.query(AuthSession).filter(~_active_sessions())
+    if not user.is_admin:
+        q = q.filter(AuthSession.user_id == user.id)
+    total = q.count()
+    rows = q.order_by(AuthSession.created_at.desc(), AuthSession.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {"items": [{"id": str(s.id), "device": s.device, "ip": s.ip,
+        "remember": s.remember, "created_at": utc(s.created_at).isoformat(),
+        "last_seen": utc(s.last_seen).isoformat(), "expires_at": expires_at(s).isoformat(),
+        "state": "revoked" if s.revoked else "expired", "mine": s.user_id == user.id,
+        "owner": s.user.display_name, "current": False} for s in rows],
+        "total": total, "page": page, "page_size": page_size}
 
 
 @router.delete("/sessions/{session_id}")

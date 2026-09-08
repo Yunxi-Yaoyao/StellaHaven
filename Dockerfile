@@ -11,6 +11,12 @@ RUN npm run build
 FROM python:3.13-slim
 WORKDIR /app
 
+# ffmpeg/ffprobe generate bounded background derivatives; originals remain unchanged.
+RUN python -c "from pathlib import Path; p=Path('/etc/apt/sources.list.d/debian.sources'); p.write_text(p.read_text().replace('http://deb.debian.org/debian-security','https://mirrors.tuna.tsinghua.edu.cn/debian-security').replace('http://deb.debian.org/debian','https://mirrors.tuna.tsinghua.edu.cn/debian'))" \
+    && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update \
+    && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # uv 装依赖（只装生产依赖，不装 test 组）
 COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir --index-url https://pypi.tuna.tsinghua.edu.cn/simple --timeout 30 --retries 2 uv -q \

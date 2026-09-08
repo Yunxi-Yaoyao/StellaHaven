@@ -1,24 +1,24 @@
 <script setup lang="ts">
-// 网盘页三态：
-//   无 docker → 中心「Docker 检查」；有 docker 无 openlist → 中心「安装」；
-//   已装 → OpenList iframe 代替界面 + 右上角「管理」按钮弹浮窗
-import { ref, computed, onMounted, watch } from "vue";
-import { getDriveStatus, installDocker, getLoginUrl, type DriveStatus } from "../../api/drive";
-import { toast } from "../../composables/useToast";
+// External service connection; background controls remain independent.
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { api } from "../../api/client";
+import { isAdmin } from "../home/auth";
 import Icon from "../../shell/Icon.vue";
-import InstallWizard from "./InstallWizard.vue";
-import ManagePanel from "./ManagePanel.vue";
+import ConnectionPanel from "./ConnectionPanel.vue";
 import { displayBg } from "../home/auth";
 import { DEFAULT_HOME_BG } from "../home/settings";
 
-const status = ref<DriveStatus | null>(null);
+const status = ref<any>(null);
 const loading = ref(true);
-const installingDocker = ref(false);
-const wizardOpen = ref(false);
+const error = ref("");
 const manageOpen = ref(false);
 const frameUrl = ref("");
 const frameEl = ref<HTMLIFrameElement | null>(null);
 const frameReady = ref(false);
+const frameKey = ref(0);
+let loadTimer: ReturnType<typeof setTimeout> | undefined;
+let disposed = false;
+onUnmounted(() => { disposed = true; clearTimeout(loadTimer); });
 
 // 背景模式：solid（统一 #14171f）| image（主页背景图）
 const BG_KEY = "stella_drive_bg_mode";
@@ -90,128 +90,61 @@ function applyTransparentBg() {
 // 背景图模式：让 iframe 内部 html/body/#root 全部透明，依赖外层背景图透进来。
 // 同时强制 color-scheme:normal，避免 OpenList 的 light/dark meta 让浏览器给 iframe canvas 填默认色。
 function applyIframeBg() {
-  if (bgMode.value === 'image') {
-    applyTransparentBg();
-  } else {
-    clearIframeBg();
-  }
-  // 通知 iframe 内部 JS 当前模式（iframe 内部会监听 postMessage 实时切换）
+  try {
+    if (bgMode.value === 'image') applyTransparentBg(); else clearIframeBg();
+  } catch { /* Cross-origin services manage their own theme. */ }
   const cw = frameEl.value?.contentWindow;
-  if (cw) {
-    cw.postMessage({ type: 'stella-bg-mode', mode: bgMode.value }, window.location.origin);
-  }
+  if (cw && frameUrl.value) cw.postMessage({ type: 'stella-bg-mode', mode: bgMode.value }, new URL(frameUrl.value, location.origin).origin);
 }
 
 // iframe 加载完成 → 先铺好背景图（image 模式预加载图片后再淡入，避免先闪深色块），
 // 再等 OpenList 内部深色主题就绪（注入 JS 打 data-stella-theme 标记）后淡入。
 function onFrameLoad() {
-  applyIframeBg();
-  let tries = 0;
-  const check = () => {
-    const doc = frameEl.value?.contentDocument;
-    if (doc?.documentElement?.getAttribute('data-stella-theme') === 'ready') {
-      frameReady.value = true;
-      return;
+  clearTimeout(loadTimer); applyIframeBg(); frameReady.value = true; loading.value = false;
+  try {
+    const text = frameEl.value?.contentDocument?.body?.innerText || '';
+    if (text.trim().startsWith('{')) {
+      const body = JSON.parse(text);
+      if (body.detail) error.value = `OpenList 加载失败：${body.detail}`;
     }
-    if (tries++ < 50) {
-      window.setTimeout(check, 100);
-    } else {
-      frameReady.value = true;  // 5s 超时兜底，避免一直黑着
-    }
-  };
-  check();
+  } catch { /* OpenList renders its own content. */ }
 }
 
 async function loadFrameUrl() {
-  try {
-    const { token } = await getLoginUrl();
-    // 相对路径走 Stella 反代（/drive/openlist/* → 127.0.0.1:5244），OpenList 不暴露公网
-    frameUrl.value = `/drive/openlist/@login?token=${encodeURIComponent(token)}&bgmode=${bgMode.value}`;
-  } catch { /* 静默，稍后重试 */ }
+  const result = await api<{url:string}>('/drive/login-url');
+  if (disposed) return;
+  frameReady.value = false;
+  frameUrl.value = result.url;
+  frameKey.value++; // same login URL still needs a fresh navigation/load event
+  clearTimeout(loadTimer);
+  loadTimer = setTimeout(() => { loading.value = false; frameReady.value = true; error.value = 'OpenList 加载较慢或连接异常，请重试'; }, 20000);
 }
-
 async function refresh() {
-  try { status.value = await getDriveStatus(); } catch { /* 静默 */ }
-  loading.value = false;
-  if (status.value?.container_running) await loadFrameUrl();
+  if (loading.value && frameUrl.value) return;
+  error.value = ''; loading.value = true;
+  try { status.value = await api('/drive/status'); await loadFrameUrl(); }
+  catch (e: any) { error.value = typeof e?.detail === 'string' ? e.detail : '连接加载失败，请重试'; }
+  if (error.value) loading.value = false;
 }
 onMounted(refresh);
-
-watch(bgImage, () => {
-  if (bgMode.value === 'image') applyIframeBg();
-});
-
-async function doInstallDocker() {
-  if (installingDocker.value) return;
-  installingDocker.value = true;
-  try {
-    await installDocker();
-    toast("Docker 安装完成喵~");
-    await refresh();
-  } catch (e: any) {
-    toast("Docker 安装失败：" + (e?.detail || ""));
-  } finally {
-    installingDocker.value = false;
-  }
-}
+watch(bgImage, () => { if (bgMode.value === 'image') applyIframeBg(); });
 </script>
 
 <template>
   <div class="drive-page" :class="{ 'image-mode': bgMode === 'image' }" :style="pageStyle">
-    <!-- 视频背景铺底（image 模式 + mp4 时渲染，iframe 透明透出） -->
-    <video v-if="bgMode === 'image' && isVideoBg" class="bg-video" :src="bgImage"
-           autoplay muted loop playsinline />
-    <!-- 已安装：iframe 代替界面 + 右上角管理 -->
-    <template v-if="status?.container_exists">
-      <div class="frame-bar">
-        <div class="frame-title">
-          <Icon name="drive" :size="16" />
-          <span>网盘</span>
-          <span class="chip" :class="status.container_running ? 'ok' : 'bad'">
-            <span class="dot"></span>{{ status.container_running ? '运行中' : '已停止' }}
-          </span>
-        </div>
-        <div class="frame-actions">
-          <button class="manage-btn" @click="toggleBg"
-                  :title="bgMode === 'solid' ? '切换成主页背景图' : '切换成纯色 #14171f'">
-            <Icon name="image" :size="14" />
-            {{ bgMode === 'solid' ? '背景图' : '纯色' }}
-          </button>
-          <button class="manage-btn" @click="manageOpen = true">
-            <Icon name="settings" :size="14" /> 管理
-          </button>
-        </div>
+    <video v-if="bgMode === 'image' && isVideoBg" class="bg-video" :src="bgImage" autoplay muted loop playsinline />
+    <div class="frame-bar">
+      <div class="frame-title"><Icon name="drive" :size="16" /><span>网盘 · OpenList</span><span class="chip">外部服务</span></div>
+      <div class="frame-actions">
+        <button class="manage-btn" @click="toggleBg">{{ bgMode === 'solid' ? '背景图' : '纯色' }}</button>
+        <button class="manage-btn" :disabled="loading" @click="refresh">{{ loading ? "连接中…" : "重新连接" }}</button>
+        <button v-if="isAdmin" class="manage-btn" @click="manageOpen = true">连接设置</button>
       </div>
-      <iframe v-if="status.container_running" ref="frameEl" class="frame" :class="{ ready: frameReady }" :src="frameUrl" style="color-scheme: normal; background: transparent;" @load="onFrameLoad" />
-      <div v-else class="frame-stopped">
-        <Icon name="drive" :size="36" />
-        <p>容器已停止，点右上角「管理」启动喵~</p>
-      </div>
-    </template>
-
-    <!-- 未安装：中心检测/安装 -->
-    <div v-else class="center">
-      <p v-if="loading" class="hint">检测中…</p>
-      <template v-else-if="status && !status.docker.installed">
-        <div class="center-icon"><Icon name="server" :size="40" /></div>
-        <h1>Docker 环境检查</h1>
-        <p class="hint">未检测到 Docker，网盘需要它才能运行</p>
-        <button class="btn primary" :disabled="installingDocker" @click="doInstallDocker">
-          {{ installingDocker ? '安装中…' : '安装 Docker' }}
-        </button>
-      </template>
-      <template v-else-if="status">
-        <div class="center-icon"><Icon name="drive" :size="40" /></div>
-        <h1>网盘</h1>
-        <p class="hint">Docker 已就绪 · v{{ status.docker.version }}</p>
-        <button class="btn primary" @click="wizardOpen = true">
-          <Icon name="drive" :size="14" /> 安装 OpenList 网盘
-        </button>
-      </template>
     </div>
-
-    <InstallWizard v-if="wizardOpen" @done="wizardOpen = false; refresh()" @cancel="wizardOpen = false" />
-    <ManagePanel v-if="manageOpen" @done="manageOpen = false; refresh()" @cancel="manageOpen = false" />
+    <p v-if="error" class="hint" role="alert">{{ error }}</p>
+    <p v-if="loading" class="hint">加载连接…</p>
+    <iframe v-if="frameUrl" :key="frameKey" ref="frameEl" title="OpenList 网盘" class="frame" :class="{ ready: frameReady }" :src="frameUrl" referrerpolicy="no-referrer" @load="onFrameLoad" />
+    <ConnectionPanel v-if="manageOpen" kind="drive" @close="manageOpen = false" @saved="refresh" />
   </div>
 </template>
 

@@ -1,129 +1,35 @@
 <script setup lang="ts">
-// 图库页三态（参考网盘页，但纯色固定，无背景切换/透明化/注入）：
-//   无 docker → 中心「Docker 检查」；有 docker 无 immich_server 容器 → 中心「未检测到 Immich」；
-//   已装 → Immich iframe + 右上角「管理」浮窗（启动/停止/重启）
-// iframe src 走 Stella /gallery/connect（第一方代签 OIDC code 再 302 到 Immich），
-// 解决 iframe 第三方上下文里 Stella SameSite=Lax cookie 不发、autoLaunch 认不出登录态的问题。
-import { ref, onMounted } from "vue";
-import Icon from "../../shell/Icon.vue";
-import { toast } from "../../composables/useToast";
-import {
-  getGalleryStatus, startContainer, stopContainer, restartContainer,
-  type GalleryStatus,
-} from "../../api/gallery";
-
-const IMMICH_URL = "/gallery/connect";
-
-const status = ref<GalleryStatus | null>(null);
-const loading = ref(true);
+import { ref, onMounted } from 'vue';
+import { api } from '../../api/client';
+import { isAdmin } from '../home/auth';
+import ConnectionPanel from '../drive/ConnectionPanel.vue';
+const status = ref<any>(null);
 const manageOpen = ref(false);
-const busy = ref<"" | "start" | "stop" | "restart">("");
-const frameReady = ref(false);
-
-function onFrameLoad() {
-  frameReady.value = true;
-}
-
+const error = ref('');
+const frameKey = ref(0);
 async function refresh() {
-  try {
-    status.value = await getGalleryStatus();
-  } catch { /* 静默 */ }
-  loading.value = false;
+  error.value = '';
+  try { status.value = await api('/gallery/status'); frameKey.value++; }
+  catch (e: any) { error.value = typeof e?.detail === 'string' ? e.detail : '连接加载失败，请重试'; }
 }
 onMounted(refresh);
-
-async function doAction(action: "start" | "stop" | "restart") {
-  if (busy.value) return;
-  busy.value = action;
-  try {
-    const fn = { start: startContainer, stop: stopContainer, restart: restartContainer }[action];
-    status.value = await fn();
-    const msg = { start: "已启动喵~", stop: "已停止喵~", restart: "已重启喵~" }[action];
-    toast(msg);
-    if (action !== "stop") frameReady.value = false;  // 重启后 iframe 重新加载再淡入
-  } catch (e: any) {
-    toast("操作失败：" + (e?.detail || ""));
-  } finally {
-    busy.value = "";
-  }
-}
 </script>
-
 <template>
   <div class="gallery-page">
-    <!-- 已装：iframe + 右上角管理 -->
-    <template v-if="status?.container_exists">
-      <div class="frame-bar">
-        <div class="frame-title">
-          <Icon name="image" :size="16" />
-          <span>图库</span>
-          <span class="chip" :class="status.container_running ? 'ok' : 'bad'">
-            <span class="dot"></span>{{ status.container_running ? '运行中' : '已停止' }}
-          </span>
-        </div>
-        <div class="frame-actions">
-          <button class="manage-btn" @click="manageOpen = true">
-            <Icon name="settings" :size="14" /> 管理
-          </button>
-        </div>
-      </div>
-      <iframe v-if="status.container_running" class="frame" :class="{ ready: frameReady }"
-              :key="String(status.container_running)" :src="IMMICH_URL" @load="onFrameLoad" />
-      <div v-else class="frame-stopped">
-        <Icon name="image" :size="36" />
-        <p>容器已停止，点右上角「管理」启动喵~</p>
-      </div>
-    </template>
-
-    <!-- 未装：中心提示 -->
-    <div v-else class="center">
-      <p v-if="loading" class="hint">检测中…</p>
-      <template v-else-if="status && !status.docker.installed">
-        <div class="center-icon"><Icon name="server" :size="40" /></div>
-        <h1>Docker 环境检查</h1>
-        <p class="hint">未检测到 Docker，图库需要它才能运行</p>
-      </template>
-      <template v-else-if="status">
-        <div class="center-icon"><Icon name="image" :size="40" /></div>
-        <h1>图库</h1>
-        <p class="hint">未检测到 Immich 容器（immich_server）喵~</p>
-      </template>
-    </div>
-
-    <!-- 管理浮窗 -->
-    <div v-if="manageOpen && status" class="overlay" @click.self="manageOpen = false">
-      <div class="dialog">
-        <div class="head">
-          <span>图库管理</span>
-          <button class="x" @click="manageOpen = false"><Icon name="plus" :size="16" class="rot" /></button>
-        </div>
-        <div class="body">
-          <div class="row">
-            <span class="state" :class="status.container_running ? 'ok' : 'bad'">
-              <span class="dot"></span>{{ status.container_running ? '运行中' : '已停止' }}
-            </span>
-            <div class="acts">
-              <button v-if="!status.container_running" class="btn primary sm"
-                      :disabled="!!busy" @click="doAction('start')">
-                {{ busy === 'start' ? '启动中…' : '启动' }}
-              </button>
-              <button v-if="status.container_running" class="btn ghost sm"
-                      :disabled="!!busy" @click="doAction('restart')">
-                {{ busy === 'restart' ? '重启中…' : '重启' }}
-              </button>
-              <button v-if="status.container_running" class="btn danger sm"
-                      :disabled="!!busy" @click="doAction('stop')">
-                {{ busy === 'stop' ? '停止中…' : '停止' }}
-              </button>
-            </div>
-          </div>
-          <p class="label">Immich 由 docker compose 部署（/opt/immich），这里只管理主容器 immich_server 的启停喵~</p>
-        </div>
+    <div class="frame-bar">
+      <div class="frame-title">图库 · Immich <span class="chip">外部服务</span></div>
+      <div class="frame-actions">
+        <a class="manage-btn" href="/gallery/connect" target="_blank" rel="noopener noreferrer">新窗口打开</a>
+        <button class="manage-btn" @click="refresh">重新连接</button>
+        <button v-if="isAdmin" class="manage-btn" @click="manageOpen = true">连接设置</button>
       </div>
     </div>
+    <p v-if="error" class="hint" role="alert">{{ error }}</p>
+    <p v-if="error" class="hint">使用原 Immich 账号或已有 OIDC 登录。无法嵌入时请在新窗口打开。</p>
+    <iframe v-if="status" :key="frameKey" title="Immich 图库" class="frame ready" src="/gallery/connect" referrerpolicy="no-referrer" allow="fullscreen" />
+    <ConnectionPanel v-if="manageOpen" kind="gallery" @close="manageOpen = false" @saved="refresh" />
   </div>
 </template>
-
 <style scoped>
 .gallery-page {
   height: 100%;

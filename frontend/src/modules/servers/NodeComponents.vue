@@ -3,14 +3,22 @@
 // 打流测速页只传 ['iperf3','speedtest']，服务器页传全部五个。
 // 0.6.2 起 agent 上报 {installed, version}；兼容旧布尔上报。
 // 代装失败会拉最近一次失败任务的 error 展示（可收起）；触屏设备安装按钮常驻（无 hover）。
-import { onMounted, ref } from "vue";
-import { installComponent, listComponentInstalls, listNodes, type ComponentTask, type Node } from "../../api/servers";
+import { onMounted, onUnmounted, ref, watch } from "vue";
+import { waitForTask } from "./taskWait";
+import { reachable, componentTone, errorDetail } from "./serverState";
+const clock = ref(Date.now());
+let disposed = false;
+let lifecycle = new AbortController();
+const clockTimer = setInterval(() => { clock.value = Date.now(); }, 1000);
+onUnmounted(() => { disposed = true; lifecycle.abort(); clearInterval(clockTimer); });
+import { installComponent, listComponentInstalls, type ComponentTask, type Node } from "../../api/servers";
 import { toast } from "../../composables/useToast";
 
 export type CompKey = "iperf3" | "speedtest" | "ufw" | "docker" | "mtr";
 const COMP_LABEL: Record<CompKey, string> = { iperf3: "iperf3", speedtest: "speedtest", ufw: "ufw", docker: "docker", mtr: "mtr" };
 
 const props = defineProps<{ nodes: Node[]; comps: CompKey[] }>();
+watch(() => props.nodes.map(n => n.id).join(","), () => { lifecycle.abort(); lifecycle = new AbortController(); installing.value = {}; });
 const emit = defineEmits<{ refresh: [] }>();
 
 const installing = ref<Record<string, boolean>>({}); // "nodeId:component" -> 代装中
@@ -20,7 +28,8 @@ const failOpen = ref<Record<string, boolean>>({}); // 失败详情展开
 
 onMounted(async () => {
   try {
-    const tasks = await listComponentInstalls();
+    const tasks = await listComponentInstalls(AbortSignal.any([lifecycle.signal, AbortSignal.timeout(15000)]));
+    if (disposed) return;
     const map: Record<string, ComponentTask> = {};
     for (const t of tasks) {
       const k = `${t.node_id}:${t.component}`;
@@ -45,47 +54,27 @@ function compInfo(n: Node, key: CompKey): { installed: boolean | null; version: 
 
 async function doInstall(n: Node, component: CompKey) {
   const k = `${n.id}:${component}`;
-  if (installing.value[k]) return;
+  if (installing.value[k] || !reachable(n)) return;
   installing.value[k] = true;
+  const signal = lifecycle.signal;
   try {
-    await installComponent(n.id, component);
-    toast(`已下发 ${component} 安装，agent 代装中喵~`);
-    // 等 agent 代装 + 心跳上报新状态（最多轮询 ~60s，docker 拉包慢）
-    let tries = 0;
-    const poll = setInterval(async () => {
-      tries++;
-      try {
-        const list = await listNodes();
-        const nn = list.find((x) => x.id === n.id);
-        const done = nn ? compInfo(nn, component).installed === true : false;
-        if (done) {
-          clearInterval(poll);
-          installing.value[k] = false;
-          delete lastFail.value[k];
-          toast(`${component} 已装好喵~`);
-          emit("refresh");
-        } else if (tries >= 30) {
-          clearInterval(poll);
-          installing.value[k] = false;
-          // 拉最新失败任务的真实错误展示出来
-          try {
-            const tasks = await listComponentInstalls();
-            const ft = tasks.filter((t) => t.node_id === n.id && t.component === component && t.status === "failed")
-              .sort((a, b) => b.id - a.id)[0];
-            if (ft) {
-              lastFail.value = { ...lastFail.value, [k]: ft };
-              failOpen.value = { ...failOpen.value, [k]: true };
-            }
-          } catch { /* ignore */ }
-          toast(`${component} 安装可能失败，展开红点看原因喵~`);
-          emit("refresh");
-        }
-      } catch { /* 继续 */ }
-    }, 2000);
-  } catch {
-    installing.value[k] = false;
-    toast("下发安装失败");
-  }
+    const task = await installComponent(n.id, component);
+    if (signal.aborted) return;
+    delete lastFail.value[k];
+    toast(`已下发 ${component} 安装 (#${task.id})`);
+    const current = await waitForTask(async requestSignal =>
+      (await listComponentInstalls(requestSignal)).find(t => t.id === task.id),
+      { signal, timeoutMs: 660000 });
+    if (signal.aborted) return;
+    if (current.status === 'failed') {
+      lastFail.value[k] = current; failOpen.value[k] = true;
+      toast(current.error || '安装失败');
+    } else if (current.status === 'done') {
+      toast(`${component} 安装任务已完成，等待下次检测确认`); emit('refresh');
+    } else { toast('安装任务已取消'); }
+  } catch (e) {
+    if (!signal.aborted) toast(errorDetail(e, '安装等待失败'));
+  } finally { if (!signal.aborted) installing.value[k] = false; }
 }
 </script>
 
@@ -94,26 +83,22 @@ async function doInstall(n: Node, component: CompKey) {
     <div class="nc-head">服务器组件（绿=已装，红=未装，在线可代装）</div>
     <div v-for="n in props.nodes" :key="n.id" class="nc-row">
       <span class="nc-name">
-        <span class="nc-dot" :style="{ background: n.status === 'online' ? 'var(--pink)' : 'var(--text-faint)' }" />
+        <span class="nc-dot" :style="{ background: reachable(n, clock) ? 'var(--pink)' : 'var(--text-faint)' }" />
         {{ n.name }}
-        <span v-if="n.status !== 'online'" class="nc-off">离线</span>
+        <span v-if="!reachable(n, clock)" class="nc-off">离线</span>
       </span>
       <div class="nc-chips">
         <div v-for="comp in props.comps" :key="comp" class="comp-wrap">
           <span
             class="comp"
-            :class="{
-              ok: compInfo(n, comp).installed === true,
-              bad: compInfo(n, comp).installed === false && n.status === 'online',
-              off: compInfo(n, comp).installed === false && n.status !== 'online',
-              unknown: compInfo(n, comp).installed === null,
-            }"
+            :class="componentTone(n, compInfo(n, comp).installed, clock)"
           >
             <span class="c-dot" />
             <span class="c-label">{{ COMP_LABEL[comp] }}</span>
+            <span v-if="!reachable(n, clock)" class="c-ver">上次检测</span>
             <span v-if="compInfo(n, comp).version" class="c-ver">{{ compInfo(n, comp).version }}</span>
             <button
-              v-if="compInfo(n, comp).installed === false && n.status === 'online'"
+              v-if="compInfo(n, comp).installed === false && reachable(n, clock)"
               class="c-install"
               :disabled="installing[`${n.id}:${comp}`]"
               @click="doInstall(n, comp)"
@@ -155,7 +140,7 @@ async function doInstall(n: Node, component: CompKey) {
 .comp.ok { color: #3ddc84; border-color: rgba(61,220,132,0.3); }
 .comp.bad .c-dot { background: #ff5d6c; }
 .comp.bad { color: #ff5d6c; border-color: rgba(255,93,108,0.3); }
-.comp.off .c-dot { background: #ff5d6c; opacity: 0.5; }
+.comp.off .c-dot { background: var(--text-faint); opacity: 0.5; }
 .comp.off { color: var(--text-faint); border-color: rgba(255,255,255,0.08); opacity: 0.7; }
 .comp.unknown .c-dot { background: var(--text-faint); }
 .comp.unknown { color: var(--text-faint); }

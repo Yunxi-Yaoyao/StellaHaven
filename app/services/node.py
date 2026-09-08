@@ -4,14 +4,15 @@ from sqlalchemy.orm import Session
 
 from app.repositories import node as repo
 from app.models.node import Node
+from app.schemas.monitor import NodeRead
+from app.services.server_status import node_status
 from app.schemas.monitor import AgentReport, MetricPoint, SysMetricPoint, NodeDetail, NodeUpdate
 from app.services import host as host_svc
 
 
-def list_nodes(db: Session, skip: int = 0, limit: int = 100) -> list[Node]:
-    # 顺手惰性标记超时离线（不搞后台任务）
-    repo.mark_offline_stale(db)
-    return repo.list_all(db, skip, limit)
+def list_nodes(db: Session, skip: int = 0, limit: int = 100) -> list[NodeRead]:
+    return [NodeRead.model_validate(n).model_copy(update={"status": node_status(n)})
+            for n in repo.list_all(db, skip, limit)]
 
 
 def get_node(db: Session, node_id: int) -> Node | None:
@@ -135,6 +136,7 @@ def get_node_detail(db: Session, node_id: int) -> NodeDetail:
     if node is None or node.status == "removed":
         raise ValueError("节点不存在")
     detail = NodeDetail.model_validate(node)
+    detail.status = node_status(node)
     ifaces = _monitored_ifaces(node)
     detail.latest_metrics = [
         MetricPoint(iface=m.iface, ts=m.ts, rx_delta=m.rx_delta, tx_delta=m.tx_delta)

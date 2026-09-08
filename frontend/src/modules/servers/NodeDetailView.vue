@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 节点详情页：基本信息 + 流量图（时间范围/时区/网卡多选/单位/统计卡）+ 系统指标 + 监控项
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { waitForTask } from "./taskWait";
 import { useRouter, useRoute } from "vue-router";
 import * as echarts from "echarts";
 import Icon from "../../shell/Icon.vue";
@@ -14,9 +15,15 @@ import {
 import { toast } from "../../composables/useToast";
 import Dropdown from "../../shell/Dropdown.vue";
 import MonitorDetailModal from "./MonitorDetailModal.vue";
+import MetricsCompare from "./MetricsCompare.vue";
+import { isAdmin } from "../home/auth";
+const metricsCompareOpen = ref(false);
 
 // 节点 id 由路由 /status/:id 经 props 传入（router/index.ts props 映射）；返回 = router 回列表
 const props = defineProps<{ nodeId: number }>();
+let taskLifecycle = new AbortController();
+watch(() => props.nodeId, () => { taskLifecycle.abort(); taskLifecycle = new AbortController(); fwLoading.value = false; pbrLoading.value = false; fwData.value = null; pbrData.value = null; }, { flush: "sync" });
+onUnmounted(() => taskLifecycle.abort());
 const nodeId = computed(() => props.nodeId);
 const router = useRouter();
 
@@ -78,9 +85,12 @@ async function viewFirewall(force = true) {
   // 惰性缓存：非强制且有 10 分钟内快照 → 直接用
   fwLoading.value = true;
   fwOutput.value = "";
+  const signal = taskLifecycle.signal;
+  if (signal.aborted) return;
   try {
     if (!force) {
       const latest = await latestNetTask(nodeId.value, "firewall_scan");
+      if (signal.aborted) return;
       const rj = latest?.result_json as any;
       if (latest && rj?.ufw) {
         fwData.value = rj;
@@ -92,9 +102,9 @@ async function viewFirewall(force = true) {
       }
     }
     const t = await scanFirewall(nodeId.value);
-    for (let i = 0; i < 15; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const cur = await getNetTask(t.id);
+    if (signal.aborted) return;
+    const cur = await waitForTask(s => getNetTask(t.id, s), { signal, timeoutMs: 30000 });
+    if (signal.aborted) return;
       if (cur.status === "done") {
         fwData.value = cur.result_json as FirewallData;
         fwAt.value = new Date().toISOString();
@@ -109,9 +119,8 @@ async function viewFirewall(force = true) {
         fwLoading.value = false;
         return;
       }
-    }
-    toast("扫描超时了喵~");
-  } catch { toast("下发扫描失败"); }
+    toast("扫描任务已取消");
+  } catch (e) { if (signal.aborted) return; toast(e instanceof Error ? e.message : "下发扫描失败"); }
   fwLoading.value = false;
 }
 
@@ -149,21 +158,15 @@ const pbrData = ref<PbrData | null>(null);
 const pbrAt = ref("");           // 快照时间
 const pbrOpen = ref<Record<string, boolean>>({});  // 路由表展开
 
-async function pollNetTask(tid: number, tries = 15): Promise<any> {
-  for (let i = 0; i < tries; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const cur = await getNetTask(tid);
-    if (cur.status === "done") return cur.result_json;
-    if (cur.status === "failed") return { error: (cur.result_json as any)?.error || "扫描失败" };
-  }
-  return { error: "扫描超时" };
-}
 
 async function loadPbr(force = false) {
   pbrLoading.value = true;
+  const signal = taskLifecycle.signal;
+  if (signal.aborted) return;
   try {
     if (!force) {
       const latest = await latestNetTask(nodeId.value, "pbr_scan");
+      if (signal.aborted) return;
       const rj = latest?.result_json as any;
       if (latest && rj?.rules) {
         pbrData.value = rj;
@@ -173,10 +176,13 @@ async function loadPbr(force = false) {
       }
     }
     const t = await scanPbr(nodeId.value);
-    const rj = await pollNetTask(t.id);
+    if (signal.aborted) return;
+    const cur = await waitForTask(s => getNetTask(t.id, s), { signal, timeoutMs: 30000 });
+    if (signal.aborted) return;
+    const rj = cur.status === "done" ? cur.result_json as any : { error: (cur.result_json as any)?.error || `任务${cur.status}` };
     if (rj?.rules) { pbrData.value = rj; pbrAt.value = new Date().toISOString(); }
     else if (rj?.error) toast(`PBR 扫描失败：${rj.error}`);
-  } catch { toast("PBR 加载失败"); }
+  } catch (e) { if (signal.aborted) return; toast(e instanceof Error ? e.message : "PBR 加载失败"); }
   pbrLoading.value = false;
 }
 
@@ -918,6 +924,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 
 <template>
   <div class="detail-body">
+      <MetricsCompare v-if="metricsCompareOpen && isAdmin" :key="nodeId" :node-id="nodeId" :node-name="detail?.name || String(nodeId)" @close="metricsCompareOpen = false" />
       <!-- 头部 -->
       <header class="d-head">
       <button class="back" @click="goBack"><Icon name="chevron-left" :size="16" /> 返回</button>
@@ -939,6 +946,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
           <button @click="goTool('mtr')">MTR 路径测试</button>
           <button @click="goTool('command')">下发命令</button>
           <button @click="goTool('records')">此节点记录</button>
+          <button v-if="isAdmin" @click="metricsCompareOpen = true; opsOpen = false">指标对账</button>
         </div>
       </div>
     </header>

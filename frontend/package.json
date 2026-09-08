@@ -8,7 +8,9 @@
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run && node --experimental-strip-types --test src/modules/notes/richMarkdown.test.ts tests/notes-import.test.mjs tests/notes-loading.test.mjs tests/notes-keepalive.test.mjs",
-    "test:e2e": "playwright test e2e/ --workers=1"
+    "test:e2e": "playwright test e2e/ --workers=1",
+    "test:background": "vitest run --config vitest.background.config.mjs && node --test tests/background-player.test.mjs",
+    "test:servers": "node --test src/modules/servers/taskWait.test.ts tests/server-state.test.mjs tests/metrics-compare.test.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

@@ -2,7 +2,9 @@
 // Docker 独立面板（类比 1Panel 一期）：节点选择 → 容器竖向卡片（状态/镜像/端口/操作）
 // + 日志查看（tail 150）+ 配置查看（inspect 摘要）。全部竖向布局，移动端不横拉。
 // 惰性缓存：打开先读最近一次扫描快照，超过 10 分钟自动后台重扫。
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { waitForTask } from "./taskWait";
+import { reachable, errorDetail } from "./serverState";
 import {
   listNodes, latestNetTask, scanDocker, getNetTask, ctlDocker, dockerLogs, dockerInspect,
   type NetTask, type Node,
@@ -16,6 +18,14 @@ interface DockerContainer {
 }
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 分钟
+const clock = ref(Date.now());
+const clockTimer = setInterval(() => { clock.value = Date.now(); }, 1000);
+let lifecycle = new AbortController();
+let generation = 0;
+let disposed = false;
+let nodeTimer: ReturnType<typeof setTimeout> | undefined;
+onUnmounted(() => { disposed = true; lifecycle.abort(); generation++; clearInterval(clockTimer); clearTimeout(nodeTimer); });
+const scanError = ref("");
 
 const nodes = ref<Node[]>([]);
 const nodeId = ref<number | null>(null);
@@ -36,99 +46,124 @@ const inspLoading = ref(false);
 
 const dockerNodes = computed(() =>
   nodes.value.filter((n) => (n.components as any)?.docker?.installed === true));
+const selectedReachable = computed(() => {
+  const n = nodes.value.find(n => n.id === nodeId.value);
+  return !!n && reachable(n, clock.value);
+});
+const snapshotStale = computed(() => !selectedReachable.value || !!scanError.value || clock.value - new Date(scannedAt.value).getTime() >= CACHE_TTL);
 
 async function refreshNodes() {
-  nodes.value = await listNodes();
-  if (!nodeId.value && dockerNodes.value.length) nodeId.value = dockerNodes.value[0].id;
+  const fresh = await listNodes();
+  if (disposed) return;
+  nodes.value = fresh;
+  if (!nodeId.value && dockerNodes.value.length) nodeId.value = (dockerNodes.value.find(n => reachable(n)) || dockerNodes.value[0]).id;
   if (nodeId.value && !dockerNodes.value.some((n) => n.id === nodeId.value) && dockerNodes.value.length)
     nodeId.value = dockerNodes.value[0].id;
 }
 
 async function pollTask(tid: number, timeoutMs = 40000): Promise<NetTask | null> {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeoutMs) {
-    const t = await getNetTask(tid);
-    if (t.status === "done" || t.status === "failed") return t;
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  return null;
+  return waitForTask(signal => getNetTask(tid, signal), { signal: lifecycle.signal, timeoutMs });
 }
 
 /** 惰性加载：有快照先看快照，过期/没有就后台重扫 */
 async function loadContainers(force = false) {
   if (!nodeId.value) return;
+  const id = nodeId.value;
+  const seq = ++generation;
+  scanError.value = "";
   loading.value = true;
   try {
     if (!force) {
-      const latest = await latestNetTask(nodeId.value, "docker_scan");
+      const latest = await latestNetTask(id, "docker_scan");
+      if (seq !== generation) return;
       const rj = latest?.result_json as any;
       if (latest && rj?.containers) {
         containers.value = rj.containers;
         scannedAt.value = latest.created_at;
         const age = Date.now() - new Date(latest.created_at).getTime();
-        if (age < CACHE_TTL) { loading.value = false; return; } // 新鲜，直接用
+        if (age < CACHE_TTL && selectedReachable.value) { loading.value = false; return; }
         // 过期：显示旧数据，后台重扫
       }
     }
-    const t = await scanDocker(nodeId.value);
+    if (!selectedReachable.value) { scanError.value = "节点离线，仅显示上次扫描快照"; loading.value = false; return; }
+    const t = await scanDocker(id);
+    if (seq !== generation) return;
     const cur = await pollTask(t.id);
+    if (seq !== generation) return;
     const rj = cur?.result_json as any;
     if (cur?.status === "done" && rj?.containers) {
       containers.value = rj.containers;
       scannedAt.value = cur.created_at;
-    } else if (cur?.status === "failed") {
-      toast("Docker 扫描失败喵~");
+    } else if (cur?.status === "failed" || cur?.status === "cancelled") {
+      scanError.value = rj?.error || "Docker 扫描失败";
+      toast(scanError.value);
+    } else {
+      scanError.value = "等待扫描超时，保留旧快照";
     }
-  } catch { toast("Docker 加载失败"); }
-  loading.value = false;
+  } catch (e) { if (seq === generation) { scanError.value = errorDetail(e, "Docker 加载失败"); toast(scanError.value); } }
+  if (seq === generation) loading.value = false;
 }
 
 async function ctl(ct: DockerContainer, action: "start" | "stop" | "restart") {
-  if (!nodeId.value || busy.value[ct.name]) return;
+  if (!nodeId.value || !selectedReachable.value || busy.value[ct.name]) return;
   busy.value[ct.name] = true;
+  const signal = lifecycle.signal;
   try {
     const t = await ctlDocker(nodeId.value, action, ct.name);
+    if (signal.aborted) return;
     const cur = await pollTask(t.id, 70000);
+    if (signal.aborted) return;
     if (cur?.status === "done") {
       toast(`${ct.name} ${action === "start" ? "已启动" : action === "stop" ? "已停止" : "已重启"}喵~`);
       await loadContainers(true);
+      if (signal.aborted) return;
     } else {
-      toast(`${action} 失败：${(cur?.result_json as any)?.error || "超时"}`);
+      toast(`${action} 失败：${(cur?.result_json as any)?.error || (cur?.status === "cancelled" ? "任务已取消" : "任务失败")}`);
     }
-  } catch { toast("操作下发失败"); }
+  } catch (e) { if (signal.aborted) return; toast(errorDetail(e, "操作下发失败")); }
   busy.value[ct.name] = false;
 }
 
 async function viewLogs(ct: DockerContainer) {
   if (!nodeId.value) return;
   logOpen.value = true; logLoading.value = true; logTitle.value = ct.name; logText.value = "";
+  const signal = lifecycle.signal;
   try {
     const t = await dockerLogs(nodeId.value, ct.name, 150);
+    if (signal.aborted) return;
     const cur = await pollTask(t.id);
+    if (signal.aborted) return;
     const rj = cur?.result_json as any;
-    logText.value = cur?.status === "done" ? (rj?.lines || "（无日志）") : `读取失败：${rj?.error || "超时"}`;
-  } catch { logText.value = "读取失败"; }
+    logText.value = cur?.status === "done" ? (rj?.lines || "（无日志）") : `读取失败：${rj?.error || (cur?.status === "cancelled" ? "任务已取消" : "任务失败")}`;
+  } catch (e) { if (signal.aborted) return; logText.value = errorDetail(e, "读取失败"); }
   logLoading.value = false;
 }
 
 async function viewInspect(ct: DockerContainer) {
   if (!nodeId.value) return;
   inspOpen.value = true; inspLoading.value = true; inspTitle.value = ct.name; inspData.value = null;
+  const signal = lifecycle.signal;
   try {
     const t = await dockerInspect(nodeId.value, ct.name);
+    if (signal.aborted) return;
     const cur = await pollTask(t.id);
+    if (signal.aborted) return;
     const rj = cur?.result_json as any;
     if (cur?.status === "done" && rj && !rj.error) inspData.value = rj;
-    else inspData.value = { error: rj?.error || "读取超时" };
-  } catch { inspData.value = { error: "读取失败" }; }
+    else inspData.value = { error: rj?.error || "任务已取消或失败" };
+  } catch (e) { if (signal.aborted) return; inspData.value = { error: errorDetail(e, "读取失败") }; }
   inspLoading.value = false;
 }
 
 const stateLabel = (s: string) => s === "running" ? "运行中" : s === "exited" ? "已退出" : s;
 const fmtTime = (iso: string) => iso ? new Date(iso).toLocaleString("zh-CN", { hour12: false }) : "";
 
-onMounted(async () => { await refreshNodes(); });
-watch(nodeId, () => { containers.value = []; scannedAt.value = ""; loadContainers(); });
+async function refreshNodeLoop() {
+  try { await refreshNodes(); } catch { /* retain last heartbeat; clock ages it */ }
+  if (!disposed) nodeTimer = setTimeout(refreshNodeLoop, 15000);
+}
+onMounted(refreshNodeLoop);
+watch(nodeId, () => { lifecycle.abort(); lifecycle = new AbortController(); busy.value = {}; logLoading.value = false; inspLoading.value = false; generation++; containers.value = []; scannedAt.value = ""; logOpen.value = false; inspOpen.value = false; loadContainers(); });
 </script>
 
 <template>
@@ -139,14 +174,15 @@ watch(nodeId, () => { containers.value = []; scannedAt.value = ""; loadContainer
         <Dropdown
           v-if="dockerNodes.length"
           v-model="nodeId"
-          :options="dockerNodes.map((n) => ({ value: n.id, label: n.name }))"
+          :options="dockerNodes.map((n) => ({ value: n.id, label: n.name + (reachable(n, clock) ? '' : ' · 离线') }))"
         />
         <button class="ghost-btn" :disabled="loading" @click="loadContainers(true)">
           {{ loading ? "扫描中…" : "刷新" }}
         </button>
       </div>
     </div>
-    <div v-if="scannedAt" class="dk-meta">数据来自 {{ fmtTime(scannedAt) }}{{ loading ? " · 更新中…" : "" }}</div>
+    <div v-if="scannedAt" class="dk-meta">上次扫描 {{ fmtTime(scannedAt) }}{{ snapshotStale ? " · 旧快照（非实时状态）" : "" }}{{ loading ? " · 更新中…" : "" }}</div>
+    <div v-if="scanError" class="dk-meta">{{ scanError }}</div>
 
     <div v-if="!dockerNodes.length" class="dk-empty">没有安装 Docker 的节点（可在服务器页组件区代装）</div>
     <div v-else-if="!containers.length && !loading" class="dk-empty">没有容器，或扫描还没数据</div>
@@ -155,9 +191,9 @@ watch(nodeId, () => { containers.value = []; scannedAt.value = ""; loadContainer
     <div class="dk-cards">
       <div v-for="ct in containers" :key="ct.id" class="dk-card">
         <div class="dk-card-head">
-          <span class="dk-state" :class="ct.state" />
+          <span class="dk-state" :class="snapshotStale ? '' : ct.state" />
           <span class="dk-name">{{ ct.name }}</span>
-          <span class="dk-state-text" :class="ct.state">{{ stateLabel(ct.state) }}</span>
+          <span class="dk-state-text" :class="snapshotStale ? '' : ct.state">{{ snapshotStale ? '上次：' : '' }}{{ stateLabel(ct.state) }}</span>
         </div>
         <div class="dk-kv"><span class="k">镜像</span><span class="v mono">{{ ct.image }}</span></div>
         <div v-if="ct.ports" class="dk-kv"><span class="k">端口</span><span class="v mono">{{ ct.ports }}</span></div>

@@ -3,6 +3,7 @@
 // Tab1 图表：统计行 + 延迟&丢包双轴曲线（1h/6h/24h/7d）+ 24h 逐小时可用率色块
 // Tab2 MTR：近 60 天历史（定时/失败/手动三触发），可展开逐跳表格，支持「立即 MTR」
 // Tab3 编辑：名称/类型/主机/端口/间隔；探测节点灰色禁改（换了历史数据就串台了）
+import { waitForTask } from "./taskWait";
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import * as echarts from "echarts";
 import {
@@ -175,21 +176,26 @@ async function loadMtr() {
   catch { /* 静默 */ } finally { mtrLoading.value = false; }
 }
 
+let mtrLifecycle = new AbortController();
+watch(() => props.monitor.id, () => { mtrLifecycle.abort(); mtrLifecycle = new AbortController(); mtrRunning.value = false; }, { flush: "sync" });
+onUnmounted(() => mtrLifecycle.abort());
 async function runMtrNow() {
   if (mtrRunning.value) return;
+  const signal = mtrLifecycle.signal;
+  const id = props.monitor.id;
   mtrRunning.value = true;
   try {
-    const t = await runMonitorMtr(props.monitor.id);
-    await loadMtr();
+    const t = await runMonitorMtr(id);
+    if (signal.aborted) return;
     mtrOpenId.value = t.id;
-    // 轮询等结果（mtr 10 包 ~15-30s）
-    for (let i = 0; i < 25; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
-      await loadMtr();
-      const row = mtrList.value.find((x) => x.id === t.id);
-      if (row && (row.status === "done" || row.status === "failed")) break;
-    }
-  } catch { toast("MTR 发起失败"); } finally { mtrRunning.value = false; }
+    const result = await waitForTask(async requestSignal => {
+      const rows = await listMonitorMtr(id, requestSignal);
+      if (!signal.aborted && !requestSignal.aborted) mtrList.value = rows;
+      return rows.find(row => row.id === t.id);
+    }, { signal, timeoutMs: 75000, intervalMs: 3000 });
+    if (!signal.aborted && result.status !== "done") toast(`MTR ${result.status}`);
+  } catch (e) { if (!signal.aborted) toast(e instanceof Error ? e.message : "MTR 发起失败"); }
+  finally { if (!signal.aborted) mtrRunning.value = false; }
 }
 
 function fmtTime(ts: string): string {

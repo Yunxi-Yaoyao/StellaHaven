@@ -1,12 +1,13 @@
 from uuid import UUID
 import json
 import asyncio
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 from app.database import get_db
 from app.services.document import save_draft
-from app.routers.auth import current_user
+from app.routers.auth import current_user, require_doc_owner, require_ws_owner
 
 router = APIRouter()
 
@@ -50,11 +51,26 @@ async def _process_notifications():
         await broadcast(doc_id, message)
 
 
+async def authorize_socket(ws: WebSocket, db: Session, resource_id: UUID, *, workspace=False) -> bool:
+    try:
+        db.expire_all()
+        user = current_user(Request({**ws.scope, "type": "http"}), db)
+        if workspace: require_ws_owner(db, resource_id, user)
+        else: require_doc_owner(db, resource_id, user)
+        db.rollback()  # Do not retain a connection/transaction while idle.
+        return True
+    except HTTPException:
+        db.rollback()
+        await ws.close(code=1008)
+        return False
+
+
 @router.websocket("/ws/list/{workspace_id}")
-async def list_ws(ws: WebSocket, workspace_id: UUID):
+async def list_ws(ws: WebSocket, workspace_id: UUID, db: Session = Depends(get_db)):
     """列表频道：任何文档变动（保存/新建/删除/还原）→ 广播 list_changed，
     前端收到就刷新左侧列表。连接按 "list:{workspace_id}" 为 key 进连接池。"""
     global _worker_started
+    if not await authorize_socket(ws, db, workspace_id, workspace=True): return
     await ws.accept()
 
     if not _worker_started:
@@ -66,7 +82,11 @@ async def list_ws(ws: WebSocket, workspace_id: UUID):
 
     try:
         while True:
-            await ws.receive_text()  # 客户端不发消息，纯接收
+            try:
+                await asyncio.wait_for(ws.receive_text(), timeout=15)
+            except asyncio.TimeoutError:
+                pass
+            if not await authorize_socket(ws, db, workspace_id, workspace=True): break
     except WebSocketDisconnect:
         pass
     finally:
@@ -91,6 +111,7 @@ async def document_ws(
     - db 走 get_db 依赖注入：测试能覆写到测试库，不会写穿到开发库
     """
     global _worker_started
+    if not await authorize_socket(ws, db, doc_id): return
     await ws.accept()
 
     if not _worker_started:
@@ -101,7 +122,12 @@ async def document_ws(
 
     try:
         while True:
-            raw = await ws.receive_text()
+            try:
+                raw = await asyncio.wait_for(ws.receive_text(), timeout=15)
+            except asyncio.TimeoutError:
+                if not await authorize_socket(ws, db, doc_id): break
+                continue
+            if not await authorize_socket(ws, db, doc_id): break
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
