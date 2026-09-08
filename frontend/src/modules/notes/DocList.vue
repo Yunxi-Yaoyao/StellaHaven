@@ -1,11 +1,19 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useNotesStore, buildTree, type TreeNode } from "../../stores/notes";
 import DocTreeNode from "./DocTreeNode.vue";
 import Icon from "../../shell/Icon.vue";
 import { toast } from "../../composables/useToast";
 
+const importHover = ref(false);
+function hoverImport(e: DragEvent) {
+  if (!e.dataTransfer?.types.includes('Files')) return;
+  e.preventDefault(); importHover.value = true;
+}
+const clearImportHover = () => { importHover.value = false; };
+onMounted(() => window.addEventListener('drop', clearImportHover, true));
+onUnmounted(() => window.removeEventListener('drop', clearImportHover, true));
 const emit = defineEmits<{
   open: [id: string];
   showTrash: [];
@@ -16,6 +24,7 @@ const emit = defineEmits<{
   del: [node: TreeNode];
   switched: [];
   fold: [];
+  import: [];
 }>();
 const props = defineProps<{ currentId: string | null; trashOpen: boolean; attachOpen: boolean; graphOpen: boolean }>();
 
@@ -241,6 +250,7 @@ function onSearchInput() {
     </div>
 
     <button class="new-btn" @click="emit('newChild', null)"><Icon name="plus" :size="13" /> 新建笔记</button>
+    <button class="new-btn import-btn" :class="{ 'import-hover': importHover }" @dragenter="hoverImport" @dragover="hoverImport" @dragleave="importHover = false" @click="emit('import')">{{ importHover ? '松手导入 .md / .txt' : '导入 .md / .txt' }}</button>
 
     <div class="items" @dragover="onListDragOver" @drop="onDropToRoot">
       <!-- 筛选中（文本搜索 / 标签 / 叠加）：平铺结果 -->
@@ -261,6 +271,7 @@ function onSearchInput() {
           v-for="doc in tagFilteredDocs"
           :key="doc.id"
           class="flat-item with-path"
+          :data-import-parent="doc.id"
           :class="{ active: doc.id === props.currentId }"
           @click="emit('open', doc.id)"
         >
@@ -281,6 +292,7 @@ function onSearchInput() {
               v-for="doc in favorites"
               :key="doc.id"
               class="flat-item fav"
+              :data-import-parent="doc.id"
               :class="{ active: doc.id === props.currentId }"
               @click="emit('open', doc.id)"
             >{{ doc.title }}</div>
@@ -297,6 +309,7 @@ function onSearchInput() {
               v-for="doc in recent.slice(0, 5)"
               :key="doc.id"
               class="flat-item"
+              :data-import-parent="doc.id"
               :class="{ active: doc.id === props.currentId }"
               @click="emit('open', doc.id)"
             >{{ doc.title }}</div>
@@ -366,6 +379,8 @@ function onSearchInput() {
 </template>
 
 <style scoped>
+.import-btn.import-hover { border: 1px dashed var(--accent); background: var(--bg-raised); color: var(--accent); }
+
 .doc-list {
   width: 260px;
   flex-shrink: 0;

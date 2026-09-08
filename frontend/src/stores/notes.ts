@@ -89,16 +89,30 @@ export const useNotesStore = defineStore("notes", () => {
   // 删除确认弹窗状态（有下挂时由 NotesPage 弹三选框）
   const pendingDelete = ref<{ doc: Doc; childCount: number } | null>(null);
 
+  let sessionEpoch = 0;
+  function resetSession() {
+    sessionEpoch++; ++listSequence;
+    userId.value = ''; workspaceId.value = ''; workspaces.value = [];
+    docs.value = []; trash.value = []; recent.value = []; tags.value = []; docTags.value = [];
+    searchQuery.value = ''; searching.value = false; filterTagId.value = null;
+    draggingId.value = null; pendingDelete.value = null; docsCache.clear();
+  }
   async function bootstrap() {
+    const epoch = sessionEpoch;
     const b: Bootstrap = await ensureWorkspace();
+    if (epoch !== sessionEpoch) return;
     userId.value = b.userId;
     workspaceId.value = b.workspaceId;
-    await Promise.all([refreshList(), refreshRecent(), refreshWorkspaces(), refreshTags()]);
+    // Only the document list blocks first content; auxiliary panels hydrate independently.
+    void Promise.allSettled([refreshRecent(), refreshWorkspaces(), refreshTags()]);
+    await refreshList();
   }
 
   async function refreshTags() {
     const { listTags, listAllDocTags } = await import("../api/notes");
-    [tags.value, docTags.value] = await Promise.all([listTags(), listAllDocTags()]);
+    const epoch = sessionEpoch;
+    const result = await Promise.all([listTags(), listAllDocTags()]);
+    if (epoch === sessionEpoch) [tags.value, docTags.value] = result;
   }
 
   /** 文档路径（面包屑字符串）：装修日志 / 材料清单 / 瓷砖选购 */
@@ -142,7 +156,9 @@ export const useNotesStore = defineStore("notes", () => {
   }
 
   async function refreshWorkspaces() {
-    workspaces.value = await listWorkspaces(userId.value);
+    const epoch = sessionEpoch;
+    const result = await listWorkspaces(userId.value);
+    if (epoch === sessionEpoch) workspaces.value = result;
   }
 
   /** 切换工作区：记住选择 + 全量重载（列表频道由页面监听 workspaceId 重连） */
@@ -189,27 +205,31 @@ export const useNotesStore = defineStore("notes", () => {
     return "deleted";
   }
 
+  let listSequence = 0;
   async function refreshList() {
+    const sequence = ++listSequence;
     if (!workspaceId.value) return;
-    if (searchQuery.value.trim()) {
-      searching.value = true;
-      docs.value = await searchDocs(workspaceId.value, searchQuery.value.trim());
-      docs.value.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-    } else {
-      searching.value = false;
-      docs.value = await listDocs(workspaceId.value);
-    }
+    const workspace = workspaceId.value;
+    const query = searchQuery.value.trim();
+    const result = query ? await searchDocs(workspace, query) : await listDocs(workspace);
+    if (sequence !== listSequence || workspace !== workspaceId.value || query !== searchQuery.value.trim()) return;
+    searching.value = !!query;
+    docs.value = query ? result.sort((a, b) => b.updated_at.localeCompare(a.updated_at)) : result;
     cacheDocs(docs.value); // 搜索结果只含命中项，但路径计算需要全量上下文
   }
 
   async function refreshTrash() {
     if (!workspaceId.value) return;
-    trash.value = await listTrash(workspaceId.value);
+    const epoch = sessionEpoch, ws = workspaceId.value;
+    const result = await listTrash(workspaceId.value);
+    if (epoch === sessionEpoch && ws === workspaceId.value) trash.value = result;
   }
 
   async function refreshRecent() {
     if (!workspaceId.value) return;
-    recent.value = await listRecent(workspaceId.value);
+    const epoch = sessionEpoch, ws = workspaceId.value;
+    const result = await listRecent(workspaceId.value);
+    if (epoch === sessionEpoch && ws === workspaceId.value) recent.value = result;
   }
 
   function childCount(id: string): number {
@@ -218,7 +238,12 @@ export const useNotesStore = defineStore("notes", () => {
 
   async function createNew(parentId?: string): Promise<Doc> {
     const doc = await createDoc(workspaceId.value, "未命名笔记", parentId);
-    await refreshList();
+    // The POST is authoritative; a secondary read must not turn success into failure.
+    if (doc.workspace_id === workspaceId.value) {
+      ++listSequence; // discard list requests started before the create completed
+      docs.value = [doc, ...docs.value.filter((d) => d.id !== doc.id)];
+      cacheDocs([doc]);
+    }
     return doc;
   }
 
@@ -280,7 +305,7 @@ export const useNotesStore = defineStore("notes", () => {
   return {
     workspaceId, userId, workspaces, docs, trash, recent, searchQuery, searching, pendingDelete,
     tags, docTags, filterTagId, draggingId,
-    bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces, refreshTags,
+    resetSession, bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces, refreshTags,
     tagsOf, tagDoc, untagDoc, pathOf,
     switchWorkspace, addWorkspace, renameCurrentWorkspace, deleteCurrentWorkspace,
     childCount, createNew, requestDelete, doDelete, restore, purge, emptyAllTrash, clearAll, moveTo,

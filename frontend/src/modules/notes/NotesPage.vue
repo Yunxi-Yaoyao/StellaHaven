@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from "vue";
+import { onBeforeRouteLeave } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useNotesStore, type TreeNode } from "../../stores/notes";
 import DocList from "./DocList.vue";
@@ -8,8 +9,19 @@ import TrashPanel from "./TrashPanel.vue";
 import AttachmentsPanel from "./AttachmentsPanel.vue";
 import GraphPanel from "./GraphPanel.vue";
 import MoveDialog from "./MoveDialog.vue";
+import ImportDialog from "./ImportDialog.vue";
+import { auth } from "../home/auth";
+import { isImportFilename, type ImportSource } from './import-helpers';
 
+defineOptions({ name: 'NotesPage' });
+const pageRoot = ref<HTMLElement | null>(null);
+let scrollSnapshot: [HTMLElement, number, number][] = [];
+onBeforeRouteLeave(() => {
+  scrollSnapshot = Array.from(pageRoot.value?.querySelectorAll<HTMLElement>('.rich-editor,.cm-scroller,.preview,.items,.toc-list') ?? [])
+    .map(el => [el, el.scrollTop, el.scrollLeft]);
+});
 const store = useNotesStore();
+if (store.userId !== auth.me?.id) store.resetSession();
 const { pendingDelete } = storeToRefs(store);
 const currentId = ref<string | null>(null);
 const LS_CURRENT = "stella_current_doc";
@@ -17,7 +29,43 @@ const trashOpen = ref(false);
 const attachOpen = ref(false);
 const graphOpen = ref(false);
 const ready = ref(false);
+const initError = ref('');
+const active = ref(true);
 const moving = ref<TreeNode | null>(null);
+const importInput = ref<HTMLInputElement | null>(null);
+const importing = ref<{ files: ImportSource[]; workspaceId: string; parentId: string | null } | null>(null);
+const importBusy = ref(false);
+function openImport(files: ImportSource[], parentId: string | null = null) {
+  if (!files.length || importing.value || !store.workspaceId) return;
+  importing.value = { files, workspaceId: store.workspaceId, parentId };
+}
+function pickedFiles(event: Event) {
+  const input = event.target as HTMLInputElement;
+  openImport(Array.from(input.files ?? []));
+  input.value = ''; // Picking the same filename again must work.
+}
+function captureDragOver(event: DragEvent) {
+  if (store.draggingId || !event.dataTransfer?.types.includes('Files')) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+}
+function captureDrop(event: DragEvent) {
+  if (store.draggingId || !event.dataTransfer) return;
+  const files: ImportSource[] = Array.from(event.dataTransfer.files);
+  for (const item of Array.from(event.dataTransfer.items)) {
+    const entry = item.webkitGetAsEntry?.();
+    if (entry?.isDirectory) files.push({ name: entry.name, size: 0, isDirectory: true, arrayBuffer: async () => new ArrayBuffer(0) });
+  }
+  if (!files.length) return;
+  const element = event.target instanceof Element ? event.target : null;
+  const inList = !!element?.closest('.doc-list');
+  // Only Markdown/text imports override editor drops; all other files retain attachments.
+  if (!inList && !files.some(file => isImportFilename(file.name) || file.isDirectory)) return;
+  event.preventDefault();
+  event.stopPropagation(); // Never append imported Markdown to an open draft.
+  const parentId = inList ? element?.closest<HTMLElement>('[data-import-parent]')?.dataset.importParent ?? null : null;
+  openImport(files, parentId);
+}
 
 // 列表栏折叠（桌面记忆 + 移动端抽屉）
 const listCollapsed = ref(
@@ -42,6 +90,7 @@ function connectListWs() {
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === "list_changed") {
+        if (importBusy.value) return; // ImportDialog refreshes once after the batch.
         store.refreshList();
         store.refreshTrash();
       }
@@ -49,35 +98,47 @@ function connectListWs() {
       /* 忽略坏消息 */
     }
   };
+  const socket = listWs;
   listWs.onclose = () => {
+    if (listWs !== socket) return;
     listWs = null;
     if (!listWsDead) listWsTimer = setTimeout(connectListWs, 3000);
   };
 }
 
-onMounted(async () => {
-  await store.bootstrap();
-  ready.value = true;
-  connectListWs();
-  // 恢复上次正在看的文章（刷新不跳篇）；不存在了才回退到第一篇
-  const saved = localStorage.getItem(LS_CURRENT);
-  if (saved && store.docs.some((d) => d.id === saved)) {
-    currentId.value = saved;
-  } else if (store.docs.length > 0) {
-    currentId.value = store.docs[0].id;
-  }
-});
-
-onUnmounted(() => {
+function stopListWs() {
   listWsDead = true;
   if (listWsTimer) clearTimeout(listWsTimer);
-  listWs?.close();
+  listWsTimer = null;
+  if (listWs) { listWs.onclose = null; listWs.onmessage = null; listWs.close(); }
+  listWs = null;
+}
+async function initialize() {
+  initError.value = '';
+  try {
+    await store.bootstrap();
+    const saved = localStorage.getItem(LS_CURRENT);
+    currentId.value = saved && store.docs.some(d => d.id === saved) ? saved : store.docs[0]?.id ?? null;
+    ready.value = true;
+    if (active.value) { listWsDead = false; connectListWs(); }
+  } catch { initError.value = '笔记加载失败，请重试喵~'; }
+}
+onMounted(initialize);
+onActivated(() => {
+  active.value = true;
+  void nextTick(() => { for (const [el, top, left] of scrollSnapshot) { el.scrollTop = top; el.scrollLeft = left; } });
+  if (!ready.value) return; // Initial activation is handled by initialize.
+  listWsDead = false;
+  connectListWs();
+  void Promise.allSettled([store.refreshList(), store.refreshRecent(), store.refreshWorkspaces(), store.refreshTags()]);
 });
+onDeactivated(() => { active.value = false; stopListWs(); });
+onUnmounted(() => { active.value = false; stopListWs(); });
 
 // 切换工作区 → 列表频道重连 + 关掉所有面板（图谱/附件/回收站都是旧工作区的数据）+ 打开新工作区的第一篇
 async function onWsSwitched() {
-  listWs?.close();
-  listWs = null;
+  stopListWs();
+  listWsDead = !active.value;
   connectListWs();
   trashOpen.value = false;
   attachOpen.value = false;
@@ -122,11 +183,13 @@ function onDeleted() {
 </script>
 
 <template>
-  <div class="notes-page" v-if="ready">
+  <div ref="pageRoot" class="notes-page" :aria-busy="!ready" @dragover.capture="captureDragOver" @drop.capture="captureDrop">
+    <input ref="importInput" type="file" accept=".md,.txt" multiple hidden @change="pickedFiles" />
+    <ImportDialog v-if="importing" v-bind="importing" @busy="importBusy = $event" @close="importing = null" />
     <!-- 列表收起时的窄条把手 -->
     <div v-if="listCollapsed" class="list-strip" title="展开列表" @click="toggleList">»</div>
     <DocList
-      v-show="!listCollapsed"
+      v-show="!listCollapsed" :style="!ready ? { pointerEvents: 'none', opacity: .65 } : undefined"
       :current-id="currentId"
       :trash-open="trashOpen"
       :attach-open="attachOpen"
@@ -140,6 +203,7 @@ function onDeleted() {
       @del="onDel"
       @switched="onWsSwitched"
       @fold="toggleList"
+      @import="importInput?.click()"
     />
     <GraphPanel v-if="graphOpen" @close="graphOpen = false" @open="onOpen" />
     <AttachmentsPanel v-else-if="attachOpen" @close="attachOpen = false" @open="onOpen" />
@@ -154,7 +218,8 @@ function onDeleted() {
     />
     <div v-else class="blank">
       <div class="blank-icon">📝</div>
-      <p>选一篇，或者新建一篇开始写</p>
+      <p>{{ initError || (ready ? '选一篇，或者新建一篇开始写' : '正在载入笔记…') }}</p>
+      <button v-if="initError" @click="initialize">重试</button>
     </div>
 
     <!-- 移动对话框 -->
@@ -177,7 +242,7 @@ function onDeleted() {
       </div>
     </div>
   </div>
-  <div v-else class="loading">Stella 正在醒来…</div>
+
 </template>
 
 <style scoped>

@@ -1,4 +1,4 @@
-import { watch, onUnmounted, type Ref } from "vue";
+import { watch, onBeforeUnmount, onActivated, onDeactivated, type Ref } from "vue";
 
 // 设备名：没起过名就用浏览器名（UA 解析），不再生成「设备-xxxx」随机占位
 export function detectBrowser(): string {
@@ -84,12 +84,17 @@ export function useDraftSocket(
 ) {
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let active = true;
+  let dead = false;
 
   function connect(id: string) {
     disconnect();
+    if (!active || dead || docId.value !== id) return;
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws/${id}?device=${encodeURIComponent(device.value)}`);
+    const socket = ws;
     ws.onmessage = (ev) => {
+      if (!active || dead || ws !== socket) return;
       try {
         const msg = JSON.parse(ev.data);
         if (msg.type === "doc_saved") onDocSaved();
@@ -99,7 +104,7 @@ export function useDraftSocket(
     };
     ws.onclose = () => {
       // 文档还开着就重连
-      if (docId.value === id) {
+      if (active && !dead && ws === socket && docId.value === id) {
         reconnectTimer = setTimeout(() => connect(id), 3000);
       }
     };
@@ -108,12 +113,15 @@ export function useDraftSocket(
   function disconnect() {
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = null;
-    ws?.close();
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
+      ws.close();
+    }
     ws = null;
   }
 
   function sendDraft(content: string) {
-    if (ws?.readyState === WebSocket.OPEN) {
+    if (active && !dead && ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "draft", content }));
     }
   }
@@ -123,7 +131,13 @@ export function useDraftSocket(
     else disconnect();
   }, { immediate: true });
 
-  onUnmounted(disconnect);
+  onDeactivated(() => { active = false; disconnect(); });
+  onActivated(() => {
+    if (dead || active) return;
+    active = true;
+    if (docId.value) connect(docId.value);
+  });
+  onBeforeUnmount(() => { dead = true; active = false; disconnect(); });
 
   return { sendDraft };
 }

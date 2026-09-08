@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onUnmounted, toRef } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated, toRef, defineAsyncComponent } from "vue";
+import { auth } from "../home/auth";
 import { marked } from "marked";
+import { localId } from "./localId";
+import { sanitizeNoteHtml, sanitizeNoteSvg } from "./noteHtml";
+const RichEditor = defineAsyncComponent(() => import("./RichEditor.vue"));
 import {
   getDoc, updateDoc, getDraft, toggleFavorite, type Doc,
 } from "../../api/notes";
@@ -15,6 +19,9 @@ import TagBar from "./TagBar.vue";
 
 const props = defineProps<{ docId: string }>();
 const emit = defineEmits<{ saved: []; deleted: []; open: [id: string] }>();
+const ownerId = auth.me?.id;
+const ownsSession = () => !!ownerId && auth.me?.id === ownerId;
+let editorActive = true;
 
 // 设备标签 = 「IP-地区 来源」（来源 = 起过的名字或浏览器名；IP/地区异步查到后补上，缓存24h）
 const deviceLabel = ref(getDeviceName());
@@ -40,7 +47,20 @@ const title = ref("");
 const content = ref("");
 const savedTitle = ref("");
 const savedContent = ref("");
-const reading = ref(true); // 默认阅览模式（老婆的定稿），编辑双栏/阅览纯预览切换
+const reading = ref(true); // 默认阅览，编辑方式单独记忆
+const editMode = ref<"rich" | "markdown">(localStorage.getItem("stella_note_edit_mode") === "markdown" ? "markdown" : "rich");
+const richRef = ref<InstanceType<typeof RichEditor> | null>(null);
+const richLoaded = ref(false);
+watch(reading, (value) => { if (!value && editMode.value === "rich") richLoaded.value = true; });
+async function switchEditMode(mode: "rich" | "markdown") {
+  if (editMode.value === "rich") richRef.value?.flush();
+  editMode.value = mode;
+  suggestMode.value = null;
+  if (mode === "rich") richLoaded.value = true;
+  localStorage.setItem("stella_note_edit_mode", mode);
+  await nextTick();
+  if (mode === "rich") richRef.value?.focus(); else cmRef.value?.focus();
+}
 
 // 窄屏检测：窗口挤到放不下编辑双栏（左编辑器+右预览）→ 自动单栏（编辑只看编辑器）
 // 断点 900px：双栏每边至少 ~430px 才不挤
@@ -155,7 +175,7 @@ const rendered = computed(() => {
     /\[\[([^\[\]]+)\]\]/g,
     '<a class="wikilink" data-title="$1">$1</a>'
   );
-  return html;
+  return sanitizeNoteHtml(html);
 });
 
 // ── mermaid 渲染：v-html 落 DOM 后，把 .mermaid 容器逐个渲染成 SVG ──
@@ -176,7 +196,7 @@ function loadMermaid(): Promise<any> {
     s.onload = () => {
       const m = w.mermaid;
       if (m) {
-        m.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+        m.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict", flowchart: { htmlLabels: false } });
         resolve(m);
       } else {
         reject(new Error("mermaid 加载失败"));
@@ -202,7 +222,7 @@ async function renderMermaid() {
     if (!code) { el.setAttribute("data-processed", "1"); continue; }
     try {
       const { svg } = await m.render(`mmd-${Date.now()}-${mermaidSeq++}`, code);
-      el.innerHTML = svg;
+      el.innerHTML = sanitizeNoteSvg(svg);
     } catch {
       // 语法错误等：回退成纯文本代码块，方便定位
       el.innerHTML = `<pre class="mermaid-error">${escapeHtml(code)}</pre>`;
@@ -219,6 +239,15 @@ const tocItems = ref<{ level: number; text: string; id: string; offset: number }
 watch(rendered, () => { renderMermaid(); });
 
 function jumpTo(id: string) {
+  if (!reading.value && editMode.value === "rich") {
+    const item = tocItems.value.find(t => t.id === id);
+    if (item) {
+      const label = document.createElement("span");
+      label.innerHTML = sanitizeNoteHtml(marked.parseInline(item.text) as string);
+      richRef.value?.scrollToHeading(label.textContent || item.text);
+    }
+    return;
+  }
   // 1. 预览跳转（阅览模式 / 双栏的右侧）
   const preview = document.querySelector(".preview");
   const target = preview?.querySelector(`#${id}`);
@@ -333,7 +362,13 @@ function pickCommand(cmd: (typeof SLASH_CMDS)[number]) {
   suggestMode.value = null;
 }
 
+async function toggleReading() {
+  if (!reading.value) { if (!(await save())) return; }
+  reading.value = !reading.value;
+}
+
 // ── 工具栏 ──
+const richActions = ["bold", "italic", "code", "h1", "h2", "ul", "todo", "quote", "link", "image", "hr"];
 const toolbar = [
   { text: "B", title: "加粗", action: () => cmRef.value?.wrapSelection("**", "**", "粗体") },
   { text: "I", title: "斜体", action: () => cmRef.value?.wrapSelection("*", "*", "斜体") },
@@ -351,15 +386,20 @@ const toolbar = [
 // ── 粘贴/拖拽上传：图片插 ![]()，其他文件插链接 []() ──
 async function uploadOne(file: File, insertAt: number) {
   if (!doc.value) return;
+  const targetDocId = doc.value.id;
   const isImg = file.type.startsWith("image/");
   const name = file.name || "paste.png";
-  const placeholder = isImg ? `![上传中 ${name}…]()` : `[上传中 ${name}…]()`;
-  content.value = content.value.slice(0, insertAt) + placeholder + content.value.slice(insertAt);
+  const placeholder = `上传中…${localId()}`;
+  if (editMode.value === "rich" && !reading.value) {
+    if (!richRef.value?.insertText(placeholder)) { toast("编辑器尚未就绪，请稍后重试喵~"); return; }
+  } else {
+    content.value = content.value.slice(0, insertAt) + placeholder + content.value.slice(insertAt);
+  }
 
   const form = new FormData();
   form.append("file", file, name);
   try {
-    const resp = await fetch(`/attachments/${doc.value.id}`, { method: "POST", body: form });
+    const resp = await fetch(`/attachments/${targetDocId}`, { method: "POST", body: form });
     if (!resp.ok) {
       // 把后端的真实原因抛出来（413=超限等），不再只报「上传失败」
       let reason = `HTTP ${resp.status}`;
@@ -370,9 +410,11 @@ async function uploadOne(file: File, insertAt: number) {
       throw new Error(reason);
     }
     const { url, filename } = await resp.json();
+    if (doc.value?.id !== targetDocId) { toast("附件已上传到原笔记，请从附件面板插入引用喵~"); return; }
+    const safeName = String(filename).replace(/[\\\[\]]/g, "\\$&");
     content.value = content.value.replace(
       placeholder,
-      isImg ? `![${filename}](${url})` : `[${filename}](${url})`
+      isImg ? `![${safeName}](${url})` : `[${safeName}](${url})`
     );
     toast(isImg ? "图片已上传 ✓" : `「${filename}」已上传 ✓`);
   } catch (e) {
@@ -469,8 +511,22 @@ const wsName = computed(() =>
 );
 
 // ── 加载文档 ──
-async function load(id: string) {
-  doc.value = await getDoc(id);
+let loadSequence = 0;
+async function load(id: string, background = false) {
+  if (background && dirty.value) return;
+  const initialTitle = title.value;
+  const initialContent = content.value;
+  const sequence = ++loadSequence;
+  let loaded: Doc;
+  try {
+    loaded = await getDoc(id);
+  } catch {
+    if (sequence === loadSequence && props.docId === id) toast("笔记加载失败，请重新选择重试");
+    return;
+  }
+  if (sequence !== loadSequence || props.docId !== id) return;
+  if (background && (dirty.value || title.value !== initialTitle || content.value !== initialContent)) return;
+  doc.value = loaded;
   title.value = doc.value.title;
   content.value = doc.value.content || "";
   savedTitle.value = doc.value.title;
@@ -478,8 +534,8 @@ async function load(id: string) {
   savedAt.value = doc.value.updated_at;
   draftSynced.value = false;
   draftPreview.value = null;
-  loadBacklinks();
-  loadAttachMeta();
+  void loadBacklinks().catch(() => {});
+  void loadAttachMeta().catch(() => {});
   draftBanner.value =
     doc.value.has_draft && !isDismissed(doc.value.id, doc.value.draft_updated_at!)
       ? { device: doc.value.draft_device, updatedAt: doc.value.draft_updated_at! }
@@ -489,32 +545,35 @@ async function load(id: string) {
 watch(() => props.docId, (newId, oldId) => {
   // 切走前先把旧文档的挂起草稿冲出去（此 watcher 注册早于 WS 重连，socket 还连着旧文档）
   if (oldId && oldId !== newId) flushDraft();
+  ++loadSequence;
+  if (oldId !== newId) doc.value = null;
   if (newId) load(newId);
 }, { immediate: true });
 
-onBeforeUnmount(() => flushDraft());
+onBeforeUnmount(() => { flushDraft(); pauseEditor(); });
 
 // ── 编辑中：打字停 2.5s → 草稿槽（正文不动，草稿是影子）──
 // ── 行为边界（切换/离开/Ctrl+S）→ 才落正文 + 弹 toast ──
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
 function flushDraft() {
+  richRef.value?.flush();
   /** 切走/销毁前：有未保存修改 → 保存落正文（toast 在 save() 里弹） */
   if (draftTimer) clearTimeout(draftTimer);
   draftTimer = null;
-  if (doc.value && dirty.value) {
+  if (ownsSession() && doc.value && dirty.value) {
     // fire-and-forget：组件可能正在销毁，emit 会丢，直接刷 store
-    save().then(() => useNotesStore().refreshList()).catch(() => {});
+    save().then((saved) => { if (saved && ownsSession()) return store.refreshList(); }).catch(() => {});
   }
 }
 
 watch([content, title], () => {
-  if (!doc.value || !dirty.value) return;
+  if (!editorActive || !ownsSession() || !doc.value || !dirty.value) return;
   const forDoc = doc.value.id;
   if (draftTimer) clearTimeout(draftTimer);
   draftTimer = setTimeout(() => {
     // 回调触发时世界可能已变：文档换了就不能发（防止交叉污染）
-    if (dirty.value && doc.value?.id === forDoc) {
+    if (editorActive && ownsSession() && dirty.value && doc.value?.id === forDoc) {
       sendDraft(content.value);
       draftSynced.value = true;
     }
@@ -523,9 +582,9 @@ watch([content, title], () => {
 
 // 别的设备保存了：本地干净就静默重拉；本地在编辑就弹个轻提示（不警告不动作）
 function onRemoteSaved() {
-  if (!doc.value) return;
+  if (!editorActive || !ownsSession() || !doc.value) return;
   if (!dirty.value) {
-    load(props.docId);
+    load(props.docId, true);
   } else {
     toast("另一台设备保存了这篇笔记的新版本");
   }
@@ -534,32 +593,42 @@ function onRemoteSaved() {
 const { sendDraft } = useDraftSocket(toRef(props, "docId"), deviceLabel, onRemoteSaved);
 
 // ── 保存（乐观锁 PUT；切换保存和 Ctrl+S 都走这里）──
-async function save() {
-  if (!doc.value || !dirty.value) return;
+let saving: Promise<boolean> | null = null;
+async function save(): Promise<boolean> {
+  if (saving) { await saving; }
+  if (!ownsSession()) return false;
+  richRef.value?.flush();
+  if (!doc.value || !dirty.value) return true;
   if (draftTimer) clearTimeout(draftTimer);
-  try {
-    const updated = await updateDoc(doc.value.id, doc.value.updated_at, {
-      title: title.value,
-      content: content.value,
-    });
-    doc.value = updated;
-    savedTitle.value = updated.title;
-    savedContent.value = updated.content || "";
-    savedAt.value = updated.updated_at;
-    draftSynced.value = false;
-    draftBanner.value = null; // 保存成功草稿槽已清
-    loadBacklinks(); // 双链可能变了
-    toast("已自动保存 ✓");
-    emit("saved");
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 409) {
-      // 乐观锁兜底：静默重拉 DB（老婆定的：不弹打扰式提示）
-      await load(props.docId);
-      toast("版本冲突，已刷新为最新");
-    } else {
-      toast("保存失败，稍后再试");
+  const id = doc.value.id;
+  const token = doc.value.updated_at;
+  const payload = { title: title.value, content: content.value };
+  saving = (async () => {
+    try {
+      const updated = await updateDoc(id, token, payload);
+      if (!ownsSession()) return false;
+      // An old save completing after navigation must not replace the newly opened note.
+      if (doc.value?.id === id) {
+        doc.value = updated;
+        savedTitle.value = updated.title;
+        savedContent.value = updated.content || "";
+        savedAt.value = updated.updated_at;
+        draftSynced.value = false;
+        draftBanner.value = null;
+        loadBacklinks();
+      }
+      toast("已自动保存喵~");
+      emit("saved");
+      return true;
+    } catch (e) {
+      if (!ownsSession()) return false;
+      toast(e instanceof ApiError && e.status === 409
+        ? "另一设备已保存新版本，本地修改仍保留，请先复制或导出后再刷新喵~"
+        : "保存失败，修改仍保留，请稍后重试喵~");
+      return false;
     }
-  }
+  })();
+  try { return await saving; } finally { saving = null; }
 }
 
 // ── 草稿提示条动作 ──
@@ -755,17 +824,37 @@ function onKey(e: KeyboardEvent) {
     save();
   }
 }
-onMounted(() => {
+let listenersActive = false;
+let activatedOnce = false;
+function resumeEditor() {
+  if (listenersActive || !ownsSession()) return;
+  editorActive = true;
+  listenersActive = true;
+  onWinResize();
+  nowTick.value = Date.now();
   window.addEventListener("keydown", onKey);
   window.addEventListener("resize", onWinResize);
   tickTimer = setInterval(() => (nowTick.value = Date.now()), 30000); // 「几分钟前」自己走
-  renderMermaid(); // 初始内容里的 mermaid 图
-});
-onUnmounted(() => {
+  renderMermaid();
+}
+function pauseEditor() {
+  editorActive = false;
+  listenersActive = false;
+  ++loadSequence;
+  if (draftTimer) clearTimeout(draftTimer);
+  draftTimer = null;
   window.removeEventListener("keydown", onKey);
   window.removeEventListener("resize", onWinResize);
   if (tickTimer) clearInterval(tickTimer);
+  tickTimer = null;
+}
+onMounted(resumeEditor);
+onActivated(() => {
+  resumeEditor();
+  if (activatedOnce && ownsSession()) void load(props.docId, true);
+  activatedOnce = true;
 });
+onDeactivated(() => { flushDraft(); pauseEditor(); });
 
 function fmtDraftTime(iso: string) {
   return new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -813,7 +902,7 @@ function fmtDraftTime(iso: string) {
         >
           <Icon name="star" :size="15" />
         </button>
-        <button class="mode-toggle" @click="reading = !reading">
+        <button class="mode-toggle" @click="toggleReading">
           <Icon :name="reading ? 'edit' : 'eye'" :size="13" /> {{ reading ? "编辑" : "阅览" }}
         </button>
         <button class="mode-toggle" @click="exportWin = true">
@@ -827,18 +916,23 @@ function fmtDraftTime(iso: string) {
     <TagBar :doc-id="docId" />
 
     <!-- 工具栏（不记得语法也能写） -->
+    <div v-show="!reading" class="edit-mode-tabs" role="group" aria-label="编辑方式">
+      <button :class="{ active: editMode === 'rich' }" :aria-pressed="editMode === 'rich'" @click="switchEditMode('rich')">所见即所得</button>
+      <button :class="{ active: editMode === 'markdown' }" :aria-pressed="editMode === 'markdown'" @click="switchEditMode('markdown')">Markdown</button>
+    </div>
     <div v-show="!reading" class="editor-toolbar">
       <button
-        v-for="t in toolbar"
+        v-for="(t, i) in toolbar"
         :key="t.text"
         class="tb-btn"
         :title="t.title"
-        @mousedown.prevent="t.action()"
+        @mousedown.prevent="editMode === 'rich' ? richRef?.exec(richActions[i]!) : t.action()"
       >{{ t.text }}</button>
     </div>
 
-    <div class="panes" :class="reading ? 'preview-only' : (narrow ? 'edit-single' : 'split')">
-      <div v-show="!reading" class="input-wrap">
+    <div class="panes" :class="reading ? 'preview-only' : (editMode === 'rich' ? 'rich-only' : (narrow ? 'edit-single' : 'split'))">
+      <RichEditor v-if="richLoaded" v-show="!reading && editMode === 'rich'" ref="richRef" :key="doc.id" :doc-id="doc.id" v-model="content" @paste="onPaste" @drop="onDrop" />
+      <div v-show="!reading && editMode === 'markdown'" class="input-wrap">
         <CmEditor
           ref="cmRef"
           v-model="content"
@@ -867,7 +961,7 @@ function fmtDraftTime(iso: string) {
         </div>
       </div>
       <!-- 窄屏编辑单栏：预览隐藏（要看预览切回阅览模式） -->
-      <div v-show="reading || !narrow" ref="previewEl" class="preview markdown-body" v-html="rendered" @click="onPreviewClick" />
+      <div v-show="reading || (editMode === 'markdown' && !narrow)" ref="previewEl" class="preview markdown-body" v-html="rendered" @click="onPreviewClick" />
     </div>
 
     <!-- 反链：哪些页面链接到了这篇 -->
@@ -895,7 +989,7 @@ function fmtDraftTime(iso: string) {
     <!-- 常驻状态条：保存于几分钟前 · 字数 · 来源 -->
     <div class="status-bar">
       <span class="state">{{ statusLeft }}</span>
-      <span v-if="!reading && narrow" class="narrow-hint" title="窗口较窄，已自动切换为单栏（编辑只看编辑器）">单栏</span>
+      <span v-if="!reading && editMode === 'markdown' && narrow" class="narrow-hint" title="窗口较窄，已自动切换为单栏（编辑只看编辑器）">单栏</span>
       <span class="right">{{ wordCount }} 字 · </span>
       <span class="device" title="点击给这个来源起名" @click="renameDevice">{{ deviceLabel }}</span>
     </div>
@@ -966,6 +1060,10 @@ function fmtDraftTime(iso: string) {
 </template>
 
 <style scoped>
+.edit-mode-tabs { display: flex; gap: 3px; padding: 6px 16px; border-bottom: 1px solid var(--bg-raised); flex-shrink: 0; }
+.edit-mode-tabs button { border: 0; background: transparent; color: var(--text-lo); padding: 6px 12px; border-radius: var(--radius-sm); font: inherit; font-size: 13px; cursor: pointer; }
+.edit-mode-tabs button.active { background: var(--bg-raised); color: var(--accent); }
+.panes.rich-only { display: flex; flex-direction: column; }
 .editor {
   flex: 1;
   display: flex;

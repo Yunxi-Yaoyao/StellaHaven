@@ -13,6 +13,9 @@ const displayName = computed(() =>
 defineProps<{ collapsed: boolean; mobileOpen: boolean }>();
 const emit = defineEmits<{ toggle: []; closeMobile: [] }>();
 
+function preloadNotes(to: string) {
+  if (to === '/notes' && loggedIn.value) void import('../modules/notes/NotesPage.vue');
+}
 const navItems = [
   { to: "/", icon: "home", label: "个人主页" },
   { to: "/notes", icon: "note", label: "笔记" },
@@ -47,6 +50,7 @@ const navItems = [
         :to="item.to"
         class="nav-item"
         :class="{ active: $route.path === item.to }"
+        @mouseenter="preloadNotes(item.to)" @focus="preloadNotes(item.to)"
         @click="emit('closeMobile')"
       >
         <span class="icon"><Icon :name="item.icon" :size="17" /></span>

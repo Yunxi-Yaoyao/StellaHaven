@@ -1,6 +1,7 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models.user import User
@@ -10,12 +11,34 @@ from app.services.document import (
     get_document, list_documents, create_document, update_document, delete_document,
     restore_document, list_trash_documents, search_documents,
     touch_view, list_recent_documents, get_backlinks, empty_trash, clear_workspace_docs,
-    is_draft_fresh, get_fresh_draft,
+    is_draft_fresh, get_fresh_draft, sync_wikilinks,
 )
 
 from app.routers.ws import notify_sync
 
 router = APIRouter(dependencies=[Depends(current_user)], prefix="/documents", tags=["documents"])
+
+
+class ImportFinalize(BaseModel):
+    workspace_id: UUID
+    document_ids: list[UUID] = Field(min_length=1, max_length=200)
+
+
+@router.post("/import/finalize")
+def finalize_import(data: ImportFinalize, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """Resolve forward wikilinks after all imports exist; never save document bodies."""
+    require_ws_owner(db, data.workspace_id, user)
+    docs = []
+    # Validate the entire batch before sync_wikilinks performs any writes.
+    for doc_id in dict.fromkeys(data.document_ids):
+        doc = require_doc_owner(db, doc_id, user)
+        if doc.workspace_id != data.workspace_id or doc.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        docs.append(doc)
+    for doc in docs:
+        sync_wikilinks(db, doc, doc.content or "")
+    notify_list(data.workspace_id, data.workspace_id)
+    return {"synced": len(docs)}
 
 
 # ⚠️ /search /trash /recent 固定路径必须声明在 /{doc_id} 之前——否则被当 UUID 解析直接 422
@@ -106,6 +129,10 @@ def notify_list(workspace_id: UUID, doc_id: UUID):
 @router.post("/", response_model=DocumentRead, status_code=201)
 def create_one(data: DocumentCreate, db: Session = Depends(get_db), user: User = Depends(current_user)):
     require_ws_owner(db, data.workspace_id, user)  # 数据隔离
+    if data.parent_id is not None:
+        parent = require_doc_owner(db, data.parent_id, user)
+        if parent.workspace_id != data.workspace_id or parent.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="父文档不存在")
     doc = create_document(db, data)
     notify_list(doc.workspace_id, doc.id)
     return doc

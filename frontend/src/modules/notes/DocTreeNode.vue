@@ -56,6 +56,7 @@ const hasKids = computed(() => props.node.children.length > 0);
   <div class="node">
     <div
       class="row"
+      :data-import-parent="node.id"
       :class="{ active: node.id === currentId, 'drag-over': dragOver }"
       :style="{ paddingLeft: 10 + depth * 16 + 'px' }"
       draggable="true"

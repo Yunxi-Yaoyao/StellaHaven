@@ -5,11 +5,24 @@ import SettingsPanel from "./shell/SettingsPanel.vue";
 import BgManager from "./modules/home/BgManager.vue";
 import { toasts } from "./composables/useToast";
 import { auth, loggedIn, fetchMe } from "./modules/home/auth";
+import { useNotesStore } from "./stores/notes";
 import { useRouter, useRoute } from "vue-router";
 import { onMounted, onUnmounted } from "vue";
 
+const notesStore = useNotesStore();
+watch(() => auth.me?.id, (id, old) => {
+  if (id !== old) {
+    notesStore.resetSession();
+    let cachedUser: string | undefined;
+    try { cachedUser = JSON.parse(localStorage.getItem('stella_bootstrap') || '{}').userId; } catch { /* Invalid cache is discarded below. */ }
+    if (!id || cachedUser !== id) localStorage.removeItem('stella_bootstrap');
+  }
+}, { flush: 'sync' });
 const router = useRouter();
 const route = useRoute();
+const notesHop = ref(route.name === 'notes');
+watch(() => route.name, (next, previous) => { notesHop.value = next === 'notes' || previous === 'notes'; }, { flush: 'sync' });
+
 
 // 主页背景要铺满整个内容区，不吃全局 padding（其他页面保留内缩）
 const flushPage = computed(() => route.name === "home");
@@ -97,8 +110,10 @@ function toggleSidebar() {
 
     <main class="content" :class="{ flush: flushPage }">
       <RouterView v-slot="{ Component }">
-        <Transition name="fade" mode="out-in">
-          <component :is="Component" />
+        <Transition name="fade" :css="!notesHop" :mode="notesHop ? undefined : 'out-in'">
+          <KeepAlive :key="auth.me?.id ?? 'guest'" include="NotesPage" :max="1">
+            <component :is="Component" />
+          </KeepAlive>
         </Transition>
       </RouterView>
     </main>

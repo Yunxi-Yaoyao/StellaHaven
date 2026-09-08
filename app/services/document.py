@@ -42,7 +42,9 @@ def create_document(db: Session, data: DocumentCreate) -> Document:
         data.content_hash = _hash_content(data.content)
     elif not data.content_hash:
         data.content_hash = _hash_content("")
-    return create(db, data)
+    doc = create(db, data)
+    sync_wikilinks(db, doc, doc.content or "")
+    return doc
 
 
 def update_document(db: Session, doc_id: UUID, data: DocumentUpdate) -> Document:
