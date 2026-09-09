@@ -68,6 +68,28 @@ test('read-only preview, hierarchy, GB18030, frozen target and idempotent retry 
   expect(commits[0]).toContain('filename="notes.zip"'); expect(mutations).toEqual([]);
 });
 
+test('text refresh failure does not block pending ZIP or recreate text on refresh retry', async () => {
+  await page.locator('.notes-page input[type=file]').setInputFiles([zip(), {name:'plain.md',mimeType:'text/markdown',buffer:Buffer.from('# New')}]);
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', {name:'导入 1 篇',exact:true})).toBeEnabled();
+  let reads = 0;
+  await page.route('**/documents/?*', route => {
+    if (++reads === 2) return route.fulfill({status:500,json:{detail:'refresh unavailable'}});
+    return route.fallback();
+  });
+  await dialog.getByRole('button', {name:'导入 1 篇',exact:true}).click();
+  await expect(dialog).toContainText('列表刷新失败');
+  await expect(dialog.getByRole('button', {name:'预览 ZIP',exact:true})).toBeEnabled();
+  await dialog.getByRole('button', {name:'重试刷新列表',exact:true}).click();
+  await expect(dialog.getByRole('button', {name:'重试刷新列表',exact:true})).toHaveCount(0);
+  expect(flat).toHaveLength(1);
+  await dialog.getByRole('button', {name:'预览 ZIP',exact:true}).click();
+  await expect(dialog.getByLabel('ZIP 只读预览')).toBeVisible();
+  await dialog.getByRole('button', {name:'导入此 ZIP',exact:true}).click();
+  await expect(dialog).toContainText('Note (2)');
+  expect(flat).toHaveLength(1); expect(commits).toHaveLength(1);
+});
+
 test('mixed flat and multiple ZIP files remain explicit; root omits parent; invalid ZIP and missing target errors', async () => {
   await page.locator('.notes-page input[type=file]').setInputFiles([zip(),zip('bad.zip'),{name:'plain.md',mimeType:'text/markdown',buffer:Buffer.from('# New')}]);
   const dialog = page.getByRole('dialog');

@@ -25,6 +25,18 @@ const loadingTargets = ref(false);
 const frozen = ref<ImportTarget | null>(null);
 const error = ref('');
 const finalizeError = ref('');
+const refreshError = ref('');
+async function refreshImportedList() {
+  refreshError.value = '';
+  try { await store.refreshList(); }
+  catch (e) { refreshError.value = `列表刷新失败：${message(e)}`; }
+}
+async function retryRefresh() {
+  if (busy.value) return;
+  busy.value = true; emit('busy', true);
+  try { await refreshImportedList(); }
+  finally { busy.value = false; emit('busy', false); }
+}
 const synced = ref<number | null>(null);
 const phase = ref('等待导入');
 const completed = computed(() => rows.value.filter(row => row.status === 'success' || row.status === 'failed').length);
@@ -87,8 +99,7 @@ async function run() {
   } catch (e) { error.value = message(e); }
   finally {
     phase.value = '正在刷新列表…';
-    try { await store.refreshList(); } // Exactly one refresh per run; no editor navigation.
-    catch (e) { error.value += ` 列表刷新失败：${message(e)}`; }
+    await refreshImportedList(); // Nonblocking display failure; never invalidates another batch.
     phase.value = '本轮处理完成'; busy.value = false; emit('busy', false);
   }
 }
@@ -108,6 +119,7 @@ async function run() {
         <p v-if="frozen">目标已锁定，失败重试仍导入原位置。</p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <p v-if="finalizeError" class="warning" role="alert">{{ finalizeError }}</p>
+        <div v-if="refreshError" class="warning" role="alert">{{ refreshError }} <button :disabled="busy" @click="retryRefresh">重试刷新列表</button></div>
         <div v-if="rows.length" class="import-progress" aria-live="polite">
           <template v-if="preparing"><span>正在读取文件 {{ readCount }} / {{ rows.length }}…</span><progress aria-label="文件读取进度" :value="readCount" :max="rows.length || 1" /></template>
           <template v-else><span>{{ currentFile ? `正在导入：${currentFile}` : busy ? phase : frozen ? '本轮处理完成' : `已读取 ${rows.length} 个文件，确认位置后点击导入` }}</span><progress aria-label="文件导入进度" :value="completed" :max="actionable || 1" /><span>{{ completed }} / {{ actionable }} 已处理 · {{ successes }} 成功</span></template>
