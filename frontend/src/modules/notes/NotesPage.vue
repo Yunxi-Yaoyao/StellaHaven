@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from "vue";
-import { onBeforeRouteLeave } from "vue-router";
+import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
+import { watch } from "vue";
+import { getDoc } from "../../api/notes";
+import { toast } from "../../composables/useToast";
+const route = useRoute(), router = useRouter();
 import { storeToRefs } from "pinia";
 import { useNotesStore, type TreeNode } from "../../stores/notes";
 import DocList from "./DocList.vue";
@@ -10,6 +14,9 @@ import AttachmentsPanel from "./AttachmentsPanel.vue";
 import GraphPanel from "./GraphPanel.vue";
 import MoveDialog from "./MoveDialog.vue";
 import ImportDialog from "./ImportDialog.vue";
+import NewChildDialog from "./NewChildDialog.vue";
+const newChildTarget = ref<{id:string|null;title:string}|null>(null);
+const editorRef = ref<InstanceType<typeof DocEditor> | null>(null);
 import { auth } from "../home/auth";
 import { isImportFilename, type ImportSource } from './import-helpers';
 
@@ -17,6 +24,7 @@ defineOptions({ name: 'NotesPage' });
 const pageRoot = ref<HTMLElement | null>(null);
 let scrollSnapshot: [HTMLElement, number, number][] = [];
 onBeforeRouteLeave(() => {
+  if (importBusy.value) return false;
   scrollSnapshot = Array.from(pageRoot.value?.querySelectorAll<HTMLElement>('.rich-editor,.cm-scroller,.preview,.items,.toc-list') ?? [])
     .map(el => [el, el.scrollTop, el.scrollLeft]);
 });
@@ -120,6 +128,7 @@ async function initialize() {
     const saved = localStorage.getItem(LS_CURRENT);
     currentId.value = saved && store.docs.some(d => d.id === saved) ? saved : store.docs[0]?.id ?? null;
     ready.value = true;
+    if (typeof route.query.doc === "string") await openLinkedDoc(route.query.doc, route.hash);
     if (active.value) { listWsDead = false; connectListWs(); }
   } catch { initError.value = '笔记加载失败，请重试喵~'; }
 }
@@ -132,11 +141,12 @@ onActivated(() => {
   connectListWs();
   void Promise.allSettled([store.refreshList(), store.refreshRecent(), store.refreshWorkspaces(), store.refreshTags()]);
 });
-onDeactivated(() => { active.value = false; stopListWs(); });
+onDeactivated(() => { active.value = false; ++linkedSequence; importing.value = null; newChildTarget.value = null; stopListWs(); });
 onUnmounted(() => { active.value = false; stopListWs(); });
 
 // 切换工作区 → 列表频道重连 + 关掉所有面板（图谱/附件/回收站都是旧工作区的数据）+ 打开新工作区的第一篇
 async function onWsSwitched() {
+  newChildTarget.value = null;
   stopListWs();
   listWsDead = !active.value;
   connectListWs();
@@ -147,11 +157,30 @@ async function onWsSwitched() {
   if (currentId.value) localStorage.setItem(LS_CURRENT, currentId.value);
 }
 
-async function onOpen(id: string) {
+let linkedSequence = 0;
+async function openLinkedDoc(id: string, hash = '') {
+  const seq = ++linkedSequence;
+  try {
+    if (editorRef.value && currentId.value !== id && !(await editorRef.value.prepareNavigation())) return;
+    const target = await getDoc(id);
+    if (seq !== linkedSequence || !active.value || target.id !== id) return;
+    if (target.workspace_id !== store.workspaceId) {
+      await store.switchWorkspace(target.workspace_id);
+      if (seq !== linkedSequence || !active.value) return;
+      await onWsSwitched();
+    }
+    await onOpen(id, hash);
+  } catch { toast('链接指向的笔记不可访问或已删除喵~'); }
+}
+watch(() => route.query.doc, id => {
+  if (ready.value && active.value && route.path === '/notes' && typeof id === 'string' && id !== currentId.value) void openLinkedDoc(id, route.hash);
+});
+async function onOpen(id: string, hash = '') {
   trashOpen.value = false;
   attachOpen.value = false;
   graphOpen.value = false;
   currentId.value = id;
+  if (route.query.doc !== id || route.hash !== hash) await router.replace({path:"/notes",query:{...route.query,doc:id},hash});
   localStorage.setItem(LS_CURRENT, id); // 记住正在看的
   // 移动端打开笔记后自动收起列表抽屉
   if (window.innerWidth <= 768) listCollapsed.value = true;
@@ -161,8 +190,13 @@ async function onOpen(id: string) {
 
 async function onNewChild(node: TreeNode | null) {
   trashOpen.value = false;
-  const doc = await store.createNew(node ? node.id : undefined);
-  currentId.value = doc.id;
+  if (editorRef.value && !(await editorRef.value.prepareNavigation())) return;
+  newChildTarget.value = {id: node?.id ?? null, title: node?.title ?? (store.workspaces.find(w => w.id === store.workspaceId)?.name || '工作区根目录')};
+}
+
+function onNewChildById(parentId: string) {
+  const parent = store.allDocs.find(d => d.id === parentId);
+  if (parent) newChildTarget.value = {id: parentId, title: parent.title};
 }
 
 function onMove(node: TreeNode) {
@@ -184,7 +218,7 @@ function onDeleted() {
 
 <template>
   <div ref="pageRoot" class="notes-page" :aria-busy="!ready" @dragover.capture="captureDragOver" @drop.capture="captureDrop">
-    <input ref="importInput" type="file" accept=".md,.txt" multiple hidden @change="pickedFiles" />
+    <input ref="importInput" type="file" accept=".md,.txt,.zip" multiple hidden @change="pickedFiles" />
     <ImportDialog v-if="importing" v-bind="importing" @busy="importBusy = $event" @close="importing = null" />
     <!-- 列表收起时的窄条把手 -->
     <div v-if="listCollapsed" class="list-strip" title="展开列表" @click="toggleList">»</div>
@@ -209,11 +243,13 @@ function onDeleted() {
     <AttachmentsPanel v-else-if="attachOpen" @close="attachOpen = false" @open="onOpen" />
     <TrashPanel v-else-if="trashOpen" @close="trashOpen = false" />
     <DocEditor
+      ref="editorRef"
       v-else-if="currentId"
       :key="currentId"
       :doc-id="currentId"
       @saved="onSaved"
       @deleted="onDeleted"
+      @create-child="onNewChildById"
       @open="onOpen"
     />
     <div v-else class="blank">
@@ -221,6 +257,8 @@ function onDeleted() {
       <p>{{ initError || (ready ? '选一篇，或者新建一篇开始写' : '正在载入笔记…') }}</p>
       <button v-if="initError" @click="initialize">重试</button>
     </div>
+
+    <NewChildDialog v-if="newChildTarget" :parent-id="newChildTarget.id" :parent-title="newChildTarget.title" @close="newChildTarget = null" @created="newChildTarget = null; onOpen($event)" />
 
     <!-- 移动对话框 -->
     <MoveDialog v-if="moving" :node="moving" @done="moving = null" @cancel="moving = null" />

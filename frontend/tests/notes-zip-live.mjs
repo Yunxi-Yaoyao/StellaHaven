@@ -1,0 +1,30 @@
+import {chromium,expect} from '@playwright/test';
+import assert from 'node:assert/strict';
+const url=process.env.STELLA_LIVE_URL, ws=process.env.STELLA_LIVE_WS;
+if(!url?.startsWith('http://127.0.0.1:')||!ws)throw Error('Isolated local HTTP test only');
+const browser=await chromium.launch({executablePath:'/usr/sbin/google-chrome-stable',args:['--no-sandbox']});
+try{
+ const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const login=await page.request.post(url+'/auth/login',{data:{username:process.env.STELLA_LIVE_USER,password:process.env.STELLA_LIVE_PASSWORD,remember:false}});assert.equal(login.status(),200);
+ await page.goto(url+'/notes');await expect(page.locator('.preview')).toContainText('原文不覆盖');
+ await page.locator('.notes-page input[type=file]').setInputFiles(process.env.STELLA_LIVE_ZIP);
+ const dialog=page.getByRole('dialog');await dialog.getByRole('button',{name:'预览 ZIP',exact:true}).click();
+ await expect(dialog.getByLabel('ZIP 只读预览')).toContainText('同名');
+ const before=await (await page.request.get(`${url}/documents/?workspace_id=${ws}&limit=500`)).json();assert.equal(before.length,1);
+ const responsePromise=page.waitForResponse(r=>new URL(r.url()).pathname==='/documents/import/zip'&&r.request().method()==='POST');
+ await dialog.getByRole('button',{name:'导入此 ZIP',exact:true}).click();const response=await responsePromise;assert.equal(response.status(),200,await response.text());const result=await response.json();
+ await expect(dialog.getByRole('button',{name:'完成',exact:true})).toBeEnabled();await dialog.getByRole('button',{name:'完成',exact:true}).click();
+ const root=result.documents.find(d=>d.path==='知识库'), target=result.documents.find(d=>d.path==='知识库/子目录/同名.md');assert.ok(root&&target);
+ const rootDoc=await(await page.request.get(`${url}/documents/${root.id}`)).json();assert.ok(rootDoc.content.includes('/notes?doc='+target.id));
+ await page.goto(`${url}/notes?doc=${root.id}`);await expect(page.locator('.auto-directory')).toBeVisible();await expect(page.locator('.preview')).toContainText('目录说明');
+ const image=page.locator('.preview img').first();await expect(image).toBeVisible();await expect.poll(()=>image.evaluate(img=>img.complete&&img.naturalWidth>0)).toBe(true);
+ const screenshot='/tmp/stella-notes-live-desktop.png';await page.screenshot({path:screenshot,fullPage:true});
+ await page.locator('.preview').getByRole('link',{name:'精确文章',exact:true}).click();await expect(page.locator('.preview')).toContainText('正确的同名文章');assert.equal(new URL(page.url()).searchParams.get('doc'),target.id);
+ await page.getByRole('button',{name:'设为模板',exact:true}).click();await expect(page.getByRole('button',{name:'移出模板库',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'新建笔记',exact:true}).click();const newDialog=page.getByRole('dialog',{name:'新建笔记'});await newDialog.getByRole('button',{name:'同名',exact:true}).click();await expect(newDialog.locator('.template-preview')).toContainText('正确的同名文章');await newDialog.getByLabel('标题',{exact:true}).fill('真实模板副本');await newDialog.getByRole('button',{name:'创建',exact:true}).click();await expect(page.locator('.title-readonly')).toHaveText('真实模板副本');
+ const docs=await(await page.request.get(`${url}/documents/?workspace_id=${ws}&limit=500`)).json();const copied=docs.find(d=>d.title==='真实模板副本');assert.ok(copied);const copy=await(await page.request.get(`${url}/documents/${copied.id}`)).json();assert.ok(copy.content.includes('正确的同名文章'));
+ const old=docs.find(d=>d.title==='保留原文');assert.equal((await(await page.request.get(`${url}/documents/${old.id}`)).json()).content,'原文不覆盖');
+ await page.setViewportSize({width:390,height:844});await page.goto(`${url}/notes?doc=${root.id}`);await expect(page.locator('.preview')).toContainText('目录说明');await page.screenshot({path:'/tmp/stella-notes-live-mobile.png',fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({live_http:true,real_postgres:true,imported:result.documents.length,attachments:result.attachments,id_navigation:true,image_loaded:true,template_copy:true,original_untouched:true,screenshots:[screenshot,'/tmp/stella-notes-live-mobile.png']}));
+}finally{await browser.close();}

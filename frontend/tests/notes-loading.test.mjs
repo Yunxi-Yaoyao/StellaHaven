@@ -43,3 +43,17 @@ test('document read error is surfaced rather than an unhandled rejection', async
   const h = loader(async () => { throw Error('offline'); });
   await h.load('a'); assert.equal(h.notices.length, 1);
 });
+
+test('directory inventory remains complete during search and removes moved/deleted pages', async () => {
+  let all = [{id:'parent',workspace_id:'ws',title:'Parent',updated_at:'a'}, {id:'child',workspace_id:'ws',parent_id:'parent',title:'Child',updated_at:'a'}];
+  const store = storeWith({listDocs:async()=>all,searchDocs:async()=>[all[0]]});
+  await store.refreshList(); store.searchQuery = 'Parent'; await store.refreshList();
+  assert.deepEqual(store.docs.map(d=>d.id),['parent']);
+  assert.deepEqual(store.allDocs?.map(d=>d.id),['parent','child']);
+  assert.equal(store.childCount('parent'),1);
+  store.requestDelete(all[0]);
+  assert.equal(store.pendingDelete.childCount,1);
+  all=[all[0]]; await store.refreshList();
+  assert.deepEqual(store.allDocs.map(d=>d.id),['parent']);
+  store.resetSession(); assert.deepEqual(store.allDocs,[]);
+});

@@ -1,5 +1,5 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
@@ -17,6 +17,36 @@ from app.services.document import (
 from app.routers.ws import notify_sync
 
 router = APIRouter(dependencies=[Depends(current_user)], prefix="/documents", tags=["documents"])
+
+
+def zip_target(db, workspace_id, parent_id, user):
+    require_ws_owner(db, workspace_id, user)
+    if parent_id:
+        parent = require_doc_owner(db, parent_id, user)
+        if parent.workspace_id != workspace_id or parent.deleted_at is not None:
+            raise HTTPException(404, '父文档不存在')
+
+
+@router.post('/import/zip/preview')
+def preview_zip(file: UploadFile = File(...), workspace_id: UUID = Form(...),
+                      parent_id: UUID | None = Form(None), encoding: str = Form('auto'),
+                      db: Session = Depends(get_db), user: User = Depends(current_user)):
+    from app.services.notes_zip import MAX_COMPRESSED, preview_archive
+    zip_target(db, workspace_id, parent_id, user)
+    return preview_archive(file.file.read(MAX_COMPRESSED + 1), encoding)
+
+
+@router.post('/import/zip')
+def import_zip(file: UploadFile = File(...), workspace_id: UUID = Form(...),
+                     import_id: UUID = Form(...), parent_id: UUID | None = Form(None),
+                     encoding: str = Form('auto'), db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    from app.services.notes_zip import MAX_COMPRESSED, commit_archive
+    zip_target(db, workspace_id, parent_id, user)
+    result = commit_archive(db, user, workspace_id, parent_id, import_id,
+                            file.file.read(MAX_COMPRESSED + 1), encoding)
+    notify_list(workspace_id, workspace_id)
+    return result
 
 
 class ImportFinalize(BaseModel):
@@ -127,12 +157,27 @@ def notify_list(workspace_id: UUID, doc_id: UUID):
 
 
 @router.post("/", response_model=DocumentRead, status_code=201)
-def create_one(data: DocumentCreate, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def create_one(data: DocumentCreate, db: Session = Depends(get_db), user: User = Depends(current_user),
+               x_import_key: str | None = Header(None)):
     require_ws_owner(db, data.workspace_id, user)  # 数据隔离
     if data.parent_id is not None:
         parent = require_doc_owner(db, data.parent_id, user)
         if parent.workspace_id != data.workspace_id or parent.deleted_at is not None:
             raise HTTPException(status_code=404, detail="父文档不存在")
+    if x_import_key is not None:
+        if x_import_key != data.file_path or not x_import_key.startswith('/imports/') or len(x_import_key) > 1024:
+            raise HTTPException(400, 'Invalid X-Import-Key')
+        import hashlib
+        from sqlalchemy import text
+        from app.models.document import Document
+        key = hashlib.sha256(f'flat-import:{user.id}:{data.workspace_id}:{x_import_key}'.encode()).digest()
+        db.execute(text('SELECT pg_advisory_xact_lock(:key)'),
+                   {'key': int.from_bytes(key[:8], 'big', signed=True)})
+        existing = db.query(Document).filter(Document.workspace_id == data.workspace_id,
+            Document.file_path == x_import_key).order_by(Document.created_at.asc()).first()
+        if existing is not None:
+            db.commit()
+            return existing
     doc = create_document(db, data)
     notify_list(doc.workspace_id, doc.id)
     return doc

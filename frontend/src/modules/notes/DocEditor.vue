@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated, toRef, defineAsyncComponent } from "vue";
 import { auth } from "../home/auth";
+import { useRoute, useRouter } from "vue-router";
+const noteRoute = useRoute(), noteRouter = useRouter();
 import { marked } from "marked";
 import { localId } from "./localId";
 import { sanitizeNoteHtml, sanitizeNoteSvg } from "./noteHtml";
 const RichEditor = defineAsyncComponent(() => import("./RichEditor.vue"));
 import {
-  getDoc, updateDoc, getDraft, toggleFavorite, type Doc,
+  getDoc, updateDoc, getDraft, toggleFavorite, createTag, addDocTag, removeDocTag, type Doc,
 } from "../../api/notes";
 import { api } from "../../api/client";
 import { ApiError } from "../../api/client";
@@ -16,9 +18,11 @@ import { toast } from "../../composables/useToast";
 import { openLightbox } from "../../composables/useLightbox";
 import Icon from "../../shell/Icon.vue";
 import TagBar from "./TagBar.vue";
+import AutoDirectory from "./AutoDirectory.vue";
+import { TEMPLATE_TAG } from "./noteTemplates";
 
 const props = defineProps<{ docId: string }>();
-const emit = defineEmits<{ saved: []; deleted: []; open: [id: string] }>();
+const emit = defineEmits<{ saved: []; deleted: []; open: [id: string]; createChild: [id: string] }>();
 const ownerId = auth.me?.id;
 const ownsSession = () => !!ownerId && auth.me?.id === ownerId;
 let editorActive = true;
@@ -259,6 +263,16 @@ function jumpTo(id: string) {
 
 // 编辑/预览滚动联动：编辑器滚多少比例，预览滚同样比例（老婆：不想滑两次）
 const previewEl = ref<HTMLElement | null>(null);
+watch(() => [noteRoute.hash, rendered.value, reading.value], async () => {
+  await nextTick();
+  if (!noteRoute.hash || noteRoute.query.doc !== props.docId || !reading.value) return;
+  let hash: string;
+  try { hash = decodeURIComponent(noteRoute.hash.slice(1)); } catch { return; }
+  const slug = (text: string) => text.trim().toLowerCase().replace(/[^\p{L}\p{N} _-]/gu, '').replace(/\s/g, '-');
+  const headings = Array.from(previewEl.value?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6') ?? []);
+  const heading = headings.find(h => h.id === hash || slug(h.textContent ?? '') === hash.toLowerCase() || h.textContent?.trim() === hash);
+  heading?.scrollIntoView({ block: 'start' });
+}, { flush: 'post' });
 function onEditorScroll(ratio: number) {
   const p = previewEl.value;
   if (!p) return;
@@ -267,6 +281,15 @@ function onEditorScroll(ratio: number) {
 
 // 点预览：附件卡下载 / wikilink 跳转 / 图片放大
 function onPreviewClick(e: MouseEvent) {
+  const internal = (e.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+  if (internal && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+    const url = new URL(internal.href, location.href);
+    if (url.origin === location.origin && url.pathname === '/notes' && url.searchParams.has('doc')) {
+      e.preventDefault();
+      void save().then(ok => { if (ok && ownsSession()) void noteRouter.push(url.pathname + url.search + url.hash); });
+      return;
+    }
+  }
   const card = (e.target as HTMLElement).closest(".attach-card") as HTMLElement | null;
   if (card) {
     // 原原本本下载（download 属性强制保存，不打开预览）
@@ -502,8 +525,38 @@ const breadcrumb = computed(() => {
 });
 
 const childDocs = computed(() =>
-  store.docs.filter((d) => d.parent_id === props.docId)
+  store.allDocs.filter((d) => d.workspace_id === doc.value?.workspace_id && d.parent_id === props.docId)
 );
+
+const templateBusy = ref(false);
+const templateTags = computed(() => store.tags.filter(t => t.name === TEMPLATE_TAG));
+const isTemplate = computed(() => store.docTags.some(t => t.doc_id === props.docId && templateTags.value.some(tag => tag.id === t.tag_id)));
+async function toggleTemplate() {
+  if (templateBusy.value || !doc.value || !ownsSession()) return;
+  templateBusy.value = true;
+  try {
+    if (!(await save())) return;
+    if (isTemplate.value) {
+      for (const tag of templateTags.value) await removeDocTag(props.docId, tag.id);
+    } else {
+      let tag = templateTags.value[0];
+      if (!tag) {
+        try { tag = await createTag(TEMPLATE_TAG); }
+        catch (e) { await store.refreshTags(); tag = templateTags.value[0]; if (!tag) throw e; }
+      }
+      await addDocTag(props.docId, tag.id);
+    }
+    await store.refreshTags();
+    toast(isTemplate.value ? '已加入模板库喵~' : '已移出模板库，原文保留喵~');
+  } catch { toast('模板状态修改失败，请重试喵~'); }
+  finally { templateBusy.value = false; }
+}
+defineExpose({ prepareNavigation: save });
+const backlinksOpen = ref(false);
+async function newChildPage() {
+  if (!(await save())) return;
+  emit("createChild", props.docId);
+}
 
 // 当前工作区名（面包屑第一级）
 const wsName = computed(() =>
@@ -890,6 +943,7 @@ function fmtDraftTime(iso: string) {
     </div>
 
     <div class="toolbar">
+      <span class="page-kind" :title="childDocs.length ? '目录页' : '文章页'" :aria-label="childDocs.length ? '目录页' : '文章页'"><Icon :name="childDocs.length ? 'folder' : 'note'" :size="20" /></span>
       <!-- 编辑态：活的标题输入框；阅览态：纯文本（无光标，但允许选中复制） -->
       <input v-if="!reading" v-model="title" class="title-input" placeholder="无标题" />
       <div v-else class="title-input title-readonly">{{ title || "无标题" }}</div>
@@ -902,6 +956,7 @@ function fmtDraftTime(iso: string) {
         >
           <Icon name="star" :size="15" />
         </button>
+        <button class="star-btn" :aria-label="isTemplate ? '移出模板库' : '设为模板'" :title="isTemplate ? '移出模板库' : '设为模板'" :aria-pressed="isTemplate" :disabled="templateBusy" @click="toggleTemplate"><Icon name="book" :size="15" /></button>
         <button class="mode-toggle" @click="toggleReading">
           <Icon :name="reading ? 'edit' : 'eye'" :size="13" /> {{ reading ? "编辑" : "阅览" }}
         </button>
@@ -911,6 +966,8 @@ function fmtDraftTime(iso: string) {
         <button class="del-btn" @click="remove">删除</button>
       </div>
     </div>
+
+    <AutoDirectory :docs="store.allDocs" :doc-id="doc.id" :workspace-id="doc.workspace_id" :user-id="ownerId || ''" :has-body="!!content.trim()" @open="emit('open', $event)" @create-child="newChildPage" />
 
     <!-- 标签栏：当前笔记的标签 + 添加 -->
     <TagBar :doc-id="docId" />
@@ -964,27 +1021,13 @@ function fmtDraftTime(iso: string) {
       <div v-show="reading || (editMode === 'markdown' && !narrow)" ref="previewEl" class="preview markdown-body" v-html="rendered" @click="onPreviewClick" />
     </div>
 
-    <!-- 反链：哪些页面链接到了这篇 -->
-    <div v-if="backlinks.length" class="children-strip">
-      <span class="label"><Icon name="link" :size="11" /> 被引用</span>
-      <span
-        v-for="b in backlinks"
-        :key="b.id"
-        class="chip backlink"
-        @click="emit('open', b.id)"
-      >{{ b.title }}</span>
-    </div>
-
-    <!-- 子页面区块：有子页面 = 这篇就是目录页 -->
-    <div v-if="childDocs.length" class="children-strip">
-      <span class="label"><Icon name="folder" :size="11" /> 子页面</span>
-      <span
-        v-for="kid in childDocs"
-        :key="kid.id"
-        class="chip"
-        @click="emit('open', kid.id)"
-      >{{ kid.title }}</span>
-    </div>
+    <!-- Backlinks remain optional navigation, never injected into Markdown. -->
+    <section v-if="backlinks.length" class="backlinks-panel">
+      <button class="backlinks-toggle" :aria-expanded="backlinksOpen" @click="backlinksOpen = !backlinksOpen"><Icon name="link" :size="13" /><span>被 {{ backlinks.length }} 篇文章引用</span><Icon name="chevron" :size="12" /></button>
+      <ul v-if="backlinksOpen" class="backlinks-list">
+        <li v-for="b in backlinks" :key="b.id"><button @click="emit('open', b.id)"><Icon name="note" :size="13" /><span>{{b.title}}</span></button></li>
+      </ul>
+    </section>
 
     <!-- 常驻状态条：保存于几分钟前 · 字数 · 来源 -->
     <div class="status-bar">
@@ -1476,26 +1519,13 @@ function fmtDraftTime(iso: string) {
 .crumb.root { color: var(--accent-dim); cursor: default; display: inline-flex; align-items: center; gap: 4px; }
 .sep { opacity: 0.4; }
 
-.children-strip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 8px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-.children-strip .label { font-size: 11px; color: var(--text-faint); letter-spacing: 1px; }
-.children-strip .chip {
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: var(--bg-raised);
-  font-size: 12px;
-  color: var(--accent);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-.children-strip .chip:hover { background: var(--accent-dim); color: var(--bg-base); }
-.chip.backlink { color: var(--pink); }
+.page-kind { display: inline-flex; color: var(--accent); flex-shrink: 0; }
+.backlinks-panel { flex-shrink: 0; padding: 6px 16px; border-top: 1px solid var(--bg-raised); }
+.backlinks-toggle { display: flex; gap: 7px; align-items: center; padding: 5px 0; border: 0; background: transparent; color: var(--text-lo); font: inherit; font-size: 12px; cursor: pointer; }
+.backlinks-list { list-style: none; padding: 4px 0; margin: 0; max-height: 140px; overflow: auto; }
+.backlinks-list button { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; padding: 7px; border: 0; background: transparent; color: var(--accent); cursor: pointer; font: inherit; font-size: 12px; }
+.backlinks-list button:hover { background: var(--bg-raised); }
+.backlinks-list span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .input-wrap { position: relative; flex: 1; display: flex; }
 .editor-toolbar {
   display: flex;

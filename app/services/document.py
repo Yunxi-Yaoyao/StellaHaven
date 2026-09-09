@@ -132,11 +132,33 @@ def restore_document(db: Session, doc_id: UUID, cascade: bool = False) -> dict:
 
 def sync_wikilinks(db: Session, doc: Document, content: str) -> None:
     """保存时同步双链：扫 [[标题]] → 全量替换该文档的出链（个人规模朴素重建即可）"""
+    from urllib.parse import urlsplit, parse_qs
+    from app.services.notes_zip import rewrite_markdown
+    explicit = set()
+    def collect(raw):
+        try:
+            url = urlsplit(raw)
+            values = parse_qs(url.query).get('doc', [])
+            if not url.scheme and not url.netloc and url.path == '/notes' and len(values) == 1:
+                value = values[0]
+                if re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', value):
+                    explicit.add(UUID(value))
+        except ValueError:
+            pass
+        return raw
+    rewrite_markdown(content, collect)
     titles = [t.strip() for t in WIKILINK_RE.findall(content)]
     # 清掉旧出链
     for old in link_repo.get_links_for_doc(db, doc.id):
         if old.source_id == doc.id:
             link_repo.remove(db, old.source_id, old.target_id)
+    registered = set()
+    for target in db.query(Document).filter(
+        Document.workspace_id == doc.workspace_id, Document.deleted_at.is_(None),
+        Document.id.in_(explicit), Document.id != doc.id,
+    ).all():
+        link_repo.create(db, DocumentLinkCreate(source_id=doc.id, target_id=target.id, link_type='ref'))
+        registered.add(target.id)
     # 按标题解析目标（同工作区、未删除、不是自己、同名取最新保存的）
     for title in dict.fromkeys(titles):  # 去重保序
         target = db.query(Document).filter(
@@ -145,7 +167,8 @@ def sync_wikilinks(db: Session, doc: Document, content: str) -> None:
             Document.deleted_at.is_(None),
             Document.id != doc.id,
         ).order_by(Document.updated_at.desc()).first()
-        if target:
+        if target and target.id not in registered:
+            registered.add(target.id)
             link_repo.create(db, DocumentLinkCreate(
                 source_id=doc.id, target_id=target.id, link_type="wiki",
             ))

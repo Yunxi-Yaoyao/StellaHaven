@@ -92,14 +92,34 @@ export async function runImportBatch(
     }
   }
 }
-export const isImportFilename = (name: string) => /\.(md|txt)$/i.test(name);
+export const isZipFilename = (name: string) => /\.zip$/i.test(name);
+export const isImportFilename = (name: string) => /\.(md|txt|zip)$/i.test(name);
+
+export function importTreeRows<T extends { id: string; parent_id: string | null }>(items: T[]): (T & { depth: number })[] {
+  const ids = new Set(items.map(item => item.id));
+  const children = new Map<string | null, T[]>();
+  for (const item of items) {
+    const parent = item.parent_id && ids.has(item.parent_id) ? item.parent_id : null;
+    children.set(parent, [...(children.get(parent) ?? []), item]);
+  }
+  const seen = new Set<string>();
+  const result: (T & { depth: number })[] = [];
+  function visit(item: T, depth: number) {
+    if (seen.has(item.id)) return;
+    seen.add(item.id); result.push({ ...item, depth });
+    for (const child of children.get(item.id) ?? []) visit(child, depth + 1);
+  }
+  for (const root of children.get(null) ?? []) visit(root, 0);
+  for (const item of items) if (!seen.has(item.id)) visit(item, 0);
+  return result;
+}
 
 export function queueImports(files: ImportSource[]): ImportRow[] {
   let total = 0;
   return files.map((file, index) => {
     let error = '';
     if (file.isDirectory || file.webkitRelativePath?.includes('/')) error = '暂不支持目录，请单独选择文件';
-    else if (!isImportFilename(file.name)) error = '仅支持 .md / .txt，不会作为附件上传';
+    else if (!/\.(md|txt)$/i.test(file.name)) error = '仅支持 .md / .txt，不会作为附件上传';
     else if (index >= MAX_IMPORT_FILES) error = `超出每批 ${MAX_IMPORT_FILES} 个文件限制`;
     else if (file.size > MAX_IMPORT_FILE_BYTES) error = '文件超过 5 MiB 限制';
     else if (total + file.size > MAX_IMPORT_BATCH_BYTES) error = '超出每批 20 MiB 限制';

@@ -125,14 +125,14 @@ export const searchDocs = (wsId: string, q: string) =>
 
 export const getDoc = (id: string) => api<Doc>(`/documents/${id}`);
 
-export const createDoc = (wsId: string, title: string, parentId?: string) =>
+export const createDoc = (wsId: string, title: string, parentId?: string, content = "") =>
   api<Doc>("/documents/", {
     method: "POST",
     body: JSON.stringify({
       title,
       file_path: `/notes/${Date.now()}.md`,
       workspace_id: wsId,
-      content: "",
+      content,
       parent_id: parentId ?? null,
     }),
   });

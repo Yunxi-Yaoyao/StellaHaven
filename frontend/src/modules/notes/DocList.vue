@@ -250,7 +250,7 @@ function onSearchInput() {
     </div>
 
     <button class="new-btn" @click="emit('newChild', null)"><Icon name="plus" :size="13" /> 新建笔记</button>
-    <button class="new-btn import-btn" :class="{ 'import-hover': importHover }" @dragenter="hoverImport" @dragover="hoverImport" @dragleave="importHover = false" @click="emit('import')">{{ importHover ? '松手导入 .md / .txt' : '导入 .md / .txt' }}</button>
+    <button class="new-btn import-btn" :class="{ 'import-hover': importHover }" @dragenter="hoverImport" @dragover="hoverImport" @dragleave="importHover = false" @click="emit('import')">{{ importHover ? '松手导入 .md / .txt / .zip' : '导入 .md / .txt / .zip' }}</button>
 
     <div class="items" @dragover="onListDragOver" @drop="onDropToRoot">
       <!-- 筛选中（文本搜索 / 标签 / 叠加）：平铺结果 -->

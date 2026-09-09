@@ -71,6 +71,7 @@ export const useNotesStore = defineStore("notes", () => {
   const userId = ref<string>("");
   const workspaces = ref<{ id: string; name: string; user_id: string }[]>([]);
   const docs = ref<Doc[]>([]);
+  const allDocs = ref<Doc[]>([]); // authoritative workspace hierarchy, never search-filtered
   const trash = ref<Doc[]>([]);
   const recent = ref<Doc[]>([]);
   const searchQuery = ref("");
@@ -93,7 +94,7 @@ export const useNotesStore = defineStore("notes", () => {
   function resetSession() {
     sessionEpoch++; ++listSequence;
     userId.value = ''; workspaceId.value = ''; workspaces.value = [];
-    docs.value = []; trash.value = []; recent.value = []; tags.value = []; docTags.value = [];
+    allDocs.value = []; docs.value = []; trash.value = []; recent.value = []; tags.value = []; docTags.value = [];
     searchQuery.value = ''; searching.value = false; filterTagId.value = null;
     draggingId.value = null; pendingDelete.value = null; docsCache.clear();
   }
@@ -211,8 +212,12 @@ export const useNotesStore = defineStore("notes", () => {
     if (!workspaceId.value) return;
     const workspace = workspaceId.value;
     const query = searchQuery.value.trim();
-    const result = query ? await searchDocs(workspace, query) : await listDocs(workspace);
+    const [inventory, matches] = await Promise.all([listDocs(workspace), query ? searchDocs(workspace, query) : Promise.resolve(null)]);
+    const result = matches ?? inventory;
     if (sequence !== listSequence || workspace !== workspaceId.value || query !== searchQuery.value.trim()) return;
+    allDocs.value = inventory;
+    docsCache.clear();
+    cacheDocs(inventory);
     searching.value = !!query;
     docs.value = query ? result.sort((a, b) => b.updated_at.localeCompare(a.updated_at)) : result;
     cacheDocs(docs.value); // 搜索结果只含命中项，但路径计算需要全量上下文
@@ -233,15 +238,16 @@ export const useNotesStore = defineStore("notes", () => {
   }
 
   function childCount(id: string): number {
-    return docs.value.filter((d) => d.parent_id === id).length;
+    return allDocs.value.filter((d) => d.workspace_id === workspaceId.value && d.parent_id === id).length;
   }
 
-  async function createNew(parentId?: string): Promise<Doc> {
-    const doc = await createDoc(workspaceId.value, "未命名笔记", parentId);
+  async function createNew(parentId?: string, initial?: {title:string;content:string}): Promise<Doc> {
+    const doc = await createDoc(workspaceId.value, initial?.title || "未命名笔记", parentId, initial?.content || "");
     // The POST is authoritative; a secondary read must not turn success into failure.
     if (doc.workspace_id === workspaceId.value) {
       ++listSequence; // discard list requests started before the create completed
       docs.value = [doc, ...docs.value.filter((d) => d.id !== doc.id)];
+      allDocs.value = [doc, ...allDocs.value.filter(d => d.id !== doc.id)];
       cacheDocs([doc]);
     }
     return doc;
@@ -303,7 +309,7 @@ export const useNotesStore = defineStore("notes", () => {
   }
 
   return {
-    workspaceId, userId, workspaces, docs, trash, recent, searchQuery, searching, pendingDelete,
+    workspaceId, userId, workspaces, docs, allDocs, trash, recent, searchQuery, searching, pendingDelete,
     tags, docTags, filterTagId, draggingId,
     resetSession, bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces, refreshTags,
     tagsOf, tagDoc, untagDoc, pathOf,

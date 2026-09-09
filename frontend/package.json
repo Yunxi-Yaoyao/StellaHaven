@@ -10,7 +10,9 @@
     "test": "vitest run && node --experimental-strip-types --test src/modules/notes/richMarkdown.test.ts tests/notes-import.test.mjs tests/notes-loading.test.mjs tests/notes-keepalive.test.mjs",
     "test:e2e": "playwright test e2e/ --workers=1",
     "test:background": "vitest run --config vitest.background.config.mjs && node --test tests/background-player.test.mjs",
-    "test:servers": "node --test src/modules/servers/taskWait.test.ts tests/server-state.test.mjs tests/metrics-compare.test.mjs"
+    "test:servers": "node --test src/modules/servers/taskWait.test.ts tests/server-state.test.mjs tests/metrics-compare.test.mjs",
+    "test:directory": "node --test tests/auto-directory.test.mjs && playwright test e2e/notes-directory.spec.ts --workers=1",
+    "test:notes": "npm test && node --test tests/auto-directory.test.mjs tests/zip-import.test.mjs && playwright test e2e/notes-*.spec.ts --workers=1"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

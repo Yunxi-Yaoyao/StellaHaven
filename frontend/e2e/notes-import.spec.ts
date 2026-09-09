@@ -65,7 +65,6 @@ test('image and PDF-only editor drops pass through without import dialog', async
     const transfer = new DataTransfer();
     transfer.items.add(new File(['image'], 'image.png', { type: 'image/png' }));
     transfer.items.add(new File(['pdf'], 'document.pdf', { type: 'application/pdf' }));
-    transfer.items.add(new File(['archive'], 'archive.zip', { type: 'application/zip' }));
     element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
     return reached;
   });
@@ -105,7 +104,7 @@ for (const [selector, parent] of [['.doc-list .row', 'existing'], ['.doc-list .i
     await page.locator(selector).first().evaluate(element => {
       const transfer = new DataTransfer();
       transfer.items.add(new File(['# New'], 'new.md', { type: 'text/markdown' }));
-      transfer.items.add(new File(['binary'], 'bad.zip'));
+      transfer.items.add(new File(['binary'], 'bad.pdf'));
       element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
     });
     const dialog = page.getByRole('dialog');
