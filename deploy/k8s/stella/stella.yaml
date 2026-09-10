@@ -103,7 +103,7 @@ spec:
       targetPort: 12031
       nodePort: 31031
 ---
-# 美西：1 副本（RackNerd），读本地副本+写回主库
+# 美西：1 副本（RackNerd），当前应用单引擎经 pg-rw 统一读写主库
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -130,7 +130,7 @@ spec:
               subPath: secret_key
           env:
             - name: POSTGRES_HOST
-              value: "pg-ro.stella.svc.cluster.local"   # 读本地副本
+              value: "pg-rw.stella.svc.cluster.local"   # 登录会话和业务写入均需可写入口
             - name: POSTGRES_PORT
               value: "5432"
             - name: POSTGRES_USER
