@@ -1,8 +1,12 @@
 import re
+import hashlib
+import json
+from sqlalchemy import text
+from app.models.config import AppConfig
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Request
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Request, Header
 from starlette.concurrency import run_in_threadpool
 from app.services import blob_store
 from fastapi.responses import FileResponse
@@ -54,7 +58,7 @@ def list_attachments(workspace_id: UUID, db: Session = Depends(get_db), user: Us
 
 
 @router.post("/{doc_id}")
-async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db), user: User = Depends(current_user)):
+async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db), user: User = Depends(current_user), idempotency_key: str | None = Header(default=None, max_length=128)):
     """上传附件：粘贴图片时前端调这里。返回引用路径"""
     require_doc_owner(db, doc_id, user)  # 数据隔离
     doc = db.get(Document, doc_id)
@@ -65,24 +69,42 @@ async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db), 
     if len(data) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="文件超过 25MB")
 
-    att = Attachment(
-        doc_id=doc_id,
-        filename=file.filename or "paste.png",
-        mime=file.content_type or "application/octet-stream",
-        size=len(data),
-    )
-    db.add(att)
-    if blob_store.enabled():
-        import io
-        db.flush()
-        await run_in_threadpool(blob_store.put, db, 'attachments/'+str(att.id), io.BytesIO(data), att.mime, MAX_SIZE)
-        db.commit()
-        db.refresh(att)
-    else:
-        db.commit()
-        db.refresh(att)
-        (STORAGE / str(att.id)).write_bytes(data)
-    return {"id": str(att.id), "url": f"/attachments/{att.id}", "filename": att.filename}
+    def persist():
+        receipt_key = None
+        fingerprint = None
+        if blob_store.enabled() and idempotency_key:
+            receipt_key = hashlib.sha256(('ha-upload:'+str(user.id)+':'+str(doc_id)+':'+idempotency_key).encode()).hexdigest()
+            fingerprint = hashlib.sha256(data).hexdigest()
+            db.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key,0))'),{'key':receipt_key})
+            old = db.get(AppConfig,receipt_key)
+            if old is not None:
+                receipt=json.loads(old.value)
+                if receipt['sha256'] != fingerprint or receipt['size'] != len(data):
+                    raise HTTPException(409,'Idempotency key reused with different content')
+                previous=db.get(Attachment,UUID(receipt['id']))
+                if previous is None:raise HTTPException(409,'Original upload was deleted')
+                return {'id':str(previous.id),'url':'/attachments/'+str(previous.id),'filename':previous.filename}
+        att = Attachment(
+            doc_id=doc_id,
+            filename=file.filename or "paste.png",
+            mime=file.content_type or "application/octet-stream",
+            size=len(data),
+        )
+        db.add(att)
+        if blob_store.enabled():
+            import io
+            db.flush()
+            blob_store.put(db, 'attachments/'+str(att.id), io.BytesIO(data), att.mime, MAX_SIZE)
+            if receipt_key:
+                db.add(AppConfig(key=receipt_key,value=json.dumps({'id':str(att.id),'size':len(data),'sha256':fingerprint})))
+            db.commit()
+            db.refresh(att)
+        else:
+            db.commit()
+            db.refresh(att)
+            (STORAGE / str(att.id)).write_bytes(data)
+        return {"id": str(att.id), "url": f"/attachments/{att.id}", "filename": att.filename}
+    return await run_in_threadpool(persist)
 
 
 @router.get("/{att_id}")

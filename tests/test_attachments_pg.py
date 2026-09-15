@@ -31,3 +31,14 @@ def test_pg_attachment_no_file_and_delete(client,pg_doc,db_session):
     assert r.status_code==200
     assert client.get(url).status_code==404
     assert db_session.get(BlobObject,'attachments/'+ident) is None
+
+
+def test_pg_upload_idempotency_same_content_and_conflict(client,pg_doc):
+    doc,_=pg_doc
+    headers={'Idempotency-Key':'synthetic-request-id'}
+    first=client.post('/attachments/'+doc,headers=headers,files={'file':('a.bin',b'abc','application/octet-stream')})
+    again=client.post('/attachments/'+doc,headers=headers,files={'file':('a.bin',b'abc','application/octet-stream')})
+    assert first.status_code==again.status_code==200
+    assert first.json()['id']==again.json()['id']
+    conflict=client.post('/attachments/'+doc,headers=headers,files={'file':('a.bin',b'different','application/octet-stream')})
+    assert conflict.status_code==409

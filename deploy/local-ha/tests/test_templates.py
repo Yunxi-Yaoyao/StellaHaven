@@ -32,7 +32,12 @@ class TemplateTests(unittest.TestCase):
             self.assertIn('--port', services['app']['command'])
             self.assertIn('24131', services['app']['command'])
             self.assertTrue(any(v.get('read_only') and v['target'] == '/app/data' for v in services['app']['volumes']))
-            self.assertTrue(all(v['bind']['create_host_path'] is False for v in services['pg']['volumes']))
+            # Compose versions may omit an explicitly false Go/JSON field.
+            # Verify the authored safety flag as well as rejecting normalized true.
+            import yaml
+            authored=yaml.safe_load((ROOT/'compose.yaml').read_text())
+            self.assertTrue(all(v['bind']['create_host_path'] is False for v in authored['services']['pg']['volumes']))
+            self.assertTrue(all(v.get('bind',{}).get('create_host_path',False) is False for v in services['pg']['volumes']))
 
     def test_render_refuses_automatic_profile_and_overwrite(self):
         render = load('render')

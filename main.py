@@ -39,6 +39,8 @@ app = FastAPI(title="StellaHaven")
 # This gate never elects a leader; PostgreSQL/Patroni remains the write fence.
 import os
 from app.services.ha_readiness import PrimaryOnlyMiddleware
+from app.services.media_limits import MediaLimitsMiddleware
+app.add_middleware(MediaLimitsMiddleware, enabled=os.getenv('STELLA_BLOB_STORAGE') == 'postgres')
 app.add_middleware(PrimaryOnlyMiddleware, enabled=os.getenv('STELLA_HA_MODE') == 'primary-only')
 
 # gzip 压缩：API JSON（文档列表等大 payload）和构建产物都受益，跨 frp/HK 链路尤其明显
