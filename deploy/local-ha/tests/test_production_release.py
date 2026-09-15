@@ -90,6 +90,17 @@ class ProductionTests(unittest.TestCase):
                 self.assertNotIn('secret-test-marker',' '.join(args[0]))
                 self.assertEqual(json.loads(kw['input'])['request']['registry_password'],'secret-test-marker')
 
+    def test_image_schema_mismatch_is_rejected_before_network(self):
+        import io, sys, types
+        from unittest.mock import patch
+        p=load('node_production')
+        config=types.ModuleType('alembic.config'); config.Config=lambda path: object()
+        scripts=types.ModuleType('alembic.script')
+        scripts.ScriptDirectory=types.SimpleNamespace(from_config=lambda cfg: types.SimpleNamespace(get_heads=lambda:['future_revision']))
+        with patch.dict(sys.modules,{'psycopg2':types.ModuleType('psycopg2'),'alembic.config':config,'alembic.script':scripts}), patch('sys.stdin',io.StringIO('{"revision":"b7c8d9e0f1a2"}')), patch('urllib.request.build_opener',side_effect=AssertionError('network before schema guard')):
+            with self.assertRaisesRegex(ValueError,'schema'):
+                exec(compile(p.PROBE,'probe','exec'),{})
+
     def test_busy_candidate_port_is_rejected(self):
         import socket
         p=load('node_production')

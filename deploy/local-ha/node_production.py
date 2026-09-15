@@ -40,6 +40,10 @@ import hashlib,json,os,sys,urllib.request,urllib.error
 from pathlib import Path
 import psycopg2
 p=json.load(sys.stdin)
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+if ScriptDirectory.from_config(Config('/app/alembic.ini')).get_heads() != [p['revision']]:
+    raise ValueError('image schema revision mismatch')
 client=urllib.request.build_opener(urllib.request.ProxyHandler({}))
 def http(url):
     try:
