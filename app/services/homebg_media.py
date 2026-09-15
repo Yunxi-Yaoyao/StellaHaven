@@ -83,6 +83,14 @@ def metadata(root: Path, url: str) -> dict:
                         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     except BlockingIOError:
                         return result
+                    # The worker can publish its terminal sidecar and release
+                    # the lock between our first read and this acquisition.
+                    # Re-read while holding the lock; do not mark that completed
+                    # job as missing based on the stale queued/processing copy.
+                    latest = json.loads(_sidecar(source).read_text())
+                    if (latest.get('_identity') == _identity(source)
+                            and latest.get('status') in ('ready', 'error')):
+                        return metadata(root, url)
                     fcntl.flock(lock, fcntl.LOCK_UN)
             except FileNotFoundError:
                 pass
