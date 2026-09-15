@@ -18,6 +18,12 @@ from tests_ha.testdb_guard import build_test_engine, IDENTITY_SQL, verify_identi
 @pytest.fixture
 def db():
     source = os.environ.get('STELLA_TEST_DATABASE_URL')
+    if not source and os.environ.get('CI') == 'true':
+        from sqlalchemy.engine import URL
+        expected = (os.environ.get('POSTGRES_HOST'), os.environ.get('POSTGRES_PORT'), os.environ.get('POSTGRES_USER'))
+        if expected != ('postgres', '5432', 'stalla'):
+            raise RuntimeError('Unexpected CI test database identity')
+        source = URL.create('postgresql+psycopg2', username='stalla', password=os.environ.get('POSTGRES_PASSWORD'), host='postgres', port=5432, database='stella_test')
     if not source:
         pytest.skip('STELLA_TEST_DATABASE_URL required for guarded real PG tests')
     engine = build_test_engine(source)
