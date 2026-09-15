@@ -44,6 +44,7 @@ backend-test:
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
   before_script:
+    - apt-get update && apt-get install -y --no-install-recommends ffmpeg
     - pip install uv -q
   script:
     - uv export --frozen --all-groups --no-emit-project -o /tmp/ci-requirements.txt
@@ -122,7 +123,8 @@ local-ha-contract:
   image: docker:27-cli
   timeout: 5m
   before_script:
-    - apk add --no-cache python3 py3-yaml
+    - ALPINE_BRANCH="v$(cut -d. -f1,2 /etc/alpine-release)"
+    - apk --repositories-file /dev/null -X "https://mirrors.ustc.edu.cn/alpine/$ALPINE_BRANCH/main" -X "https://mirrors.ustc.edu.cn/alpine/$ALPINE_BRANCH/community" add --no-cache python3 py3-yaml
   script:
     - python3 -m unittest discover -s deploy/local-ha/tests -v
 
