@@ -97,6 +97,17 @@ class ProductionTests(unittest.TestCase):
             s.bind(('127.0.0.1',0)); s.listen()
             with self.assertRaises(OSError): p.port_free(s.getsockname()[1])
 
+    def test_closed_listener_timewait_does_not_block_restart(self):
+        import socket
+        p=load('node_production')
+        server=socket.socket();server.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+        server.bind(('127.0.0.1',0));port=server.getsockname()[1];server.listen()
+        client=socket.create_connection(('127.0.0.1',port));accepted,_=server.accept()
+        accepted.shutdown(socket.SHUT_WR)
+        self.assertEqual(client.recv(1),b'')
+        accepted.close();client.close();server.close()
+        p.port_free(port)
+
     def test_content_identity_handles_index_vs_config(self):
         p=load('node_production')
         a={'Id':'sha256:'+'a'*64,'RootFS':{'Layers':['layer']},'Config':{'Cmd':['app']},'Architecture':'amd64','Os':'linux'}

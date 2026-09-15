@@ -89,6 +89,7 @@ START = "import os,sys; from pathlib import Path; os.environ['POSTGRES_PASSWORD'
 def port_free(port):
     import socket
     with socket.socket() as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(('127.0.0.1', port))
 
 
@@ -245,24 +246,30 @@ class Node:
         stopped = renamed = False
         try:
             self.guard()
+            stage = 'candidate-create'
             candidate_id = self.create(old,candidate,image_id,25132)
             self.action('start',candidate)
             self.validate(self.inspect(candidate),candidate,25132,True)
             require(self.image_matches(self.inspect(candidate)['Image'], info), 'candidate local image mismatch')
+            stage = 'candidate-health'
             self.health(candidate,25132)
             self.guard(candidate)
             require(self.inspect(self.name)['Id'] == old['Id'], 'old app changed')
             # Candidate remains running as read-only role-probe carrier while
             # the old app is stopped, renamed and replaced at its stable port.
+            stage = 'stop-old'
             stopped = True
             self.action('stop','--time','30',old['Id'],probe_name=candidate)
             self.action('rename',old['Id'],backup,probe_name=candidate)
             renamed = True
             self.guard(candidate)
+            stage = 'stable-create'
             replacement_id = self.create(old,self.name,image_id,25131)
             self.action('start',replacement_id,probe_name=candidate)
+            stage = 'stable-validate'
             live = self.validate(self.inspect(self.name),replacement=True)
             require(self.image_matches(live['Image'], info), 'replacement image mismatch')
+            stage = 'stable-health'
             health = self.health(self.name,25131)
             self.guard()
             self.action('stop',candidate_id)
@@ -270,7 +277,7 @@ class Node:
             candidate_id = None
             # Backup intentionally retained even after commit; no broad cleanup.
             return dict(base,status='deployed',container_id=live['Id'],http=health['http'],backup=backup)
-        except Exception:
+        except Exception as original_error:
             # Rollback must be possible even after role drift. No PG operation.
             # Remove ONLY IDs created by this attempt, never a namesake unknown ID.
             try:
@@ -290,7 +297,7 @@ class Node:
                     health = self.health(self.name,25131,expected=False)
                 if candidate_id:
                     run(['docker','stop',candidate_id]); run(['docker','rm',candidate_id])
-                return dict(base,status='rolledback' if stopped else 'blocked',container_id=old['Id'],http=health['http'],reason='release guard/health failed')
+                return dict(base,status='rolledback' if stopped else 'blocked',container_id=old['Id'],http=health['http'],reason='release guard/health failed', failed_stage=locals().get('stage','preflight'), error_type=type(original_error).__name__, error_errno=getattr(original_error,'errno',None))
             except Exception:
                 return dict(base,status='blocked',reason='rollback incomplete; manual recovery required',backup=backup,candidate=candidate)
 
