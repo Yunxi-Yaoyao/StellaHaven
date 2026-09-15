@@ -34,7 +34,13 @@ def dynamic_asset(kind: str, filename: str, request: Request, db: Session):
         raise HTTPException(404, 'Asset not found')
     key = kind + '/' + filename
     if blob_store.enabled():
-        if blob_store.metadata(db, key) is not None:
+        try:
+            exists = blob_store.metadata(db, key) is not None
+        finally:
+            # This public GET/HEAD does only reads; do not retain its metadata
+            # transaction for the request-scoped dependency's download lifetime.
+            db.close()
+        if exists:
             return blob_store.response(db, key, request)
         packaged = os.getenv('STELLA_PACKAGED_ASSETS_ROOT')
         if not packaged or key not in PACKAGED_NAMES:

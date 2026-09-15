@@ -60,43 +60,48 @@ def read_range(db,key,start,length):
         chunk=bytes(row[0]);offset=number*CHUNK_SIZE
         yield chunk[max(start-offset,0):min(end-offset,len(chunk))]
 
-def response(db,key,request,filename=None):
-    """Materialize immutable local cache under a DB share lock; bounded RAM.
+def response(db,key,request,filename=None,private=False):
+    """Materialize in an independent short snapshot, never mutate caller state.
 
-    This is a primary-only app path (the share lock is not valid on PG replicas).
-    Business ownership must be checked by the caller before invoking it.
-    FileResponse handles HTTP ranges from cache without holding DB open.
+    REPEATABLE READ needs no row/share locks: a concurrent delete can commit
+    while this snapshot reads the old chunks. Connection closes before body IO.
     """
-    from pathlib import Path
-    import tempfile
+    from sqlalchemy.orm import Session
     from fastapi import HTTPException
-    from fastapi.responses import FileResponse, Response
+    from fastapi.responses import Response
+    from app.services.blob_cache import acquire, CachedFileResponse
     validate_key(key)
-    row=db.execute(select(BlobObject.key,BlobObject.size,BlobObject.sha256,BlobObject.mime).where(BlobObject.key==key).with_for_update(read=True)).mappings().first()
-    if row is None:raise HTTPException(404,'Object not found')
-    if not re.fullmatch(r'[0-9a-f]{64}',row['sha256']):
-        raise IOError('Invalid object digest')
-    etag='"'+row['sha256']+'"'
-    matches=[part.strip().removeprefix('W/') for part in request.headers.get('if-none-match','').split(',')]
-    if etag in matches or '*' in matches:return Response(status_code=304,headers={'ETag':etag})
-    cache=Path(os.getenv('STELLA_BLOB_CACHE','data/blob-cache')).resolve()
-    cache.mkdir(parents=True,exist_ok=True,mode=0o700)
-    target=cache/(row['sha256']+'.bin')
-    if target.is_symlink():
-        raise IOError('Unsafe cache entry')
-    if not target.exists() or target.stat().st_size!=row['size']:
-        fd,name=tempfile.mkstemp(prefix='.fill-',dir=cache)
-        try:
-            digest=hashlib.sha256();total=0
-            with os.fdopen(fd,'wb') as out:
-                for chunk in read_range(db,key,0,row['size']):
-                    out.write(chunk);digest.update(chunk);total+=len(chunk)
-                out.flush();os.fsync(out.fileno())
-            if total!=row['size'] or digest.hexdigest()!=row['sha256']:raise IOError('Object integrity mismatch')
-            os.replace(name,target)
-        finally:
-            Path(name).unlink(missing_ok=True)
-    return FileResponse(target,media_type=row['mime'],filename=filename,headers={'ETag':etag})
+    bind = db.get_bind()
+    # Bind may be a Connection in tests; do not reuse its caller transaction.
+    engine = getattr(bind, 'engine', bind)
+    if engine.dialect.name == 'postgresql':
+        engine = engine.execution_options(isolation_level='REPEATABLE READ', postgresql_readonly=True)
+    with Session(engine) as snapshot:
+        row = metadata(snapshot, key)
+        if row is None:
+            raise HTTPException(404, 'Object not found', headers={'Cache-Control':'no-store'} if private else None)
+        if not re.fullmatch(r'[0-9a-f]{64}',row['sha256']):
+            raise IOError('Invalid object digest')
+        etag = '"' + row['sha256'] + '"'
+        headers = {'ETag': etag}
+        if private:
+            headers['Cache-Control'] = 'no-store'
+        matches = [part.strip().removeprefix('W/') for part in request.headers.get('if-none-match','').split(',')]
+        if etag in matches or '*' in matches:
+            return Response(status_code=304, headers=headers)
+        if request.method == 'HEAD':
+            # HEAD is metadata-only, even when disk is full or object exceeds cap.
+            # RFC 9110 Range is only defined for GET; ignore it on HEAD.
+            from fastapi.responses import FileResponse
+            template = FileResponse('', media_type=row['mime'], filename=filename, headers=headers)
+            template.headers['content-length'] = str(row['size'])
+            return Response(headers=dict(template.headers))
+        lease = acquire(row['sha256'], row['size'], lambda: read_range(snapshot,key,0,row['size']))
+    try:
+        return CachedFileResponse(lease,media_type=row['mime'],filename=filename,headers=headers)
+    except BaseException:
+        lease.close()
+        raise
 
 
 def parse_range(header,size):

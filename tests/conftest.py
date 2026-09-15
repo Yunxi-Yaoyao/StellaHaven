@@ -1,33 +1,30 @@
 import pytest
 from uuid import uuid4
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from app.config import settings
+from tests_ha.testdb_guard import build_test_engine, guarded_metadata
+
+# Validate before importing application modules; never rewrite DSN strings.
+# Only the dedicated local test DB or the explicitly marked CI target is allowed.
+engine = build_test_engine(settings.database_url)
+TEST_DATABASE_URL = engine.url
 
 from app.database import Base, get_db
 from main import app
 
-# ============================================================
-# 1. 测试数据库引擎（SQLite 内存模式——飞快 + 自动隔离）
-# ============================================================
-
-from app.config import settings
-from urllib.parse import quote_plus
-
-TEST_DATABASE_URL = settings.database_url.replace(
-    "/stella", "/stella_test"
-)
-
-engine = create_engine(TEST_DATABASE_URL)
 TestingSessionLocal = sessionmaker(bind=engine, autoflush=False)
 
 
 @pytest.fixture(scope="session")
 def test_db():
     """整个测试会话共享：建一次表，后面所有测试复用结构"""
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
+    guarded_metadata(engine, Base.metadata, "create_all")
+    try:
+        yield
+    finally:
+        guarded_metadata(engine, Base.metadata, "drop_all")
 
 
 # ============================================================

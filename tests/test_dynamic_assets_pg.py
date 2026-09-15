@@ -78,6 +78,7 @@ def test_pg_limits_and_rollback(media_client, db_session, monkeypatch):
 
 def test_background_visibility_and_system_protection(media_client, db_session):
     client, user, app = media_client
+    owner_id = user.id  # Auth reloads a user per request; asset GET now closes its DB session.
     r = client.post('/homebg/upload', files={'file': ('test.png', b'invalid-but-retained', 'image/png')})
     assert r.status_code == 200
     entry = r.json()
@@ -94,7 +95,7 @@ def test_background_visibility_and_system_protection(media_client, db_session):
     with homebg._pg_index(db_session) as entries:
         next(e for e in entries if e['id'] == entry['id'])['isDefault'] = True
     db_session.commit()
-    app.dependency_overrides[auth.current_user] = lambda: user
+    app.dependency_overrides[auth.current_user] = lambda: db_session.get(User, owner_id)
     assert client.delete('/homebg/' + entry['id']).status_code == 400
     db_session.rollback()
     assert client.get('/assets/homebg/not-present.png').status_code == 404

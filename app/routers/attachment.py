@@ -108,19 +108,30 @@ async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db), 
     return await run_in_threadpool(persist)
 
 
-@router.get("/{att_id}")
+@router.api_route("/{att_id}", methods=["GET", "HEAD"])
 def serve(att_id: UUID, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    """读附件（仅归属者）"""
-    att = db.get(Attachment, att_id)
-    path = STORAGE / str(att_id)
-    if att is None:
-        raise HTTPException(status_code=404, detail="附件不存在")
-    require_doc_owner(db, att.doc_id, user)  # 数据隔离
+    """读附件（仅归属者）；鉴权和物化的连接均不随下载存活。"""
+    headers = {'Cache-Control': 'no-store'}
+    try:
+        att = db.get(Attachment, att_id)
+        if att is None:
+            raise HTTPException(status_code=404, detail="附件不存在")
+        require_doc_owner(db, att.doc_id, user)
+        filename, mime = att.filename, att.mime
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), **headers}
+        raise
+    finally:
+        # current_user + require_doc_owner are read-only (no heartbeat writes).
+        # This GET/HEAD has no pending business state. Yield cleanup is otherwise
+        # request-scoped and would keep the auth transaction during slow sends.
+        db.close()
     if blob_store.enabled():
-        return blob_store.response(db, 'attachments/'+str(att.id), request, filename=att.filename)
+        return blob_store.response(db, 'attachments/'+str(att_id), request, filename=filename, private=True)
+    path = STORAGE / str(att_id)
     if not path.exists():
-        raise HTTPException(status_code=404, detail="附件不存在")
-    return FileResponse(path, media_type=att.mime, filename=att.filename)
+        raise HTTPException(status_code=404, detail="附件不存在", headers=headers)
+    return FileResponse(path, media_type=mime, filename=filename, headers=headers)
 
 
 def cleanup_unreferenced(db: Session, doc: Document, content: str) -> int:
