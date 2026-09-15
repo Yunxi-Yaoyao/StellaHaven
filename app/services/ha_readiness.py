@@ -14,7 +14,23 @@ async def patroni_primary():
     if response.status_code!=200:
         return False
     status=response.json()
-    return status.get('state')=='running' and status.get('role') in ('primary','master')
+    if status.get('state')!='running' or status.get('role') not in ('primary','master'):
+        return False
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(_sql_is_primary)
+
+
+def _sql_is_primary():
+    import psycopg2
+    from app.config import settings
+    con=psycopg2.connect(host=settings.postgres_host,port=settings.postgres_port,dbname=settings.postgres_db,user=settings.postgres_user,password=settings.postgres_password,connect_timeout=2,options='-c statement_timeout=1000')
+    try:
+        with con.cursor() as cur:
+            cur.execute("SELECT NOT pg_is_in_recovery(), current_setting('transaction_read_only')='off'")
+            row=cur.fetchone()
+        return bool(row and row[0] and row[1])
+    finally:
+        con.close()
 
 class PrimaryOnlyMiddleware:
     def __init__(self,app,enabled=False,checker=None):

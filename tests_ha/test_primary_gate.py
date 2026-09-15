@@ -48,3 +48,18 @@ def test_legacy_disabled_and_checker_error_is_closed():
         def route():return {'ok':True}
         app.add_middleware(PrimaryOnlyMiddleware,enabled=enabled,checker=broken)
         with TestClient(app) as c:assert c.get('/test').status_code==status
+
+
+def test_patroni_flag_alone_does_not_admit_unusable_database(monkeypatch):
+    import app.services.ha_readiness as m
+    class Reply:
+        status_code=200
+        def json(self):return {'state':'running','role':'primary'}
+    class Client:
+        def __init__(self,**kwargs):pass
+        async def __aenter__(self):return self
+        async def __aexit__(self,*args):pass
+        async def get(self,url):return Reply()
+    monkeypatch.setattr(m.httpx,'AsyncClient',Client)
+    monkeypatch.setattr(m,'_sql_is_primary',lambda:False,raising=False)
+    assert asyncio.run(m.patroni_primary()) is False
