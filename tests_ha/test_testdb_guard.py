@@ -119,6 +119,10 @@ def test_conftest_rejects_production_before_importing_app(monkeypatch):
     import sys
     import types
     from unittest.mock import patch
+    # This test exercises rejection of the application's default production URL.
+    # A suite-wide, explicitly safe test-DB override would instead select the
+    # disposable DB, so remove that override only inside this negative test.
+    monkeypatch.delenv("STELLA_TEST_DATABASE_URL", raising=False)
     config = types.ModuleType("app.config")
     config.settings = types.SimpleNamespace(database_url="postgresql://stalla:x@localhost:5432/stella")
     monkeypatch.setitem(sys.modules, "app.config", config)
