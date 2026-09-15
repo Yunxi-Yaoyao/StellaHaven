@@ -26,7 +26,11 @@ def inventory(db,root):
         p=safe_file(root,path)
         if p.stat().st_size>limit:raise RuntimeError('source object exceeds supported limit')
         objects[key]=(p,mime,limit)
-    for a in db.execute(select(Attachment)).scalars():add('attachments/'+str(a.id),'attachments/'+str(a.id),a.mime,25*1024*1024)
+    for a in db.execute(select(Attachment)).scalars():
+        key='attachments/'+str(a.id)
+        add(key,key,a.mime,25*1024*1024)
+        if objects[key][0].stat().st_size != a.size:
+            raise RuntimeError('attachment size mismatch')
     for user in db.execute(select(User)).scalars():
         urls=set(json.loads(user.avatar_history or '[]'))
         if user.avatar_url:urls.add(user.avatar_url)
