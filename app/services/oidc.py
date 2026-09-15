@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from authlib.jose import JsonWebKey, jwt
+from app.services import ha_state
 
 # ── 基础配置 ──
 # issuer = Stella 对外地址（OpenList/Immich 容器 + 浏览器都要能访问）。
@@ -55,6 +56,13 @@ DEFAULT_CLIENT = {
 # Shared PVC state; one lock covers validation + one-time code consumption.
 @contextmanager
 def _shared_state():
+    if ha_state.enabled():
+        with ha_state.locked_state('oidc.runtime', {"codes": {}, "tokens": {}}) as state:
+            now = time.time()
+            for key in ("codes", "tokens"):
+                state[key] = {k: v for k, v in state[key].items() if v["expires"] > now}
+            yield state
+        return
     directory = OIDC_DIR / "runtime"
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (directory / "state.lock").open("a+") as lock:
@@ -84,6 +92,11 @@ ACCESS_TOKEN_TTL = 86400  # access token 1 天
 # ── 密钥管理 ──
 def _get_key():
     import json as _json
+    if ha_state.enabled():
+        path = Path(os.getenv('STELLA_OIDC_PRIVATE_KEY_FILE', str(PRIVATE_KEY_PATH)))
+        if not path.is_file():
+            raise RuntimeError('provision the same OIDC private key file on all nodes')
+        return JsonWebKey.import_key(_json.loads(path.read_text()))
     OIDC_DIR.mkdir(parents=True, exist_ok=True)
     if PRIVATE_KEY_PATH.exists():
         return JsonWebKey.import_key(_json.loads(PRIVATE_KEY_PATH.read_text()))
@@ -104,6 +117,9 @@ def _json_dumps(obj) -> str:
 
 # ── 客户端管理 ──
 def _load_clients() -> dict:
+    if ha_state.enabled():
+        with ha_state.locked_state('oidc.clients', {}) as clients:
+            return dict(clients)
     if CLIENT_FILE.exists():
         import json
         return json.loads(CLIENT_FILE.read_text())
@@ -111,6 +127,8 @@ def _load_clients() -> dict:
 
 
 def _get_client(client_id: str) -> dict | None:
+    if ha_state.enabled():
+        return _load_clients().get(client_id)
     if client_id == DEFAULT_CLIENT["client_id"]:
         return DEFAULT_CLIENT
     return _load_clients().get(client_id)
@@ -118,6 +136,17 @@ def _get_client(client_id: str) -> dict | None:
 
 def get_client_secret(client_id: str) -> str:
     """取 client_secret（首次生成并持久化）。"""
+    if ha_state.enabled():
+        with ha_state.locked_state('oidc.clients', {}) as clients:
+            client = clients.get(client_id)
+            if client and client.get('client_secret'):
+                return client['client_secret']
+            secret = secrets.token_hex(32)
+            clients[client_id] = {
+                'client_secret': secret,
+                'redirect_uris': DEFAULT_CLIENT['redirect_uris'],
+            }
+            return secret
     if client_id == DEFAULT_CLIENT["client_id"] and DEFAULT_CLIENT["client_secret"]:
         return DEFAULT_CLIENT["client_secret"]
     clients = _load_clients()

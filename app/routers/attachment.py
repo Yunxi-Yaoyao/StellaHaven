@@ -2,7 +2,9 @@ import re
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Request
+from starlette.concurrency import run_in_threadpool
+from app.services import blob_store
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -59,7 +61,7 @@ async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db), 
     if doc is None or doc.deleted_at is not None:
         raise HTTPException(status_code=404, detail="文档不存在")
 
-    data = await file.read()
+    data = await file.read(MAX_SIZE + 1)
     if len(data) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="文件超过 25MB")
 
@@ -70,21 +72,31 @@ async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db), 
         size=len(data),
     )
     db.add(att)
-    db.commit()
-    db.refresh(att)
-
-    (STORAGE / str(att.id)).write_bytes(data)
+    if blob_store.enabled():
+        import io
+        db.flush()
+        await run_in_threadpool(blob_store.put, db, 'attachments/'+str(att.id), io.BytesIO(data), att.mime, MAX_SIZE)
+        db.commit()
+        db.refresh(att)
+    else:
+        db.commit()
+        db.refresh(att)
+        (STORAGE / str(att.id)).write_bytes(data)
     return {"id": str(att.id), "url": f"/attachments/{att.id}", "filename": att.filename}
 
 
 @router.get("/{att_id}")
-def serve(att_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def serve(att_id: UUID, request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """读附件（仅归属者）"""
     att = db.get(Attachment, att_id)
     path = STORAGE / str(att_id)
-    if att is None or not path.exists():
+    if att is None:
         raise HTTPException(status_code=404, detail="附件不存在")
     require_doc_owner(db, att.doc_id, user)  # 数据隔离
+    if blob_store.enabled():
+        return blob_store.response(db, 'attachments/'+str(att.id), request, filename=att.filename)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="附件不存在")
     return FileResponse(path, media_type=att.mime, filename=att.filename)
 
 
@@ -95,7 +107,10 @@ def cleanup_unreferenced(db: Session, doc: Document, content: str) -> int:
     removed = 0
     for att in db.query(Attachment).filter(Attachment.doc_id == doc.id).all():
         if str(att.id) not in referenced:
-            (STORAGE / str(att.id)).unlink(missing_ok=True)
+            if blob_store.enabled():
+                blob_store.delete(db, 'attachments/'+str(att.id))
+            else:
+                (STORAGE / str(att.id)).unlink(missing_ok=True)
             db.delete(att)
             removed += 1
     if removed:
@@ -106,5 +121,8 @@ def cleanup_unreferenced(db: Session, doc: Document, content: str) -> int:
 def delete_attachments_of(db: Session, doc_id: UUID) -> None:
     """物理删文档时连带清附件"""
     for att in db.query(Attachment).filter(Attachment.doc_id == doc_id).all():
-        (STORAGE / str(att.id)).unlink(missing_ok=True)
+        if blob_store.enabled():
+            blob_store.delete(db, 'attachments/'+str(att.id))
+        else:
+            (STORAGE / str(att.id)).unlink(missing_ok=True)
         db.delete(att)

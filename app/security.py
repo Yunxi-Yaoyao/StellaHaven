@@ -18,8 +18,18 @@ _KEY_FILE = Path(__file__).resolve().parents[2] / "data" / "secret_key"
 
 
 def _load_key() -> str:
+    import os
+    supplied = os.getenv('STELLA_SECRET_KEY', '').strip()
+    if supplied:
+        if len(supplied) < 32:
+            raise RuntimeError('Shared signing key must contain at least 32 characters')
+        return supplied
     if _KEY_FILE.exists():
-        return _KEY_FILE.read_text().strip()
+        key = _KEY_FILE.read_text().strip()
+        if key:
+            return key
+    if os.getenv('STELLA_HA_MODE') == 'primary-only':
+        raise RuntimeError('HA signing key is missing; refusing per-node random key generation')
     key = secrets.token_urlsafe(48)
     _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
     _KEY_FILE.write_text(key)

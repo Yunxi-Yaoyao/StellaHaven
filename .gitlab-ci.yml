@@ -1,5 +1,13 @@
-# Stella CI/CD — 全自动流水线
+# Stella CI/CD — branch builds isolated; production only protected master
 # test（双job并行）→ build（烤镜像推Registry）→ deploy（滚k3s）
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+    - when: never
 
 stages:
   - test
@@ -17,7 +25,13 @@ variables:
   npm_config_audit: "false"
   npm_config_fund: "false"
 
+.branch-validation:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH'
+    - when: never
+
 backend-test:
+  extends: .branch-validation
   timeout: 15m
   stage: test
   image: python:3.13
@@ -25,7 +39,7 @@ backend-test:
     - postgres:18
   variables:
     POSTGRES_USER: stalla
-    POSTGRES_PASSWORD: St@106954021
+    POSTGRES_PASSWORD: isolated-ci-only-password
     POSTGRES_DB: stella
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
@@ -36,9 +50,10 @@ backend-test:
     - uv venv
     - uv pip sync --index-url "$PIP_INDEX_URL" --require-hashes /tmp/ci-requirements.txt
     - .venv/bin/python deploy/ci/create-test-db.py
-    - .venv/bin/pytest -q
+    - .venv/bin/pytest -q tests tests_ha
 
 frontend-build:
+  extends: .branch-validation
   timeout: 15m
   stage: test
   image: node:22
@@ -51,23 +66,30 @@ frontend-build:
     - npm ci --include=dev --prefer-offline
     - npm run build
 
-# 烤镜像：两个镜像都打 commit SHA 标签 + latest
+# Full SHA tags on every branch; latest only on protected master (legacy k3s).
 build-images:
+  extends: .branch-validation
   timeout: 15m
   stage: build
   image: docker:27
-  needs: ["backend-test", "frontend-build"]   # 测试绿了才烤
+  needs: ["backend-test", "frontend-build", "local-ha-contract"]   # 测试绿了才烤
   variables:
     REGISTRY: gitlab-registry.xiya.live/yaoyao/stellahaven
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login gitlab-registry.xiya.live -u "$CI_REGISTRY_USER" --password-stdin
   script:
-    - docker build --network=host -t $REGISTRY:$CI_COMMIT_SHORT_SHA -t $REGISTRY:latest .
-    - docker build --network=host -f Dockerfile.pg -t $REGISTRY/pg-patroni:$CI_COMMIT_SHORT_SHA -t $REGISTRY/pg-patroni:latest .
-    - docker push $REGISTRY:$CI_COMMIT_SHORT_SHA
-    - docker push $REGISTRY:latest
-    - docker push $REGISTRY/pg-patroni:$CI_COMMIT_SHORT_SHA
-    - docker push $REGISTRY/pg-patroni:latest
+    - rm -f .env .env.*  # ephemeral CI checkout only; never bake dotenv secrets
+    - docker build --network=host -t $REGISTRY:$CI_COMMIT_SHA .
+    - docker build --network=host -f Dockerfile.pg -t $REGISTRY/pg-patroni:$CI_COMMIT_SHA .
+    - docker push $REGISTRY:$CI_COMMIT_SHA
+    - docker push $REGISTRY/pg-patroni:$CI_COMMIT_SHA
+    - |
+      if [ "$CI_COMMIT_BRANCH" = master ] && [ "$CI_COMMIT_REF_PROTECTED" = true ] && [ "${STELLA_DEPLOY_TARGET:-k3s}" = k3s ]; then
+        docker tag "$REGISTRY:$CI_COMMIT_SHA" "$REGISTRY:latest"
+        docker tag "$REGISTRY/pg-patroni:$CI_COMMIT_SHA" "$REGISTRY/pg-patroni:latest"
+        docker push "$REGISTRY:latest"
+        docker push "$REGISTRY/pg-patroni:latest"
+      fi
 
 # 部署：滚动更新 k3s（镜像标签=commit SHA，精确到这次提交）
 deploy-k3s:
@@ -77,12 +99,54 @@ deploy-k3s:
     name: alpine/kubectl:1.35.0
     entrypoint: [""]      # 镜像 ENTRYPOINT 是 kubectl 本体，必须清空否则 shell 命令被当 kubectl 参数
   needs: ["build-images"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" && $CI_COMMIT_REF_PROTECTED == "true" && ($STELLA_DEPLOY_TARGET == null || $STELLA_DEPLOY_TARGET == "" || $STELLA_DEPLOY_TARGET == "k3s")'
+    - when: never
+  resource_group: stella-production
   environment:
     name: production
   script:
+    - test "$CI_COMMIT_BRANCH" = master && test "$CI_COMMIT_REF_PROTECTED" = true
+    - test "${STELLA_DEPLOY_TARGET:-k3s}" = k3s
     - kubectl rollout status deployment/pg-nyarch -n stella --timeout=60s || true
-    - kubectl set image deployment/stella-local stella=gitlab-registry.xiya.live/yaoyao/stellahaven:$CI_COMMIT_SHORT_SHA -n stella
-    - kubectl set image deployment/stella-us stella=gitlab-registry.xiya.live/yaoyao/stellahaven:$CI_COMMIT_SHORT_SHA -n stella
+    - kubectl set image deployment/stella-local stella=gitlab-registry.xiya.live/yaoyao/stellahaven:$CI_COMMIT_SHA -n stella
+    - kubectl set image deployment/stella-us stella=gitlab-registry.xiya.live/yaoyao/stellahaven:$CI_COMMIT_SHA -n stella
     - kubectl rollout status deployment/stella-local -n stella --timeout=180s
     - kubectl rollout status deployment/stella-us -n stella --timeout=180s
-    - echo "🎉 deployed $CI_COMMIT_SHORT_SHA"
+    - echo "🎉 deployed $CI_COMMIT_SHA"
+
+# No Docker daemon operations: renderer + compose config + mocked transport tests.
+local-ha-contract:
+  extends: .branch-validation
+  stage: test
+  image: docker:27-cli
+  timeout: 5m
+  before_script:
+    - apk add --no-cache python3 py3-yaml
+  script:
+    - python3 -m unittest discover -s deploy/local-ha/tests -v
+
+# Operator supplies SSH config/known_hosts and inventory as file variables.
+# Manual + optional means NOT EXECUTED, never proof of a healthy HA deployment.
+local-ha-live-readonly:
+  stage: deploy
+  image: python:3.13-slim
+  timeout: 5m
+  needs: ["build-images"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != "master"'
+      when: manual
+      allow_failure: true
+    - when: never
+  environment:
+    name: local-ha-validation/$CI_COMMIT_REF_SLUG
+    deployment_tier: testing
+    action: verify
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends openssh-client
+  script:
+    - test -n "$LOCAL_HA_INVENTORY" && test -f "$LOCAL_HA_INVENTORY"
+    - test -n "$LOCAL_HA_SSH_CONFIG" && test -f "$LOCAL_HA_SSH_CONFIG"
+    - python3 deploy/local-ha/validate_live.py --inventory "$LOCAL_HA_INVENTORY" --ssh-config "$LOCAL_HA_SSH_CONFIG" --image "$LOCAL_HA_APP_IMAGE"
+
+# Deliberately no local-ha apply job: node-side fencing acceptance is unfinished.

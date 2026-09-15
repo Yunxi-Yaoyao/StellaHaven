@@ -11,6 +11,7 @@ from app.models.doc_tag import DocTag
 from app.models.document_link import DocumentLink
 from app.models.document_version import DocumentVersion
 from app.models.attachment import Attachment
+from app.models.blob import BlobObject, BlobChunk
 from app.models.node import Node, NodeMetric, NodeSysMetric, NodeStatusEvent
 from app.models.monitor import Monitor, MonitorCheck
 from app.models.config import AppConfig

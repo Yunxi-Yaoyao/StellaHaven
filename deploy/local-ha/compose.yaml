@@ -1,0 +1,66 @@
+# Future stack only: rendering/config validation does NOT authorize startup.
+# Host networking intentionally points app -> same-node PG, never pg-rw/k3s.
+name: ${COMPOSE_PROJECT_NAME:?render configuration first}
+services:
+  app:
+    image: ${APP_IMAGE:?immutable digest required}
+    pull_policy: never
+    network_mode: host
+    init: true
+    restart: unless-stopped
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
+    working_dir: /app
+    entrypoint: [/app/.venv/bin/python, /local-ha/entrypoint.py, app]
+    command: [/app/.venv/bin/uvicorn, 'main:app', --host, 127.0.0.1, --port, '24131']
+    environment:
+      LOCAL_HA_ENABLE_APP: ${LOCAL_HA_ENABLE_APP:-no}
+      LOCAL_HA_PROFILE: ${LOCAL_HA_PROFILE:-manual}
+      LOCAL_HA_NODE: ${LOCAL_HA_NODE:?required}
+      STELLA_HA_MODE: primary-only
+      STELLA_PATRONI_URL: http://127.0.0.1:24808
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: '24532'
+      POSTGRES_USER: stalla
+      POSTGRES_DB: stella
+      PYTHONDONTWRITEBYTECODE: '1'
+      XDG_CACHE_HOME: /app/data/cache
+    volumes:
+      - {type: bind, source: '${HA_SCRIPTS:?required}', target: /local-ha, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: '${NODE_ROOT:?required}/resources', target: /app/data, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: '${NODE_ROOT:?required}/cache', target: /app/data/cache, bind: {create_host_path: false}}
+      - {type: bind, source: '${NODE_ROOT:?required}/secrets/app-password', target: /run/secrets/app-password, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: '${NODE_ROOT:?required}/secrets/signing-key', target: /data/secret_key, read_only: true, bind: {create_host_path: false}}
+    tmpfs: [/tmp:size=128m, /run:size=16m]
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, /local-ha/readiness.py, --primary]
+      interval: 10s
+      timeout: 8s
+      retries: 3
+      start_period: 30s
+  pg:
+    image: ${PG_IMAGE:?immutable PG18 Patroni4.0.5 digest required}
+    pull_policy: never
+    network_mode: host
+    init: true
+    restart: unless-stopped
+    entrypoint: [python3, /local-ha/entrypoint.py, pg]
+    environment:
+      LOCAL_HA_ENABLE_DATABASE: ${LOCAL_HA_ENABLE_DATABASE:-no}
+      LOCAL_HA_PROFILE: ${LOCAL_HA_PROFILE:-manual}
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 256
+    shm_size: 256m
+    volumes:
+      - {type: bind, source: '${HA_SCRIPTS:?required}', target: /local-ha, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: '${CONFIG_DIR:?required}/patroni.json', target: /etc/local-ha/patroni.json, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: '${NODE_ROOT:?required}/pgdata', target: /var/lib/postgresql/local-ha/pgdata, bind: {create_host_path: false}}
+      - {type: bind, source: '${NODE_ROOT:?required}/secrets', target: /run/secrets, read_only: true, bind: {create_host_path: false}}
+    tmpfs: [/run:size=32m, /tmp:size=64m]
+# No dependencies, migration init-container, shared/NFS PGDATA, privileged mode,
+# watchdog device, etcd membership mutation, Docker socket or k3s hostPath reuse.
