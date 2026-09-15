@@ -1,6 +1,6 @@
 # Production app-only release
 
-This is a real SSH/Docker transport, not the older `release.py` mock-only writer. Implementation and isolated unit tests exist; production execution is **not** validated by these tests. No PG stop/restart/promotion, migrations, frpc edits or host reboots are performed.
+This is a real SSH/Docker transport, not the older `release.py` mock-only writer. The existing production installation has also passed real SSH/Docker releases and independent readback (2026-09-16). Unit tests alone are not evidence for a different installation. No PG stop/restart/promotion, migrations, frpc edits or host reboots are performed.
 
 ## Entry points
 
@@ -46,7 +46,7 @@ Shape is documented in `production_release.py` module docstring. Supply full rev
 - Each node: complete existing `command` array containing `/shadow-start.py`, approved `startup_sha256`, integer Docker bytes `memory`, `nano_cpus`, exact `mounts` list of `{Source, Destination, RW}`.
 - Mount sources must resolve within `/var/lib/stella-ha-app-shadow-20260916/`. Required destinations: `/app/data`, either `/tmp` or `/scratch`, `/data/secret_key`, `/run/secrets/app-password`, `/run/secrets/oidc-private.json`, `/shadow-start.py`. Optional destinations: `/data`, `/var/cache/stella`. Only `/data`, `/tmp`, `/scratch`, `/var/cache/stella` may be writable. No PGDATA allowed.
 
-The context supplied a manifest prefix `1b920...`, not a complete hash: deliberately **not** filled with an invented value. Operator must supply the complete trusted manifest hash, startup hashes, mount paths, signing fingerprint and schema before running. Original source `.env` is neither read nor modified by the release transport.
+Operator must supply complete trusted manifest/startup hashes, exact mount paths, signing fingerprint and schema; the current installation has these pinned in protected CI variables and root-owned dispatcher inventory. Original source `.env` is neither read nor modified by the release transport.
 
 ## Current runtime contract
 
@@ -64,6 +64,6 @@ Probe both nodes → release current standby → re-probe roles → release curr
 
 Failure rolls back only containers created by that attempt and restores the exact old container ID/image. Successful old containers stay stopped under `-rollback-<id>`; cleanup is operator-owned. A completed standby update is not automatically undone if active update fails. Receipts preserve per-node results; this is not an atomic two-node transaction.
 
-**Not implemented/verified:** registry/SSH/live Docker execution in this coding task; business login/document/attachment smoke fixture in the deploy job; distributed fencing; durable crash journal and automatic recovery from SSH timeout/kill; a bound for total duration of repeated full resource hashing; automatic inventory creation or PG/frpc management. Sampled role checks are not fencing. Concurrent candidates share approved writable cache/tmp paths. Review release startup compatibility accordingly. On unknown SSH outcome or incomplete rollback, inspect exact receipt/container IDs before retrying; never broad-prune containers.
+**Boundaries:** real registry/SSH/Docker execution was validated on the current two-node installation. The deploy job does not log in as a real business user or perform document/attachment mutations; separate acceptance covers those. It does not implement distributed fencing, durable crash recovery after SSH timeout/kill, or automatic inventory/PG/frpc management. Resource hashing and remote calls are bounded, but an unknown SSH outcome still requires exact-state readback. Sampled role checks are not fencing. Concurrent candidates share approved writable cache/tmp paths. Review release startup compatibility accordingly. On unknown SSH outcome or incomplete rollback, inspect exact receipt/container IDs before retrying; never broad-prune containers.
 
 Production SSH is root on Nyarch and yaoyao on NAS; the dedicated key is forced to a root-owned dispatcher (specific sudo command on NAS). Dispatcher rejects helper hashes and inventories not pre-approved locally. Root SSH remains disabled on NAS. After the first manual deployment passes, protected STELLA_AUTO_DEPLOY=true enables on-success app releases; schema/resource changes still fail closed until approved inventory is updated.

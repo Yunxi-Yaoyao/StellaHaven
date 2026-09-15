@@ -100,32 +100,32 @@
 | 导出 | html2canvas + jsPDF |
 | 节点采集 | 单文件 Python agent（psutil + httpx） |
 | 嵌入式服务 | OpenList（网盘）/ Immich（图库），Docker 部署 |
-| 测试 | pytest + httpx（121 用例） |
-| CI | GitHub Actions |
+| 测试 | pytest + httpx；真实 PG、媒体、并发与部署边界回归 |
+| CI/CD | GitLab（生产发布）＋ GitHub Actions（源码镜像验证） |
 | 包管理 | uv |
 
 ## 部署
 
-### 架构
+### 当前生产架构
 
-生产环境是**单端口托管**：前端 `vite build` 产物由 FastAPI 直接托管（SPA fallback 路由），后端同一个端口同时提供 API 和页面，对外只需反代一个地址。
+前端构建产物仍由 FastAPI 单端口托管，API、WebSocket 与页面保持同源。业务运行于两个独立主备节点，不依赖 Kubernetes 控制面才能切换。
 
-```
-浏览器
-  │  HTTPS
-  ▼
-HK 服务器 nginx（stella.xiya.live，TLS 终端）
-  │  frp 内网穿透
-  ▼
-Nyarch 主机 stella-backend（uvicorn :12031）
-  ├── SPA 静态托管（frontend/dist）
-  ├── API + WebSocket
-  └── 同机 Docker：OpenList（网盘）、Immich（图库）等被嵌入服务
+```text
+浏览器 → HK nginx / frps
+            ├─ Nyarch 专用 frpc → 本机应用 :25131 → 本机 PG :24532
+            └─ NAS 专用 frpc    → 本机应用 :25131 → 本机 PG :24532
+                              PostgreSQL 同步复制
+              etcd：Nyarch + NAS + 上海第三仲裁
 ```
 
-- 后端 / agent 均为 systemd 服务（`stella-backend` / `stella-agent`）
-- 公网入口在另一台 HK 服务器上，nginx 做 TLS 终端后走 frp 隧道回源
-- Immich 有独立公网域名（`immich.xiya.live`），nginx 配置含品牌替换的 `sub_filter` 注入，配置副本版本化管理在 `deploy/nginx/`
+- 只有持有效主角色且本机数据库可写的应用通过 `/ready-primary`；备用应用拒绝业务写入。FRP 使用 HTTP 健康检查，不把 TCP 端口可达当作主库资格。
+- 两节点各自持久化 PGDATA。附件、头像、背景与动态配置统一进入 PG 事务及复制链路；固定模型资源按清单双端预置，本地缓存可重建，运行时不共挂 NAS NFS。
+- 正常同步复制；备用不可用时可按非严格同步策略降级为单节点写入。恢复节点先追平、不自动抢主。网络分区验收与硬件 fencing/宿主冻结保证是不同边界。
+- 本地稳定数据库入口为写 `24533` / 读 `24534`；开发后端 `12031` 连接独立的 `stella_dev` 库，生产使用 `stella`。
+- GitLab 的 protected master 运行测试、构建不可变 digest，并先更新备用应用、再更新活动应用。镜像/数据库迁移版本、资源和密钥指纹不一致时拒绝发布；CI 不重启 PG、不自动切换数据库角色。
+- OpenList、Immich、邮件及香港公网入口仍是独立服务，不能因核心主备部署而视为全部实现了容灾。
+
+生产发布变量、受限 SSH、回退和操作边界见 [生产发布说明](deploy/local-ha/PRODUCTION_README.md)。旧 `deploy/k8s/` 保留作历史与回退参考，不是当前生产启动入口。
 
 ### 本地开发
 
@@ -195,16 +195,16 @@ StellaHaven/
 │       ├── shell/         # 侧栏等外壳组件
 │       ├── api/           # 前端 API 封装
 │       └── stores/        # Pinia 状态
-├── deploy/                # 外部服务配置副本（nginx 等，非自动部署）
+├── deploy/                # CI、独立主备发布及外部服务配置
 ├── alembic/               # 数据库迁移
-├── tests/                 # pytest（121 用例）
+├── tests/                 # pytest／隔离 PG 与媒体回归
 └── .github/workflows/     # CI（push/PR 自动跑测试）
 ```
 
 ## 测试 & CI
 
-- **121 个 pytest 用例**，覆盖认证、文档、工作区、标签、附件、回收站、版本、图谱等模块
-- **GitHub Actions CI**：每次 push / PR 自动起 PostgreSQL 容器 + `uv sync` + `pytest`
+- **后端与集成回归用例**，覆盖认证、文档、工作区、标签、附件、回收站、版本、图谱等模块
+- **CI/CD**：GitLab 承担受保护主分支的生产发布；GitHub Actions 验证镜像代码，不部署生产。测试使用独立 PostgreSQL 服务。
 
 ```bash
 uv run pytest          # 本地跑全部测试
@@ -220,4 +220,4 @@ uv run pytest          # 本地跑全部测试
 - [x] 服务器监控（agent 采集 / 任务下发 / MTR / 打流 / 防火墙与 PBR / Docker 面板）
 - [ ] 防火墙写操作（规则增删 + 校验回退）
 - [ ] 移动端适配完善
-- [ ] Docker 封装 / 一键部署
+- [x] Docker 镜像与受控主备应用发布；集群初始化和数据库迁移另行验收
