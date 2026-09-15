@@ -85,6 +85,7 @@ build-images:
     - docker build --network=host -f Dockerfile.pg -t $REGISTRY/pg-patroni:$CI_COMMIT_SHA .
     - docker push $REGISTRY:$CI_COMMIT_SHA
     - docker push $REGISTRY/pg-patroni:$CI_COMMIT_SHA
+    - printf 'STELLA_PRODUCTION_IMAGE=%s\n' "$(docker image inspect --format '{{index .RepoDigests 0}}' "$REGISTRY:$CI_COMMIT_SHA")" > production-image.env
     - |
       if [ "$CI_COMMIT_BRANCH" = master ] && [ "$CI_COMMIT_REF_PROTECTED" = true ] && [ "${STELLA_DEPLOY_TARGET:-k3s}" = k3s ]; then
         docker tag "$REGISTRY:$CI_COMMIT_SHA" "$REGISTRY:latest"
@@ -92,6 +93,46 @@ build-images:
         docker push "$REGISTRY:latest"
         docker push "$REGISTRY/pg-patroni:latest"
       fi
+  artifacts:
+    reports:
+      dotenv: production-image.env
+    paths: [production-image.env]
+    expire_in: 7 days
+
+# App-only production release: no PG role/lifecycle changes, not fencing proof.
+# Protected File variables are documented in production_release.py. First run
+# is deliberately manual; changing to automatic requires separate approval.
+local-ha-production-app:
+  stage: deploy
+  image: python:3.13-slim
+  timeout: 30m
+  interruptible: false
+  needs: ["build-images"]
+  resource_group: stella-production
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" && $CI_COMMIT_REF_PROTECTED == "true" && $STELLA_DEPLOY_TARGET == "local-ha" && $STELLA_AUTO_DEPLOY == "true"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == "master" && $CI_COMMIT_REF_PROTECTED == "true" && $STELLA_DEPLOY_TARGET == "local-ha"'
+      when: manual
+      allow_failure: false
+    - when: never
+  environment:
+    name: production
+    deployment_tier: production
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends openssh-client
+    - test -f "$STELLA_PRODUCTION_SSH_KEY" && chmod 600 "$STELLA_PRODUCTION_SSH_KEY"
+  script:
+    - python3 deploy/local-ha/production_release.py --validate-pack
+    - |
+      status=0
+      python3 deploy/local-ha/production_release.py > production-release-receipt.json || status=$?
+      python3 -c 'from pathlib import Path; print(Path("production-release-receipt.json").read_text(), end="")'
+      exit "$status"
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths: [production-release-receipt.json]
 
 # 部署：滚动更新 k3s（镜像标签=commit SHA，精确到这次提交）
 deploy-k3s:
@@ -152,8 +193,8 @@ local-ha-live-readonly:
     - test -n "$LOCAL_HA_SSH_CONFIG" && test -f "$LOCAL_HA_SSH_CONFIG"
     - python3 deploy/local-ha/validate_live.py --inventory "$LOCAL_HA_INVENTORY" --ssh-config "$LOCAL_HA_SSH_CONFIG" --image "$LOCAL_HA_APP_IMAGE"
 
-# Production/host HA apply remains blocked pending fencing acceptance.
-# This narrowly scoped job replaces ONLY the existing loopback PoC container.
+# PG/host HA automation remains blocked; the app-only job above is not fencing.
+# This narrowly scoped preview job replaces ONLY the existing loopback PoC container.
 local-ha-preview:
   stage: deploy
   image: docker:27-cli

@@ -1,4 +1,10 @@
-# Local HA：隔离契约与只读验证（尚不能发布）
+# Local HA：生产应用发布与历史隔离契约
+
+**生产应用发布入口已实现：见 [PRODUCTION_README.md](PRODUCTION_README.md)。**
+`production_release.py` / `node_production.py` 是独立的真实 SSH/Docker app-only 发布路径；
+protected master + target `local-ha` 的 `local-ha-production-app` job 首次仍为手动。
+这不授权 PG 生命周期/升主/迁移，也不代表已在生产执行验收。
+下文的“尚不能发布/拒绝写入”仅指旧 `release.py`、`node.py` 隔离契约，不能套用到新生产入口。
 
 **这是 disabled-by-default 的非生产部署契约，不是已验收 HA 集群。**
 现阶段可执行：离线单元测试、真实 `docker compose config`、对操作员已建好的隔离双节点执行 SSH 只读验证。
@@ -14,7 +20,7 @@
 - branch/MR 执行 test 与 build；镜像只打完整 `$CI_COMMIT_SHA` 标签（不是短 SHA）。真正部署契约必须使用 `repository@sha256:...`，SHA 标签并非 registry 强制不可变策略。
 - `latest` 仅 protected master 且 `STELLA_DEPLOY_TARGET` 为默认 `k3s` 时更新。
 - 旧 `deploy-k3s` 仅 protected master，target 未设置/空/`k3s`，保留旧 master 自动行为；未知 target 和 `local-ha` 都不部署。额外 shell guard 防误执行；production resource group 串行。
-- **不提供 local-ha apply job**；local-ha 尚未接受 fencing，不能靠设置 CI 布尔变量绕过。
+- 新增 app-only `local-ha-production-app` 手动 job，详见上述生产文档；PG apply/fencing 仍不属于该 job。
 - `local-ha-contract` 自动运行下述测试，Compose config 不访问 Docker daemon、不启动容器。
 - feature 分支 `local-ha-live-readonly` 是 manual/optional，GitLab 未点击显示 manual/skipped，**不是通过验证**。点击后缺 inventory、SSH 配置或 digest 会失败，不能输出伪成功。
 - 非生产验证凭据只应拥有隔离主机只读权限；生产 KUBECONFIG/密钥须在 GitLab 设置为 protected、environment-scoped。YAML rules 无法隔离带生产 Docker socket 的不可信 runner；使用隔离 runner 才是主机级隔离。
