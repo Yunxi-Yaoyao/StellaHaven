@@ -6,72 +6,51 @@ on:
   pull_request:
     branches: [master]
 
+# GitHub is a source/CI mirror. Production deployment is GitLab only.
 jobs:
   backend-test:
     runs-on: ubuntu-latest
-
+    container: python:3.13
     services:
       postgres:
         image: postgres:18
         env:
           POSTGRES_USER: stalla
-          POSTGRES_PASSWORD: St@106954021
+          POSTGRES_PASSWORD: isolated-ci-only-password
           POSTGRES_DB: stella
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U stalla -d stella"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     env:
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: 5432
+      CI: "true"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
       POSTGRES_USER: stalla
-      POSTGRES_PASSWORD: St@106954021
+      POSTGRES_PASSWORD: isolated-ci-only-password
       POSTGRES_DB: stella
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install dependencies
-        run: uv sync --all-groups
-
-      - name: Create test database
-        run: |
-          PGPASSWORD='St@106954021' psql -h localhost -U stalla -d stella -c 'CREATE DATABASE stella_test;'
-
+      - uses: actions/checkout@v4
+      - name: Install media test dependency
+        run: apt-get update && apt-get install -y --no-install-recommends ffmpeg
+      - uses: astral-sh/setup-uv@v5
+      - name: Install locked dependencies
+        run: uv sync --frozen --all-groups
+      - name: Create isolated test database
+        run: uv run python deploy/ci/create-test-db.py
       - name: Run tests
-        run: uv run pytest -q
+        run: uv run pytest -q tests tests_ha
 
   frontend-build:
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: frontend
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
+      - run: npm ci --include=dev
+      - run: npm run build
