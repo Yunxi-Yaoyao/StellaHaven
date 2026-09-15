@@ -152,4 +152,38 @@ local-ha-live-readonly:
     - test -n "$LOCAL_HA_SSH_CONFIG" && test -f "$LOCAL_HA_SSH_CONFIG"
     - python3 deploy/local-ha/validate_live.py --inventory "$LOCAL_HA_INVENTORY" --ssh-config "$LOCAL_HA_SSH_CONFIG" --image "$LOCAL_HA_APP_IMAGE"
 
-# Deliberately no local-ha apply job: node-side fencing acceptance is unfinished.
+# Production/host HA apply remains blocked pending fencing acceptance.
+# This narrowly scoped job replaces ONLY the existing loopback PoC container.
+local-ha-preview:
+  stage: deploy
+  image: docker:27-cli
+  timeout: 15m
+  interruptible: false
+  needs: ["build-images"]
+  resource_group: stella-ha-preview
+  variables:
+    STELLA_DEPLOY_TARGET: local-ha-preview
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "feature/local-ha-20260915"'
+      when: manual
+      allow_failure: false
+    - when: never
+  environment:
+    name: local-ha-preview
+    deployment_tier: testing
+  before_script:
+    - ALPINE_BRANCH="v$(cut -d. -f1,2 /etc/alpine-release)"
+    - apk --repositories-file /dev/null -X "https://mirrors.ustc.edu.cn/alpine/$ALPINE_BRANCH/main" -X "https://mirrors.ustc.edu.cn/alpine/$ALPINE_BRANCH/community" add --no-cache python3
+    - echo "$CI_REGISTRY_PASSWORD" | docker login gitlab-registry.xiya.live -u "$CI_REGISTRY_USER" --password-stdin
+  script:
+    - test "$CI_COMMIT_BRANCH" = feature/local-ha-20260915
+    - test "$STELLA_DEPLOY_TARGET" = local-ha-preview
+    - |
+      status=0
+      python3 deploy/local-ha/preview_release.py --commit "$CI_COMMIT_SHA" --fixture "${LOCAL_HA_PREVIEW_FIXTURE:-}" > preview-receipt.json || status=$?
+      python3 -c 'from pathlib import Path; print(Path("preview-receipt.json").read_text(), end="")'
+      exit "$status"
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths: [preview-receipt.json]
