@@ -22,7 +22,8 @@ router = APIRouter(dependencies=[Depends(current_user)], prefix="/attachments", 
 
 # 文件本体落这里（DB 只记元信息——二进制不进关系库，docs/15 的决策）
 STORAGE = Path(__file__).resolve().parents[2] / "data" / "attachments"
-STORAGE.mkdir(parents=True, exist_ok=True)
+if not blob_store.enabled():
+    STORAGE.mkdir(parents=True, exist_ok=True)
 
 # 正文里引用附件的标记：![..](/attachments/{id})
 ATTACH_REF_RE = re.compile(r"/attachments/([0-9a-f-]{36})")

@@ -22,6 +22,10 @@ services:
       LOCAL_HA_PROFILE: ${LOCAL_HA_PROFILE:-manual}
       LOCAL_HA_NODE: ${LOCAL_HA_NODE:?required}
       STELLA_HA_MODE: primary-only
+      STELLA_BLOB_STORAGE: postgres
+      STELLA_SHARED_STATE: postgres
+      STELLA_BLOB_CACHE: /app/data/cache/blobs
+      STELLA_OIDC_PRIVATE_KEY_FILE: /run/secrets/oidc-private.json
       STELLA_PATRONI_URL: http://127.0.0.1:24808
       POSTGRES_HOST: 127.0.0.1
       POSTGRES_PORT: '24532'
@@ -35,7 +39,9 @@ services:
       - {type: bind, source: '${NODE_ROOT:?required}/cache', target: /app/data/cache, bind: {create_host_path: false}}
       - {type: bind, source: '${NODE_ROOT:?required}/secrets/app-password', target: /run/secrets/app-password, read_only: true, bind: {create_host_path: false}}
       - {type: bind, source: '${NODE_ROOT:?required}/secrets/signing-key', target: /data/secret_key, read_only: true, bind: {create_host_path: false}}
-    tmpfs: [/tmp:size=128m, /run:size=16m]
+      - {type: bind, source: '${NODE_ROOT:?required}/secrets/oidc-private.json', target: /run/secrets/oidc-private.json, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: '${NODE_ROOT:?required}/tmp', target: /tmp, bind: {create_host_path: false}}
+    tmpfs: [/run:size=16m]
     healthcheck:
       test: [CMD, /app/.venv/bin/python, /local-ha/readiness.py, --primary]
       interval: 10s

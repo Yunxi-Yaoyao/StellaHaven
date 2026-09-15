@@ -49,7 +49,8 @@ docker compose --env-file /tmp/local-ha-render/compose.env \
 - 同机 PG `127.0.0.1:24532`，Patroni `127.0.0.1:24808`，应用 `127.0.0.1:24131`；启用 host networking 前由操作员核对端口、卷、名称冲突及防火墙。数据库/Patroni listen 是 `0.0.0.0`，必须限制访问。
 - PG18 数据必须由另行批准的种子流程提供，要求 `PG_VERSION=18` 与 `.local-ha-independent` 内容为上述 scope；marker 只检查操作员声明，不证明存储隔离。
 - 应用启用 `STELLA_HA_MODE=primary-only`、`STELLA_PATRONI_URL`，两节点同一外部签名密钥（至少32字符）绑定 `/data/secret_key`。HA 模式拒绝缺钥，不自动生成。不在该 Compose 设置另一个 `STELLA_SECRET_KEY` 以免覆盖挂载密钥。
-- secrets 目录要求 app-password、pg-super-password、pg-repl-password、patroni-api-password、etcd-ca.crt、etcd-client.crt、etcd-client.key；signing-key 单独绑定应用。使用受限权限、离线分发；这里不生成生产密钥。
+- secrets 目录要求 app-password、pg-super-password、pg-repl-password、patroni-api-password、etcd-ca.crt、etcd-client.crt、etcd-client.key；signing-key 与 oidc-private.json 分别作为共享签名密钥绑定应用。使用受限权限、离线分发；这里不生成生产密钥。
+- 应用必须启用STELLA_BLOB_STORAGE=postgres及STELLA_SHARED_STATE=postgres；数据库迁移/数据导入完成后才允许独立运行。NODE_ROOT/tmp是独立可写临时磁盘目录，避免80MiB上传与转码同时占满小型tmpfs；需要可用空间监控。
 - resources 为只读 `/app/data`，必须有 manifest.json：`{"files":{"relative/path":{"size":123,"sha256":"<hex>"}}}`。启动做 full hash；周期探测仅存在/尺寸检查。独立可写 cache 挂 `/app/data/cache`。两节点 bundle 与 signing-key 指纹一致才可计划。
 - Patroni nofailover=true、watchdog=off，无 bootstrap，没有实现安全自动升主；这些标志**不等价于 fencing**。
 - `/live` 是进程存活；`/ready-primary` 仅同机 Patroni /primary=200 且 SQL writable primary 放行。备用 app healthcheck 为 unhealthy 是预期的写就绪结果，不代表可以提升它。

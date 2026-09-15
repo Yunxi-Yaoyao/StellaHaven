@@ -26,6 +26,9 @@ def start(role, argv):
             raise Refused('app startup not authorized')
         if env.get('STELLA_HA_MODE') != 'primary-only':
             raise Refused('single-writer app gate required')
+        if env.get('STELLA_BLOB_STORAGE') != 'postgres' or env.get('STELLA_SHARED_STATE') != 'postgres':
+            raise Refused('independent app requires transactional PG state/media')
+        secret('/run/secrets/oidc-private.json')
         check_resources(full=True)
         if len(secret('/data/secret_key')) < 32:
             raise Refused('externally provisioned shared signing secret required; no key generation')
