@@ -364,7 +364,11 @@ async def upload_avatar(file: UploadFile, user: User = Depends(current_user), db
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in {"jpg", "jpeg", "png", "webp", "gif"}:
         raise HTTPException(400, "头像仅支持 jpg/png/webp/gif")
-    data = await file.read()
+    from app.services import blob_store
+    if blob_store.enabled():
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(_upload_avatar_pg, db, user, file, ext)
+    data = await file.read(10 * 1024 * 1024 + 1)
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(400, "头像不能超过 10MB")
     d = Path(__file__).resolve().parents[2] / "data" / "assets" / "avatars"
@@ -387,6 +391,40 @@ async def upload_avatar(file: UploadFile, user: User = Depends(current_user), db
     user.avatar_history = _json.dumps(history, ensure_ascii=False)
     user.avatar_url = url
     db.commit()
+    return _user_out(user)
+
+
+def _upload_avatar_pg(db, user, file, ext):
+    import json
+    import mimetypes
+    from uuid import uuid4
+    from sqlalchemy import select
+    from app.services import blob_store
+    try:
+        user = db.execute(select(User).where(User.id == user.id).with_for_update()
+                          .execution_options(populate_existing=True)).scalar_one()
+        fname = f'{user.id.hex[:12]}-{uuid4().hex}.{ext}'
+        url = '/assets/avatars/' + fname
+        blob_store.put(db, 'avatars/' + fname, file.file,
+                       mimetypes.guess_type(fname)[0] or 'application/octet-stream', 10 * 1024 * 1024)
+        try:
+            history = json.loads(user.avatar_history or '[]')
+        except (ValueError, TypeError):
+            history = []
+        history = [url] + [u for u in history if u != url]
+        for old in history[5:]:
+            # Only delete avatar keys; never allow history to name other stores.
+            if old.startswith('/assets/avatars/') and '/' not in old.removeprefix('/assets/avatars/'):
+                blob_store.delete(db, old.removeprefix('/assets/'))
+        user.avatar_history = json.dumps(history[:5], ensure_ascii=False)
+        user.avatar_url = url
+        db.commit()
+    except blob_store.BlobTooLarge as exc:
+        db.rollback()
+        raise HTTPException(400, '头像不能超过 10MB') from exc
+    except Exception:
+        db.rollback()
+        raise
     return _user_out(user)
 
 
@@ -698,6 +736,11 @@ class AvatarPickIn(BaseModel):
 def pick_avatar(data: AvatarPickIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """从历史头像里选一个当当前头像（提到队首）"""
     import json as _json
+    from app.services import blob_store
+    if blob_store.enabled():
+        from sqlalchemy import select
+        user = db.execute(select(User).where(User.id == user.id).with_for_update()
+                          .execution_options(populate_existing=True)).scalar_one()
     try:
         history = _json.loads(user.avatar_history or "[]")
     except Exception:

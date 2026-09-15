@@ -35,6 +35,14 @@ API_PREFIXES = (
 
 app = FastAPI(title="StellaHaven")
 
+# Opt-in only: passive nodes may run processes but must not serve business.
+# This gate never elects a leader; PostgreSQL/Patroni remains the write fence.
+import os
+from app.services.ha_readiness import PrimaryOnlyMiddleware
+from app.services.media_limits import MediaLimitsMiddleware
+app.add_middleware(MediaLimitsMiddleware, enabled=os.getenv('STELLA_BLOB_STORAGE') == 'postgres')
+app.add_middleware(PrimaryOnlyMiddleware, enabled=os.getenv('STELLA_HA_MODE') == 'primary-only')
+
 # gzip 压缩：API JSON（文档列表等大 payload）和构建产物都受益，跨 frp/HK 链路尤其明显
 from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -76,6 +84,9 @@ app.include_router(metrics_source_router)
 app.include_router(drive_router)
 app.include_router(gallery_router)
 app.include_router(oidc_router)
+# Exact media routes must precede StaticFiles; other packaged assets still fall through.
+from app.routers.dynamic_assets import router as dynamic_assets_router
+app.include_router(dynamic_assets_router)
 app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
 

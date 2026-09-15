@@ -9,3 +9,8 @@ wheels/
 # Virtual environments
 .venv
 data/
+.env
+.env.*
+!.env.example
+artifacts/
+.local-ha-private/

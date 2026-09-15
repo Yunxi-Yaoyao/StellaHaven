@@ -1,6 +1,10 @@
 # 不烤进镜像的东西
 .git
 .venv
+.env
+.env.*
+artifacts/
+.local-ha-private/
 __pycache__
 data/
 frontend/node_modules

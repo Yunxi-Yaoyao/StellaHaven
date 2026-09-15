@@ -198,10 +198,14 @@ def commit_archive(db, user, workspace_id, parent_id, import_id, data, encoding=
                 payload = files[path]
                 att = Attachment(id=uuid4(), doc_id=owner.id, filename=path,
                     mime=mimetypes.guess_type(path)[0] or 'application/octet-stream', size=len(payload))
-                disk = storage.STORAGE / str(att.id)
-                with disk.open('xb') as handle:
-                    created_files.append(disk)
-                    handle.write(payload)
+                from app.services import blob_store
+                if blob_store.enabled():
+                    blob_store.put(db,'attachments/'+str(att.id),io.BytesIO(payload),att.mime,MAX_FILE)
+                else:
+                    disk = storage.STORAGE / str(att.id)
+                    with disk.open('xb') as handle:
+                        created_files.append(disk)
+                        handle.write(payload)
                 db.add(att)
                 attachments[key] = att
             return '/attachments/' + str(attachments[key].id)

@@ -135,6 +135,62 @@ def schedule(root: Path, url: str) -> dict:
         raise
 
 
+def pg_keys(entry):
+    """Owned originals and derivatives; filenames are unique per upload."""
+    media = entry.get('media') or {}
+    urls = [PREFIX + entry['file'], media.get('poster'), media.get('thumbnail'),
+            *(media.get('variants') or {}).values()]
+    return {u.removeprefix('/assets/') for u in urls if u and u.startswith(PREFIX)}
+
+
+def pg_optimize(db, filename, max_bytes):
+    """Stage on disposable local disk; publish derivatives in caller transaction.
+
+    The PG index row lock provides cross-node exclusion. Local worker sidecars
+    are only transient scratch, never authoritative. No background DB session
+    escapes the request. Encoding errors explicitly retain the original.
+    """
+    import tempfile
+    import mimetypes
+    from app.services import blob_store
+    key = 'homebg/' + filename
+    info = blob_store.metadata(db, key)
+    if info is None:
+        raise FileNotFoundError(filename)
+    url = PREFIX + filename
+    if not _SLOTS.acquire(blocking=False):
+        return dict(_base(url), status='error', error='Media queue is full; retry later')
+    with tempfile.TemporaryDirectory(prefix='stella-media-') as directory:
+        source = Path(directory) / filename
+        try:
+            with source.open('wb') as output:
+                for chunk in blob_store.read_range(db, key, 0, info['size']):
+                    output.write(chunk)
+            data = dict(_base(url), _identity=_identity(source))
+            lock = tempfile.TemporaryFile()
+        except Exception:
+            _SLOTS.release()
+            raise
+        _worker(source, data, lock)  # releases slot; reuses existing codecs
+        result = {k: v for k, v in data.items() if not k.startswith('_')}
+        if result['status'] != 'ready':
+            return dict(_base(url), status='error', error=result.get('error', 'Optimization failed'))
+        mapping = {url: url}
+        urls = {result['poster'], result['thumbnail'], *result['variants'].values()} - {url, None}
+        for asset in urls:
+            local = source_path(source.parent, asset)
+            # Scope derivatives to the upload, avoiding shared-delete races.
+            name = source.stem + '-' + local.name
+            with local.open('rb') as stream:
+                blob_store.put(db, 'homebg/' + name, stream,
+                               mimetypes.guess_type(name)[0] or 'application/octet-stream', max_bytes)
+            mapping[asset] = PREFIX + name
+        for field in ('poster', 'thumbnail'):
+            result[field] = mapping.get(result[field])
+        result['variants'] = {k: mapping[v] for k, v in result['variants'].items()}
+        return result
+
+
 def _input(source: Path) -> list[str]:
     # Force demuxers: a renamed playlist must not open URLs or other local files.
     demuxer = {'mp4': 'mov', 'gif': 'gif'}.get(source.suffix[1:].lower(), 'image2')

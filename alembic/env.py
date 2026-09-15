@@ -1,7 +1,7 @@
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 
 from alembic import context
 
@@ -70,13 +70,37 @@ def run_migrations_online() -> None:
     )
 
 
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
-
-        with context.begin_transaction():
-            context.run_migrations()
+    try:
+        with connectable.connect() as connection:
+            if connection.dialect.name == "postgresql":
+                # A waiting migrator must read the version committed by its
+                # predecessor, not a snapshot established before taking the lock.
+                connection = connection.execution_options(isolation_level="READ COMMITTED")
+                # Own ONE transaction, including role checks, lock, version read,
+                # every revision's DDL and the version update. Any exception rolls
+                # back everything and releases the xact lock; never downgrade.
+                # Revisions must not commit or use autocommit-only DDL.
+                with connection.begin():
+                    recovery, readonly = connection.execute(text(
+                        "SELECT pg_is_in_recovery(), current_setting('transaction_read_only')"
+                    )).one()
+                    if recovery or readonly != "off":
+                        raise RuntimeError("Migrations require a writable PostgreSQL primary")
+                    # Fixed, database-wide Stella migration namespace, shared by
+                    # every instance. Never derive this from a host/process/schema.
+                    connection.execute(text("SELECT pg_advisory_xact_lock(1937007980, 1)"))
+                    context.configure(
+                        connection=connection, target_metadata=target_metadata,
+                        transactional_ddl=True, transaction_per_migration=False,
+                    )
+                    with context.begin_transaction():
+                        context.run_migrations()
+            else:
+                context.configure(connection=connection, target_metadata=target_metadata)
+                with context.begin_transaction():
+                    context.run_migrations()
+    finally:
+        connectable.dispose()
 
 
 if context.is_offline_mode():

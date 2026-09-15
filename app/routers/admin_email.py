@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from app.routers.auth import admin_user
 from app.models.user import User
+from app.services import ha_state
 
 router = APIRouter(prefix="/admin/email", tags=["admin-email"])
 
@@ -29,6 +30,9 @@ DEFAULTS = {
 
 
 def _load() -> dict:
+    if ha_state.enabled():
+        with ha_state.locked_state('smtp.config', DEFAULTS) as cfg:
+            return {**DEFAULTS, **cfg}
     if not CONFIG_FILE.exists():
         return dict(DEFAULTS)
     cfg = dict(DEFAULTS)
@@ -37,6 +41,11 @@ def _load() -> dict:
 
 
 def _save(cfg: dict) -> None:
+    if ha_state.enabled():
+        with ha_state.locked_state('smtp.config', DEFAULTS) as state:
+            state.clear()
+            state.update(cfg)
+        return
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -60,6 +69,13 @@ def get_config(user: User = Depends(admin_user)):
 @router.put("/config")
 def put_config(data: EmailConfigIn, user: User = Depends(admin_user)):
     cfg = data.model_dump()
+    if ha_state.enabled():
+        with ha_state.locked_state('smtp.config', DEFAULTS) as state:
+            if cfg['password'] == '••••••':
+                cfg['password'] = state.get('password', '')
+            state.clear()
+            state.update(cfg)
+        return {'ok': True}
     if cfg["password"] == "••••••":  # 没动掩码就保留旧密钥
         cfg["password"] = _load().get("password", "")
     _save(cfg)
