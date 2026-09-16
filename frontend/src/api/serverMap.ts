@@ -15,6 +15,11 @@ export interface MapNode {
   wireguard_status: string | null;
 }
 export type MapLinkState = 'recent' | 'stale' | 'never' | 'unknown';
+export type MapLinkHealth = 'ok' | 'degraded' | 'failed' | 'unknown';
+export interface MapLinkObservation {
+  source: number; target: number; interface: string;
+  probe: { checked_at: string; status: MapLinkHealth; sent: number; received: number; loss_pct: number | null; rtt_ms: number | null; target: string; reason: string | null };
+}
 export interface MapLink {
   id: string;
   source: number;
@@ -22,6 +27,10 @@ export interface MapLink {
   source_interface: string;
   target_interface: string | null;
   state: MapLinkState;
+  health?: MapLinkHealth;
+  health_checked_at?: string | null;
+  health_reason?: string | null;
+  observations?: MapLinkObservation[];
   latest_handshake_at: number | null;
   rx_bytes: number | null;
   tx_bytes: number | null;

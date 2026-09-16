@@ -45,7 +45,7 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.7"
+AGENT_VERSION = "0.6.8"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
@@ -191,7 +191,7 @@ def _parse_map_wireguard(outputs, addresses):
     return {'status': 'ok', 'interfaces': list(interfaces.values())}
 
 
-def _map_command(args, timeout=3):
+def _map_command(args, timeout=3, allowed_returncodes=(0,)):
     """Bound both runtime and output. Never log command output or exceptions."""
     env = {k: v for k, v in os.environ.items() if not k.lower().endswith('_proxy')}
     env['LC_ALL'] = 'C'
@@ -222,7 +222,7 @@ def _map_command(args, timeout=3):
         if oversized.is_set() or reader.is_alive():
             raise ValueError('output limit')
         text = output.decode('utf-8', errors='strict')
-        if proc.returncode:
+        if proc.returncode not in allowed_returncodes:
             if 'permission denied' in text.lower() or 'operation not permitted' in text.lower() or 'access is denied' in text.lower():
                 raise PermissionError('read denied')
             raise ValueError('command failed')
@@ -336,6 +336,76 @@ def _collect_map_location():
         return unknown
 
 
+def _probe_map_targets(wg, targets, deadline=None):
+    """Two workers, eight targets, hard admission deadline; no sudo or shell."""
+    from concurrent.futures import ThreadPoolExecutor
+    deadline = deadline if deadline is not None else time.monotonic() + 14
+    if wg.get('status') != 'ok' or not isinstance(targets, list):
+        return
+    jobs, seen = [], set()
+    for item in targets[:8]:
+        try:
+            name, key = item['interface'], item['peer_key_id']
+            address = ipaddress.ip_address(item['target'])
+            if (not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}', name)
+                    or address.version != 4 or address.is_unspecified or address.is_multicast
+                    or address.is_loopback or address.is_reserved or int(address) == 0xffffffff):
+                continue
+            interfaces = [i for i in wg['interfaces'] if i['name'] == name]
+            if len(interfaces) != 1 or (name, key) in seen:
+                continue
+            candidates = []
+            for peer in interfaces[0]['peers']:
+                lengths = [net.prefixlen for p in peer['allowed_ips']
+                           if (net := ipaddress.ip_network(p, strict=False)).version == 4 and address in net]
+                if lengths:
+                    candidates.append((max(lengths), peer))
+            best = max((n for n, _ in candidates), default=-1)
+            owners = [p for n, p in candidates if n == best]
+            if len(owners) != 1 or owners[0]['public_key_id'] != key:
+                continue
+            jobs.append((name, str(address), owners[0]))
+            seen.add((name, key))
+        except (ValueError, KeyError, TypeError):
+            continue
+    binary = shutil.which('ping') if platform.system() == 'Linux' else None
+    def work(job):
+        name, target, peer = job
+        result = dict(checked_at=datetime.now(timezone.utc).isoformat(), status='unknown',
+                      sent=0, received=0, loss_pct=None, rtt_ms=None, target=target, reason='ping_unavailable')
+        try:
+            remaining = deadline - time.monotonic()
+            if not binary:
+                return result
+            if remaining < .1:
+                result['reason'] = 'probe_budget_exhausted'
+                return result
+            result['reason'] = 'ping_failed_or_unparseable'
+            text = _map_command([binary, '-n', '-I', name, '-c', '5', '-i', '0.2', '-W', '1', target],
+                                timeout=min(5, remaining), allowed_returncodes=(0, 1))
+            match = re.search(r'(\d+) packets transmitted,\s*(\d+) (?:packets )?received', text)
+            if not match:
+                return result
+            sent, received = map(int, match.groups())
+            if sent != 5 or not 0 <= received <= sent:
+                return result
+            rtt = re.search(r'(?:rtt|round-trip) [^=]+ = [\d.]+/([\d.]+)/', text)
+            avg = float(rtt[1]) if rtt else None
+            if avg is not None and not math.isfinite(avg):
+                return result
+            result.update(status='ok' if received == 5 else ('degraded' if received else 'failed'),
+                          sent=sent, received=received, loss_pct=100.0*(sent-received)/sent,
+                          rtt_ms=avg, reason=None if received == 5 else ('icmp_packet_loss' if received else 'icmp_no_response'))
+        except Exception:
+            pass
+        finally:
+            result['checked_at'] = datetime.now(timezone.utc).isoformat()
+        return result
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix='wg-probe') as pool:
+        for job, result in zip(jobs, pool.map(work, jobs)):
+            job[2]['probe'] = result
+
+
 class Agent:
     def __init__(self, url: str, token: str):
         if "://" not in url:
@@ -353,18 +423,60 @@ class Agent:
         now = time.monotonic()
         cached = getattr(self, '_map_location_cache', None)
         if cached is None or now >= cached[0]:
-            location = _collect_map_location()
+            try:
+                location = _collect_map_location()
+            except Exception:
+                location = {'status': 'unknown', 'source': 'unknown', 'reason': 'location_collection_failed'}
             self._map_location_cache = (now + (900 if location['status'] == 'located' else 60), location)
         return {'observed_at': datetime.now(timezone.utc).isoformat(),
                 'location': dict(self._map_location_cache[1]),
                 'wireguard': _collect_map_wireguard()}
 
+    def _get_map_targets(self):
+        # A separate bounded read, not the generic unbounded JSON helper.
+        import urllib.request
+        import urllib.parse
+        url = self.url + '/agent/map-targets?' + urllib.parse.urlencode({'token': self.token})
+        if httpx:
+            with httpx.stream('GET', url, timeout=2, follow_redirects=False,
+                              headers={'Accept-Encoding': 'identity'}) as response:
+                response.raise_for_status()
+                raw = bytearray()
+                deadline = time.monotonic() + 3
+                for chunk in response.iter_raw():
+                    raw.extend(chunk)
+                    if len(raw) > 16384 or time.monotonic() > deadline:
+                        raise ValueError('target response limit')
+        else:
+            class NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    raise ValueError('target redirect refused')
+            opener = urllib.request.build_opener(NoRedirect())
+            with opener.open(url, timeout=2) as response:
+                raw = bytearray()
+                deadline = time.monotonic() + 3
+                while True:
+                    chunk = response.read1(4096)
+                    if not chunk:
+                        break
+                    raw.extend(chunk)
+                    if len(raw) > 16384 or time.monotonic() > deadline:
+                        raise ValueError('target response limit')
+        return json.loads(raw)['targets']
+
     def _report_map_snapshot(self):
         # Independent latest-state report: never overwrite OS metadata defaults.
         # Fixed error handling keeps tokens/keys out of scheduler exception logs.
         try:
+            snapshot = self.collect_map_snapshot()
+            if snapshot['wireguard']['status'] == 'ok' and snapshot['wireguard']['interfaces']:
+                try:
+                    deadline = time.monotonic() + 14
+                    _probe_map_targets(snapshot['wireguard'], self._get_map_targets(), deadline=deadline)
+                except Exception:
+                    pass  # Probe/config failure must not discard the WG inventory.
             self._post('/agent/report', json_body={'metrics': [],
-                       'map_snapshot': self.collect_map_snapshot()}, token=self.token)
+                       'map_snapshot': snapshot}, token=self.token)
         except Exception:
             pass  # Next scheduled collection retries; no unbounded history queue.
 

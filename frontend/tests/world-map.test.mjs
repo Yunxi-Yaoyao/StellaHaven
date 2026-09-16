@@ -2,7 +2,48 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { groupMapNodes, projectMapLinks, parseLocationInput, escapeHtml, mapReasonLabel } from '../src/modules/servers/worldMapHelpers.ts';
 
+import * as helpers from '../src/modules/servers/worldMapHelpers.ts';
+
+test('aggregates canonical node pairs, dedupes IDs, excludes unidentified peers and preserves colocated links', () => {
+  assert.equal(typeof helpers.aggregateNodePairs, 'function');
+  const groups = groupMapNodes([node(1, 22, 114), node(2, 22, 114)]).groups;
+  const links = [{id:'a', source:2, target:1, state:'recent'}, {id:'b', source:1, target:2, state:'recent'}, {id:'a', source:1, target:2}, {id:'u', source:1, target:null}];
+  const result = helpers.aggregateNodePairs(links, groups);
+  assert.deepEqual(result.stats, { nodePairs:1, tunnels:2, unmatched:1 });
+  assert.equal(result.pairs[0].id, '1:2');
+  assert.equal(result.pairs[0].health, 'unknown');
+  assert.equal(result.drawable.length, 0);
+  assert.equal(result.unplaced.length, 1);
+  assert.equal(result.pairs[0].links.length, 2);
+});
+
 const node = (id, latitude, longitude, location_label = null) => ({ id, name: `node-${id}`, status: 'online', latitude, longitude, location_label, location_source: 'nat' });
+
+test('pair health is worst observed health and missing probes never imply success', () => {
+  const groups = groupMapNodes([node(1, 22, 114), node(2, 35, 140)]).groups;
+  const link = (id, health) => ({ id, source:1, target:2, state:'recent', health, observations:[{ probe:{ status:health } }] });
+  for (const [a, b, expected] of [['ok','failed','failed'], ['degraded','failed','failed'], ['ok','unknown','unknown'], ['unknown','degraded','degraded'], ['ok','ok','ok']]) {
+    const result = helpers.aggregateNodePairs([link('a', a), link('b', b)], groups);
+    assert.equal(result.drawable.length, 1);
+    assert.equal(result.drawable[0].health, expected);
+    assert.deepEqual(result.drawable[0].coords, [[114,22], [140,35]]);
+    assert.equal(result.drawable[0].links.length, 2);
+  }
+  assert.equal(helpers.linkHealth({ state:'recent', health:'ok' }), 'unknown');
+  assert.equal(helpers.linkHealth({ state:'stale' }), 'unknown');
+  assert.equal(new Set(Object.values(helpers.healthColors)).size, 4);
+  assert.match(helpers.healthLabels.ok, /ICMP/);
+});
+
+test('matched endpoints without coordinates remain counted without invented positions', () => {
+  const links = [{ id:'a', source:1, target:2, state:'unknown' }];
+  const before = JSON.stringify(links);
+  const result = helpers.aggregateNodePairs(links, []);
+  assert.deepEqual(result.stats, { nodePairs:1, tunnels:1, unmatched:0 });
+  assert.equal(result.unplaced[0].display_reason, '端点位置未知');
+  assert.equal(result.drawable.length, 0);
+  assert.equal(JSON.stringify(links), before);
+});
 
 test('groups identical coordinates and city labels without manufacturing coordinates', () => {
   const input = [node(1, 22.3, 114.2, '香港'), node(2, 22.31, 114.21, '香港'), node(3, 22.3, 114.2, 'HK'), node(4, null, null, '香港')];

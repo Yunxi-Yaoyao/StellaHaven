@@ -46,6 +46,46 @@ class Location(StrictModel):
     reason: Label | None = None
 
 
+class Probe(StrictModel):
+    checked_at: datetime
+    status: Literal['ok', 'degraded', 'failed', 'unknown']
+    sent: Annotated[int, Field(strict=True, ge=0, le=5)]
+    received: Annotated[int, Field(strict=True, ge=0, le=5)]
+    loss_pct: Annotated[float, Field(strict=True, ge=0, le=100, allow_inf_nan=False)] | None
+    rtt_ms: Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)] | None
+    target: Annotated[str, Field(strict=True, max_length=15)]
+    reason: Label | None = None
+
+    @field_validator('checked_at', mode='before')
+    @classmethod
+    def utc_time(cls, value):
+        if not isinstance(value, str) or len(value) > 40:
+            raise ValueError('checked_at must be an ISO UTC string')
+        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if parsed.utcoffset() is None or parsed.utcoffset().total_seconds() != 0:
+            raise ValueError('checked_at must be UTC')
+        return parsed
+
+    @field_validator('target')
+    @classmethod
+    def ipv4(cls, value):
+        if ip_address(value).version != 4:
+            raise ValueError('IPv4 required')
+        return value
+
+    @model_validator(mode='after')
+    def consistent(self):
+        if self.received > self.sent:
+            raise ValueError('received exceeds sent')
+        if self.status != 'unknown':
+            expected = 'ok' if self.received == 5 else ('degraded' if self.received else 'failed')
+            if self.sent != 5 or self.status != expected:
+                raise ValueError('inconsistent probe status')
+        if self.sent and (self.loss_pct is None or abs(self.loss_pct - 100 * (self.sent-self.received)/self.sent) > .01):
+            raise ValueError('inconsistent packet loss')
+        return self
+
+
 class Peer(StrictModel):
     public_key_id: Fingerprint
     endpoint: Label | None = None
@@ -53,6 +93,7 @@ class Peer(StrictModel):
     latest_handshake_at: Annotated[int, Field(strict=True, ge=0, le=253402300799)]
     rx_bytes: Counter
     tx_bytes: Counter
+    probe: Probe | None = None
 
     @field_validator("allowed_ips")
     @classmethod
@@ -168,13 +209,65 @@ def build_topology(nodes, snapshots, manuals, *, now=None):
     located = sum(n["latitude"] is not None for n in result)
     links = _links(nodes, snapshots, now)
     return dict(generated_at=now.isoformat(), nodes=result, links=links,
-                stats=dict(located=located, unknown=len(result) - located, links=len(links)))
+                stats=dict(located=located, unknown=len(result) - located, links=len(links),
+                    node_pairs=len({tuple(sorted((l['source'], l['target']))) for l in links if l['target'] is not None}),
+                    matched_tunnels=sum(l['target'] is not None for l in links),
+                    unmatched_peers=sum(l['target'] is None for l in links)))
 
 
 def _fresh(node, snapshot, now):
     return bool(snapshot and node_status(node, now) == "online"
         and snapshot["wireguard"]["status"] == "ok"
         and 0 <= (now - datetime.fromisoformat(snapshot["observed_at"].replace("Z", "+00:00"))).total_seconds() <= TTL)
+
+
+def _route_owner(iface, address):
+    candidates = []
+    for peer in iface['peers']:
+        prefixes = [ip_network(p, strict=False) for p in peer['allowed_ips']]
+        lengths = [p.prefixlen for p in prefixes if p.version == address.version and address in p]
+        if lengths:
+            candidates.append((max(lengths), peer['public_key_id']))
+    if not candidates:
+        return None
+    best = max(p[0] for p in candidates)
+    owners = [key for length, key in candidates if length == best]
+    return owners[0] if len(owners) == 1 else None
+
+
+def build_probe_targets(node_id, nodes, snapshots, *, now=None):
+    """Exact public-key identity and unique cryptokey route; never guess an IP."""
+    now = now or datetime.now(timezone.utc)
+    nodes = [n for n in nodes if n.status != 'removed']
+    snapshots = {n.id: _safe_snapshot(snapshots.get(n.id)) for n in nodes}
+    local = next((n for n in nodes if n.id == node_id), None)
+    if not local or not _fresh(local, snapshots[node_id], now):
+        return []
+    index = {}
+    for n in nodes:
+        snap = snapshots[n.id]
+        if snap and snap['wireguard']['status'] == 'ok':
+            for iface in snap['wireguard']['interfaces']:
+                index.setdefault(iface['public_key_id'], []).append((n, iface))
+    result = []
+    for iface in snapshots[node_id]['wireguard']['interfaces']:
+        for peer in iface['peers']:
+            matches = index.get(peer['public_key_id'], [])
+            if len(matches) != 1:
+                continue
+            remote, remote_iface = matches[0]
+            if remote.id == node_id or not _fresh(remote, snapshots[remote.id], now):
+                continue
+            addresses = sorted({ip_interface(a).ip for a in remote_iface['addresses']
+                                if ip_interface(a).version == 4}, key=int)
+            for address in addresses:
+                if (address.is_unspecified or address.is_multicast or address.is_loopback
+                        or address.is_reserved or int(address) == 0xffffffff):
+                    continue
+                if _route_owner(iface, address) == peer['public_key_id']:
+                    result.append(dict(interface=iface['name'], peer_key_id=peer['public_key_id'], target=str(address)))
+                    break
+    return result[:8]
 
 
 def _links(nodes, snapshots, now):
@@ -214,13 +307,37 @@ def _links(nodes, snapshots, now):
                     source_interface=iface["name"], target_interface=target_iface["name"] if target_iface else None,
                     state=state, latest_handshake_at=handshake, rx_bytes=peer["rx_bytes"], tx_bytes=peer["tx_bytes"],
                     peer_label=target.name if target else f'peer {peer["public_key_id"][:12]}',
-                    reason=reason or state_reason)
+                    reason=reason or state_reason, observations=[])
+                probe = peer.get('probe')
+                target_addresses = {str(ip_interface(a).ip) for a in target_iface['addresses']} if target_iface else set()
+                valid_target = bool(probe and target and probe['target'] in target_addresses
+                    and _route_owner(iface, ip_address(probe['target'])) == peer['public_key_id'])
+                fresh = bool(valid_target and _fresh(node, snapshot, now) and
+                    _fresh(target, snapshots[target.id], now) and
+                    0 <= (now - datetime.fromisoformat(probe['checked_at'].replace('Z', '+00:00'))).total_seconds() <= TTL)
+                observation = dict(source=node.id, target=target.id if target else None,
+                    interface=iface['name'], peer_key_id=peer['public_key_id'], probe=probe,
+                    health=probe['status'] if fresh else 'unknown',
+                    reason=(probe.get('reason') if fresh else 'missing_or_expired_probe'),
+                    latest_handshake_at=handshake, rx_bytes=peer['rx_bytes'], tx_bytes=peer['tx_bytes'])
                 if link_id not in links:
                     links[link_id] = link
                 elif state == "unknown":
                     # Keep the deterministic source direction and its counters;
                     # a bad reverse observation must not turn into green health.
                     links[link_id].update(state="unknown", reason=state_reason or reason)
+                links[link_id]['observations'].append(observation)
+    severity = {'ok': 0, 'unknown': 1, 'degraded': 2, 'failed': 3}
+    for link in links.values():
+        observations = link['observations']
+        states = [o['health'] for o in observations]
+        if link['target'] is None or len({o['source'] for o in observations}) != 2:
+            states.append('unknown')
+        link['health'] = max(states, key=severity.get)
+        times = [o['probe']['checked_at'] for o in observations if o['probe']]
+        link['health_checked_at'] = min(times, key=lambda t: datetime.fromisoformat(t.replace('Z', '+00:00'))) if times else None
+        link['health_reason'] = {'ok': None, 'unknown': 'missing_or_expired_direction',
+            'degraded': 'icmp_packet_loss', 'failed': 'icmp_no_response'}[link['health']]
     return list(links.values())
 
 
@@ -253,7 +370,7 @@ def set_manual_location(db, node_id, data: MapLocationUpdate):
     return _node_location(node, snapshot, value, datetime.now(timezone.utc))
 
 
-def get_topology(db):
+def _read_map_data(db):
     from app.models.config import AppConfig
     from app.repositories import node as node_repo
     # Same global authenticated node visibility as the existing list route.
@@ -271,4 +388,17 @@ def get_topology(db):
             target[int(node_id)] = _decode(row.value)
         if len(batch) < 100:
             break
-    return build_topology(nodes, snapshots, manuals)
+    return nodes, snapshots, manuals
+
+
+def get_topology(db):
+    return build_topology(*_read_map_data(db))
+
+
+def get_probe_targets(db, token, *, now=None):
+    from app.repositories import node as node_repo
+    node = node_repo.get_by_token(db, token)
+    if node is None or node.status == 'removed':
+        raise ValueError('invalid agent token')
+    nodes, snapshots, _ = _read_map_data(db)
+    return build_probe_targets(node.id, nodes, snapshots, now=now)

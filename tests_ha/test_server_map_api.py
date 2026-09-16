@@ -45,6 +45,24 @@ def test_report_persistence_is_separate_from_manual_and_clear(db, monkeypatch):
     assert json.loads(config_repo.get(db, "node_map_snapshot:1")) is None
 
 
+def test_agent_targets_require_valid_nonremoved_token(db, monkeypatch):
+    from app.routers import monitor
+    from test_wg_probes import pair
+    assert hasattr(server_map, 'get_probe_targets')
+    nodes = [node(), node(2)]
+    monkeypatch.setattr(node_svc.repo, 'get_by_token', lambda db, token: nodes[0] if token == 'good' else None)
+    monkeypatch.setattr(node_svc.repo, 'list_all', lambda db, skip=0, limit=100: nodes if skip == 0 else [])
+    for ident, snap in pair().items():
+        server_map.save_snapshot(db, ident, snap)
+    assert server_map.get_probe_targets(db, 'good', now=NOW) == [dict(interface='wg0', peer_key_id='b'*64, target='10.0.0.2')]
+    assert any(r.path == '/agent/map-targets' for r in monitor.agent_router.routes)
+    for token in ('bad', 'good'):
+        if token == 'good':
+            nodes[0].status = 'removed'
+        with pytest.raises(ValueError):
+            server_map.get_probe_targets(db, token, now=NOW)
+
+
 def test_legacy_ip_report_cannot_overwrite_manual_ip(db, monkeypatch):
     n = node(public_ip="1.1.1.1", public_ip_source="manual")
     monkeypatch.setattr(node_svc.repo, "get_by_id", lambda *a: n)

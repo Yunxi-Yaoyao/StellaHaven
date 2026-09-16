@@ -296,6 +296,14 @@ def agent_monitor_check(token: str, report: MonitorCheckReport, db: Session = De
     return {"ok": True}
 
 
+@agent_router.get('/map-targets')
+def agent_map_targets(token: str, db: Session = Depends(get_db)):
+    try:
+        return {'targets': server_map.get_probe_targets(db, token)}
+    except ValueError:
+        raise HTTPException(401, '无效的 agent token')
+
+
 @agent_router.get("/script")
 def agent_script():
     """下发 agent 主程序源码（安装脚本用）。无鉴权——脚本本身不含密钥。"""

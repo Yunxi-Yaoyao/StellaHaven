@@ -1,4 +1,44 @@
-import type { MapNode, MapLink, MapLocationInput } from '../../api/serverMap';
+import type { MapNode, MapLink, MapLocationInput, MapLinkHealth } from '../../api/serverMap';
+
+export const healthLabels: Record<MapLinkHealth, string> = { ok: 'ICMP探测成功', degraded: 'ICMP探测丢包', failed: 'ICMP探测未响应', unknown: '未探测 / 探测未知' };
+export const healthColors: Record<MapLinkHealth, string> = { ok: '#45c9b0', degraded: '#efa653', failed: '#ed6876', unknown: '#768091' };
+export function linkHealth(link: MapLink): MapLinkHealth {
+  return link.observations?.some(o => o.probe) ? link.health ?? 'unknown' : 'unknown';
+}
+export interface NodePair {
+  id: string; source: number; target: number; links: MapLink[]; health: MapLinkHealth;
+  coords?: [number, number][]; display_reason?: string;
+}
+/** Canonical node pairs; tunnel IDs are backend-deduplicated interface pairs. */
+export function aggregateNodePairs(links: MapLink[], groups: MapNodeGroup[]) {
+  const byNode = new Map(groups.flatMap(g => g.nodes.map(n => [n.id, g] as const)));
+  const pairsById = new Map<string, NodePair>();
+  const unmatched: MapLink[] = [];
+  const seen = new Set<string>();
+  const rank: Record<MapLinkHealth, number> = { ok: 0, unknown: 1, degraded: 2, failed: 3 };
+  for (const link of links) {
+    if (seen.has(link.id)) continue;
+    seen.add(link.id);
+    if (link.target === null || link.source === link.target) { unmatched.push(link); continue; }
+    const [source, target] = [link.source, link.target].sort((a, b) => a - b);
+    const id = `${source}:${target}`;
+    let pair = pairsById.get(id);
+    if (!pair) {
+      pair = { id, source, target, links: [], health: 'ok' };
+      const a = byNode.get(source), b = byNode.get(target);
+      if (!a || !b) pair.display_reason = '端点位置未知';
+      else if (a.id === b.id) pair.display_reason = '同城 / 同坐标，见链路详情';
+      else pair.coords = [a.coordinate, b.coordinate];
+      pairsById.set(id, pair);
+    }
+    pair.links.push(link);
+    const health = linkHealth(link);
+    if (rank[health] > rank[pair.health]) pair.health = health;
+  }
+  const pairs = [...pairsById.values()].sort((a, b) => a.source - b.source || a.target - b.target);
+  return { pairs, unmatched, drawable: pairs.filter(p => p.coords), unplaced: pairs.filter(p => !p.coords),
+    stats: { nodePairs: pairs.length, tunnels: pairs.reduce((sum, p) => sum + p.links.length, 0), unmatched: unmatched.length } };
+}
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));

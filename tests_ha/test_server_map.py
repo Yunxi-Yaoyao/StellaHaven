@@ -26,7 +26,8 @@ def test_old_agent_is_unknown_without_city_guessing():
     assert result["nodes"][0]["latitude"] is None
     assert result["nodes"][0]["longitude"] is None
     assert result["links"] == []
-    assert result["stats"] == {"located": 0, "unknown": 1, "links": 0}
+    assert result["stats"] == {"located": 0, "unknown": 1, "links": 0,
+                               "node_pairs": 0, "matched_tunnels": 0, "unmatched_peers": 0}
 
 
 def snapshot(**location):

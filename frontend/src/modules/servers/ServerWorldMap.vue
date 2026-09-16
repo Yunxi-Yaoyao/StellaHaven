@@ -5,7 +5,7 @@ import * as echarts from 'echarts';
 import Icon from '../../shell/Icon.vue';
 import { isAdmin } from '../home/auth';
 import { getMapTopology, updateMapLocation, type MapTopology, type MapNode, type MapLinkState } from '../../api/serverMap';
-import { escapeHtml, groupMapNodes, projectMapLinks, parseLocationInput, mapReasonLabel } from './worldMapHelpers';
+import { escapeHtml, groupMapNodes, aggregateNodePairs, healthColors, healthLabels, linkHealth, parseLocationInput, mapReasonLabel } from './worldMapHelpers';
 
 const router = useRouter();
 const storageKey = 'stella_server_world_map_collapsed';
@@ -22,7 +22,7 @@ const panel = ref<'nodes' | 'links'>('nodes');
 const selectedNodes = computed(() => topology.value?.nodes.filter(n => selectedIds.value.includes(n.id)) ?? []);
 const selectedNode = computed(() => topology.value?.nodes.find(n => n.id === selectedId.value));
 const grouped = computed(() => groupMapNodes(topology.value?.nodes ?? []));
-const projected = computed(() => projectMapLinks(topology.value?.links ?? [], grouped.value.groups));
+const projected = computed(() => aggregateNodePairs(topology.value?.links ?? [], grouped.value.groups));
 const visibleLinks = computed(() => (topology.value?.links ?? []).filter(l => selectedId.value === null || l.source === selectedId.value || l.target === selectedId.value).sort((a,b) => Number(a.target === null) - Number(b.target === null)));
 const stateLabels: Record<MapLinkState, string> = { recent: '近期握手', stale: '握手过期', never: '从未握手', unknown: '握手未知' };
 const sourceLabels = { manual: '人工位置', nat: '公网出口推断', unknown: '位置未知' };
@@ -50,7 +50,7 @@ function bytes(value: number | null): string {
 }
 function locationSourceLabel(node: MapNode): string { return node.location_source === 'nat' && node.location_provider === 'ip2location' ? '公网出口 · IP2Location' : sourceLabels[node.location_source]; }
 function nodeName(id: number | null): string { return id === null ? '未识别对端' : topology.value?.nodes.find(n => n.id === id)?.name ?? `#${id}`; }
-function unplacedReason(id: string): string { return projected.value.unplaced.find(l => l.id === id)?.display_reason ?? ''; }
+function unplacedReason(id: string): string { return projected.value.unplaced.find(p => p.links.some(l => l.id === id))?.display_reason ?? (projected.value.unmatched.some(l => l.id === id) ? '未识别对端，不计入隧道' : ''); }
 function selectNode(node: MapNode) { selectedId.value = node.id; selectedIds.value = [node.id]; panel.value = 'nodes'; }
 function latestHandshake(node: MapNode): string {
   // Handshakes describe configured WG peers, never ICMP latency or inferred reachability.
@@ -63,8 +63,8 @@ function tooltip(params: unknown): string {
     const group = grouped.value.groups.find(g => g.id === data.groupId);
     return group?.nodes.map(n => `${escapeHtml(n.name)} · ${escapeHtml(statusLabels[n.status] ?? n.status)}<br/>${escapeHtml(n.location_label || '未命名位置')} · ${escapeHtml(locationSourceLabel(n))}<br/>WG 最近握手：${escapeHtml(latestHandshake(n))}`).join('<br/><br/>') ?? '';
   }
-  const link = topology.value?.links.find(l => l.id === data?.linkId);
-  return link ? `${escapeHtml(nodeName(link.source))} → ${escapeHtml(nodeName(link.target))}<br/>${escapeHtml(stateLabels[link.state])} · ${escapeHtml(timestamp(link.latest_handshake_at))}<br/>${escapeHtml(link.source_interface)} → ${escapeHtml(link.target_interface ?? link.peer_label)}` : '';
+  const pair = projected.value.pairs.find(p => p.id === data?.linkId);
+  return pair ? `${escapeHtml(nodeName(pair.source))} ↔ ${escapeHtml(nodeName(pair.target))}<br/>${escapeHtml(healthLabels[pair.health])} · ${pair.links.length} 条隧道<br/>` + pair.links.map(link => `${escapeHtml(link.source_interface)} ↔ ${escapeHtml(link.target_interface ?? link.peer_label)}：${escapeHtml(healthLabels[linkHealth(link)])}<br/>${escapeHtml(stateLabels[link.state])} · ${escapeHtml(timestamp(link.latest_handshake_at))}`).join('<br/><br/>') : '';
 }
 function render() {
   if (!mapReady || !chartEl.value || collapsed.value || disposed) return;
@@ -85,18 +85,17 @@ function render() {
         selectedId.value = selectedIds.value.length === 1 ? selectedIds.value[0] : null;
         panel.value = 'nodes';
       } else if (data?.linkId) {
-        const link = topology.value?.links.find(l => l.id === data.linkId);
+        const link = projected.value.pairs.find(l => l.id === data.linkId);
         selectedId.value = link?.source ?? null;
         panel.value = 'links';
       }
     });
   }
-  const colors: Record<MapLinkState, string> = { recent: '#899dbb', stale: '#737e91', never: '#505866', unknown: '#505866' };
-  const series: echarts.SeriesOption[] = (['recent', 'stale', 'never', 'unknown'] as MapLinkState[]).map(state => ({
-    id: `wg-${state}`, type: 'lines', coordinateSystem: 'geo', z: 2,
-    lineStyle: { color: colors[state], width: 1, opacity: state === 'recent' ? 0.62 : 0.48, curveness: 0.16, type: state === 'stale' || state === 'unknown' ? 'dashed' : 'solid' },
+  const series: echarts.SeriesOption[] = (['ok', 'degraded', 'failed', 'unknown'] as const).map(health => ({
+    id: `wg-${health}`, type: 'lines', coordinateSystem: 'geo', z: 2,
+    lineStyle: { color: healthColors[health], width: 1.5, opacity: 0.75, curveness: 0.16, type: health === 'unknown' ? 'dashed' : 'solid' },
     effect: { show: false }, emphasis: { lineStyle: { width: 2, opacity: 0.9 } },
-    data: projected.value.drawable.filter(l => l.state === state).map(l => ({ coords: l.coords, linkId: l.id })),
+    data: projected.value.drawable.filter(l => l.health === health).map(l => ({ coords: l.coords!, linkId: l.id })),
   }));
   series.push({ id: 'nodes', type: 'scatter', coordinateSystem: 'geo', z: 3,
     label: { show: true, position: 'right', color: '#c9d4e8', fontSize: 10, formatter: (p: unknown) => {
@@ -193,7 +192,7 @@ onUnmounted(() => {
       <button class="collapse-button" :aria-expanded="!collapsed" aria-controls="world-map-content" @click="collapsed = !collapsed">
         <Icon name="globe" :size="15" /><strong>节点足迹</strong><Icon :name="collapsed ? 'chevron' : 'chevron-down'" :size="12" />
       </button>
-      <span class="map-counts">{{ topology?.stats.located ?? 0 }} 已定位 · {{ topology?.stats.unknown ?? 0 }} 未知 · {{ topology?.stats.links ?? 0 }} WG 链路</span>
+      <span class="map-counts">{{ projected.stats.nodePairs }}个节点连接 · {{ projected.stats.tunnels }}条隧道 · {{ projected.stats.unmatched }}个未识别peer</span>
       <button class="map-button refresh" :disabled="loading" @click="refresh(true)">{{ loading ? '读取中' : '刷新' }}</button>
     </header>
     <div v-show="!collapsed" id="world-map-content">
@@ -201,7 +200,7 @@ onUnmounted(() => {
         <div class="map-canvas-wrap">
           <div ref="chartEl" class="map-canvas" role="img" aria-label="世界地图，节点和链路也可从右侧列表访问" />
           <div v-if="mapError || (!loading && !grouped.groups.length)" class="map-empty">{{ mapError || (topology?.nodes.length ? '还没有可定位的节点，可在列表中补充城市位置' : '还没有节点足迹，等第一台服务器报到喵') }}</div>
-          <div class="map-legend"><span><i class="dot online" />在线</span><span><i class="dot" />离线</span><span><i class="line" />近期握手</span><span><i class="line stale" />过期</span><span><i class="line never" />从未握手</span></div>
+          <div class="map-legend"><span><i class="dot online" />在线</span><span><i class="dot" />离线</span><span v-for="health in (['ok', 'degraded', 'failed', 'unknown'] as const)" :key="health"><i class="line" :class="{ stale: health === 'unknown' }" :style="{ borderColor: healthColors[health] }" />{{ healthLabels[health] }}</span></div>
           <a class="map-attribution" href="/maps/LICENSE.txt" target="_blank" rel="noopener">Natural Earth · Public domain</a><span class="location-caveat">出口位置不等于机房位置</span>
         </div>
         <aside class="map-panel" aria-label="节点与配置链路">
@@ -227,10 +226,16 @@ onUnmounted(() => {
               </div>
             </template>
             <template v-else>
-              <p class="panel-hint">{{ selectedId === null ? '全部配置链路' : nodeName(selectedId) }} · 握手不等于 Ping 延迟</p>
+              <p class="panel-hint">{{ selectedId === null ? '全部配置链路' : nodeName(selectedId) }} · 握手不等于实测；ICMP成功不保证业务TCP可用</p>
               <article v-for="link in visibleLinks" :key="link.id" class="link-row">
                 <div class="link-title">{{ nodeName(link.source) }} → {{ nodeName(link.target) }}</div>
                 <div class="link-state" :class="link.state">{{ stateLabels[link.state] }}</div>
+                <div class="link-state" :style="{ color: healthColors[linkHealth(link)] }">{{ healthLabels[linkHealth(link)] }}</div>
+                <p>探测时间：{{ timestamp(link.health_checked_at) }}</p>
+                <p v-if="link.health_reason">{{ link.health_reason }}</p>
+                <div class="probe-details">
+                  <p v-for="(observation, index) in link.observations ?? []" :key="index">{{ nodeName(observation.source) }} → {{ nodeName(observation.target) }} · {{ observation.interface }}<br/>{{ healthLabels[observation.probe.status] }} · {{ observation.probe.received }}/{{ observation.probe.sent }} 包 · 丢包 {{ observation.probe.loss_pct ?? '未知' }}% · RTT {{ observation.probe.rtt_ms ?? '未知' }} ms<br/>{{ timestamp(observation.probe.checked_at) }}<br/>{{ observation.probe.reason }}</p>
+                </div>
                 <p>{{ link.source_interface }} → {{ link.target_interface || link.peer_label || '未知接口' }}</p>
                 <p>最近握手：{{ timestamp(link.latest_handshake_at) }}</p>
                 <p>接收 {{ bytes(link.rx_bytes) }} · 发送 {{ bytes(link.tx_bytes) }}</p>
