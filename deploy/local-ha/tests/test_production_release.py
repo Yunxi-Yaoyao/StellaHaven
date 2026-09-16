@@ -101,6 +101,25 @@ class ProductionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'schema'):
                 exec(compile(p.PROBE,'probe','exec'),{})
 
+    def test_previous_schema_revision_passes_guard_during_transition(self):
+        """滚动过渡期：DB 已迁到新版本，旧镜像 heads == previous 时不许报 schema mismatch。"""
+        import io, sys, types
+        from unittest.mock import patch
+        p=load('node_production')
+        config=types.ModuleType('alembic.config'); config.Config=lambda path: object()
+        scripts=types.ModuleType('alembic.script')
+        scripts.ScriptDirectory=types.SimpleNamespace(from_config=lambda cfg: types.SimpleNamespace(get_heads=lambda:['b7c8d9e0f1a2']))
+        payload='{"revision":"c8d9e0f1a2b3","previous":"b7c8d9e0f1a2"}'
+        marker=AssertionError('passed schema guard')
+        with patch.dict(sys.modules,{'psycopg2':types.ModuleType('psycopg2'),'alembic.config':config,'alembic.script':scripts}), patch('sys.stdin',io.StringIO(payload)), patch('urllib.request.build_opener',side_effect=marker):
+            with self.assertRaises(AssertionError):  # 越过 schema 守卫才会走到网络断言
+                exec(compile(p.PROBE,'probe','exec'),{})
+        # 不带 previous 时旧 heads 仍被拒绝
+        scripts.ScriptDirectory=types.SimpleNamespace(from_config=lambda cfg: types.SimpleNamespace(get_heads=lambda:['b7c8d9e0f1a2']))
+        with patch.dict(sys.modules,{'psycopg2':types.ModuleType('psycopg2'),'alembic.config':config,'alembic.script':scripts}), patch('sys.stdin',io.StringIO('{"revision":"c8d9e0f1a2b3"}')), patch('urllib.request.build_opener',side_effect=marker):
+            with self.assertRaisesRegex(ValueError,'schema'):
+                exec(compile(p.PROBE,'probe','exec'),{})
+
     def test_busy_candidate_port_is_rejected(self):
         import socket
         p=load('node_production')

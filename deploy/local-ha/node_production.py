@@ -42,7 +42,12 @@ import psycopg2
 p=json.load(sys.stdin)
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-if ScriptDirectory.from_config(Config('/app/alembic.ini')).get_heads() != [p['revision']]:
+# 过渡期容忍：forward-compatible 迁移（纯新增）时，运行中的旧镜像 heads == previous 也算健康；
+# DB 必须已到目标 revision（下面 alembic_version 检查不变），候选新镜像 heads == revision。
+allowed = {p['revision']}
+if p.get('previous'):
+    allowed.add(p['previous'])
+if not set(ScriptDirectory.from_config(Config('/app/alembic.ini')).get_heads()) <= allowed:
     raise ValueError('image schema revision mismatch')
 client=urllib.request.build_opener(urllib.request.ProxyHandler({}))
 def http(url):
@@ -177,6 +182,7 @@ class Node:
 
     def probe(self, name=None, port=25131, expected=True):
         data = {'node':self.node,'port':port,'revision':self.inv['schema_revision'],
+                'previous':self.inv.get('previous_schema_revision'),
                 'manifest':self.inv['manifest_sha256'],'signing':self.inv['signing_sha256'],
                 'expected_roles':self.expected if expected else None}
         return json.loads(run(['docker','exec','-i',name or self.name,'/app/.venv/bin/python','-c',PROBE],json.dumps(data),timeout=90))

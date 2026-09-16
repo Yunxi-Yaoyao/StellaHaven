@@ -39,6 +39,11 @@ def validate_inventory(inv):
     require(inv.get('scope') == 'stella-production-app-v1', 'production inventory scope')
     require(inv.get('forward_compatible') is True, 'explicit forward compatibility required')
     require(re.fullmatch('[a-zA-Z0-9_]{1,64}', inv.get('schema_revision', '')), 'schema revision required')
+    prev = inv.get('previous_schema_revision')
+    if prev is not None:
+        # 过渡期字段：仅 forward-compatible（纯新增）迁移允许旧镜像按 previous 通过探针
+        require(re.fullmatch('[a-zA-Z0-9_]{1,64}', prev) and prev != inv['schema_revision'],
+                'previous schema revision invalid')
     for key in ('manifest_sha256', 'signing_sha256'):
         require(re.fullmatch('[0-9a-f]{64}', inv.get(key, '')), key + ' required')
     require(set(inv.get('nodes', {})) == set(NODES), 'exact two-node inventory required')
