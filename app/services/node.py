@@ -119,7 +119,7 @@ def finish_uninstall(db: Session, token: str, status: str, error: str) -> None:
 
 # ── 详情页 ──
 def _monitored_ifaces(node: Node) -> list[str]:
-    """监控网卡列表：优先 monitored_ifaces 设置，否则默认出口网卡，再否则第一个网卡。"""
+    """详情页显示网卡：优先显示偏好，否则默认出口/首张网卡；不限制历史采集。"""
     if node.monitored_ifaces:
         ifaces = list(node.monitored_ifaces.keys())
         if ifaces:
@@ -178,7 +178,7 @@ def get_traffic_stats(db: Session, node_id: int, ifaces: list[str] | None = None
 
 
 def update_monitored_ifaces(db: Session, node_id: int, ifaces: dict | None) -> Node:
-    """更新监控网卡设置。"""
+    """更新图表默认显示网卡；agent始终上报所有网卡。"""
     node = repo.get_by_id(db, node_id)
     if node is None or node.status == "removed":
         raise ValueError("节点不存在")

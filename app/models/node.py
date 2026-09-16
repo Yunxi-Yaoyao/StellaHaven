@@ -27,7 +27,7 @@ class Node(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending / online / offline / removed
     token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)  # agent 鉴权凭证（添加节点时生成，安装命令里带）
     interfaces: Mapped[dict | None] = mapped_column(JSONB, nullable=True)          # 网卡清单（注册时上报，含默认出口标记）
-    monitored_ifaces: Mapped[dict | None] = mapped_column(JSONB, nullable=True)    # 监控网卡列表（设置勾选后下发）
+    monitored_ifaces: Mapped[dict | None] = mapped_column(JSONB, nullable=True)    # 图表默认显示网卡（不限制agent全网卡上报）
     storage: Mapped[list | None] = mapped_column(JSONB, nullable=True)             # 存储视图：挂载点列表（容量/已用/占用率/类型，agent 首次上报）
     components: Mapped[dict | None] = mapped_column(JSONB, nullable=True)          # 组件检测状态：{"iperf3": bool, "speedtest": bool}（agent 心跳上报）
     os_name: Mapped[str | None] = mapped_column(String(128), nullable=True)        # 发行版友好名（agent 采集 /etc/os-release PRETTY_NAME）

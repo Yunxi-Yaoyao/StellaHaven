@@ -45,7 +45,7 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.8"
+AGENT_VERSION = "0.6.9"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
@@ -414,7 +414,7 @@ class Agent:
         self.token = token
         self.queue = deque(maxlen=QUEUE_MAX)  # 内存队列：补传用
         self.last_net = None  # 上次网卡累计字节 {iface: (rx, tx)}
-        self.monitored_ifaces = None  # 中心下发的监控网卡列表
+        self.monitored_ifaces = None  # 兼容中心显示偏好，不过滤流量采集
         self.monitors_version = 0  # 监控项配置版本号（心跳 diff 用）
         self.monitors = {}  # monitor_id -> {type, target, interval, timeout, next_run}
         self._check_deps()
@@ -715,17 +715,14 @@ class Agent:
         return result
 
     def collect_metrics(self) -> list:
-        """采集流量增量。返回 [{iface, ts, rx_delta, tx_delta}]。"""
+        """上报所有网卡的流量增量；monitored_ifaces 仅为中心图表显示偏好。"""
         now_net = self.read_net_bytes()
         now = datetime.now(timezone.utc)
         points = []
+        if self.last_net is None:
+            self.last_net = now_net
+            return []
         for iface, (rx, tx) in now_net.items():
-            # 只报监控范围内的网卡
-            if self.monitored_ifaces is not None and iface not in self.monitored_ifaces:
-                continue
-            if self.last_net is None:
-                self.last_net = now_net
-                return []
             prev = self.last_net.get(iface)
             if prev is None:
                 continue
