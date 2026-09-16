@@ -124,6 +124,8 @@ def list_checks_range(db: Session, monitor_id: int, start: datetime | None = Non
 
 def record_check(db: Session, monitor_id: int, ts: datetime, success: bool,
                  latency_ms: float | None, loss_pct: float | None) -> None:
-    """agent 上报一次探测结果：落 monitor_checks + 更新监控项 status。"""
+    """agent 上报一次探测结果：落 monitor_checks + 更新监控项 status；顺带惰性评估告警。"""
     repo.insert_check(db, monitor_id, ts, success, latency_ms, loss_pct)
     repo.update_last_result(db, monitor_id, "up" if success else "down", ts, latency_ms)
+    from app.services import alerts
+    alerts.evaluate_monitor(db, monitor_id)

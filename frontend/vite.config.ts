@@ -31,6 +31,8 @@ export default defineConfig({
       "/auth": { target: "http://127.0.0.1:12031", xfwd: true },
       "/admin": { target: "http://127.0.0.1:12031", xfwd: true },
       "/nodes": { target: "http://127.0.0.1:12031", xfwd: true },
+      "/alerts": { target: "http://127.0.0.1:12031", xfwd: true },
+      "/notifications": { target: "http://127.0.0.1:12031", xfwd: true },
       "/monitors": { target: "http://127.0.0.1:12031", xfwd: true },
       "/iperf-tasks": { target: "http://127.0.0.1:12031", xfwd: true },
       "/mtr-tasks": { target: "http://127.0.0.1:12031", xfwd: true },

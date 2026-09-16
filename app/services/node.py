@@ -50,6 +50,11 @@ def handle_report(db: Session, token: str, report: AgentReport) -> Node:
         repo.insert_metrics(db, node.id, report.metrics)
     if report.sys_metrics:
         repo.insert_sys_metrics(db, node.id, report.sys_metrics)
+    # 惰性告警评估：挂在心跳路径上，无独立轮询进程
+    from app.services import alerts
+    alerts.evaluate_node_rules(db)
+    if "map_snapshot" in report.model_fields_set:
+        alerts.evaluate_wg_rules(db)
     result = repo.get_by_id(db, node.id)
     if result is None:
         raise ValueError("node not found")

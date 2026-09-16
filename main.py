@@ -10,6 +10,9 @@ from app.routers.homebg import router as homebg_router
 from app.routers.auth import router as auth_router
 from app.routers.admin_email import router as admin_email_router
 from app.routers.monitor import node_router, agent_router, monitor_router
+from app.routers.alerts import router as alerts_router
+# /ws/notifications 必须先于 ws_router 的 /ws/{doc_id} 注册——否则 "notifications" 被当 doc_id 抢走
+from app.routers.notify_ws import router as notify_ws_router
 from app.routers.task import router as task_router, agent_task_router
 from app.routers.config import router as config_router, public_router as config_public_router
 from app.routers.metrics_source import router as metrics_source_router
@@ -68,6 +71,7 @@ app.include_router(document_router)
 app.include_router(doc_tag_router)
 app.include_router(document_link_router)
 app.include_router(document_version_router)
+app.include_router(notify_ws_router)
 app.include_router(ws_router)
 app.include_router(attachment_router)
 app.include_router(homebg_router)
@@ -75,6 +79,7 @@ app.include_router(auth_router)
 app.include_router(admin_email_router)
 app.include_router(node_router)
 app.include_router(monitor_router)
+app.include_router(alerts_router)
 app.include_router(agent_router)
 app.include_router(task_router)
 app.include_router(agent_task_router)

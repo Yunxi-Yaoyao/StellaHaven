@@ -14,5 +14,6 @@ from app.models.attachment import Attachment
 from app.models.blob import BlobObject, BlobChunk
 from app.models.node import Node, NodeMetric, NodeSysMetric, NodeStatusEvent
 from app.models.monitor import Monitor, MonitorCheck
+from app.models.alert import AlertRule, AlertState, AlertEvent, Notification
 from app.models.config import AppConfig
 from app.models.task import IperfTask, MtrTask, AgentCommand, NetTask

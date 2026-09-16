@@ -8,6 +8,7 @@ import ToolsView from "./ToolsView.vue";
 import NodesView from "./NodesView.vue";
 import RecordsView from "./RecordsView.vue";
 import DockerView from "./DockerView.vue";
+import AlertsView from "./AlertsView.vue";
 
 const route = useRoute();
 const view = computed(() => (route.query.view as string) || "nodes");
@@ -23,6 +24,7 @@ const presetNode = computed(() => {
   <OverviewView v-if="view === 'overview'" />
   <NodesView v-else-if="view === 'nodes'" />
   <DockerView v-else-if="view === 'docker'" />
+  <AlertsView v-else-if="view === 'alerts'" />
   <RecordsView v-else-if="tool === 'records'" :preset-node="presetNode" />
   <ToolsView v-else :tool="tool" :preset-node="presetNode" />
 </template>

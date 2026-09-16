@@ -5,6 +5,7 @@ import SettingsPanel from "./shell/SettingsPanel.vue";
 import BgManager from "./modules/home/BgManager.vue";
 import { toasts } from "./composables/useToast";
 import { auth, loggedIn, fetchMe, reportActivity } from "./modules/home/auth";
+import { startNotifications, stopNotifications } from "./stores/notifications";
 import { useNotesStore } from "./stores/notes";
 import { useRouter, useRoute } from "vue-router";
 import { onMounted, onUnmounted } from "vue";
@@ -13,6 +14,7 @@ const notesStore = useNotesStore();
 watch(() => auth.me?.id, (id, old) => {
   if (id !== old) {
     notesStore.resetSession();
+    if (id) startNotifications(); else stopNotifications();
     let cachedUser: string | undefined;
     try { cachedUser = JSON.parse(localStorage.getItem('stella_bootstrap') || '{}').userId; } catch { /* Invalid cache is discarded below. */ }
     if (!id || cachedUser !== id) localStorage.removeItem('stella_bootstrap');

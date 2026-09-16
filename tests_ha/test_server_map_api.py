@@ -20,6 +20,10 @@ from test_server_map import node, snapshot, NOW
 def db():
     engine = create_engine("sqlite://")
     AppConfig.__table__.create(engine)
+    # handle_report 会惰性评估告警规则——需要告警域表（空表即可，无规则早退）
+    from app.models.alert import AlertEvent, AlertRule, AlertState, Notification
+    for t in (AlertRule.__table__, AlertState.__table__, AlertEvent.__table__, Notification.__table__):
+        t.create(engine)
     with Session(engine) as session:
         yield session
     engine.dispose()

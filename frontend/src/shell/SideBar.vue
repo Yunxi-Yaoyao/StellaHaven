@@ -2,6 +2,7 @@
 // 侧边栏：Stella 的门面。三段式——名片区 / 导航区 / 扩展区
 // collapsed=true → 收成图标栏；移动端由 App 控制 mobile-open 覆盖层
 import Icon from "./Icon.vue";
+import NotificationBell from "./NotificationBell.vue";
 import { auth, loggedIn, currentAvatar } from "../modules/home/auth";
 import { computed } from "vue";
 
@@ -74,6 +75,7 @@ const navItems = [
         </span>
         <span class="acc-name">{{ loggedIn ? "已登录喵~" : "未登录哟~" }}</span>
       </RouterLink>
+      <NotificationBell v-if="loggedIn" />
       <button class="fold-btn" :title="collapsed ? '展开侧栏' : '收起侧栏'" @click="emit('toggle')">
         {{ collapsed ? "»" : "«" }}
       </button>
