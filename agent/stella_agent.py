@@ -45,7 +45,7 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.4"
+AGENT_VERSION = "0.6.5"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
