@@ -1,6 +1,6 @@
 """监控模块 schemas：节点 / 上报 / 监控项 / 任务。"""
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 # ── 节点 ──
@@ -116,6 +116,13 @@ class AgentReport(BaseModel):
     components: dict | None = None  # 组件检测状态：{"iperf3": bool, "speedtest": bool, "firewall": {...}}
     os_info: dict | None = None  # OS 信息：{os_name, kernel, cpu_model, cpu_cores, load1/5/15, boot_time}（每次上报都带）
     public_ip_info: dict | None = None  # 公网 IP 探测结果：{public_ip, ip_version, region}
+    map_snapshot: dict | None = None
+
+    @field_validator("map_snapshot")
+    @classmethod
+    def validate_map_snapshot(cls, value):
+        from app.services.server_map import validate_snapshot
+        return validate_snapshot(value) if value is not None else None
 
 
 class MonitorForAgent(BaseModel):

@@ -15,6 +15,10 @@
     或环境变量 STELLA_URL / STELLA_TOKEN
 """
 import argparse
+import base64
+import hashlib
+import ipaddress
+import math
 import json
 import os
 import platform
@@ -99,6 +103,231 @@ class _BackgroundScheduler:
             thread.join(max(0, deadline - time.monotonic()))
 
 
+_MAP_WG_FIELDS = ('public-key', 'peers', 'endpoints', 'allowed-ips',
+                  'latest-handshakes', 'transfer')
+_MAP_OUTPUT_LIMIT = 131072
+
+
+def _map_key_id(key):
+    if len(key) != 44 or len(base64.b64decode(key, validate=True)) != 32:
+        raise ValueError('invalid public key')
+    return hashlib.sha256(key.encode('ascii')).hexdigest()
+
+
+def _parse_map_wireguard(outputs, addresses):
+    """Only public-field stdout is accepted; partial/racy data is not no-peers."""
+    interfaces = {}
+    seen = set()
+    for field in _MAP_WG_FIELDS:
+        text = outputs[field]
+        if len(text) > _MAP_OUTPUT_LIMIT:
+            raise ValueError('oversized output')
+        previous_interface = None
+        for line in text.splitlines():
+            parts = line.split()
+            # Older wg-tools prints the interface prefix only on the first
+            # endpoint row; accept continuation ONLY within that field/group.
+            if field == 'endpoints' and len(parts) == 2:
+                if previous_interface is None:
+                    raise ValueError('endpoint continuation without interface')
+                _map_key_id(parts[0])
+                parts.insert(0, previous_interface)
+            if field == 'endpoints' and len(parts) == 3:
+                previous_interface = parts[0]
+            if not parts or len(parts) < 2:
+                raise ValueError('invalid row')
+            name, key = parts[:2]
+            if not re.fullmatch(r'[A-Za-z0-9_.:=+\-]{1,64}', name):
+                raise ValueError('invalid interface')
+            if field == 'public-key':
+                if len(parts) != 2 or name in interfaces:
+                    raise ValueError('duplicate interface')
+                interfaces[name] = {'name': name, 'public_key_id': _map_key_id(key),
+                                    'addresses': addresses.get(name, []), 'peers': {}}
+                continue
+            if name not in interfaces:
+                raise ValueError('interface changed')
+            identity = _map_key_id(key)
+            marker = (field, name, identity)
+            if marker in seen:
+                raise ValueError('duplicate peer row')
+            seen.add(marker)
+            peers = interfaces[name]['peers']
+            if field == 'peers':
+                if len(parts) != 2:
+                    raise ValueError('invalid peer')
+                peers[identity] = {'public_key_id': identity}
+                continue
+            if identity not in peers:
+                raise ValueError('peer changed')
+            peer = peers[identity]
+            value = parts[2:]
+            if field == 'endpoints':
+                if len(value) != 1:
+                    raise ValueError('invalid endpoint')
+                endpoint = value[0]
+                if endpoint != '(none)':
+                    host, port = endpoint.rsplit(':', 1)
+                    ipaddress.ip_address(host.strip('[]'))
+                    if not 0 < int(port) <= 65535:
+                        raise ValueError('invalid port')
+                peer['endpoint'] = None if endpoint == '(none)' else endpoint
+            elif field == 'allowed-ips':
+                peer['allowed_ips'] = [] if value == ['(none)'] else [
+                    str(ipaddress.ip_network(v, strict=False)) for v in value]
+            else:
+                count = 2 if field == 'transfer' else 1
+                if len(value) != count or any(not v.isdecimal() or len(v) > 20 for v in value):
+                    raise ValueError('invalid counter')
+                if field == 'transfer':
+                    peer['rx_bytes'], peer['tx_bytes'] = map(int, value)
+                else:
+                    peer['latest_handshake_at'] = int(value[0])
+    for iface in interfaces.values():
+        for peer in iface['peers'].values():
+            if len(peer) != 6:
+                raise ValueError('incomplete peer')
+        iface['peers'] = list(iface['peers'].values())
+    return {'status': 'ok', 'interfaces': list(interfaces.values())}
+
+
+def _map_command(args, timeout=3):
+    """Bound both runtime and output. Never log command output or exceptions."""
+    env = {k: v for k, v in os.environ.items() if not k.lower().endswith('_proxy')}
+    env['LC_ALL'] = 'C'
+    with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          env=env) as proc:
+        output = bytearray()
+        oversized = threading.Event()
+        def drain():
+            while True:
+                chunk = proc.stdout.read(4096)
+                if not chunk:
+                    break
+                if len(output) + len(chunk) > _MAP_OUTPUT_LIMIT:
+                    oversized.set()
+                    proc.kill()
+                    break
+                output.extend(chunk)
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            reader.join(1)
+            raise ValueError('command timeout') from None
+        reader.join(1)
+        if oversized.is_set() or reader.is_alive():
+            raise ValueError('output limit')
+        text = output.decode('utf-8', errors='strict')
+        if proc.returncode:
+            if 'permission denied' in text.lower() or 'operation not permitted' in text.lower() or 'access is denied' in text.lower():
+                raise PermissionError('read denied')
+            raise ValueError('command failed')
+        return text
+
+
+def _map_addresses():
+    result = {}
+    if psutil:
+        for name, entries in psutil.net_if_addrs().items():
+            addresses = []
+            for entry in entries:
+                if entry.family not in (socket.AF_INET, socket.AF_INET6) or not entry.netmask:
+                    continue
+                address = entry.address.split('%')[0]
+                mask = ipaddress.ip_address(entry.netmask.split('%')[0])
+                bits = bin(int(mask))[2:].zfill(mask.max_prefixlen)
+                if '01' in bits:
+                    continue
+                addresses.append(str(ipaddress.ip_interface(f'{address}/{bits.count("1")}')))
+            result[name] = sorted(set(addresses))
+        return result
+    ip = shutil.which('ip')
+    if ip and platform.system() == 'Linux':
+        for row in json.loads(_map_command([ip, '-j', 'address', 'show'])):
+            result[row['ifname']] = [str(ipaddress.ip_interface(f'{x["local"]}/{x["prefixlen"]}'))
+                                     for x in row.get('addr_info', []) if x.get('family') in ('inet', 'inet6')]
+    return result
+
+
+def _collect_map_wireguard():
+    binary = shutil.which('wg') or (shutil.which('wg.exe') if platform.system() == 'Windows' else None)
+    if not binary:
+        return {'status': 'unavailable', 'interfaces': []}
+    try:
+        outputs = {field: _map_command([binary, 'show', 'all', field]) for field in _MAP_WG_FIELDS}
+        return _parse_map_wireguard(outputs, _map_addresses())
+    except PermissionError:
+        return {'status': 'permission_denied', 'interfaces': []}
+    except Exception:
+        return {'status': 'unavailable', 'interfaces': []}
+
+
+def _map_physical_iface():
+    if platform.system() != 'Linux' or not shutil.which('ip'):
+        raise ValueError('physical_interface_unverified')
+    routes = json.loads(_map_command([shutil.which('ip'), '-j', 'route', 'show', 'default']))
+    candidates = []
+    for route in routes:
+        name = route.get('dev', '')
+        if (not re.fullmatch(r'[A-Za-z0-9_.-]{1,15}', name)
+                or not os.path.exists(f'/sys/class/net/{name}/device')):
+            continue
+        if route.get('nexthops') or 'linkdown' in route.get('flags', []):
+            raise ValueError('physical_interface_conflict')
+        ipaddress.ip_address(route['gateway'])
+        candidates.append((int(route.get('metric', 0)), name))
+    if not candidates:
+        raise ValueError('physical_interface_unverified')
+    best = min(x[0] for x in candidates)
+    names = {name for metric, name in candidates if metric == best}
+    if len(names) != 1:
+        raise ValueError('physical_interface_conflict')
+    return names.pop()
+
+
+def _collect_map_location():
+    """NAT egress geolocation, never server physical location or WG endpoint lookup."""
+    unknown = {'status': 'unknown', 'source': 'unknown', 'public_ip': None,
+               'label': None, 'latitude': None, 'longitude': None, 'reason': 'physical_interface_unverified'}
+    try:
+        iface = _map_physical_iface()
+        addresses = _map_addresses().get(iface, [])
+        curl = shutil.which('curl')
+        if not curl or not addresses:
+            unknown['reason'] = 'binding_unavailable'
+            return unknown
+        unknown['reason'] = 'bound_geo_request_failed'
+        # -q FIRST disables curlrc (which could silently enable a proxy).
+        # if! forces device binding, not hostname/address interpretation.
+        raw = _map_command([curl, '-q', '--silent', '--show-error', '--fail',
+                            '--ipv4', '--interface', 'if!' + iface, '--noproxy', '*',
+                            '--proxy', '', '--connect-timeout', '2', '--max-time', '4',
+                            '--max-filesize', '16384', '--proto', '=https',
+                            '--write-out', '\n%{local_ip}', 'https://ipwho.is/'], timeout=5)
+        body, local_ip = raw.rsplit('\n', 1)
+        if ipaddress.ip_address(local_ip) not in {ipaddress.ip_interface(x).ip for x in addresses}:
+            unknown['reason'] = 'binding_source_mismatch'
+            return unknown
+        data = json.loads(body)
+        public_ip = ipaddress.ip_address(data['ip'])
+        lat, lon = data['latitude'], data['longitude']
+        if (data.get('success') is not True or not public_ip.is_global
+                or isinstance(lat, bool) or isinstance(lon, bool)
+                or not isinstance(lat, (int, float)) or not isinstance(lon, (int, float))
+                or not math.isfinite(lat) or not math.isfinite(lon)
+                or not -90 <= lat <= 90 or not -180 <= lon <= 180):
+            raise ValueError('invalid geolocation')
+        label = ', '.join(x for x in (data.get('city'), data.get('region'), data.get('country')) if isinstance(x, str))[:256]
+        return {'status': 'located', 'source': 'nat', 'public_ip': str(public_ip),
+                'label': label or None, 'latitude': lat, 'longitude': lon, 'reason': None}
+    except Exception:
+        return unknown
+
+
 class Agent:
     def __init__(self, url: str, token: str):
         if "://" not in url:
@@ -111,6 +340,25 @@ class Agent:
         self.monitors_version = 0  # 监控项配置版本号（心跳 diff 用）
         self.monitors = {}  # monitor_id -> {type, target, interval, timeout, next_run}
         self._check_deps()
+
+    def collect_map_snapshot(self):
+        now = time.monotonic()
+        cached = getattr(self, '_map_location_cache', None)
+        if cached is None or now >= cached[0]:
+            location = _collect_map_location()
+            self._map_location_cache = (now + (900 if location['status'] == 'located' else 60), location)
+        return {'observed_at': datetime.now(timezone.utc).isoformat(),
+                'location': dict(self._map_location_cache[1]),
+                'wireguard': _collect_map_wireguard()}
+
+    def _report_map_snapshot(self):
+        # Independent latest-state report: never overwrite OS metadata defaults.
+        # Fixed error handling keeps tokens/keys out of scheduler exception logs.
+        try:
+            self._post('/agent/report', json_body={'metrics': [],
+                       'map_snapshot': self.collect_map_snapshot()}, token=self.token)
+        except Exception:
+            pass  # Next scheduled collection retries; no unbounded history queue.
 
     def _check_deps(self):
         """依赖检查：httpx / psutil 缺失只降级，不 crash。"""
@@ -2121,6 +2369,8 @@ class Agent:
 
         stop_event = stop_event or threading.Event()
         scheduler = _BackgroundScheduler(max_workers=2)
+        map_scheduler = _BackgroundScheduler(max_workers=1)
+        last_map = None
         last_sys = 0
         last_refresh = 0
         last_update = 0
@@ -2129,6 +2379,11 @@ class Agent:
             while not stop_event.is_set():
                 try:
                     now = time.time()
+
+                    map_now = time.monotonic()
+                    if last_map is None or map_now - last_map >= 60:
+                        if map_scheduler.submit('map', self._report_map_snapshot):
+                            last_map = map_now
 
                     # 流量：5s 采样上报（主循环 1s 一圈，流量上报仍保持 5s 粒度）
                     if now - last_report >= REPORT_INTERVAL:
@@ -2163,6 +2418,7 @@ class Agent:
                 stop_event.wait(POLL_INTERVAL)
         finally:
             scheduler.close()
+            map_scheduler.close()
 
 
 def main():

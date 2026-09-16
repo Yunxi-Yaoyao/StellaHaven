@@ -12,6 +12,7 @@ import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
 import Dropdown from "../../shell/Dropdown.vue";
 import MonitorDetailModal from "./MonitorDetailModal.vue";
+import ServerWorldMap from "./ServerWorldMap.vue";
 
 const router = useRouter();
 const nodes = ref<Node[]>([]);
@@ -368,6 +369,8 @@ watch(() => monitors.value.map((m) => m.id).join(","), (v, old) => {
       <h2>总览</h2>
       <span class="sub">监控看板 · 状态 5s 刷新</span>
     </div>
+
+    <ServerWorldMap />
 
     <!-- 区1：服务器卡 -->
     <section class="block">

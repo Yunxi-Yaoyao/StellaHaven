@@ -1,0 +1,17 @@
+Natural Earth world basemap — public domain
+
+Dataset: Natural Earth, 1:110m Admin 0 – Countries.
+Upstream repository: https://github.com/nvkelso/natural-earth-vector
+Downloaded verbatim from:
+https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson
+Local file: world.geo.json
+SHA-256: 6866c877d39cba9c357620878839b336d569f8c662d3cfab4cb1dbe2d39c977f
+
+Natural Earth terms and public-domain dedication:
+https://www.naturalearthdata.com/about/terms-of-use/
+"All versions of Natural Earth raster + vector map data found on this website are in the public domain."
+
+No map SDK, geocoding service, external tile request, or API key is used by the frontend.
+This file is shipped locally. Country geometries and administrative boundary depictions are
+those supplied by Natural Earth, without geographic modification. Rendering uses the NAME
+property. Node positions are separate city-level API data and do not imply precise device locations.

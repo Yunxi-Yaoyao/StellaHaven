@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.routers.auth import current_user
+from app.routers.auth import current_user, admin_user
+from app.services import server_map
+from app.services.server_map import MapLocationUpdate
 from app.schemas.monitor import (
     NodeCreate, NodeRead, NodeDetail, NodeUpdate, NetTypeUpdate, IpChangeCreate, NetTaskRead, DockerCtlCreate, DockerContainerAction, MetricPoint, SysMetricPoint,
     AgentReport, AgentConfig, MonitorForAgent,
@@ -30,6 +32,22 @@ def list_nodes(user: User = Depends(current_user), db: Session = Depends(get_db)
 @node_router.post("/", response_model=NodeRead, status_code=201)
 def create_node(data: NodeCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
     return node_svc.create_node(db, data.name, data.platform, data.host)
+
+
+@node_router.get("/map-topology")
+def read_map_topology(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """本地快照组装，不发起外网定位；沿用节点列表的登录可见性。"""
+    return server_map.get_topology(db)
+
+
+@node_router.patch("/{node_id}/map-location")
+def update_map_location(node_id: int, data: MapLocationUpdate,
+                        user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    """人工坐标优先；坐标全 null 清除人工设置（不清 agent 快照）。"""
+    try:
+        return server_map.set_manual_location(db, node_id, data)
+    except ValueError:
+        raise HTTPException(404, "节点不存在")
 
 
 @node_router.get("/host")

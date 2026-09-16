@@ -41,6 +41,10 @@ def handle_report(db: Session, token: str, report: AgentReport) -> Node:
     # 公网 IP 探测结果（agent 首次上报时带一次）：写 public_ip + 地区
     if report.public_ip_info:
         apply_public_ip_info(db, node.id, report.public_ip_info)
+    # 地图独立周期上报：省略字段不覆盖缓存，显式 null 才清除快照。
+    if "map_snapshot" in report.model_fields_set:
+        from app.services.server_map import save_snapshot
+        save_snapshot(db, node.id, report.map_snapshot)
     # 写时序数据（幂等，补传重复自动丢弃）
     if report.metrics:
         repo.insert_metrics(db, node.id, report.metrics)
@@ -250,7 +254,7 @@ def apply_public_ip_info(db: Session, node_id: int, info: dict | None) -> None:
     if not public_ip:
         return
     node = repo.get_by_id(db, node_id)
-    if node is None:
+    if node is None or node.public_ip_source == "manual":
         return
     node.public_ip = public_ip
     node.public_ip_source = "auto"
