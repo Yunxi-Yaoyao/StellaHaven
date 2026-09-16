@@ -94,6 +94,13 @@ _YUM=$(command -v yum || true)
 _APK=$(command -v apk || true)
 _PACMAN=$(command -v pacman || true)
 _CMDS="${_SYSCTL} stop stella-agent, ${_SYSCTL} disable stella-agent, ${_SYSCTL} daemon-reload, ${_RM} -f /etc/systemd/system/stella-agent.service, ${_RM} -rf /opt/stella-agent"
+# WG map collection: exact public read fields only; no dump/showconf/private keys.
+_WG=$(command -v wg || true)
+if [ -n "$_WG" ]; then
+  for _FIELD in public-key peers endpoints allowed-ips latest-handshakes transfer; do
+    _CMDS="${_CMDS}, ${_WG} show all ${_FIELD}"
+  done
+fi
 # 组件代装：允许 stella 装 iperf3（各发行版包管理器，精确到包名，不放开任意安装）
 [ -n "$_APT" ] && _CMDS="${_CMDS}, ${_APT} install -y iperf3"
 [ -n "$_DNF" ] && _CMDS="${_CMDS}, ${_DNF} install -y iperf3"

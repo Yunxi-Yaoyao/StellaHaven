@@ -45,7 +45,7 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.5"
+AGENT_VERSION = "0.6.6"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
@@ -258,7 +258,14 @@ def _collect_map_wireguard():
     if not binary:
         return {'status': 'unavailable', 'interfaces': []}
     try:
-        outputs = {field: _map_command([binary, 'show', 'all', field]) for field in _MAP_WG_FIELDS}
+        try:
+            outputs = {field: _map_command([binary, 'show', 'all', field]) for field in _MAP_WG_FIELDS}
+        except PermissionError:
+            sudo = shutil.which('sudo') if platform.system() == 'Linux' else None
+            if not sudo:
+                raise
+            outputs = {field: _map_command([sudo, '-n', binary, 'show', 'all', field])
+                       for field in _MAP_WG_FIELDS}
         return _parse_map_wireguard(outputs, _map_addresses())
     except PermissionError:
         return {'status': 'permission_denied', 'interfaces': []}

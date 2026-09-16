@@ -54,6 +54,17 @@ class CollectorTests(unittest.TestCase):
         with patch.object(a.shutil, 'which', return_value='/usr/bin/wg'), patch.object(a, '_map_command', side_effect=PermissionError):
             self.assertEqual(a._collect_map_wireguard(), {'status': 'permission_denied', 'interfaces': []})
 
+    def test_unprivileged_wg_uses_only_fixed_read_commands(self):
+        calls=[]
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[0] != '/usr/bin/sudo': raise PermissionError('denied')
+            return sample()[cmd[-1]]
+        with patch.object(a.shutil,'which',side_effect=lambda x: '/usr/bin/'+x if x in ('wg','sudo') else None), patch.object(a.platform,'system',return_value='Linux'), patch.object(a,'_map_command',side_effect=run), patch.object(a,'_map_addresses',return_value={}):
+            self.assertEqual(a._collect_map_wireguard()['status'],'ok')
+        self.assertTrue(all(cmd[-1] in a._MAP_WG_FIELDS for cmd in calls))
+        self.assertTrue(all(cmd[1:4]==['-n','/usr/bin/wg','show'] for cmd in calls if cmd[0].endswith('/sudo')))
+
     def test_nat_requires_binding_and_valid_public_coordinates(self):
         with patch.object(a, '_map_physical_iface', return_value='eth0'), patch.object(a, '_map_addresses', return_value={'eth0': ['192.168.1.2/24']}), patch.object(a.shutil, 'which', return_value='/usr/bin/curl'), patch.object(a, '_map_command', return_value='{"success":true,"ip":"8.8.8.8","latitude":12,"longitude":34,"city":"City"}\n192.168.1.2') as run:
             self.assertEqual(a._collect_map_location()['status'], 'located')
