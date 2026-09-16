@@ -232,9 +232,9 @@ onUnmounted(() => {
                 <div class="link-state" :class="link.state">{{ stateLabels[link.state] }}</div>
                 <div class="link-state" :style="{ color: healthColors[linkHealth(link)] }">{{ healthLabels[linkHealth(link)] }}</div>
                 <p>探测时间：{{ timestamp(link.health_checked_at) }}</p>
-                <p v-if="link.health_reason">{{ link.health_reason }}</p>
+                <p v-if="link.health_reason">{{ mapReasonLabel(link.health_reason) }}</p>
                 <div class="probe-details">
-                  <p v-for="(observation, index) in link.observations ?? []" :key="index">{{ nodeName(observation.source) }} → {{ nodeName(observation.target) }} · {{ observation.interface }}<br/>{{ healthLabels[observation.probe.status] }} · {{ observation.probe.received }}/{{ observation.probe.sent }} 包 · 丢包 {{ observation.probe.loss_pct ?? '未知' }}% · RTT {{ observation.probe.rtt_ms ?? '未知' }} ms<br/>{{ timestamp(observation.probe.checked_at) }}<br/>{{ observation.probe.reason }}</p>
+                  <p v-for="(observation, index) in link.observations ?? []" :key="index">{{ nodeName(observation.source) }} → {{ nodeName(observation.target) }} · {{ observation.interface }}<br/><template v-if="observation.probe">{{ healthLabels[observation.health ?? observation.probe.status] }} · {{ observation.probe.received }}/{{ observation.probe.sent }} 包 · 丢包 {{ observation.probe.loss_pct ?? '未知' }}% · RTT {{ observation.probe.rtt_ms ?? '未知' }} ms<br/>{{ timestamp(observation.probe.checked_at) }}<br/>{{ mapReasonLabel(observation.probe.reason) }}</template><template v-else>尚未收到该方向的探测报告</template></p>
                 </div>
                 <p>{{ link.source_interface }} → {{ link.target_interface || link.peer_label || '未知接口' }}</p>
                 <p>最近握手：{{ timestamp(link.latest_handshake_at) }}</p>

@@ -17,8 +17,9 @@ export interface MapNode {
 export type MapLinkState = 'recent' | 'stale' | 'never' | 'unknown';
 export type MapLinkHealth = 'ok' | 'degraded' | 'failed' | 'unknown';
 export interface MapLinkObservation {
-  source: number; target: number; interface: string;
-  probe: { checked_at: string; status: MapLinkHealth; sent: number; received: number; loss_pct: number | null; rtt_ms: number | null; target: string; reason: string | null };
+  source: number; target: number | null; interface: string;
+  health?: MapLinkHealth;
+  probe: { checked_at: string; status: MapLinkHealth; sent: number; received: number; loss_pct: number | null; rtt_ms: number | null; target: string; reason: string | null } | null;
 }
 export interface MapLink {
   id: string;

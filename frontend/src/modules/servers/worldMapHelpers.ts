@@ -53,6 +53,13 @@ export function mapReasonLabel(reason: string | null | undefined): string {
   if (!reason) return '';
   const labels: Record<string, string> = {
     no_snapshot: '尚未收到位置采集报告',
+    icmp_packet_loss: 'ICMP 探测观察到丢包',
+    icmp_no_response: '本轮 ICMP 探测没有回复',
+    missing_or_expired_direction: '有方向尚未上报或探测已过期',
+    missing_or_expired_probe: '探测未上报或已过期',
+    ping_unavailable: '未安装 ping 或无法执行',
+    ping_failed_or_unparseable: '探测执行或结果解析失败',
+    probe_budget_exhausted: '本轮探测时间预算耗尽',
     internal_requires_manual_location: '内网节点需要人工设置城市位置',
     manual_ip_requires_location: '手工填写的 IP 需要人工设置城市位置',
     nat_location_unavailable: '暂时无法获取公网出口位置',
