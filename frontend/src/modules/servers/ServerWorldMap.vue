@@ -48,6 +48,7 @@ function bytes(value: number | null): string {
   if (value >= 1024) return `${(value / 1024).toFixed(1)} KiB`;
   return `${value} B`;
 }
+function locationSourceLabel(node: MapNode): string { return node.location_source === 'nat' && node.location_provider === 'ip2location' ? '公网出口 · IP2Location' : sourceLabels[node.location_source]; }
 function nodeName(id: number | null): string { return id === null ? '未识别对端' : topology.value?.nodes.find(n => n.id === id)?.name ?? `#${id}`; }
 function unplacedReason(id: string): string { return projected.value.unplaced.find(l => l.id === id)?.display_reason ?? ''; }
 function selectNode(node: MapNode) { selectedId.value = node.id; selectedIds.value = [node.id]; panel.value = 'nodes'; }
@@ -60,7 +61,7 @@ function tooltip(params: unknown): string {
   const data = (params as { data?: { groupId?: string; linkId?: string } }).data;
   if (data?.groupId) {
     const group = grouped.value.groups.find(g => g.id === data.groupId);
-    return group?.nodes.map(n => `${escapeHtml(n.name)} · ${escapeHtml(statusLabels[n.status] ?? n.status)}<br/>${escapeHtml(n.location_label || '未命名位置')} · ${escapeHtml(sourceLabels[n.location_source])}<br/>WG 最近握手：${escapeHtml(latestHandshake(n))}`).join('<br/><br/>') ?? '';
+    return group?.nodes.map(n => `${escapeHtml(n.name)} · ${escapeHtml(statusLabels[n.status] ?? n.status)}<br/>${escapeHtml(n.location_label || '未命名位置')} · ${escapeHtml(locationSourceLabel(n))}<br/>WG 最近握手：${escapeHtml(latestHandshake(n))}`).join('<br/><br/>') ?? '';
   }
   const link = topology.value?.links.find(l => l.id === data?.linkId);
   return link ? `${escapeHtml(nodeName(link.source))} → ${escapeHtml(nodeName(link.target))}<br/>${escapeHtml(stateLabels[link.state])} · ${escapeHtml(timestamp(link.latest_handshake_at))}<br/>${escapeHtml(link.source_interface)} → ${escapeHtml(link.target_interface ?? link.peer_label)}` : '';
@@ -214,7 +215,7 @@ onUnmounted(() => {
               <div v-if="selectedNodes.length > 1" class="panel-hint">同城 / 同坐标 · {{ selectedNodes.length }} 台</div>
               <div v-for="node in (selectedNodes.length ? selectedNodes : topology?.nodes ?? [])" :key="node.id" class="node-row" :class="{ selected: selectedId === node.id }">
                 <button class="node-select" @click="selectNode(node)"><i class="dot" :class="{ online: node.status === 'online' }" /><span>{{ node.name }}</span><small>#{{ node.id }}</small></button>
-                <div class="node-meta">{{ statusLabels[node.status] ?? node.status }} · {{ node.location_source === 'unknown' ? '位置未知' : `${node.location_label || '未命名位置'} · ${sourceLabels[node.location_source]}` }}</div>
+                <div class="node-meta">{{ statusLabels[node.status] ?? node.status }} · {{ node.location_source === 'unknown' ? '位置未知' : `${node.location_label || '未命名位置'} · ${locationSourceLabel(node)}` }}</div>
                 <div class="node-actions"><button class="map-button" @click="router.push(`/status/${node.id}`)">详情 <Icon name="chevron" :size="11" /></button><button v-if="isAdmin" class="map-button" @click="openEdit(node)"><Icon name="edit" :size="11" />位置</button></div>
               </div>
               <p v-if="!topology?.nodes.length" class="panel-hint">暂无节点</p>

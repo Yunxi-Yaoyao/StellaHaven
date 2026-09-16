@@ -45,7 +45,7 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.6"
+AGENT_VERSION = "0.6.7"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
@@ -314,7 +314,7 @@ def _collect_map_location():
                             '--ipv4', '--interface', 'if!' + iface, '--noproxy', '*',
                             '--proxy', '', '--connect-timeout', '2', '--max-time', '4',
                             '--max-filesize', '16384', '--proto', '=https',
-                            '--write-out', '\n%{local_ip}', 'https://ipwho.is/'], timeout=5)
+                            '--write-out', '\n%{local_ip}', 'https://api.ip2location.io/'], timeout=5)
         body, local_ip = raw.rsplit('\n', 1)
         if ipaddress.ip_address(local_ip) not in {ipaddress.ip_interface(x).ip for x in addresses}:
             unknown['reason'] = 'binding_source_mismatch'
@@ -322,15 +322,16 @@ def _collect_map_location():
         data = json.loads(body)
         public_ip = ipaddress.ip_address(data['ip'])
         lat, lon = data['latitude'], data['longitude']
-        if (data.get('success') is not True or not public_ip.is_global
+        if (data.get('error') or not public_ip.is_global
                 or isinstance(lat, bool) or isinstance(lon, bool)
                 or not isinstance(lat, (int, float)) or not isinstance(lon, (int, float))
                 or not math.isfinite(lat) or not math.isfinite(lon)
                 or not -90 <= lat <= 90 or not -180 <= lon <= 180):
             raise ValueError('invalid geolocation')
-        label = ', '.join(x for x in (data.get('city'), data.get('region'), data.get('country')) if isinstance(x, str))[:256]
+        label = ', '.join(dict.fromkeys(x for x in (data.get('city_name'), data.get('region_name'), data.get('country_name')) if isinstance(x, str) and x))[:256]
         return {'status': 'located', 'source': 'nat', 'public_ip': str(public_ip),
-                'label': label or None, 'latitude': lat, 'longitude': lon, 'reason': None}
+                'label': label or None, 'latitude': lat, 'longitude': lon, 'reason': None,
+                'provider': 'ip2location'}
     except Exception:
         return unknown
 

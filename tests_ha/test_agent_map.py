@@ -66,15 +66,22 @@ class CollectorTests(unittest.TestCase):
         self.assertTrue(all(cmd[1:4]==['-n','/usr/bin/wg','show'] for cmd in calls if cmd[0].endswith('/sudo')))
 
     def test_nat_requires_binding_and_valid_public_coordinates(self):
-        with patch.object(a, '_map_physical_iface', return_value='eth0'), patch.object(a, '_map_addresses', return_value={'eth0': ['192.168.1.2/24']}), patch.object(a.shutil, 'which', return_value='/usr/bin/curl'), patch.object(a, '_map_command', return_value='{"success":true,"ip":"8.8.8.8","latitude":12,"longitude":34,"city":"City"}\n192.168.1.2') as run:
+        with patch.object(a, '_map_physical_iface', return_value='eth0'), patch.object(a, '_map_addresses', return_value={'eth0': ['192.168.1.2/24']}), patch.object(a.shutil, 'which', return_value='/usr/bin/curl'), patch.object(a, '_map_command', return_value='{"ip":"8.8.8.8","latitude":12,"longitude":34,"city_name":"City"}\n192.168.1.2') as run:
             self.assertEqual(a._collect_map_location()['status'], 'located')
             args = run.call_args.args[0]
             self.assertIn('if!eth0', args)
             self.assertIn('--noproxy', args)
-            run.return_value = '{"success":true,"ip":"127.0.0.1","latitude":12,"longitude":34}\n192.168.1.2'
+            self.assertEqual(args[-1], 'https://api.ip2location.io/')
+            self.assertEqual(a._collect_map_location()['provider'], 'ip2location')
+            run.return_value = '{"ip":"127.0.0.1","latitude":12,"longitude":34}\n192.168.1.2'
             self.assertEqual(a._collect_map_location()['status'], 'unknown')
-            run.return_value = '{"success":true,"ip":"8.8.8.8","latitude":NaN,"longitude":34}\n192.168.1.2'
+            run.return_value = '{"ip":"8.8.8.8","latitude":NaN,"longitude":34}\n192.168.1.2'
             self.assertEqual(a._collect_map_location()['status'], 'unknown')
+
+    def test_ip2location_error_is_unknown_without_fallback(self):
+        with patch.object(a, '_map_physical_iface', return_value='eth0'), patch.object(a, '_map_addresses', return_value={'eth0': ['192.168.1.2/24']}), patch.object(a.shutil, 'which', return_value='/usr/bin/curl'), patch.object(a, '_map_command', return_value='{"error":{"error_code":104,"error_message":"quota"}}\n192.168.1.2') as run:
+            self.assertEqual(a._collect_map_location()['status'],'unknown')
+            self.assertEqual(run.call_count,1)
 
     def test_cache_and_separate_report(self):
         agent = a.Agent('https://unused.invalid', 'test-token')

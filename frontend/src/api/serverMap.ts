@@ -8,6 +8,7 @@ export interface MapNode {
   longitude: number | null;
   location_label: string | null;
   location_source: 'manual' | 'nat' | 'unknown';
+  location_provider?: 'ip2location' | null;
   location_reason: string | null;
   location_observed_at: string | null;
   public_ip: string | null;

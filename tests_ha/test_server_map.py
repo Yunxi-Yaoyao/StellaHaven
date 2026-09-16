@@ -40,7 +40,7 @@ def test_location_is_explicit_and_manual_wins():
     auto = s.build_topology([node()], {1: snapshot()}, {}, now=NOW)["nodes"][0]
     assert (auto["latitude"], auto["location_source"]) == (35.0, "nat")
     internal = s.build_topology([node(net_type="internal")], {1: snapshot()}, {}, now=NOW)["nodes"][0]
-    assert internal["latitude"] is None
+    assert (internal["latitude"], internal["location_source"]) == (35.0, "nat")
     manual = s.build_topology([node(net_type="internal")], {1: snapshot()},
         {1: dict(latitude=0.0, longitude=0.0, label="Real origin")}, now=NOW)["nodes"][0]
     assert (manual["latitude"], manual["longitude"], manual["location_source"]) == (0, 0, "manual")

@@ -38,6 +38,7 @@ class MapLocationUpdate(StrictModel):
 class Location(StrictModel):
     status: Literal["located", "unknown"]
     source: Literal["nat", "unknown"]
+    provider: Literal["ip2location"] | None = None
     public_ip: Annotated[str, Field(strict=True, max_length=64)] | None = None
     label: Label | None = None
     latitude: Latitude | None = None
@@ -135,6 +136,7 @@ def _node_location(node, snapshot, manual, now):
         latitude=None, longitude=None, location_label=None, location_source="unknown",
         location_reason="no_snapshot", location_observed_at=snapshot["observed_at"] if snapshot else None,
         public_ip=node.public_ip if manual_ip else location.get("public_ip"),
+        location_provider=location.get("provider"),
         wireguard_status=snapshot["wireguard"]["status"] if snapshot else "unavailable")
     try:
         manual = MapLocationUpdate.model_validate(manual) if manual else None
@@ -143,11 +145,9 @@ def _node_location(node, snapshot, manual, now):
     if manual and manual.latitude is not None:
         result.update(latitude=manual.latitude, longitude=manual.longitude,
             location_label=manual.label, location_source="manual", location_reason=None,
-            location_observed_at=None)
+            location_observed_at=None, location_provider=None)
         return result
-    if node.net_type != "public":
-        result["location_reason"] = "internal_requires_manual_location"
-    elif manual_ip and (not _global_ip(node.public_ip) or
+    if manual_ip and (not _global_ip(node.public_ip) or
                          _global_ip(node.public_ip) != _global_ip(location.get("public_ip"))):
         result["location_reason"] = "manual_ip_requires_location"
     elif (location.get("status") == "located" and location.get("source") == "nat"
