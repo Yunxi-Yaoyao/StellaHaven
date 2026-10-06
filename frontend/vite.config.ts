@@ -40,6 +40,7 @@ export default defineConfig({
       "/agent": { target: "http://127.0.0.1:12031", xfwd: true },
       "/config": { target: "http://127.0.0.1:12031", xfwd: true },
       "/navigation": { target: "http://127.0.0.1:12031", xfwd: true },
+      "/website-settings": { target: "http://127.0.0.1:12031", xfwd: true },
       "/external-modules": { target: "http://127.0.0.1:12031", xfwd: true },
       "/integration-targets": { target: "http://127.0.0.1:12031", xfwd: true },
       "/integration-presets": { target: "http://127.0.0.1:12031", xfwd: true },
