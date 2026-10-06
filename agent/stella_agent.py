@@ -2475,52 +2475,156 @@ class Agent:
                 del self.monitors[mid]
 
     # ── 版本自更新 ──
+    @staticmethod
+    def _release_version(value):
+        if not isinstance(value, str) or len(value) > 32 or not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', value):
+            return None
+        return tuple(int(part) for part in value.split('.'))
+
     def check_update(self):
-        """对比中心最新版本，不同则下载新脚本覆盖自己并重启。"""
+        """Only strictly newer canonical numeric releases may replace this agent."""
         try:
             info = self._get("/agent/version")
             latest = info.get("version", "")
-            if not latest or latest == AGENT_VERSION:
+            target = self._release_version(latest)
+            current = self._release_version(AGENT_VERSION)
+            if target is None or current is None or target <= current:
                 return
             print(f"[update] 检测到新版本 {latest}（当前 {AGENT_VERSION}），自更新中", file=sys.stderr, flush=True)
-            self._download_and_restart()
+            self._download_and_restart(info)
         except Exception as e:
             print(f"[update] 版本检查失败：{e!r}", file=sys.stderr)
 
-    def _download_and_restart(self):
+    def _download_and_restart(self, info):
+        import ast
         me = os.path.abspath(__file__)
-        # 下载最新脚本
         try:
+            target = info.get('version')
+            version = self._release_version(target)
+            current = self._release_version(AGENT_VERSION)
+            digest = info.get('sha256')
+            size = info.get('size')
+            limit = 2 * 1024 * 1024
+            if (version is None or current is None or version <= current
+                    or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)
+                    or type(size) is not int or not 0 < size <= limit):
+                raise ValueError('invalid or missing update manifest')
+            headers = {'Authorization': 'Bearer ' + self.token, 'Accept-Encoding': 'identity'}
+            body = bytearray()
+            deadline = time.monotonic() + 30
+
+            def append(chunk):
+                if time.monotonic() > deadline or len(body) + len(chunk) > size:
+                    raise ValueError('update download budget exceeded')
+                body.extend(chunk)
+
             if httpx:
-                code = httpx.get(self.url + "/agent/script", timeout=30).text
+                with httpx.stream('GET', self.url + '/agent/script', headers=headers,
+                                  timeout=30, follow_redirects=False) as resp:
+                    resp.raise_for_status()
+                    if resp.status_code != 200:
+                        raise ValueError('unexpected update HTTP status')
+                    if resp.headers.get('Content-Encoding', 'identity').lower() != 'identity':
+                        raise ValueError('encoded update response refused')
+                    for chunk in resp.iter_raw(chunk_size=65536):
+                        append(chunk)
             else:
                 import urllib.request
-                with urllib.request.urlopen(self.url + "/agent/script", timeout=30) as resp:
-                    code = resp.read().decode("utf-8")
+                request = urllib.request.Request(self.url + '/agent/script', headers=headers)
+                with _agent_urlopen(request, timeout=30) as resp:
+                    if resp.status != 200:
+                        raise ValueError('unexpected update HTTP status')
+                    if resp.headers.get('Content-Encoding', 'identity').lower() != 'identity':
+                        raise ValueError('encoded update response refused')
+                    while True:
+                        chunk = resp.read1(min(65536, size - len(body) + 1))
+                        if not chunk:
+                            break
+                        append(chunk)
+            if len(body) != size or hashlib.sha256(body).hexdigest() != digest:
+                raise ValueError('update size/hash mismatch')
+            code = bytes(body).decode('utf-8')
+            tree = ast.parse(code, filename=me)
+            compile(tree, me, 'exec')
+            declarations = [node.value.value for node in tree.body
+                            if isinstance(node, ast.Assign) and len(node.targets) == 1
+                            and isinstance(node.targets[0], ast.Name)
+                            and node.targets[0].id == 'AGENT_VERSION'
+                            and isinstance(node.value, ast.Constant)]
+            if declarations != [target]:
+                raise ValueError('update target version mismatch')
         except Exception as e:
-            print(f"[update] 下载失败：{e!r}", file=sys.stderr)
+            print(f"[update] 下载校验失败：{type(e).__name__}", file=sys.stderr)
             return
-        # 原子替换：写临时文件 + os.replace，避免半截文件
-        tmp = me + ".new"
+        # Load with the same interpreter before replacing, then load the actual
+        # installed path before exec. Never ask systemd to kill the live process.
+        import stat
+        import tempfile
+        tmp = backup = None
+        installed = False
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(code)
-            os.chmod(tmp, 0o755)
+            original = os.lstat(me)
+            if not stat.S_ISREG(original.st_mode):
+                raise ValueError('update target must be a regular file')
+            fd, tmp = tempfile.mkstemp(prefix='.stella-update-', suffix='.py', dir=os.path.dirname(me))
+            with os.fdopen(fd, 'wb') as f:
+                f.write(body)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, stat.S_IMODE(original.st_mode))
+            if hasattr(os, 'chown'):
+                os.chown(tmp, original.st_uid, original.st_gid)
+            self._validate_update_load(tmp, target)
+            fd, backup = tempfile.mkstemp(prefix='.stella-rollback-', suffix='.py', dir=os.path.dirname(me))
+            os.close(fd)
+            shutil.copy2(me, backup)
+            if hasattr(os, 'chown'):
+                os.chown(backup, original.st_uid, original.st_gid)
+            with open(backup, 'rb') as f:
+                os.fsync(f.fileno())
+            if os.lstat(me) != original:
+                raise ValueError('update target changed during staging')
             os.replace(tmp, me)
-        except OSError as e:
-            print(f"[update] 写入失败：{e!r}", file=sys.stderr)
-            return
-        print("[update] 已替换脚本，重启中", file=sys.stderr, flush=True)
-        # 重启：systemd 管理则后台 systemctl restart（会 SIGTERM 当前进程），
-        # 否则（前台跑）exec 替换自己。
-        try:
-            subprocess.Popen(["systemctl", "restart", "stella-agent"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
-            time.sleep(5)  # 给 systemd 完成 stop+start；若仍活着说明非 systemd 管理
-        except Exception:
-            pass
-        os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
+            tmp = None
+            installed = True
+            with open(me, 'rb') as f:
+                if hashlib.sha256(f.read(limit + 1)).hexdigest() != digest:
+                    raise ValueError('installed update hash mismatch')
+            self._validate_update_load(me, target)
+            print('[update] 已验证新脚本，exec 重启（旧脚本备份：' + backup + '）', file=sys.stderr, flush=True)
+            os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
+            installed = False  # exec never returns; lets test doubles clean up.
+        except Exception as e:
+            if installed and backup is not None:
+                try:
+                    os.replace(backup, me)
+                    backup = None
+                    installed = False
+                except OSError:
+                    # Keep the recovery copy if the filesystem will not restore.
+                    print('[update] 回退失败，旧脚本保留于：' + str(backup), file=sys.stderr, flush=True)
+            print(f'[update] 安装失败，原进程继续运行：{type(e).__name__}', file=sys.stderr)
+        finally:
+            for path in (tmp, backup if not installed else None):
+                if path:
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+
+    @staticmethod
+    def _validate_update_load(path, target):
+        # run_name is not __main__: importing must not start the agent. This is
+        # a load/entrypoint check, not a sandbox or a runtime health guarantee.
+        probe = ("import os,runpy,sys; sys.path[0]=os.path.dirname(sys.argv[1]); "
+                 "m=runpy.run_path(sys.argv[1],run_name='stella_update_probe'); "
+                 "sys.exit(73 if m.get('AGENT_VERSION')==sys.argv[2] and "
+                 "callable(m.get('Agent')) and callable(m.get('main')) else 1)")
+        result = subprocess.run([sys.executable, '-B', '-c', probe, path, target],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=10)
+        if result.returncode != 73:
+            raise ValueError('update load/entrypoint validation failed')
 
     # ── 主循环 ──
     def run(self, stop_event=None):

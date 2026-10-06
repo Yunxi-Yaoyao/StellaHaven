@@ -344,7 +344,7 @@ def agent_script():
     from fastapi.responses import PlainTextResponse
     from pathlib import Path
     script = Path(__file__).resolve().parents[2] / "agent" / "stella_agent.py"
-    return PlainTextResponse(script.read_text(encoding="utf-8"))
+    return PlainTextResponse(script.read_bytes())
 
 
 @agent_router.get("/version")
@@ -353,13 +353,18 @@ def agent_version():
     import re
     from pathlib import Path
     script = Path(__file__).resolve().parents[2] / "agent" / "stella_agent.py"
-    text = script.read_text(encoding="utf-8")
+    body = script.read_bytes()
+    text = body.decode('utf-8')
     m = re.search(r'AGENT_VERSION\s*=\s*"([^"]+)"', text)
     available = m.group(1) if m else "0.0.0"
     import os
     rollout = os.getenv('STELLA_AGENT_ROLLOUT_VERSION', available)
     if rollout not in {'0.6.9', available}:
         raise HTTPException(503, 'Agent 滚动版本配置无效')
+    if rollout == available:
+        import hashlib
+        return {'version': rollout, 'sha256': hashlib.sha256(body).hexdigest(), 'size': len(body)}
+    # The parked legacy announcement is not a manifest for the newer script.
     return {"version": rollout}
 
 
