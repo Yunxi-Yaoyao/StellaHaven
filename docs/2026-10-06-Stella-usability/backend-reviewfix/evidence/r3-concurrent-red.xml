@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.968" timestamp="2026-10-06T22:29:41.287675+08:00" hostname="yaoyao-Y7P"><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_legacy_override_changed_during_check_is_not_overwritten" time="0.879"><failure message="AssertionError: {&quot;name&quot;:&quot;Old override&quot;,&quot;icon&quot;:&quot;heart&quot;,&quot;mode&quot;:&quot;iframe&quot;,&quot;adapter&quot;:&quot;generic&quot;,&quot;browser_url&quot;:&quot;http://127.0.0.1:36539/edited&quot;,&quot;target_id&quot;:null,&quot;initial_path&quot;:&quot;/&quot;,&quot;enabled&quot;:true,&quot;keep_alive&quot;:false,&quot;id&quot;:&quot;18e5cf40a9f040edbee2d5781f74b903&quot;,&quot;origin&quot;:&quot;https://app-18e5cf40a9f040edbee2d5781f74b903.xiya.live&quot;,&quot;injection&quot;:{&quot;draft&quot;:null,&quot;active&quot;:null,&quot;previous&quot;:null},&quot;route&quot;:&quot;/apps/18e5cf40a9f040edbee2d5781f74b903&quot;,&quot;capabilities&quot;:{&quot;injection&quot;:false,&quot;browser_status&quot;:&quot;unobservable&quot;,&quot;managed_settings&quot;:null},&quot;check&quot;:{&quot;normalized_url&quot;:&quot;http://127.0.0.1:36539/edited&quot;,&quot;name_suggestion&quot;:&quot;Fixture title&quot;,&quot;access&quot;:{&quot;status&quot;:&quot;reachable&quot;,&quot;http_status&quot;:200},&quot;embedding&quot;:{&quot;status&quot;:&quot;allowed&quot;,&quot;reason_code&quot;:&quot;no_observed_restriction&quot;,&quot;reason&quot;:&quot;未发现响应策略阻断，浏览器内容及登录仍需验证&quot;},&quot;injection&quot;:{&quot;status&quot;:&quot;supported&quot;,&quot;reason&quot;:&quot;匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证&quot;},&quot;help&quot;:null,&quot;can_save&quot;:true,&quot;recommended_behavior&quot;:&quot;embedded&quot;,&quot;issues&quot;:[]}}&#10;assert 200 == 409&#10; +  where 200 = &lt;Response [200 OK]&gt;.status_code">upstream = ('http://127.0.0.1:36539', {}, [('/edited', {'Host': '127.0.0.1:36539', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (&lt;starlette.testclient.TestClient object at 0x7f9e04f974d0&gt;, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), &lt;fastapi.applications.FastAPI object at 0x7f9e04f97230&gt;, [True, True])
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f9e04e575c0&gt;
+
+    def test_legacy_override_changed_during_check_is_not_overwritten(upstream, api_env, monkeypatch):
+        from app.services import integrations as store, website_settings
+        root, _, _ = upstream
+        c, factory, _, _ = api_env
+        old = c.post('/external-modules', json=dict(name='Master', icon='book', browser_url=root)).json()
+        mid = old['id']
+        with factory() as db:
+            with store.edit(db) as config:
+                config['navigation'].append(dict(id=mid, title='Old override', icon='heart', visible=True))
+        real = website_settings.check_draft
+        async def concurrent_override(*args, **kwargs):
+            result = await real(*args, **kwargs)
+            with factory() as db:
+                with store.edit(db) as config:
+                    config['navigation'][0].update(title='Concurrent override')
+            return result
+        monkeypatch.setattr(website_settings, 'check_draft', concurrent_override)
+        result = c.patch('/website-settings/' + mid, json=dict(address=root + '/edited'))
+&gt;       assert result.status_code == 409, result.text
+E       AssertionError: {"name":"Old override","icon":"heart","mode":"iframe","adapter":"generic","browser_url":"http://127.0.0.1:36539/edited","target_id":null,"initial_path":"/","enabled":true,"keep_alive":false,"id":"18e5cf40a9f040edbee2d5781f74b903","origin":"https://app-18e5cf40a9f040edbee2d5781f74b903.xiya.live","injection":{"draft":null,"active":null,"previous":null},"route":"/apps/18e5cf40a9f040edbee2d5781f74b903","capabilities":{"injection":false,"browser_status":"unobservable","managed_settings":null},"check":{"normalized_url":"http://127.0.0.1:36539/edited","name_suggestion":"Fixture title","access":{"status":"reachable","http_status":200},"embedding":{"status":"allowed","reason_code":"no_observed_restriction","reason":"未发现响应策略阻断，浏览器内容及登录仍需验证"},"injection":{"status":"supported","reason":"匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"},"help":null,"can_save":true,"recommended_behavior":"embedded","issues":[]}}
+E       assert 200 == 409
+E        +  where 200 = &lt;Response [200 OK]&gt;.status_code
+
+tests_website_settings/test_reviewfix_backend.py:156: AssertionError</failure></testcase></testsuite></testsuites>

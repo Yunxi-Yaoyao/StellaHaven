@@ -137,8 +137,24 @@ def get_module(db, mid):
     return module
 
 
-def present(module):
+def display_module(module, config):
+    """Read compatibility for valid old website display overrides; never writes.
+
+    The next explicit website save copies this effective display into both the
+    module and navigation, after which the module remains the write authority.
+    Built-in service adapters retain their existing connection/settings contract.
+    """
     result = copy.deepcopy(module)
+    if module.get('adapter','generic') != 'generic': return result
+    override = next((e for e in config['navigation'] if e['id'] == module['id']),{})
+    title, icon = override.get('title'), override.get('icon')
+    if isinstance(title,str) and 1 <= len(title) <= 100: result['name'] = title
+    if isinstance(icon,str) and icon in ICONS: result['icon'] = icon
+    return result
+
+
+def present(module, config=None):
+    result = display_module(module,config) if config is not None else copy.deepcopy(module)
     result.setdefault('keep_alive', False)
     result['route'] = '/apps/' + module['id']
     adapter = module.get('adapter', 'generic')

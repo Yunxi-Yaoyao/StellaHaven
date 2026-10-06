@@ -1,0 +1,210 @@
+FFFFFFF..........F                                                       [100%]
+=================================== FAILURES ===================================
+_ test_css_declaration_errors_reject_without_persistent_changes[body { color red; }] _
+
+upstream = ('http://127.0.0.1:41579', {}, [('/', {'Host': '127.0.0.1:41579', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (<starlette.testclient.TestClient object at 0x7fcd9fc934d0>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7fcd9fc93230>, [True])
+css = 'body { color red; }'
+
+    @pytest.mark.parametrize('css', [
+        'body { color red; }',
+        '@media (width > 0) { body { color red; } }',
+        '@supports (display: grid) { body { color red; } }',
+        '@font-face { font-family Fixture; src: url(fixture.woff2); }',
+        'body { color: red; & .child { color blue; } }',
+        'body { @media (width > 0) { color blue; } }',
+        '@keyframes fixture { from { opacity 0; } to { opacity: 1; } }',
+    ])
+    def test_css_declaration_errors_reject_without_persistent_changes(upstream, api_env, css):
+        from app.models.config import AppConfig
+        root, _, _ = upstream
+        c, factory, _, _ = api_env
+        result = c.post('/website-settings', json=dict(address=root, idempotency_key='css-declaration-error', custom=dict(enabled=True, css=css)))
+>       assert result.status_code == 422, result.text
+E       AssertionError: {"name":"Fixture title","icon":"globe","mode":"isolated_proxy","adapter":"generic","browser_url":"http://127.0.0.1:41579/","target_id":"06ed940bd2d9477f9c057c65a264f3e7","initial_path":"/","enabled":true,"keep_alive":false,"id":"b8609fb182b04751a4b29b1626f5e3a7","origin":"https://app-b8609fb182b04751a4b29b1626f5e3a7.xiya.live","injection":{"draft":{"enabled":true,"css":"body { color red; }","js":"","timing":"dom_ready","csp_policy":"reject"},"active":{"enabled":true,"css":"body { color red; }","js":"","timing":"dom_ready","csp_policy":"reject","version":"3d41609adb724ae7ab8f1d2abf749c51"},"previous":null},"route":"/apps/b8609fb182b04751a4b29b1626f5e3a7","capabilities":{"injection":true,"browser_status":"unobservable","managed_settings":null},"check":{"normalized_url":"http://127.0.0.1:41579/","name_suggestion":"Fixture title","access":{"status":"reachable","http_status":200},"embedding":{"status":"allowed","reason_code":"no_observed_restriction","reason":"未发现响应策略阻断，浏览器内容及登录仍需验证"},"injection":{"status":"supported","reason":"匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"},"help":null,"can_save":true,"recommended_behavior":"embedded","issues":[]}}
+E       assert 201 == 422
+E        +  where 201 = <Response [201 Created]>.status_code
+
+tests_website_settings/test_reviewfix_backend.py:41: AssertionError
+_ test_css_declaration_errors_reject_without_persistent_changes[@media (width > 0) { body { color red; } }] _
+
+upstream = ('http://127.0.0.1:41169', {}, [('/', {'Host': '127.0.0.1:41169', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (<starlette.testclient.TestClient object at 0x7fcd9fba3750>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7fcd9fba0690>, [True])
+css = '@media (width > 0) { body { color red; } }'
+
+    @pytest.mark.parametrize('css', [
+        'body { color red; }',
+        '@media (width > 0) { body { color red; } }',
+        '@supports (display: grid) { body { color red; } }',
+        '@font-face { font-family Fixture; src: url(fixture.woff2); }',
+        'body { color: red; & .child { color blue; } }',
+        'body { @media (width > 0) { color blue; } }',
+        '@keyframes fixture { from { opacity 0; } to { opacity: 1; } }',
+    ])
+    def test_css_declaration_errors_reject_without_persistent_changes(upstream, api_env, css):
+        from app.models.config import AppConfig
+        root, _, _ = upstream
+        c, factory, _, _ = api_env
+        result = c.post('/website-settings', json=dict(address=root, idempotency_key='css-declaration-error', custom=dict(enabled=True, css=css)))
+>       assert result.status_code == 422, result.text
+E       AssertionError: {"name":"Fixture title","icon":"globe","mode":"isolated_proxy","adapter":"generic","browser_url":"http://127.0.0.1:41169/","target_id":"a204415dc18d4eef975180a179ab0766","initial_path":"/","enabled":true,"keep_alive":false,"id":"1e20b036f57242c99a3ad1c52cf8c654","origin":"https://app-1e20b036f57242c99a3ad1c52cf8c654.xiya.live","injection":{"draft":{"enabled":true,"css":"@media (width > 0) { body { color red; } }","js":"","timing":"dom_ready","csp_policy":"reject"},"active":{"enabled":true,"css":"@media (width > 0) { body { color red; } }","js":"","timing":"dom_ready","csp_policy":"reject","version":"f7327a2670c245d6bc8eb0203f07799d"},"previous":null},"route":"/apps/1e20b036f57242c99a3ad1c52cf8c654","capabilities":{"injection":true,"browser_status":"unobservable","managed_settings":null},"check":{"normalized_url":"http://127.0.0.1:41169/","name_suggestion":"Fixture title","access":{"status":"reachable","http_status":200},"embedding":{"status":"allowed","reason_code":"no_observed_restriction","reason":"未发现响应策略阻断，浏览器内容及登录仍需验证"},"injection":{"status":"supported","reason":"匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"},"help":null,"can_save":true,"recommended_behavior":"embedded","issues":[]}}
+E       assert 201 == 422
+E        +  where 201 = <Response [201 Created]>.status_code
+
+tests_website_settings/test_reviewfix_backend.py:41: AssertionError
+_ test_css_declaration_errors_reject_without_persistent_changes[@supports (display: grid) { body { color red; } }] _
+
+upstream = ('http://127.0.0.1:38785', {}, [('/', {'Host': '127.0.0.1:38785', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (<starlette.testclient.TestClient object at 0x7fcd9da51bd0>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7fcd9da50190>, [True])
+css = '@supports (display: grid) { body { color red; } }'
+
+    @pytest.mark.parametrize('css', [
+        'body { color red; }',
+        '@media (width > 0) { body { color red; } }',
+        '@supports (display: grid) { body { color red; } }',
+        '@font-face { font-family Fixture; src: url(fixture.woff2); }',
+        'body { color: red; & .child { color blue; } }',
+        'body { @media (width > 0) { color blue; } }',
+        '@keyframes fixture { from { opacity 0; } to { opacity: 1; } }',
+    ])
+    def test_css_declaration_errors_reject_without_persistent_changes(upstream, api_env, css):
+        from app.models.config import AppConfig
+        root, _, _ = upstream
+        c, factory, _, _ = api_env
+        result = c.post('/website-settings', json=dict(address=root, idempotency_key='css-declaration-error', custom=dict(enabled=True, css=css)))
+>       assert result.status_code == 422, result.text
+E       AssertionError: {"name":"Fixture title","icon":"globe","mode":"isolated_proxy","adapter":"generic","browser_url":"http://127.0.0.1:38785/","target_id":"6bddf40f2183444ebbd4f73bf4920aa9","initial_path":"/","enabled":true,"keep_alive":false,"id":"1fb7a01a70a64f18bbeb592fb27354f8","origin":"https://app-1fb7a01a70a64f18bbeb592fb27354f8.xiya.live","injection":{"draft":{"enabled":true,"css":"@supports (display: grid) { body { color red; } }","js":"","timing":"dom_ready","csp_policy":"reject"},"active":{"enabled":true,"css":"@supports (display: grid) { body { color red; } }","js":"","timing":"dom_ready","csp_policy":"reject","version":"cd3195b411054a1483a38ebdbc23f76c"},"previous":null},"route":"/apps/1fb7a01a70a64f18bbeb592fb27354f8","capabilities":{"injection":true,"browser_status":"unobservable","managed_settings":null},"check":{"normalized_url":"http://127.0.0.1:38785/","name_suggestion":"Fixture title","access":{"status":"reachable","http_status":200},"embedding":{"status":"allowed","reason_code":"no_observed_restriction","reason":"未发现响应策略阻断，浏览器内容及登录仍需验证"},"injection":{"status":"supported","reason":"匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"},"help":null,"can_save":true,"recommended_behavior":"embedded","issues":[]}}
+E       assert 201 == 422
+E        +  where 201 = <Response [201 Created]>.status_code
+
+tests_website_settings/test_reviewfix_backend.py:41: AssertionError
+_ test_css_declaration_errors_reject_without_persistent_changes[@font-face { font-family Fixture; src: url(fixture.woff2); }] _
+
+upstream = ('http://127.0.0.1:42009', {}, [('/', {'Host': '127.0.0.1:42009', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (<starlette.testclient.TestClient object at 0x7fcd9da56fd0>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7fcda55891d0>, [True])
+css = '@font-face { font-family Fixture; src: url(fixture.woff2); }'
+
+    @pytest.mark.parametrize('css', [
+        'body { color red; }',
+        '@media (width > 0) { body { color red; } }',
+        '@supports (display: grid) { body { color red; } }',
+        '@font-face { font-family Fixture; src: url(fixture.woff2); }',
+        'body { color: red; & .child { color blue; } }',
+        'body { @media (width > 0) { color blue; } }',
+        '@keyframes fixture { from { opacity 0; } to { opacity: 1; } }',
+    ])
+    def test_css_declaration_errors_reject_without_persistent_changes(upstream, api_env, css):
+        from app.models.config import AppConfig
+        root, _, _ = upstream
+        c, factory, _, _ = api_env
+        result = c.post('/website-settings', json=dict(address=root, idempotency_key='css-declaration-error', custom=dict(enabled=True, css=css)))
+>       assert result.status_code == 422, result.text
+E       AssertionError: {"name":"Fixture title","icon":"globe","mode":"isolated_proxy","adapter":"generic","browser_url":"http://127.0.0.1:42009/","target_id":"b497b06061954bb0bac79a7f6782267c","initial_path":"/","enabled":true,"keep_alive":false,"id":"e08cec7398e648dc8f036ba12695e5b9","origin":"https://app-e08cec7398e648dc8f036ba12695e5b9.xiya.live","injection":{"draft":{"enabled":true,"css":"@font-face { font-family Fixture; src: url(fixture.woff2); }","js":"","timing":"dom_ready","csp_policy":"reject"},"active":{"enabled":true,"css":"@font-face { font-family Fixture; src: url(fixture.woff2); }","js":"","timing":"dom_ready","csp_policy":"reject","version":"2b391602233645ab9d9cbaf262329d58"},"previous":null},"route":"/apps/e08cec7398e648dc8f036ba12695e5b9","capabilities":{"injection":true,"browser_status":"unobservable","managed_settings":null},"check":{"normalized_url":"http://127.0.0.1:42009/","name_suggestion":"Fixture title","access":{"status":"reachable","http_status":200},"embedding":{"status":"allowed","reason_code":"no_observed_restriction","reason":"未发现响应策略阻断，浏览器内容及登录仍需验证"},"injection":{"status":"supported","reason":"匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"},"help":null,"can_save":true,"recommended_behavior":"embedded","issues":[]}}
+E       assert 201 == 422
+E        +  where 201 = <Response [201 Created]>.status_code
+
+tests_website_settings/test_reviewfix_backend.py:41: AssertionError
+_ test_css_declaration_errors_reject_without_persistent_changes[body { color: red; & .child { color blue; } }] _
+
+upstream = ('http://127.0.0.1:36369', {}, [('/', {'Host': '127.0.0.1:36369', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (<starlette.testclient.TestClient object at 0x7fcd9da69220>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7fcd9da539d0>, [True])
+css = 'body { color: red; & .child { color blue; } }'
+
+    @pytest.mark.parametrize('css', [
+        'body { color red; }',
+        '@media (width > 0) { body { color red; } }',
+        '@supports (display: grid) { body { color red; } }',
+        '@font-face { font-family Fixture; src: url(fixture.woff2); }',
+        'body { color: red; & .child { color blue; } }',
+        'body { @media (width > 0) { color blue; } }',
+        '@keyframes fixture { from { opacity 0; } to { opacity: 1; } }',
+    ])
+    def test_css_declaration_errors_reject_without_persistent_changes(upstream, api_env, css):
+        from app.models.config import AppConfig
+        root, _, _ = upstream
+        c, factory, _, _ = api_env
+        result = c.post('/website-settings', json=dict(address=root, idempotency_key='css-declaration-error', custom=dict(enabled=True, css=css)))
+>       assert result.status_code == 422, result.text
+E       AssertionError: {"name":"Fixture title","icon":"globe","mode":"isolated_proxy","adapter":"generic","browser_url":"http://127.0.0.1:36369/","target_id":"af831ab703174b3a846d62bb522bad89","initial_path":"/","enabled":true,"keep_alive":false,"id":"c4a9ec6c3ca34477a5c8be2744aac4ad","origin":"https://app-c4a9ec6c3ca34477a5c8be2744aac4ad.xiya.live","injection":{"draft":{"enabled":true,"css":"body { color: red; & .child { color blue; } }","js":"","timing":"dom_ready","csp_policy":"reject"},"active":{"enabled":true,"css":"body { color: red; & .child { color blue; } }","js":"","timing":"dom_ready","csp_policy":"reject","version":"195faf6227994f059dd1eaacd01a3f1b"},"previous":null},"route":"/apps/c4a9ec6c3ca34477a5c8be2744aac4ad","capabilities":{"injection":true,"browser_status":"unobservable","managed_settings":null},"check":{"normalized_url":"http://127.0.0.1:36369/","name_suggestion":"Fixture title","access":{"status":"reachable","http_status":200},"embedding":{"status":"allowed","reason_code":"no_observed_restriction","reason":"未发现响应策略阻断，浏览器内容及登录仍需验证"},"injection":{"status":"supported","reason":"匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"},"help":null,"can_save":true,"recommended_behavior":"embedded","issues":[]}}
+E       assert 201 == 422
+E        +  where 201 = <Response [201 Created]>.status_code
+
+tests_website_settings/test_reviewfix_backend.py:41: AssertionError
+_ test_css_declaration_errors_reject_without_persistent_changes[body { @media (width > 0) { color blue; } }] _
+
+upstream = ('http://127.0.0.1:36869', {}, [('/', {'Host': '127.0.0.1:36869', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (<starlette.testclient.TestClient object at 0x7fcd9da1af90>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7fcd9da51d10>, [True])
+css = 'body { @media (width > 0) { color blue; } }'
+
+    @pytest.mark.parametrize('css', [
+        'body { color red; }',
+        '@media (width > 0) { body { color red; } }',
+        '@supports (display: grid) { body { color red; } }',
+        '@font-face { font-family Fixture; src: url(fixture.woff2); }',
+        'body { color: red; & .child { color blue; } }',
+        'body { @media (width > 0) { color blue; } }',
+        '@keyframes fixture { from { opacity 0; } to { opacity: 1; } }',
+    ])
+    def test_css_declaration_errors_reject_without_persistent_changes(upstream, api_env, css):
+        from app.models.config import AppConfig
+        root, _, _ = upstream
+        c, factory, _, _ = api_env
+        result = c.post('/website-settings', json=dict(address=root, idempotency_key='css-declaration-error', custom=dict(enabled=True, css=css)))
+>       assert result.status_code == 422, result.text
+E       AssertionError: {"name":"Fixture title","icon":"globe","mode":"isolated_proxy","adapter":"generic","browser_url":"http://127.0.0.1:36869/","target_id":"a219d00023904216803013c23b081750","initial_path":"/","enabled":true,"keep_alive":false,"id":"469f65693981468ab0b21148ae646851","origin":"https://app-469f65693981468ab0b21148ae646851.xiya.live","injection":{"draft":{"enabled":true,"css":"body { @media (width > 0) { color blue; } }","js":"","timing":"dom_ready","csp_policy":"reject"},"active":{"enabled":true,"css":"body { @media (width > 0) { color blue; } }","js":"","timing":"dom_ready","csp_policy":"reject","version":"80bc9de0313a487986e707f392e766bf"},"previous":null},"route":"/apps/469f65693981468ab0b21148ae646851","capabilities":{"injection":true,"browser_status":"unobservable","managed_settings":null},"check":{"normalized_url":"http://127.0.0.1:36869/","name_suggestion":"Fixture title","access":{"status":"reachable","http_status":200},"embedding":{"status":"allowed","reason_code":"no_observed_restriction","reason":"未发现响应策略阻断，浏览器内容及登录仍需验证"},"injection":{"status":"supported","reason":"匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"},"help":null,"can_save":true,"recommended_behavior":"embedded","issues":[]}}
+E       assert 201 == 422
+E        +  where 201 = <Response [201 Created]>.status_code
+
+tests_website_settings/test_reviewfix_backend.py:41: AssertionError
+_ test_css_declaration_errors_reject_without_persistent_changes[@keyframes fixture { from { opacity 0; } to { opacity: 1; } }] _
+
+upstream = ('http://127.0.0.1:36313', {}, [('/', {'Host': '127.0.0.1:36313', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (<starlette.testclient.TestClient object at 0x7fcd9da83df0>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7fcd9da51450>, [True])
+css = '@keyframes fixture { from { opacity 0; } to { opacity: 1; } }'
+
+    @pytest.mark.parametrize('css', [
+        'body { color red; }',
+        '@media (width > 0) { body { color red; } }',
+        '@supports (display: grid) { body { color red; } }',
+        '@font-face { font-family Fixture; src: url(fixture.woff2); }',
+        'body { color: red; & .child { color blue; } }',
+        'body { @media (width > 0) { color blue; } }',
+        '@keyframes fixture { from { opacity 0; } to { opacity: 1; } }',
+    ])
+    def test_css_declaration_errors_reject_without_persistent_changes(upstream, api_env, css):
+        from app.models.config import AppConfig
+        root, _, _ = upstream
+        c, factory, _, _ = api_env
+        result = c.post('/website-settings', json=dict(address=root, idempotency_key='css-declaration-error', custom=dict(enabled=True, css=css)))
+>       assert result.status_code == 422, result.text
+E       AssertionError: {"name":"Fixture title","icon":"globe","mode":"isolated_proxy","adapter":"generic","browser_url":"http://127.0.0.1:36313/","target_id":"f5fbae57d1ba405d915a8d6846d1882d","initial_path":"/","enabled":true,"keep_alive":false,"id":"97a591b97fb443aca53a6276ac3837e5","origin":"https://app-97a591b97fb443aca53a6276ac3837e5.xiya.live","injection":{"draft":{"enabled":true,"css":"@keyframes fixture { from { opacity 0; } to { opacity: 1; } }","js":"","timing":"dom_ready","csp_policy":"reject"},"active":{"enabled":true,"css":"@keyframes fixture { from { opacity 0; } to { opacity: 1; } }","js":"","timing":"dom_ready","csp_policy":"reject","version":"fd271104e0ac4de2b05e157dc4d28aa9"},"previous":null},"route":"/apps/97a591b97fb443aca53a6276ac3837e5","capabilities":{"injection":true,"browser_status":"unobservable","managed_settings":null},"check":{"normalized_url":"http://127.0.0.1:36313/","name_suggestion":"Fixture title","access":{"status":"reachable","http_status":200},"embedding":{"status":"allowed","reason_code":"no_observed_restriction","reason":"未发现响应策略阻断，浏览器内容及登录仍需验证"},"injection":{"status":"supported","reason":"匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"},"help":null,"can_save":true,"recommended_behavior":"embedded","issues":[]}}
+E       assert 201 == 422
+E        +  where 201 = <Response [201 Created]>.status_code
+
+tests_website_settings/test_reviewfix_backend.py:41: AssertionError
+_________________ test_css_recursion_budget_rejects_deep_rules _________________
+
+    def test_css_recursion_budget_rejects_deep_rules():
+        from app.services.website_settings import css_errors
+        css = '@media (width > 0) {' * 80 + 'body { color: red; }' + '}' * 80
+>       assert css_errors(css)
+E       AssertionError: assert []
+E        +  where [] = <function css_errors at 0x7fcd9fb70b80>('@media (width > 0) {@media (width > 0) {@media (width > 0) {@media (width > 0) {@media (width > 0) {@media (width > 0...edia (width > 0) {body { color: red; }}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}')
+
+tests_website_settings/test_reviewfix_backend.py:70: AssertionError
+=============================== warnings summary ===============================
+tests_website_settings/test_reviewfix_backend.py::test_css_declaration_errors_reject_without_persistent_changes[body { color red; }]
+  /opt/hermes-workstation/stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests_website_settings/test_reviewfix_backend.py::test_css_declaration_errors_reject_without_persistent_changes[body { color red; }]
+FAILED tests_website_settings/test_reviewfix_backend.py::test_css_declaration_errors_reject_without_persistent_changes[@media (width > 0) { body { color red; } }]
+FAILED tests_website_settings/test_reviewfix_backend.py::test_css_declaration_errors_reject_without_persistent_changes[@supports (display: grid) { body { color red; } }]
+FAILED tests_website_settings/test_reviewfix_backend.py::test_css_declaration_errors_reject_without_persistent_changes[@font-face { font-family Fixture; src: url(fixture.woff2); }]
+FAILED tests_website_settings/test_reviewfix_backend.py::test_css_declaration_errors_reject_without_persistent_changes[body { color: red; & .child { color blue; } }]
+FAILED tests_website_settings/test_reviewfix_backend.py::test_css_declaration_errors_reject_without_persistent_changes[body { @media (width > 0) { color blue; } }]
+FAILED tests_website_settings/test_reviewfix_backend.py::test_css_declaration_errors_reject_without_persistent_changes[@keyframes fixture { from { opacity 0; } to { opacity: 1; } }]
+FAILED tests_website_settings/test_reviewfix_backend.py::test_css_recursion_budget_rejects_deep_rules
+8 failed, 10 passed, 1 deselected, 1 warning in 9.33s

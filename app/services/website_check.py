@@ -82,6 +82,11 @@ def source_matches(source, parent, document):
     scheme_ok = ps == scheme or (scheme == 'http' and ps == 'https')
     host_ok = ph.endswith('.' + host.lower()) if wildcard else ph == host.lower()
     port_ok = port == '*' or pp == (int(port) if port else (443 if ps == 'https' else 80))
+    # CSP3's HTTP default-port secure upgrade (frozen 2016 WD §6.6.1.6).
+    # https:80 is not an HTTP upgrade; non-default ports never map to 443.
+    # https://www.w3.org/TR/2016/WD-CSP3-20160913/#match-url-to-source-expression
+    if port and port != '*' and int(port) == 80 and scheme == 'http' and ps == 'https' and pp == 443:
+        port_ok = True
     return scheme_ok and host_ok and port_ok
 
 def evaluate_embedding(headers, document_url, parent_origin):
@@ -194,14 +199,20 @@ async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=Non
                     text_valid = False; decoded = body.decode('utf-8',errors='replace')
                 document = Document(); document.feed(decoded)
                 embedding = evaluate_embedding(response.headers, url, parent_origin)
-                if urlsplit(parent_origin).scheme == 'https' and p.scheme == 'http':
-                    embedding = dict(status='blocked', reason_code='mixed_content', reason='HTTPS Stella 不能直接嵌入 HTTP 混合内容')
                 http_status = response.status_code
                 access = 'login_required' if http_status == 401 else ('blocked' if http_status == 403 else ('reachable' if 200 <= http_status < 300 else 'unknown'))
                 import re
                 if redirects and re.search(r'/(?:login|signin|oauth|authorize)(?:/|$)', p.path, re.I): access = 'login_required'
                 html = response.headers.get('content-type','').split(';')[0].lower() == 'text/html'
                 supported = html and text_valid and http_status == 200 and access == 'reachable' and origin(url) == origin(normalized) and not (response.headers.get_list('content-security-policy') or response.headers.get_list('x-frame-options') or document.meta_csp)
+                if urlsplit(parent_origin).scheme == 'https' and p.scheme == 'http' and embedding['status'] == 'allowed':
+                    if incoming.custom_enabled and incoming.open_behavior == 'embedded' and supported:
+                        # The save constructs an HTTPS isolated origin with a freshly
+                        # DNS-pinned, uncontrolled, header-free target. Browser delivery
+                        # is not a direct HTTP frame; upstream policies are never stripped.
+                        embedding = dict(status='allowed',reason_code='isolated_https_proxy',reason='将通过 HTTPS 隔离代理交付；浏览器内容及登录仍需验证')
+                    else:
+                        embedding = dict(status='blocked',reason_code='mixed_content',reason='HTTPS Stella 不能直接嵌入 HTTP 混合内容')
                 if not html and embedding['status'] == 'allowed': embedding = dict(status='unknown', reason_code='not_html', reason='非 HTML 响应，浏览器呈现尚未确认')
                 can_save = incoming.open_behavior == 'external' or (embedding['status'] == 'allowed' and access == 'reachable')
                 if incoming.custom_enabled and (not supported or incoming.open_behavior == 'external'): can_save = False

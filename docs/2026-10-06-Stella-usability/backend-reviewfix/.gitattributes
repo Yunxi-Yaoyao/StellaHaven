@@ -1,0 +1,2 @@
+# Raw pytest/W3C evidence preserves source whitespace intentionally.
+evidence/** -whitespace

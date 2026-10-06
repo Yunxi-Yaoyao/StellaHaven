@@ -1,0 +1,157 @@
+Source: https://www.w3.org/TR/2016/WD-CSP3-20160913/#match-url-to-source-expression
+6.6.1.6.  Does url match expression in origin with redirect count? 
+    Given a URL (url), a source expression (expression), an origin (origin), and a number (redirect count), this algorithm
+  returns "Matches" if url matches expression, and "Does Not Match"
+  otherwise.
+    Note: origin is the origin of the resource relative to which the expression should be resolved. "'self'", for instance, will have distinct
+  meaning depending on that bit of context.
+    
+     
+      If expression is the string "*", return "Matches" if one or more of
+  the following conditions is met:
+      
+       
+        url’s scheme is a network scheme.
+       
+        url’s scheme is the same as origin’s scheme.
+      
+      Note: This logic means that in order to allow resource from a non-network scheme,
+  it has to be either explicitly whitelisted: default-src * data: custom-scheme-1: custom-scheme-2:,
+  or the protected resource must be loaded from the same scheme.
+     
+      If expression matches the scheme-source or host-source grammar:
+      
+       
+        If expression has a scheme-part that is not an ASCII case-insensitive match for url’s scheme, then
+  return "Does Not Match" unless one of the following conditions is
+  met:
+        
+         
+          expression’s scheme-part is an ASCII
+  case-insensitive match for "http" and url’s scheme is "https"
+         
+          expression’s scheme-part is an ASCII
+  case-insensitive match for "ws" and url’s scheme is "wss", "http" or "https"
+         
+          expression’s scheme-part is an ASCII
+  case-insensitive match for "wss" and url’s scheme is "https"
+        
+       
+        If expression matches the scheme-source grammar,
+  return "Matches".
+      
+      Note: This logic effectively means that script-src http: is
+  equivalent to script-src http: https:, and script-src http://example.com/ is equivalent to script-src http://example.com https://example.com. As well as WebSocket
+  schemes are equivalent to corresponding HTTP schemes. In short,
+  we always allow a secure upgrade from an explicitly insecure expression.
+     
+      If expression matches the host-source grammar:
+      
+       
+        If url’s host is null, return "Does Not Match".
+       
+        If expression does not have a scheme-part, then
+  return "Does Not Match" unless one of the following conditions is
+  met:
+        
+         
+          origin’s scheme is url’s scheme
+         
+          origin’s scheme is "http", and url’s scheme one of "https", "ws", or "wss".
+         
+          origin’s scheme is "https", and url’s scheme is "wss".
+        
+        Note: As with scheme-part above, we allow schemeless host-source expressions to be upgraded from insecure
+  schemes to secure schemes.
+       
+        If the first character of expression’s host-part is an U+002A ASTERISK character (*):
+        
+         
+          Let remaining be the result of removing the leading "*" from expression.
+         
+          If remaining (including the leading U+002E FULL STOP character
+  (.)) is not an ASCII case-insensitive match for the
+  rightmost characters of url’s host, then return "Does Not Match".
+        
+       
+        If the first character of expression’s host-part is not an U+002A ASTERISK character (*), and url’s host is not an ASCII case-insensitive match for expression’s host-part, return "Does Not Match".
+       
+        If expression’s host-part matches the IPv4address rule from [RFC3986], and is not
+  "127.0.0.1"; or if expression’s host-part is an IPv6 address, return "Does Not Match".
+        Note: A future version of this specification may allow literal IPv6
+  and IPv4 addresses, depending on usage and demand. Given the weak
+  security properties of IP addresses in relation to named hosts,
+  however, authors are encouraged to prefer the latter whenever
+  possible.
+       
+        If expression does not contain a port-part, and url’s port is not the default port for url’s scheme, return "Does Not Match".
+       
+        If expression does contain a port-part, return
+  "Does Not Match" unless one of the following conditions is met:
+        
+         
+          expression’s port-part is "*".
+         
+          expression’s port-part is the same number as url’s port.
+         
+          expression’s port-part is 80, and url’s port is 443.
+        
+       
+        If expression contains a non-empty path-part, and redirect count is 0, then:
+        
+         
+          Let exact match be false if the final character of expression’s path-part is the U+002F SOLIDUS
+  character (/), and true otherwise.
+         
+          Let path list be the result of strictly splitting expression’s path-part on the U+002F SOLIDUS
+  character (/).
+         
+          If path list has more items than url’s path, return
+  "Does Not Match".
+         
+          If exact match is true, and path list does not have the same
+  number of items as url’s path, return "Does Not Match".
+         
+          For each expression piece in path list:
+          
+           
+            Let url piece be the next item in url’s path.
+           
+            Percent decode expression piece.
+           
+            Percent decode url piece.
+           
+            If expression piece is not a case-sensitive match
+  for url piece, return "Does Not Match".
+          
+        
+       
+        Return "Matches".
+      
+     
+      If expression is an ASCII case-insensitive match for "'self'",
+  return "Matches" if one or more of the following conditions is met:
+      
+       
+        origin is the same as url’s origin
+       
+        origin’s host is the same as url’s host, origin’s port and url’s {{URL/port} are either the same
+  or the default ports for their respective schemes, and
+  one or more of the following conditions is met:
+        
+         
+          url’s scheme is "https" or "wss"
+         
+          origin’s scheme is "http"
+        
+      
+      Note: Like the scheme-part logic above, the "'self'"
+  matching algorithm allows upgrades to secure schemes when it is safe to do
+  so. We limit these upgrades to endpoints running on the default port for a
+  particular scheme or a port that matches the origin of the protected
+  resource, as this seems sufficient to deal with upgrades that can be
+  reasonably expected to succeed.
+     
+      Return "Does Not Match".
+    
+    

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="5" time="3.075" timestamp="2026-10-06T22:31:29.550407+08:00" hostname="yaoyao-Y7P"><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_http_custom_delivery_uses_https_isolated_proxy_without_mixed_content" time="0.857"><failure message="AssertionError: {'normalized_url': 'http://127.0.0.1:40833/custom', 'name_suggestion': 'Fixture title', 'access': {'status': 'reachabl...0}, 'embedding': {'status': 'blocked', 'reason_code': 'mixed_content', 'reason': 'HTTPS Stella 不能直接嵌入 HTTP 混合内容'}, ...}&#10;assert 'blocked' == 'allowed'&#10;  &#10;  - allowed&#10;  + blocked">upstream = ('http://127.0.0.1:40833', {}, [('/custom', {'Host': '127.0.0.1:40833', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (&lt;starlette.testclient.TestClient object at 0x7f6b160a74d0&gt;, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), &lt;fastapi.applications.FastAPI object at 0x7f6b160a7230&gt;, [])
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f6b15f67490&gt;
+
+    def test_http_custom_delivery_uses_https_isolated_proxy_without_mixed_content(upstream, api_env, monkeypatch):
+        from app.services import integrations as store
+        root, _, seen = upstream
+        c, factory, _, _ = api_env
+        monkeypatch.setenv('STELLA_MAIN_ORIGIN', 'https://stella.test')
+        checked = c.post('/website-settings/check', json=dict(address=root + '/custom', custom_enabled=True))
+        assert checked.status_code == 200, checked.text
+        result = checked.json()
+        assert result['injection']['status'] == 'supported'
+&gt;       assert result['embedding']['status'] == 'allowed', result
+E       AssertionError: {'normalized_url': 'http://127.0.0.1:40833/custom', 'name_suggestion': 'Fixture title', 'access': {'status': 'reachabl...0}, 'embedding': {'status': 'blocked', 'reason_code': 'mixed_content', 'reason': 'HTTPS Stella 不能直接嵌入 HTTP 混合内容'}, ...}
+E       assert 'blocked' == 'allowed'
+E         
+E         - allowed
+E         + blocked
+
+tests_website_settings/test_reviewfix_backend.py:169: AssertionError</failure></testcase><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_http_not_safe_for_proxy_stays_blocked_without_writes[headers0-&lt;html/&gt;-False-mixed_content]" time="0.546" /><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_http_not_safe_for_proxy_stays_blocked_without_writes[headers1-&lt;html/&gt;-True-csp_frame_ancestors]" time="0.513"><failure message="AssertionError: assert 'mixed_content' == 'csp_frame_ancestors'&#10;  &#10;  - csp_frame_ancestors&#10;  + mixed_content">upstream = ('http://127.0.0.1:45315', {'/restricted': (200, [('Content-Type', 'text/html'), ('Content-Security-Policy', "frame-an..., {'Host': '127.0.0.1:45315', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (&lt;starlette.testclient.TestClient object at 0x7f6b15fba210&gt;, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), &lt;fastapi.applications.FastAPI object at 0x7f6b15fb8a50&gt;, [])
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f6b14656330&gt;
+headers = [('Content-Security-Policy', "frame-ancestors 'none'")]
+body = b'&lt;html/&gt;', custom_enabled = True, reason = 'csp_frame_ancestors'
+
+    @pytest.mark.parametrize('headers,body,custom_enabled,reason', [
+        ([], b'&lt;html/&gt;', False, 'mixed_content'),
+        ([('Content-Security-Policy', "frame-ancestors 'none'")], b'&lt;html/&gt;', True, 'csp_frame_ancestors'),
+        ([('X-Frame-Options', 'DENY')], b'&lt;html/&gt;', True, 'xfo_deny'),
+        ([], b'&lt;meta http-equiv="content-security-policy" content="default-src self"&gt;', True, 'mixed_content'),
+    ])
+    def test_http_not_safe_for_proxy_stays_blocked_without_writes(upstream, api_env, monkeypatch, headers, body, custom_enabled, reason):
+        from app.models.config import AppConfig
+        root, responses, _ = upstream
+        c, factory, _, _ = api_env
+        monkeypatch.setenv('STELLA_MAIN_ORIGIN', 'https://stella.test')
+        responses['/restricted'] = (200, [('Content-Type', 'text/html')] + headers, body)
+        result = c.post('/website-settings/check', json=dict(address=root + '/restricted', custom_enabled=custom_enabled)).json()
+        assert result['embedding']['status'] == 'blocked'
+&gt;       assert result['embedding']['reason_code'] == reason
+E       AssertionError: assert 'mixed_content' == 'csp_frame_ancestors'
+E         
+E         - csp_frame_ancestors
+E         + mixed_content
+
+tests_website_settings/test_reviewfix_backend.py:200: AssertionError</failure></testcase><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_http_not_safe_for_proxy_stays_blocked_without_writes[headers2-&lt;html/&gt;-True-xfo_deny]" time="0.509"><failure message="AssertionError: assert 'mixed_content' == 'xfo_deny'&#10;  &#10;  - xfo_deny&#10;  + mixed_content">upstream = ('http://127.0.0.1:43361', {'/restricted': (200, [('Content-Type', 'text/html'), ('X-Frame-Options', 'DENY')], b'&lt;html..., {'Host': '127.0.0.1:43361', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (&lt;starlette.testclient.TestClient object at 0x7f6b146536f0&gt;, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), &lt;fastapi.applications.FastAPI object at 0x7f6b17b325d0&gt;, [])
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f6b146686b0&gt;
+headers = [('X-Frame-Options', 'DENY')], body = b'&lt;html/&gt;'
+custom_enabled = True, reason = 'xfo_deny'
+
+    @pytest.mark.parametrize('headers,body,custom_enabled,reason', [
+        ([], b'&lt;html/&gt;', False, 'mixed_content'),
+        ([('Content-Security-Policy', "frame-ancestors 'none'")], b'&lt;html/&gt;', True, 'csp_frame_ancestors'),
+        ([('X-Frame-Options', 'DENY')], b'&lt;html/&gt;', True, 'xfo_deny'),
+        ([], b'&lt;meta http-equiv="content-security-policy" content="default-src self"&gt;', True, 'mixed_content'),
+    ])
+    def test_http_not_safe_for_proxy_stays_blocked_without_writes(upstream, api_env, monkeypatch, headers, body, custom_enabled, reason):
+        from app.models.config import AppConfig
+        root, responses, _ = upstream
+        c, factory, _, _ = api_env
+        monkeypatch.setenv('STELLA_MAIN_ORIGIN', 'https://stella.test')
+        responses['/restricted'] = (200, [('Content-Type', 'text/html')] + headers, body)
+        result = c.post('/website-settings/check', json=dict(address=root + '/restricted', custom_enabled=custom_enabled)).json()
+        assert result['embedding']['status'] == 'blocked'
+&gt;       assert result['embedding']['reason_code'] == reason
+E       AssertionError: assert 'mixed_content' == 'xfo_deny'
+E         
+E         - xfo_deny
+E         + mixed_content
+
+tests_website_settings/test_reviewfix_backend.py:200: AssertionError</failure></testcase><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_http_not_safe_for_proxy_stays_blocked_without_writes[headers3-&lt;meta http-equiv=&quot;content-security-policy&quot; content=&quot;default-src self&quot;&gt;-True-mixed_content]" time="0.530" /></testsuite></testsuites>

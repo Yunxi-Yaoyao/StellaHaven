@@ -1,0 +1,175 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_unknown_stored_icon_cannot_bypass_validation_via_partial_edit ______
+
+upstream = ('http://127.0.0.1:43889', {}, [('/', {'Host': '127.0.0.1:43889', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (<starlette.testclient.TestClient object at 0x7fa472ebb4d0>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7fa472ebb230>, [True, True])
+
+    def test_unknown_stored_icon_cannot_bypass_validation_via_partial_edit(upstream, api_env):
+        from app.services import integrations as store
+        root, _, seen = upstream
+        c, factory, _, _ = api_env
+        old = c.post('/external-modules', json=dict(name='Fixture', icon='book', browser_url=root)).json()
+        with factory() as db:
+            with store.edit(db) as config:
+                config['modules'][old['id']]['icon'] = 'not-a-real-icon'
+        seen.clear()
+>       result = c.patch('/website-settings/' + old['id'], json=dict(address=root, name='Must reject'))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests_website_settings/test_reviewfix_backend.py:36: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/testclient.py:617: in patch
+    return super().patch(
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/httpx/_client.py:1218: in patch
+    return self.request(
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/testclient.py:454: in request
+    return super().request(
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/httpx/_client.py:825: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/httpx/_client.py:914: in send
+    response = self._send_handling_auth(
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/httpx/_client.py:942: in _send_handling_auth
+    response = self._send_handling_redirects(
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/httpx/_client.py:979: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/httpx/_client.py:1014: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/testclient.py:356: in handle_request
+    raise exc
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/testclient.py:353: in handle_request
+    portal.call(self.app, scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/anyio/from_thread.py:338: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/miniconda/lib/python3.13/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/root/miniconda/lib/python3.13/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/anyio/from_thread.py:263: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/applications.py:1163: in __call__
+    await super().__call__(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/applications.py:90: in __call__
+    await self.middleware_stack(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/routing.py:660: in __call__
+    await self.middleware_stack(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/routing.py:2683: in app
+    await route.handle(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/routing.py:1753: in handle
+    await self.original_router.handle(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/routing.py:2738: in handle
+    await included_router._handle_selected(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/routing.py:1773: in _handle_selected
+    await original_route.handle(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/routing.py:1264: in handle
+    await app(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/routing.py:150: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/routing.py:136: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/routing.py:690: in app
+    raw_response = await run_endpoint_function(
+../stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/routing.py:344: in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/routers/website_settings.py:36: in update
+    return await save_website(db,data,user.id,parent_origin=os.environ.get('STELLA_MAIN_ORIGIN','https://stella.xiya.live'),mid=mid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+db = <sqlalchemy.orm.session.Session object at 0x7fa472440050>
+incoming = WebsiteInput(address='http://127.0.0.1:43889', name='Must reject', icon='not-a-real-icon', visible=True, keep_alive=False, open_behavior='embedded', custom=None, idempotency_key=None)
+actor_id = UUID('00000000-0000-4000-8000-000000000001')
+parent_origin = 'http://stella.test', mid = 'dd0587a75ebf4e52be28f0fa72e0b9d0'
+
+    async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
+        if mid is None and incoming.idempotency_key is None: raise HTTPException(422,'新增网站需要 idempotency_key')
+        digest = fingerprint(incoming,patch=mid is not None)
+        slot = str(actor_id) + ':' + (mid or 'create') + ':' + (incoming.idempotency_key or '')
+        config = store.state(db)
+        result = retry_result(config,slot,digest) if incoming.idempotency_key else None
+        before = copy.deepcopy(config['modules'].get(mid)) if mid else None
+        display_before = store.display_module(before,config) if before else None
+        old_target = copy.deepcopy(config['targets'].get(before.get('target_id'))) if before else None
+        if before:
+            override = next((e for e in config['navigation'] if e['id']==mid),{})
+            defaults = dict(name=display_before['name'],icon=display_before['icon'],keep_alive=before.get('keep_alive',False),visible=override.get('visible',before['enabled']),open_behavior='external' if before['mode']=='link' else 'embedded')
+            incoming = incoming.model_copy(update={key:value for key,value in defaults.items() if key not in incoming.model_fields_set})
+        db.rollback()  # Release read connection before bounded external I/O.
+        if result is not None: return result
+        if mid and before is None: raise HTTPException(404,'模块不存在')
+        if before and before.get('adapter') in {'openlist','immich'}:
+            raise HTTPException(409,'内置服务请使用原有唯一连接设置')
+        if incoming.icon not in NAVIGATION_ICONS and (not display_before or incoming.icon != display_before['icon']):
+            raise HTTPException(422,'不支持的新图标；已有旧图标仅可原样保留')
+        evidence = {}
+        checked = await check_draft(CheckInput(address=incoming.address,open_behavior=incoming.open_behavior,custom_enabled=bool(incoming.custom and incoming.custom.enabled)),parent_origin=parent_origin,evidence=evidence)
+        if not checked['can_save']: raise HTTPException(422,dict(code='website_check_failed',check=checked))
+        prepared = None
+        if incoming.custom and incoming.custom.enabled:
+            parsed = urlsplit(checked['normalized_url'])
+            root = parsed.scheme + '://' + parsed.netloc + '/'
+            try:
+                addresses = [safe_address(a) for a in await bounded_dns(proxy._preview_addresses,root)]
+                if set(addresses) != set(evidence.get('allowed_ips',[])): raise ValueError('检测之后 DNS 发生变化')
+                prepared = proxy.TargetInput(name=incoming.name or checked['name_suggestion'],upstream_url=root,allowed_ips=addresses,headers={},controlled=False).model_dump()
+            except (OSError,ValueError,TimeoutError,ProbeFailure):
+                checked.update(can_save=False,issues=checked['issues']+['提交前目标解析失败或已变更'])
+                raise HTTPException(422,dict(code='website_check_failed',check=checked))
+        custom = incoming.custom.model_dump() | {'csp_policy':'reject'} if incoming.custom else None
+        if custom:
+            problems = await asyncio.to_thread(injection.errors,custom,{'mode':'isolated_proxy' if prepared else 'iframe'},prepared)
+            problems += css_errors(custom['css'])
+            if problems:
+                checked.update(can_save=False,issues=checked['issues']+problems)
+                raise HTTPException(422,dict(code='website_check_failed',check=checked))
+        with store.edit(db) as config:
+            result = retry_result(config,slot,digest) if incoming.idempotency_key else None
+            if result is not None: return result
+            if mid and config['modules'].get(mid) != before: raise HTTPException(409,'检测期间网站已变更，请重新读取')
+            if before and store.display_module(before,config) != display_before:
+                raise HTTPException(409,'检测期间网站导航显示已变更，请重新读取')
+            if mid is None and len(config['modules']) >= 128: raise HTTPException(422,'模块数量超过限制')
+            is_new = mid is None
+            mid = mid or uuid4().hex
+>           data = store.ModuleInput(name=incoming.name or (display_before and display_before['name']) or checked['name_suggestion'] or '网站', icon=incoming.icon,
+                                     browser_url=checked['normalized_url'], mode='link' if incoming.open_behavior=='external' else 'iframe',
+                                     enabled=before['enabled'] if before else True,keep_alive=incoming.keep_alive).model_dump()
+E           pydantic_core._pydantic_core.ValidationError: 1 validation error for ModuleInput
+E           icon
+E             Value error, 不支持的图标 [type=value_error, input_value='not-a-real-icon', input_type=str]
+E               For further information visit https://errors.pydantic.dev/2.13/v/value_error
+
+app/services/website_settings.py:180: ValidationError
+=============================== warnings summary ===============================
+tests_website_settings/test_reviewfix_backend.py::test_unknown_stored_icon_cannot_bypass_validation_via_partial_edit
+  /opt/hermes-workstation/stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests_website_settings/test_reviewfix_backend.py::test_unknown_stored_icon_cannot_bypass_validation_via_partial_edit
+1 failed, 37 deselected, 1 warning in 1.00s

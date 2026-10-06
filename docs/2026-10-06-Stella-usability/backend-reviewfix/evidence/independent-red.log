@@ -1,0 +1,55 @@
+.FF.F                                                                    [100%]
+=================================== FAILURES ===================================
+_____________ test_full_form_edit_of_legacy_icon_remains_saveable ______________
+
+upstream = ('http://127.0.0.1:36695', {}, [])
+api_env = (<starlette.testclient.TestClient object at 0x7f1e24dc6ba0>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7f1e24dc6900>, [True, True])
+
+    def test_full_form_edit_of_legacy_icon_remains_saveable(upstream,api_env):
+        root,_,_=upstream;c,_,_,_=api_env
+        old=c.post('/external-modules',json={'name':'Legacy icon','icon':'heart','browser_url':root,'mode':'iframe'}).json()
+        result=c.patch('/website-settings/'+old['id'],json={'address':root,'name':'Rename only','icon':old['icon'],'visible':True,'keep_alive':False,'open_behavior':'embedded','custom':{'enabled':False,'css':'','js':'','timing':'dom_ready'}})
+>       assert result.status_code==200,result.text
+E       AssertionError: {"detail":[{"type":"value_error","loc":["body","icon"],"msg":"Value error, 不支持的图标","input":"heart","ctx":{"error":{}}}]}
+E       assert 422 == 200
+E        +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+
+tests_website_settings/test_review_boundaries.py:40: AssertionError
+___________ test_server_css_syntax_validation_rejects_missing_colon ____________
+
+upstream = ('http://127.0.0.1:33255', {}, [('/', {'Host': '127.0.0.1:33255', 'Accept': '*/*', 'Connection': 'keep-alive', 'User-Agent': 'python-httpx/0.28.1', ...})])
+api_env = (<starlette.testclient.TestClient object at 0x7f1e24c9e350>, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), <fastapi.applications.FastAPI object at 0x7f1e24c9fd90>, [True])
+
+    def test_server_css_syntax_validation_rejects_missing_colon(upstream,api_env):
+        root,_,_=upstream;c,_,_,_=api_env
+        result=c.post('/website-settings',json={'address':root,'idempotency_key':'review-css-invalid','custom':{'enabled':True,'css':'body { color red; }'}})
+>       assert result.status_code==422,result.text
+E       AssertionError: {"name":"Fixture title","icon":"globe","mode":"isolated_proxy","adapter":"generic","browser_url":"http://127.0.0.1:33255/","target_id":"bb6af66831ec4cd5a20383d109bca423","initial_path":"/","enabled":true,"keep_alive":false,"id":"db5558a0f0cf4ff0bc9c50051661270c","origin":"https://app-db5558a0f0cf4ff0bc9c50051661270c.xiya.live","injection":{"draft":{"enabled":true,"css":"body { color red; }","js":"","timing":"dom_ready","csp_policy":"reject"},"active":{"enabled":true,"css":"body { color red; }","js":"","timing":"dom_ready","csp_policy":"reject","version":"21301ab530df4b5e83e643912ea3aa1b"},"previous":null},"route":"/apps/db5558a0f0cf4ff0bc9c50051661270c","capabilities":{"injection":true,"browser_status":"unobservable","managed_settings":null},"check":{"normalized_url":"http://127.0.0.1:33255/","name_suggestion":"Fixture title","access":{"status":"reachable","http_status":200},"embedding":{"status":"allowed","reason_code":"no_observed_restriction","reason":"未发现响应策略阻断，浏览器内容及登录仍需验证"},"injection":{"status":"supported","reason":"匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"},"help":null,"can_save":true,"recommended_behavior":"embedded","issues":[]}}
+E       assert 201 == 422
+E        +  where 201 = <Response [201 Created]>.status_code
+
+tests_website_settings/test_review_boundaries.py:45: AssertionError
+_____________ test_csp_http_default_port_secure_upgrade_is_allowed _____________
+
+    def test_csp_http_default_port_secure_upgrade_is_allowed():
+        import httpx
+        result=checker().evaluate_embedding(httpx.Headers({'content-security-policy':'frame-ancestors http://stella.test:80'}),'https://document.test/','https://stella.test')
+>       assert result['status']=='allowed',result
+E       AssertionError: {'status': 'blocked', 'reason_code': 'csp_frame_ancestors', 'reason': '目标响应策略禁止在 Stella 内嵌入'}
+E       assert 'blocked' == 'allowed'
+E         
+E         - allowed
+E         + blocked
+
+tests_website_settings/test_review_boundaries.py:59: AssertionError
+=============================== warnings summary ===============================
+tests_website_settings/test_review_boundaries.py::test_full_form_edit_of_legacy_icon_remains_saveable
+  /opt/hermes-workstation/stella-usability-20261006/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests_website_settings/test_review_boundaries.py::test_full_form_edit_of_legacy_icon_remains_saveable
+FAILED tests_website_settings/test_review_boundaries.py::test_server_css_syntax_validation_rejects_missing_colon
+FAILED tests_website_settings/test_review_boundaries.py::test_csp_http_default_port_secure_upgrade_is_allowed
+3 failed, 2 passed, 1 warning in 2.57s

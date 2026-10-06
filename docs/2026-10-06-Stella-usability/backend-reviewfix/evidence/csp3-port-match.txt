@@ -1,0 +1,30 @@
+Source: https://www.w3.org/TR/CSP3/#match-ports
+6.7.2.11. 
+    port-part matching
+  
+    An ASCII string or null input port-part matches
+  URL url if a CSP source expression that contained the first as a port-part could potentially match a URL containing the latter’s
+  port and scheme. For example, "80" port-part matches
+  matches http://example.com.
+    
+     
+      Assert: input is null, "*", or a sequence of one or more ASCII digits.
+     
+      If input is equal to "*", return "Matches".
+     
+      Let normalizedInput be null if input null; otherwise input
+  interpreted as decimal number.
+     
+      If normalizedInput equals url’s port, return "Matches".
+     
+      If url’s port is null:
+      
+       
+        Let defaultPort be the default port for url’s scheme.
+       
+        If normalizedInput equals defaultPort, return "Matches".
+      
+     
+      Return "Does Not Match".
+    
+    

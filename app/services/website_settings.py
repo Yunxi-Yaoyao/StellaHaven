@@ -43,7 +43,8 @@ class WebsiteInput(BaseModel):
     @field_validator('icon')
     @classmethod
     def valid_icon(cls, value):
-        if value not in NAVIGATION_ICONS: raise ValueError('不支持的图标')
+        # Legacy values need module context before deciding retention vs change.
+        if value not in store.ICONS: raise ValueError('不支持的图标')
         return value
 
 def fingerprint(incoming, *, patch=False):
@@ -63,14 +64,66 @@ def retry_result(config, slot, digest):
     return store.present(module) | {'check':copy.deepcopy(entry['check'])}
 
 def css_errors(css):
-    """Parse CSS syntax without executing it; unsupported properties remain browser semantics."""
+    """Check token and block grammar, not selector/property or unknown at-rule semantics.
+
+    Declarations and nested rules use CSS Syntax's block-content parser. Custom
+    property values are opaque component values, not declaration/rule blocks.
+    Unknown at-rules get token checks only, so this is not a complete CSS validator.
+    """
     if not css: return []
     try:
         import tinycss2
-        def bad(nodes):
-            return any(node.type == 'error' or any(bad(getattr(node,field,[]) or []) for field in ('content','prelude','arguments')) for node in nodes)
-        if bad(tinycss2.parse_stylesheet(css,skip_comments=True,skip_whitespace=True)):
-            return ['CSS 语法检查失败']
+        budget = 131072
+        def spend(depth):
+            nonlocal budget
+            budget -= 1
+            if depth > 64 or budget < 0: raise ValueError('CSS parsing budget exceeded')
+
+        def token_errors(nodes, depth=0):
+            for node in nodes:
+                spend(depth)
+                if node.type == 'error': return True
+                for field in ('content','prelude','arguments','value'):
+                    values = getattr(node,field,None)
+                    if isinstance(values,list) and token_errors(values,depth+1): return True
+            return False
+
+        groups = {'media','supports','layer','container','scope','document','-moz-document','starting-style'}
+        descriptors = {'font-face','property','counter-style','font-palette-values',
+                       'styleset','stylistic','character-variant','swash','ornaments','annotation',
+                       'top-left-corner','top-left','top-center','top-right','top-right-corner',
+                       'bottom-left-corner','bottom-left','bottom-center','bottom-right','bottom-right-corner',
+                       'left-top','left-middle','left-bottom','right-top','right-middle','right-bottom'}
+        options = dict(skip_comments=True,skip_whitespace=True)
+        def block_errors(nodes, context='rules', depth=0):
+            for node in nodes:
+                spend(depth)
+                if node.type == 'error': return True
+                if node.type == 'qualified-rule':
+                    if context == 'declarations': return True
+                    body_context = 'declarations' if context == 'keyframes' else 'style'
+                    parser = tinycss2.parse_declaration_list if body_context == 'declarations' else tinycss2.parse_blocks_contents
+                    if block_errors(parser(node.content,**options),body_context,depth+1): return True
+                elif node.type == 'at-rule' and node.content is not None:
+                    name = node.lower_at_keyword
+                    if name in groups:
+                        inner_context = 'style' if context == 'style' else 'rules'
+                        parser = tinycss2.parse_blocks_contents if inner_context == 'style' else tinycss2.parse_rule_list
+                    elif name in descriptors:
+                        inner_context, parser = 'declarations', tinycss2.parse_declaration_list
+                    elif name == 'page':
+                        inner_context, parser = 'style', tinycss2.parse_blocks_contents
+                    elif name == 'font-feature-values':
+                        inner_context, parser = 'rules', tinycss2.parse_rule_list
+                    elif name in {'keyframes','-webkit-keyframes'}:
+                        inner_context, parser = 'keyframes', tinycss2.parse_rule_list
+                    else:
+                        continue  # Unknown grammar: token checks only, never guess from regex.
+                    if block_errors(parser(node.content,**options),inner_context,depth+1): return True
+            return False
+
+        rules = tinycss2.parse_stylesheet(css,**options)
+        if token_errors(rules) or block_errors(rules): return ['CSS 语法检查失败']
     except (ImportError,RecursionError,ValueError): return ['CSS 检查失败，拒绝保存代码']
     return []
 
@@ -81,16 +134,21 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
     config = store.state(db)
     result = retry_result(config,slot,digest) if incoming.idempotency_key else None
     before = copy.deepcopy(config['modules'].get(mid)) if mid else None
+    display_before = store.display_module(before,config) if before else None
     old_target = copy.deepcopy(config['targets'].get(before.get('target_id'))) if before else None
     if before:
         override = next((e for e in config['navigation'] if e['id']==mid),{})
-        defaults = dict(icon=before['icon'],keep_alive=before.get('keep_alive',False),visible=override.get('visible',before['enabled']),open_behavior='external' if before['mode']=='link' else 'embedded')
+        defaults = dict(name=display_before['name'],icon=display_before['icon'],keep_alive=before.get('keep_alive',False),visible=override.get('visible',before['enabled']),open_behavior='external' if before['mode']=='link' else 'embedded')
         incoming = incoming.model_copy(update={key:value for key,value in defaults.items() if key not in incoming.model_fields_set})
     db.rollback()  # Release read connection before bounded external I/O.
     if result is not None: return result
     if mid and before is None: raise HTTPException(404,'模块不存在')
     if before and before.get('adapter') in {'openlist','immich'}:
         raise HTTPException(409,'内置服务请使用原有唯一连接设置')
+    if incoming.icon not in store.ICONS:
+        raise HTTPException(422,'不支持的图标')
+    if incoming.icon not in NAVIGATION_ICONS and (not display_before or incoming.icon != display_before['icon']):
+        raise HTTPException(422,'不支持的新图标；已有旧图标仅可原样保留')
     evidence = {}
     checked = await check_draft(CheckInput(address=incoming.address,open_behavior=incoming.open_behavior,custom_enabled=bool(incoming.custom and incoming.custom.enabled)),parent_origin=parent_origin,evidence=evidence)
     if not checked['can_save']: raise HTTPException(422,dict(code='website_check_failed',check=checked))
@@ -116,10 +174,12 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
         result = retry_result(config,slot,digest) if incoming.idempotency_key else None
         if result is not None: return result
         if mid and config['modules'].get(mid) != before: raise HTTPException(409,'检测期间网站已变更，请重新读取')
+        if before and store.display_module(before,config) != display_before:
+            raise HTTPException(409,'检测期间网站导航显示已变更，请重新读取')
         if mid is None and len(config['modules']) >= 128: raise HTTPException(422,'模块数量超过限制')
         is_new = mid is None
         mid = mid or uuid4().hex
-        data = store.ModuleInput(name=incoming.name or (before and before['name']) or checked['name_suggestion'] or '网站', icon=incoming.icon,
+        data = store.ModuleInput(name=incoming.name or (display_before and display_before['name']) or checked['name_suggestion'] or '网站', icon=incoming.icon,
                                  browser_url=checked['normalized_url'], mode='link' if incoming.open_behavior=='external' else 'iframe',
                                  enabled=before['enabled'] if before else True,keep_alive=incoming.keep_alive).model_dump()
         data.update(id=mid,origin=store.derived_origin(mid,data),injection=copy.deepcopy(before['injection']) if before else dict(draft=None,active=None,previous=None))

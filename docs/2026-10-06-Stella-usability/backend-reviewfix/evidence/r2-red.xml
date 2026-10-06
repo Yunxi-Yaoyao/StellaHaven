@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.535" timestamp="2026-10-06T22:19:52.526854+08:00" hostname="yaoyao-Y7P"><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_legacy_icon_retention_does_not_allow_new_or_changed_legacy_icons" time="0.467"><failure message="AssertionError: {&quot;detail&quot;:[{&quot;type&quot;:&quot;value_error&quot;,&quot;loc&quot;:[&quot;body&quot;,&quot;icon&quot;],&quot;msg&quot;:&quot;Value error, 不支持的图标&quot;,&quot;input&quot;:&quot;heart&quot;,&quot;ctx&quot;:{&quot;error&quot;:{}}}]}&#10;assert 422 == 200&#10; +  where 422 = &lt;Response [422 Unprocessable Entity]&gt;.status_code">upstream = ('http://127.0.0.1:39483', {}, [])
+api_env = (&lt;starlette.testclient.TestClient object at 0x7fc1feb87380&gt;, sessionmaker(class_='Session', bind=Engine(sqlite://), au...e_on_commit=False), &lt;fastapi.applications.FastAPI object at 0x7fc1feb870e0&gt;, [True, True, True, True, True, True, ...])
+
+    def test_legacy_icon_retention_does_not_allow_new_or_changed_legacy_icons(upstream, api_env):
+        root, _, seen = upstream
+        c, _, _, _ = api_env
+        old = c.post('/external-modules', json=dict(name='Legacy', icon='heart', browser_url=root)).json()
+        seen.clear()
+        for icon in ('heart', 'music', 'not-a-real-icon'):
+            assert c.post('/website-settings', json=dict(address=root, icon=icon, idempotency_key='restricted-' + icon)).status_code == 422
+        for icon in ('music', 'not-a-real-icon'):
+            assert c.patch('/website-settings/' + old['id'], json=dict(address=root, icon=icon)).status_code == 422
+        assert not seen
+        result = c.patch('/website-settings/' + old['id'], json=dict(address=root, icon='heart', name='Rename'))
+&gt;       assert result.status_code == 200, result.text
+E       AssertionError: {"detail":[{"type":"value_error","loc":["body","icon"],"msg":"Value error, 不支持的图标","input":"heart","ctx":{"error":{}}}]}
+E       assert 422 == 200
+E        +  where 422 = &lt;Response [422 Unprocessable Entity]&gt;.status_code
+
+tests_website_settings/test_reviewfix_backend.py:17: AssertionError</failure></testcase></testsuite></testsuites>

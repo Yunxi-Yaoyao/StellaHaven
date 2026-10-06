@@ -32,7 +32,8 @@ def save_navigation(data: service.NavigationInput, user=Depends(admin_user), db=
 
 @router.get('/external-modules', dependencies=[Depends(current_user)])
 def modules(db=Depends(get_db)):
-    return [service.present(m) for m in service.state(db)['modules'].values()]
+    config = service.state(db)
+    return [service.present(m,config) for m in config['modules'].values()]
 
 @router.post('/external-modules', status_code=201, dependencies=[Depends(admin_user)])
 def create(data: service.ModuleInput, user=Depends(admin_user), db=Depends(get_db)):
@@ -40,7 +41,10 @@ def create(data: service.ModuleInput, user=Depends(admin_user), db=Depends(get_d
 
 @router.get('/external-modules/{mid}', dependencies=[Depends(current_user)])
 def module(mid: str, db=Depends(get_db)):
-    return service.present(service.get_module(db, mid))
+    config = service.state(db)
+    item = config['modules'].get(mid)
+    if item is None: raise HTTPException(404,'模块不存在')
+    return service.present(item,config)
 
 @router.patch('/external-modules/{mid}', dependencies=[Depends(admin_user)])
 def patch(mid: str, data: dict = Body(...), user=Depends(admin_user), db=Depends(get_db)):

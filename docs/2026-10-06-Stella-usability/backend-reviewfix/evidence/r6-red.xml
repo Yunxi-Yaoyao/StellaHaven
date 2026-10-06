@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="10" time="0.344" timestamp="2026-10-06T22:26:52.670279+08:00" hostname="yaoyao-Y7P"><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[http://stella.test:80-https://stella.test-allowed]" time="0.257"><failure message="AssertionError: {'status': 'blocked', 'reason_code': 'csp_frame_ancestors', 'reason': '目标响应策略禁止在 Stella 内嵌入'}&#10;assert 'blocked' == 'allowed'&#10;  &#10;  - allowed&#10;  + blocked">source = 'http://stella.test:80', parent = 'https://stella.test'
+status = 'allowed'
+
+    @pytest.mark.parametrize('source,parent,status', [
+        ('http://stella.test:80', 'https://stella.test', 'allowed'),
+        ('http://stella.test:80', 'https://stella.test:443', 'allowed'),
+        ('http://stella.test', 'https://stella.test', 'allowed'),
+        ('stella.test:80', 'https://stella.test', 'allowed'),
+        ('http://stella.test:8080', 'https://stella.test', 'blocked'),
+        ('http://stella.test:80', 'https://stella.test:8443', 'blocked'),
+        ('https://stella.test:80', 'https://stella.test', 'blocked'),
+        ('https://stella.test:443', 'http://stella.test:80', 'blocked'),
+        ('http://stella.test:8443', 'https://stella.test:8443', 'allowed'),
+        ('http://stella.test:*', 'https://stella.test:8443', 'allowed'),
+    ])
+    def test_csp_secure_upgrade_is_limited_to_default_http_port(source, parent, status):
+        import httpx
+        result = checker().evaluate_embedding(httpx.Headers({'content-security-policy': 'frame-ancestors ' + source}), 'http://document.test/', parent)
+&gt;       assert result['status'] == status, result
+E       AssertionError: {'status': 'blocked', 'reason_code': 'csp_frame_ancestors', 'reason': '目标响应策略禁止在 Stella 内嵌入'}
+E       assert 'blocked' == 'allowed'
+E         
+E         - allowed
+E         + blocked
+
+tests_website_settings/test_reviewfix_backend.py:88: AssertionError</failure></testcase><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[http://stella.test:80-https://stella.test:443-allowed]" time="0.001"><failure message="AssertionError: {'status': 'blocked', 'reason_code': 'csp_frame_ancestors', 'reason': '目标响应策略禁止在 Stella 内嵌入'}&#10;assert 'blocked' == 'allowed'&#10;  &#10;  - allowed&#10;  + blocked">source = 'http://stella.test:80', parent = 'https://stella.test:443'
+status = 'allowed'
+
+    @pytest.mark.parametrize('source,parent,status', [
+        ('http://stella.test:80', 'https://stella.test', 'allowed'),
+        ('http://stella.test:80', 'https://stella.test:443', 'allowed'),
+        ('http://stella.test', 'https://stella.test', 'allowed'),
+        ('stella.test:80', 'https://stella.test', 'allowed'),
+        ('http://stella.test:8080', 'https://stella.test', 'blocked'),
+        ('http://stella.test:80', 'https://stella.test:8443', 'blocked'),
+        ('https://stella.test:80', 'https://stella.test', 'blocked'),
+        ('https://stella.test:443', 'http://stella.test:80', 'blocked'),
+        ('http://stella.test:8443', 'https://stella.test:8443', 'allowed'),
+        ('http://stella.test:*', 'https://stella.test:8443', 'allowed'),
+    ])
+    def test_csp_secure_upgrade_is_limited_to_default_http_port(source, parent, status):
+        import httpx
+        result = checker().evaluate_embedding(httpx.Headers({'content-security-policy': 'frame-ancestors ' + source}), 'http://document.test/', parent)
+&gt;       assert result['status'] == status, result
+E       AssertionError: {'status': 'blocked', 'reason_code': 'csp_frame_ancestors', 'reason': '目标响应策略禁止在 Stella 内嵌入'}
+E       assert 'blocked' == 'allowed'
+E         
+E         - allowed
+E         + blocked
+
+tests_website_settings/test_reviewfix_backend.py:88: AssertionError</failure></testcase><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[http://stella.test-https://stella.test-allowed]" time="0.001" /><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[stella.test:80-https://stella.test-allowed]" time="0.001"><failure message="AssertionError: {'status': 'blocked', 'reason_code': 'csp_frame_ancestors', 'reason': '目标响应策略禁止在 Stella 内嵌入'}&#10;assert 'blocked' == 'allowed'&#10;  &#10;  - allowed&#10;  + blocked">source = 'stella.test:80', parent = 'https://stella.test', status = 'allowed'
+
+    @pytest.mark.parametrize('source,parent,status', [
+        ('http://stella.test:80', 'https://stella.test', 'allowed'),
+        ('http://stella.test:80', 'https://stella.test:443', 'allowed'),
+        ('http://stella.test', 'https://stella.test', 'allowed'),
+        ('stella.test:80', 'https://stella.test', 'allowed'),
+        ('http://stella.test:8080', 'https://stella.test', 'blocked'),
+        ('http://stella.test:80', 'https://stella.test:8443', 'blocked'),
+        ('https://stella.test:80', 'https://stella.test', 'blocked'),
+        ('https://stella.test:443', 'http://stella.test:80', 'blocked'),
+        ('http://stella.test:8443', 'https://stella.test:8443', 'allowed'),
+        ('http://stella.test:*', 'https://stella.test:8443', 'allowed'),
+    ])
+    def test_csp_secure_upgrade_is_limited_to_default_http_port(source, parent, status):
+        import httpx
+        result = checker().evaluate_embedding(httpx.Headers({'content-security-policy': 'frame-ancestors ' + source}), 'http://document.test/', parent)
+&gt;       assert result['status'] == status, result
+E       AssertionError: {'status': 'blocked', 'reason_code': 'csp_frame_ancestors', 'reason': '目标响应策略禁止在 Stella 内嵌入'}
+E       assert 'blocked' == 'allowed'
+E         
+E         - allowed
+E         + blocked
+
+tests_website_settings/test_reviewfix_backend.py:88: AssertionError</failure></testcase><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[http://stella.test:8080-https://stella.test-blocked]" time="0.001" /><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[http://stella.test:80-https://stella.test:8443-blocked]" time="0.001" /><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[https://stella.test:80-https://stella.test-blocked]" time="0.001" /><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[https://stella.test:443-http://stella.test:80-blocked]" time="0.001" /><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[http://stella.test:8443-https://stella.test:8443-allowed]" time="0.001" /><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_csp_secure_upgrade_is_limited_to_default_http_port[http://stella.test:*-https://stella.test:8443-allowed]" time="0.001" /></testsuite></testsuites>

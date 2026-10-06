@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="2" time="1.057" timestamp="2026-10-06T22:28:27.862826+08:00" hostname="yaoyao-Y7P"><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_legacy_navigation_override_reads_without_migration_and_survives_partial_edit" time="0.457"><failure message="AssertionError: assert ('Master old', 'globe') == ('Legacy display', 'heart')&#10;  &#10;  At index 0 diff: 'Master old' != 'Legacy display'&#10;  Use -v to get more diff">upstream = ('http://127.0.0.1:39723', {}, [])
+api_env = (&lt;starlette.testclient.TestClient object at 0x7fb5b79ab4d0&gt;, sessionmaker(class_='Session', bind=Engine(sqlite://), autoflush=True, expire_on_commit=False), &lt;fastapi.applications.FastAPI object at 0x7fb5b79ab230&gt;, [True])
+
+    def test_legacy_navigation_override_reads_without_migration_and_survives_partial_edit(upstream, api_env):
+        from app.services import integrations as store
+        from app.models.config import AppConfig
+        root, _, _ = upstream
+        c, factory, _, _ = api_env
+        old = c.post('/external-modules', json=dict(name='Master old', icon='globe', browser_url=root)).json()
+        mid = old['id']
+        with factory() as db:
+            with store.edit(db) as config:
+                config['navigation'].append(dict(id=mid, title='Legacy display', icon='heart', visible=False))
+            before = db.get(AppConfig, store.KEY).value
+        reread = c.get('/external-modules/' + mid).json()
+&gt;       assert (reread['name'], reread['icon']) == ('Legacy display', 'heart')
+E       AssertionError: assert ('Master old', 'globe') == ('Legacy display', 'heart')
+E         
+E         At index 0 diff: 'Master old' != 'Legacy display'
+E         Use -v to get more diff
+
+tests_website_settings/test_reviewfix_backend.py:103: AssertionError</failure></testcase><testcase classname="tests_website_settings.test_reviewfix_backend" name="test_invalid_legacy_display_overrides_never_enter_module_editor" time="0.501" /></testsuite></testsuites>
