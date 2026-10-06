@@ -1,0 +1,35 @@
+
+ RUN  v3.2.4 /opt/hermes-workstation/stella-usability-perf-20261006/frontend
+
+ ❯ src/shell/lazyShell.test.ts (2 tests | 1 failed) 421ms
+   ✓ authenticated shell does not import closed command palette  350ms
+   × background manager is imported on first open and retained after close 70ms
+     → expected 1 to be +0 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/shell/lazyShell.test.ts > background manager is imported on first open and retained after close
+AssertionError: expected 1 to be +0 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ src/shell/lazyShell.test.ts:45:28
+     43|  bgManagerOpen.value = false;
+     44|  await mountShell();
+     45|  expect(loaded.background).toBe(0);
+       |                            ^
+     46|  bgManagerOpen.value = true; await flush();
+     47|  expect(loaded.background).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  17:59:54
+   Duration  1.40s (transform 298ms, setup 0ms, collect 181ms, tests 421ms, environment 520ms, prepare 88ms)
+

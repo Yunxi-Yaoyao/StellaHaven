@@ -1,0 +1,21 @@
+
+> frontend@0.0.0 test:servers
+> node --test src/modules/servers/taskWait.test.ts tests/server-state.test.mjs tests/metrics-compare.test.mjs
+
+(node:664435) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ bounds waits, aborts requests, suppresses late results and distinguishes terminal outcomes (32.98575ms)
+✔ returns done after sequential pending requests (8.453148ms)
+✔ Prometheus comparison is explicit, shows real cadence and never claims equivalence (1058.686797ms)
+(node:664443) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ offline installed inventory stays gray; heartbeat expires at 120s (1.552764ms)
+✔ API conflict detail is retained (0.261413ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1787.969368

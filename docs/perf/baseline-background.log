@@ -1,0 +1,27 @@
+
+> frontend@0.0.0 test:background
+> vitest run --config vitest.background.config.mjs && node --test tests/background-player.test.mjs
+
+
+ RUN  v3.2.4 /root/.hermes/cache/scratch/stella-shell-perf-baseline/frontend
+
+stderr | src/modules/home/backgroundMedia.test.ts > settings uses effective account name, static thumbnail and nonoptimistic reset
+[Vue warn]: injection "Symbol(router)" not found. 
+  at <SettingsPanel embedded=true >
+
+ ✓ src/modules/home/backgroundMedia.test.ts (7 tests) 111ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  18:13:52
+   Duration  1.56s (transform 336ms, setup 0ms, collect 433ms, tests 111ms, environment 480ms, prepare 176ms)
+
+✔ background player uses one real video, poster, quality swap and visibility pause (2507.662177ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3250.571911

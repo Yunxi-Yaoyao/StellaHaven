@@ -1,0 +1,36 @@
+
+ RUN  v3.2.4 /opt/hermes-workstation/stella-usability-perf-20261006/frontend
+
+ ✓ src/shell/lazyShell.test.ts (3 tests) 572ms
+   ✓ authenticated shell does not import closed command palette  377ms
+ ❯ src/router/startup.test.ts (1 test | 1 failed) 164ms
+   × only selected public route starts importing while session check is pending 163ms
+     → expected +0 to be 1 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/router/startup.test.ts > only selected public route starts importing while session check is pending
+AssertionError: expected +0 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ src/router/startup.test.ts:10:28
+      8|  for (let i = 0; i < 30; i++) await new Promise(resolve => setTimeout(…
+      9|  expect(state.release).not.toBeNull();
+     10|  expect(state.homeImports).toBe(1);
+       |                            ^
+     11|  state.release!(); await pending;
+     12|  expect(router.currentRoute.value.name).toBe('home');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 3 passed (4)
+   Start at  18:03:34
+   Duration  2.62s (transform 309ms, setup 0ms, collect 186ms, tests 737ms, environment 1.17s, prepare 171ms)
+

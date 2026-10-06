@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed, defineAsyncComponent } from "vue";
 import SideBar from "./shell/SideBar.vue";
-import SettingsPanel from "./shell/SettingsPanel.vue";
 import AdminElevationModal from "./shell/AdminElevationModal.vue";
 import ExternalModuleCache from "./shell/ExternalModuleCache.vue";
 import { loadNavigation, resetNavigation, navigationRows } from "./stores/navigation";
-const CommandPalette = defineAsyncComponent(() => import("./modules/notes/CommandPalette.vue"));
+import CommandPalette from "./shell/LazyCommandPalette.vue";
 const commandModules = computed(() => navigationRows.value.filter(row => row.visible).map(row => ({label:row.label,path:row.to})));
-import BgManager from "./modules/home/BgManager.vue";
+import { bgManagerOpen, settingsOpen } from "./modules/home/settings";
+const BgManager = defineAsyncComponent(() => import("./modules/home/BgManager.vue"));
+const bgManagerRequested = ref(bgManagerOpen.value);
+// Retain the mounted manager after first use so closing preserves its draft state.
+watch(bgManagerOpen, open => { if (open) bgManagerRequested.value = true; });
 import { toasts } from "./composables/useToast";
 import { auth, loggedIn, fetchMe, reportActivity, loadSecurity, clearSecurity } from "./modules/home/auth";
 import { startNotifications, stopNotifications } from "./stores/notifications";
@@ -28,6 +31,12 @@ watch(() => [auth.me?.id, auth.sessionGeneration, auth.sessionClosing] as const,
   }
 }, { flush: 'sync', immediate: true });
 const router = useRouter();
+// The legacy theme gear only redirects; its embedded form belongs to SettingsPage.
+watch(settingsOpen, open => {
+  if (!open) return;
+  settingsOpen.value = false;
+  void router.push({ path: '/settings', query: { section: 'navigation', module: 'home' } });
+}, { immediate: true });
 const route = useRoute();
 const notesHop = ref(route.name === 'notes');
 watch(() => route.name, (next, previous) => { notesHop.value = next === 'notes' || previous === 'notes'; }, { flush: 'sync' });
@@ -117,12 +126,10 @@ function toggleSidebar() {
     <!-- 移动端汉堡按钮 -->
     <button v-if="!mobileOpen" class="hamburger" @click="mobileOpen = true">☰</button>
 
-    <!-- 设置面板（右侧滑出） -->
-    <SettingsPanel />
     <AdminElevationModal />
     <CommandPalette v-if="loggedIn" :modules="commandModules" />
     <!-- 背景图库浮窗 -->
-    <BgManager />
+    <BgManager v-if="bgManagerRequested" />
 
     <main class="content" :class="{ flush: flushPage }">
       <ExternalModuleCache :key="auth.sessionGeneration" />

@@ -1,0 +1,12 @@
+
+ RUN  v3.2.4 /opt/hermes-workstation/stella-usability-perf-20261006/frontend
+
+ ✓ src/router/startup.test.ts (1 test) 164ms
+ ✓ src/shell/lazyShell.test.ts (3 tests) 554ms
+   ✓ authenticated shell does not import closed command palette  364ms
+
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+   Start at  18:03:59
+   Duration  2.47s (transform 300ms, setup 0ms, collect 180ms, tests 718ms, environment 1.04s, prepare 168ms)
+

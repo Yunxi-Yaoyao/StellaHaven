@@ -1,0 +1,52 @@
+
+> frontend@0.0.0 test
+> vitest run && node --experimental-strip-types --test src/modules/notes/richMarkdown.test.ts tests/notes-import.test.mjs tests/notes-loading.test.mjs tests/notes-keepalive.test.mjs
+
+
+ RUN  v3.2.4 /opt/hermes-workstation/stella-usability-perf-20261006/frontend
+
+ ✓ src/modules/notes/noteHtml.test.ts (2 tests) 65ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:26:49
+   Duration  1.63s (transform 144ms, setup 0ms, collect 63ms, tests 65ms, environment 763ms, prepare 162ms)
+
+(node:662274) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ real Vue editor preserves untouched source, hides without reset, emits only edits (3181.602689ms)
+✔ untouched source is returned byte-for-byte and external updates are silent (0.396834ms)
+▶ real Crepe preservation and safety regressions
+  ✔ frontmatter, references, HTML, mermaid, code metadata survive unrelated edits (332.956593ms)
+  ✔ equal-looking untouched blocks retain their own source spelling (76.030699ms)
+  ✔ heading navigation selects the visible rich heading (37.022112ms)
+  ✔ newly typed wiki link remains literal (79.137903ms)
+  ✔ soft newlines render as visible breaks (48.413241ms)
+  ✔ external replacement is silent and a doc switch replaces the real DOM (99.68268ms)
+  ✔ unsafe links are never executable DOM URLs (62.461592ms)
+  ✔ TOML frontmatter without a blank line does not swallow following paragraph (26.485133ms)
+✔ real Crepe preservation and safety regressions (2312.612479ms)
+(node:662276) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ Markdown decoding preserves heading and normalizes UTF-8 BOM / CRLF (2.442393ms)
+✔ Strict decoding offers explicit encoding recovery and rejects binary text (2.458736ms)
+✔ TXT escapes Markdown and HTML while keeping hard line breaks (0.550343ms)
+✔ Batch validation lists unsupported, directory, oversize and over-count files explicitly (11.308647ms)
+✔ Preparation exposes encoding recovery and relative-image warning without altering Markdown (4.215783ms)
+✔ Batch creates one note per file with frozen destination, suffixes, progress and failed-only retry (2.716307ms)
+✔ draft socket pauses, resumes once, and ignores late close after destruction (162.978098ms)
+✔ editor hooks retain state while pausing and idempotently resuming resources (12.932789ms)
+✔ background document response cannot overwrite edits made while awaiting it (12.961493ms)
+✔ successful create remains selectable when list read fails (218.974902ms)
+✔ older list response cannot overwrite a newer refresh (57.995639ms)
+✔ late document response cannot replace the currently selected note (10.518262ms)
+✔ document read error is surfaced rather than an unhandled rejection (10.075193ms)
+✔ directory inventory remains complete during search and removes moved/deleted pages (58.452048ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 25
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6989.80282

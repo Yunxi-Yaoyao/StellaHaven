@@ -1,0 +1,164 @@
+{
+  "sourceBaseline": "37aabbb",
+  "samplesCount": 20,
+  "summary": {
+    "before": {
+      "cold": {
+        "n": 5,
+        "medianReadyMs": 513.3999998569489,
+        "medianRequestedJsDecodedBytes": 194572,
+        "medianTransferredJsBytes": 80511,
+        "requestedJsCount": 11,
+        "jsCacheHits": 0
+      },
+      "warm": {
+        "n": 5,
+        "medianReadyMs": 296.7999999523163,
+        "medianRequestedJsDecodedBytes": 194572,
+        "medianTransferredJsBytes": 0,
+        "requestedJsCount": 11,
+        "jsCacheHits": 11
+      }
+    },
+    "after": {
+      "cold": {
+        "n": 5,
+        "medianReadyMs": 492.40000009536743,
+        "medianRequestedJsDecodedBytes": 174131,
+        "medianTransferredJsBytes": 72203,
+        "requestedJsCount": 10,
+        "jsCacheHits": 0
+      },
+      "warm": {
+        "n": 5,
+        "medianReadyMs": 294.10000014305115,
+        "medianRequestedJsDecodedBytes": 174131,
+        "medianTransferredJsBytes": 0,
+        "requestedJsCount": 10,
+        "jsCacheHits": 10
+      }
+    }
+  },
+  "testCounts": {
+    "regression-main.log": 27,
+    "regression-background.log": 8,
+    "regression-servers.log": 5,
+    "regression-auth.log": 6,
+    "regression-performance.log": 10,
+    "regression-low-config.log": 10,
+    "regression-settings.log": 16,
+    "shell-final.log": 8
+  },
+  "testsTotal": 90,
+  "pixels": {
+    "sidebar_navigation": {
+      "rect": [
+        0,
+        96,
+        232,
+        600
+      ],
+      "changedPixels": 0,
+      "totalPixels": 116928
+    },
+    "title": {
+      "rect": [
+        300,
+        145,
+        790,
+        206
+      ],
+      "changedPixels": 0,
+      "totalPixels": 29890
+    }
+  },
+  "chain": {
+    "before": {
+      "HomePage_start_minus_auth_responseEnd_ms": [
+        13.3,
+        9.7,
+        15.8,
+        9.9,
+        11.6,
+        7.3,
+        14.3,
+        9.8,
+        13.2,
+        9.0
+      ],
+      "authRequestsPerNavigation": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "navigationRequestsPerNavigation": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "after": {
+      "HomePage_start_minus_auth_responseEnd_ms": [
+        -123.3,
+        -122.5,
+        -122.9,
+        -122.7,
+        -122.3,
+        -123.3,
+        -123.1,
+        -122.7,
+        -122.5,
+        -123.4
+      ],
+      "authRequestsPerNavigation": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "navigationRequestsPerNavigation": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    }
+  },
+  "build": {
+    "before": {
+      "entryClosureBytes": 173039,
+      "totalJsBytes": 5297373
+    },
+    "after": {
+      "entryClosureBytes": 156679,
+      "totalJsBytes": 5300402
+    }
+  },
+  "functionalPassed": true
+}

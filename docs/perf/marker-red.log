@@ -1,0 +1,33 @@
+
+ RUN  v3.2.4 /opt/hermes-workstation/stella-usability-perf-20261006/frontend
+
+ ❯ src/shell/lazyShell.test.ts (6 tests | 1 failed) 770ms
+   × closed palette preserves its lightweight global integration marker 291ms
+     → expected null not to be null
+   ✓ authenticated shell does not import closed command palette 82ms
+   ✓ background manager is imported on first open and retained after close 111ms
+   ✓ legacy home settings trigger redirects without importing appearance form 75ms
+   ✓ two shortcut presses before async mount cancel the pending opening 73ms
+   ✓ custom event opens on first intent and logout removes activation listeners 137ms
+ ✓ src/router/startup.test.ts (2 tests) 202ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/shell/lazyShell.test.ts > closed palette preserves its lightweight global integration marker
+AssertionError: expected null not to be null
+ ❯ src/shell/lazyShell.test.ts:35:62
+     33| test('closed palette preserves its lightweight global integration mark…
+     34|  await mountShell();
+     35|  expect(document.querySelector('.command-palette-root')).not.toBeNull(…
+       |                                                              ^
+     36|  expect(loaded.palette).toBe(0);
+     37| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 7 passed (8)
+   Start at  18:21:18
+   Duration  2.84s (transform 271ms, setup 0ms, collect 186ms, tests 972ms, environment 1.16s, prepare 172ms)
+

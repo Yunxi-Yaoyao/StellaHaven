@@ -69,6 +69,16 @@ const router = createRouter({
 
 // 路由守卫：非公开页面未登录 → /login；已登录访问 /login → 回主页
 router.beforeEach(async (to) => {
+  // Public page code is independent of the session probe. Start only the selected
+  // route import now, but keep rendering and redirects behind the existing guard.
+  if (!auth.checked && to.meta.public) {
+    for (const record of to.matched) {
+      const component = record.components?.default;
+      if (typeof component === 'function') {
+        void (component as () => Promise<unknown>)().catch(() => {});
+      }
+    }
+  }
   if (!auth.checked) await fetchMe();
   if (to.meta.public) {
     if (to.name === "login" && loggedIn.value) return { name: "home" };

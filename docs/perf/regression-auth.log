@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /opt/hermes-workstation/stella-usability-perf-20261006/frontend
+
+ ✓ src/modules/home/auth.test.ts (6 tests) 18ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  18:27:06
+   Duration  1.32s (transform 165ms, setup 0ms, collect 187ms, tests 18ms, environment 565ms, prepare 218ms)
+

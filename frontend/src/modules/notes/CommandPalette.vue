@@ -32,6 +32,7 @@ async function choose(item:SearchItem){close();await router.push(item.path);}
 function quick(){if(!workspace.value)return;captureWorkspace.value=workspace.value;close();capture.value=true;}
 async function captured(doc:Doc){const owner=auth.me?.id;capture.value=false;if(store.workspaceId===doc.workspace_id&&store.userId===owner){try{await store.refreshList();}catch{toast('记录已保存，列表刷新失败；正在打开笔记');}}if(owner&&owner===auth.me?.id)await router.push('/notes?doc='+encodeURIComponent(doc.id));}
 function key(event:KeyboardEvent){if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'&&!event.altKey){event.preventDefault();if(open.value)close();else show();return;}if(!open.value)return;if(event.key==='Escape'){event.preventDefault();close();}else if(event.key==='ArrowDown'){event.preventDefault();cursor.value=Math.min(cursor.value+1,results.value.length-1);}else if(event.key==='ArrowUp'){event.preventDefault();cursor.value=Math.max(0,cursor.value-1);}else if(event.key==='Enter'&&results.value[cursor.value]){event.preventDefault();void choose(results.value[cursor.value]!);}}
+defineExpose({show,close});
 function openEvent(){show();}
 onMounted(()=>{window.addEventListener('keydown',key);window.addEventListener('stella:command-palette',openEvent);});
 onBeforeUnmount(()=>{cancel();window.removeEventListener('keydown',key);window.removeEventListener('stella:command-palette',openEvent);});

@@ -1,0 +1,29 @@
+{
+  "before": {
+    "sources": {
+      "src/App.vue": "b1a480b99b4269fc445302c0d7133b606844c3ab61b5b5f69dc419dded2b4857",
+      "src/router/index.ts": "cf501eb9e90417b8c0cd6289d10e8cea4744441f4bec20b4cc3b9518f806ecc3",
+      "src/modules/notes/CommandPalette.vue": "c53b36ad085f0c1b19357266d8283cd2d4166ad82c737befefa7ef7e05244b7a",
+      "src/main.ts": "0c3bcb063109dfaf7da28e956413d40ed4e62a430f516b20437f888c65b4d54e",
+      "package-lock.json": "07333a8fb99ea8f2499df36f03a69f46b7e1be26b6437ca17e15b2c1fd828b25",
+      "vite.config.ts": "a7f685b6451c6a0bc0c9c29cfaa844a2732a704d08ad0442fdc955f236b6c9e3"
+    },
+    "manifestSha256": "784763d34e83d49282b5c66fa1c9726c41e76bf47e43edb51ff1c678612fc7e8",
+    "jsCount": 168,
+    "combinedJsHash": "300eef2e3f2c21e30b86b2a9ea88544a9b351e165deb868f252e4a895b34a106"
+  },
+  "after": {
+    "sources": {
+      "src/App.vue": "99704e6c074907ccc0597fcbefc53f204bdb46258e77367ed70766b782e5e993",
+      "src/router/index.ts": "737e1e74dfdc9b0d4dfb59a53201e5d3b170e5311180bd43de8694548849fcc6",
+      "src/modules/notes/CommandPalette.vue": "4a435406e458cbe916d318c702eb8155b099d053a2258d9b11d7da4747e3d3b1",
+      "src/shell/LazyCommandPalette.vue": "76b8071cabd589bd9218602c09449c57d8b48c203b08efea569b4b6731f7ba3b",
+      "src/main.ts": "0c3bcb063109dfaf7da28e956413d40ed4e62a430f516b20437f888c65b4d54e",
+      "package-lock.json": "07333a8fb99ea8f2499df36f03a69f46b7e1be26b6437ca17e15b2c1fd828b25",
+      "vite.config.ts": "a7f685b6451c6a0bc0c9c29cfaa844a2732a704d08ad0442fdc955f236b6c9e3"
+    },
+    "manifestSha256": "91a0065874e3a4e43af2ded7ad537bd397ce1227c16df411723390b085c5bff8",
+    "jsCount": 171,
+    "combinedJsHash": "7ea62778945fd002e43377122c6de9503316afec18ae42586b0c520d6835ce0e"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "before": {
+    "cold": {
+      "n": 5,
+      "medianReadyMs": 513.3999998569489,
+      "medianRequestedJsDecodedBytes": 194572,
+      "medianTransferredJsBytes": 80511,
+      "requestedJsCount": 11,
+      "jsCacheHits": 0
+    },
+    "warm": {
+      "n": 5,
+      "medianReadyMs": 296.7999999523163,
+      "medianRequestedJsDecodedBytes": 194572,
+      "medianTransferredJsBytes": 0,
+      "requestedJsCount": 11,
+      "jsCacheHits": 11
+    }
+  },
+  "after": {
+    "cold": {
+      "n": 5,
+      "medianReadyMs": 492.40000009536743,
+      "medianRequestedJsDecodedBytes": 174131,
+      "medianTransferredJsBytes": 72203,
+      "requestedJsCount": 10,
+      "jsCacheHits": 0
+    },
+    "warm": {
+      "n": 5,
+      "medianReadyMs": 294.10000014305115,
+      "medianRequestedJsDecodedBytes": 174131,
+      "medianTransferredJsBytes": 0,
+      "requestedJsCount": 10,
+      "jsCacheHits": 10
+    }
+  }
+}

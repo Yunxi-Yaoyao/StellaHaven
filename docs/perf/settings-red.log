@@ -1,0 +1,36 @@
+
+ RUN  v3.2.4 /opt/hermes-workstation/stella-usability-perf-20261006/frontend
+
+ ❯ src/shell/lazyShell.test.ts (3 tests | 1 failed) 514ms
+   ✓ authenticated shell does not import closed command palette  351ms
+   ✓ background manager is imported on first open and retained after close 112ms
+   × legacy home settings trigger redirects without importing appearance form 50ms
+     → expected 1 to be +0 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/shell/lazyShell.test.ts > legacy home settings trigger redirects without importing appearance form
+AssertionError: expected 1 to be +0 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ src/shell/lazyShell.test.ts:56:26
+     54|  settingsOpen.value = false;
+     55|  const router = await mountShell();
+     56|  expect(loaded.settings).toBe(0);
+       |                          ^
+     57|  settingsOpen.value = true; await flush();
+     58|  expect(router.currentRoute.value.fullPath).toBe('/settings?section=na…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  18:00:40
+   Duration  1.42s (transform 263ms, setup 0ms, collect 167ms, tests 514ms, environment 469ms, prepare 87ms)
+
