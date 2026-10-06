@@ -269,18 +269,19 @@ test('真实SettingsPage只保留一个列表，内置深链唯一设置源位�
  expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);
 });
 
-test('真实iframe load不宣称成功；已知阻断显示具体设置且不加载拒绝页',async({page})=>{
+test('真实iframe load只收起加载占位，不宣称成功也不显示调试说明',async({page})=>{
  const f=await fixture(page,{external:true});
  await expect(page.frameLocator('.external-page iframe').getByText('Actual isolated iframe content')).toBeVisible();
- await expect(page.locator('.external-page')).toContainText('浏览器内容状态未知');
+ await expect(page.locator('.external-page')).toHaveText('');
+ await expect(page.locator('.external-page header')).toHaveCount(0);
  await expect(page.locator('.external-page')).not.toContainText('已导航');
  expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);
 });
 
-test('已知CSP阻断原因和准确配置路径保留，不创建iframe',async({page})=>{
+test('已知CSP阻断给简短提示和集中设置入口，不创建iframe',async({page})=>{
  const f=await fixture(page,{external:true,blockedCheck:true});
- await expect(page.locator('.external-page')).toContainText("CSP frame-ancestors 'none'");
- await expect(page.locator('.external-page')).toContainText('/etc/nginx/conf.d/quota.conf');
+ await expect(page.locator('.external-page')).toContainText('该网站不允许在这里打开');
+ await expect(page.locator('.external-page').getByRole('link',{name:'连接设置',exact:true})).toHaveAttribute('href','/settings?section=navigation&module=quota');
  await expect(page.locator('.external-page iframe')).toHaveCount(0);
  expect(f.requests.filter(x=>x.path.endsWith('/launch'))).toHaveLength(0);
  expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);

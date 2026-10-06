@@ -89,11 +89,11 @@ test('POST boot tickets target distinct module iframes and preserve earlier site
  await page.screenshot({path:'/opt/hermes-workstation/docs/2026-10-06-Stella-upgrade/iframe-cache/post-ticket-retained.png'});
 });
 
-test('15 minute hidden period cannot silently launch or renew; manual reconnect works',async({page})=>{
+test('15 minute hidden period cannot silently launch or renew or add persistent controls',async({page})=>{
  const {launches}=await setup(page,true);await draft(page,1).fill('pre-expiry');await go(page,'c2');
  await page.clock.install();await page.clock.fastForward(901000);expect(launches).toEqual(['c1','c2']);
  await go(page,'c1');await expect(draft(page,1)).toHaveValue('pre-expiry');expect(launches).toEqual(['c1','c2']);
- await page.locator('.external-page:visible').getByRole('button',{name:'重新连接',exact:true}).click();await expect(draft(page,1)).toHaveValue('');expect(launches).toEqual(['c1','c2','c1']);
+ await expect(page.locator('.external-page:visible').getByRole('button',{name:'重新连接',exact:true})).toHaveCount(0);expect(launches).toEqual(['c1','c2']);
 });
 
 test('notes cache stays independent while all four external LRU entries churn',async({page})=>{

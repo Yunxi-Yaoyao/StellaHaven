@@ -74,6 +74,47 @@ const test=base.extend<{fixture:Awaited<ReturnType<typeof setup>>}>({
 });
 const frame=(page:Page,id='c1')=>page.locator(`iframe[title="${id==='c1'?'额度':'Cache '+id.slice(1)}"]`);
 const draft=(page:Page,id='c1')=>frame(page,id).contentFrame().getByLabel('Draft');
+
+for(const mode of ['iframe','isolated_proxy'])test('clean embedded surface has content only: '+mode,async({page,fixture},testInfo)=>{
+ if(mode==='isolated_proxy'){
+  fixture.modules[0]!.mode='isolated_proxy';
+  await page.route(ROOT+'/external-modules/c1/launch',route=>route.fulfill({json:{mode,url:'https://c1.cache.test/__stella/bootstrap',method:'POST',fields:{ticket:'synthetic-one-use-ticket'}}}));
+  await page.route('https://c1.cache.test/__stella/bootstrap',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><h1>额度内容</h1><label>Draft<input aria-label="Draft"></label>'}));
+ }
+ await page.goto('/apps/c1');await expect(draft(page)).toBeVisible();
+ const shell=page.locator('.external-page:visible');
+ await expect(shell.locator('header,h1')).toHaveCount(0);
+ await expect(shell.getByRole('button')).toHaveCount(0);
+ await expect(shell.getByRole('link')).toHaveCount(0);
+ await expect(shell.getByRole('status')).toHaveCount(0);
+ await expect(shell).toHaveText('');
+ expect(await shell.evaluate(el=>getComputedStyle(el).borderTopWidth)).toBe('0px');
+ await expect(page.locator('.sidebar a.nav-item[href="/settings"]')).toBeVisible();
+ await expect(page.locator('.sidebar a[href="/notes"]')).toBeVisible();
+ await page.setViewportSize({width:390,height:852});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:testInfo.outputPath('content-only.png'),animations:'disabled'});
+});
+
+test('failed launch exposes a short error and manual recovery, then disappears',async({page,fixture})=>{
+ let attempt=0;
+ await page.route(ROOT+'/external-modules/c1/launch',route=>++attempt===1?route.fulfill({status:502,json:{detail:'upstream unavailable'}}):route.fulfill({json:{mode:'iframe',url:fixture.modules[0]!.browser_url,method:'GET'}}));
+ await page.goto('/apps/c1');await expect(page.getByRole('alert')).toBeVisible();
+ const shell=page.locator('.external-page:visible');
+ await expect(shell.getByRole('link',{name:'连接设置',exact:true})).toHaveAttribute('href','/settings?section=navigation&module=c1');
+ await shell.getByRole('button',{name:'重新连接',exact:true}).click();await expect(draft(page)).toBeVisible();
+ await expect(shell.getByRole('alert')).toHaveCount(0);await expect(shell.getByRole('button')).toHaveCount(0);
+ expect(attempt).toBe(2);
+});
+
+test('link-only website retains explicit open action without iframe or debug prose',async({page,fixture})=>{
+ fixture.modules[0]!.mode='link';
+ await page.goto('/apps/c1');const shell=page.locator('.external-page:visible');
+ await expect(shell.getByRole('link',{name:'新窗口打开',exact:true})).toHaveAttribute('href',fixture.modules[0]!.browser_url);
+ await expect(shell.locator('iframe,header')).toHaveCount(0);
+ await expect(shell).not.toContainText('load');await expect(shell).not.toContainText('票据');
+});
+
 async function enter(page:Page,id='c1'){
  await page.locator(`.sidebar a[href="/apps/${id}"]`).click();
  await expect(page).toHaveURL(ROOT+'/apps/'+id);
@@ -123,7 +164,7 @@ test('sidebar quota stays usable through a real 30-second App fetchMe watchdog',
  expect(elapsedMs).toBeGreaterThanOrEqual(30000);
  expect(fixture.requests.filter(request=>request.path==='/auth/me').length).toBeGreaterThan(probes);
  await testInfo.attach('real-watchdog',{body:JSON.stringify({elapsedMs,authMeRequests:fixture.requests.filter(request=>request.path==='/auth/me').length}),contentType:'application/json'});
- await expect(page.getByRole('heading',{name:'额度',exact:true})).toBeVisible();
+ await expect(frame(page)).toBeVisible();
  await expect(draft(page)).toHaveValue('retained past watchdog');
  expect(await frame(page).evaluate((current,old)=>current===old,original)).toBe(true);
  await page.locator('.sidebar a[href="/notes"]').click();await expect(page.locator('.notes-page')).toBeVisible();
