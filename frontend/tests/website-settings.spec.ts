@@ -1,12 +1,14 @@
 import {test,expect,type Page} from '@playwright/test';
 const checked=(address:string,blocked=false)=>({normalized_url:new URL(address.includes('://')?address:'https://'+address).href,name_suggestion:'建议网站名',access:{status:'reachable',http_status:200},embedding:{status:blocked?'blocked':'allowed',reason_code:blocked?'csp_none':'no_observed_restriction',reason:blocked?"CSP frame-ancestors 'none' 禁止嵌入":'未发现响应头限制'},injection:{status:'unsupported',reason:'跨域直连不能修改 DOM'},help:blocked?{title:'额度 Nginx 配置',location:'/etc/nginx/conf.d/quota.conf',instructions:['在额度服务允许 Stella 精确 origin，保留其他 CSP 和 LAN ACL'],external_url:null}:null,can_save:!blocked,recommended_behavior:blocked?'external':'embedded',issues:[]});
-async function fixture(page:Page,options:{failNavigation?:boolean;loseCreateResponse?:boolean;full?:boolean;module?:string;external?:boolean;blockedCheck?:boolean;supported?:boolean;previous?:boolean;corruptReadback?:boolean}={}){
+async function fixture(page:Page,options:{failNavigation?:boolean;loseCreateResponse?:boolean;full?:boolean;module?:string;external?:boolean;blockedCheck?:boolean;supported?:boolean;previous?:boolean;savedDraft?:boolean;legacyNavigation?:boolean;legacyNavigationIcon?:string;legacyIcon?:boolean;corruptReadback?:boolean}={}){
  const unknown:string[]=[],errors:string[]=[],consoleErrors:string[]=[],requests:any[]=[];
  page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});
  const modules:any[]=[{id:'quota',name:'额度',icon:'globe',browser_url:'https://quota.example.test/',mode:'iframe',adapter:'generic',enabled:true,keep_alive:false,injection:{active:null,draft:null,previous:null}},{id:'second',name:'第二网站',icon:'book',browser_url:'https://second.example.test/',mode:'iframe',adapter:'generic',enabled:true,keep_alive:false}];
  if(options.previous)modules[0].injection={draft:null,active:{enabled:false,css:'current',js:'',timing:'dom_ready',version:'v2'},previous:{enabled:false,css:'previous',js:'',timing:'dom_ready',version:'v1'}};
+ if(options.savedDraft)modules[0].injection={draft:{enabled:false,css:'body{color:blue}',js:'window.savedDraft=true',timing:'dom_ready',version:'draft-v3'},active:{enabled:true,css:'body{color:green}',js:'window.activeGreen=true',timing:'dom_ready',version:'v2'},previous:{enabled:true,css:'body{color:red}',js:'window.activeRed=true',timing:'dom_ready',version:'v1'}};
+ if(options.legacyIcon)modules[0].icon='heart';
  let writes=0;
- let entries:any[]=[{id:'quota',title:'额度',icon:'globe',visible:true}];
+ let entries:any[]=[{id:'quota',title:options.legacyNavigation?'原来配置的显示名':'额度',icon:options.legacyNavigation?(options.legacyNavigationIcon||'book'):options.legacyIcon?'heart':'globe',visible:true}];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
   const req=route.request(),u=new URL(req.url()),p=u.pathname;
@@ -32,7 +34,7 @@ async function fixture(page:Page,options:{failNavigation?:boolean;loseCreateResp
    if(!item){item={id,adapter:'generic',enabled:true};modules.push(item);}
    Object.assign(item,{name:body.name||'建议网站名',icon:body.icon,browser_url:checked(body.address).normalized_url,mode:body.open_behavior==='external'?'link':'iframe',keep_alive:body.keep_alive});
    item.injection={draft:{...body.custom},active:body.custom?.enabled?{...body.custom,version:'fixture-active-v2'}:item.injection?.active||null,previous:item.injection?.active||null};
-   entries=entries.filter(x=>x.id!==id);entries.push({id,visible:body.visible});
+   entries=entries.filter(x=>x.id!==id);entries.push({id,title:item.name,icon:item.icon,visible:body.visible});
    if(options.loseCreateResponse){options.loseCreateResponse=false;return route.abort('failed');}
    return route.fulfill({json:{...item,check:checked(body.address)}});
   }
@@ -41,9 +43,128 @@ async function fixture(page:Page,options:{failNavigation?:boolean;loseCreateResp
   unknown.push(req.url());return route.abort('blockedbyclient');
  });
  await page.goto('/tests/website-settings.html'+'?'+(options.full?'full=1':'')+(options.module?'&module='+options.module:'')+(options.external?'&external=1':''));
- await expect(page.getByRole('button',{name:'编辑 额度',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'编辑 '+(options.legacyNavigation?'原来配置的显示名':'额度'),exact:true})).toBeVisible();
  return {unknown,errors,consoleErrors,requests,modules};
 }
+test('R1 回退明确显示实际活动红色代码并保留蓝色草稿',async({page})=>{
+ const f=await fixture(page,{savedDraft:true});
+ await page.getByRole('button',{name:'编辑 额度',exact:true}).click();
+ await page.getByText('自定义外观与脚本（可选）',{exact:true}).click();
+ await page.getByRole('button',{name:'回退上一版本',exact:true}).click();
+ await expect(page.getByText('已回退并回读活动版本；已打开的网站请手动重载。',{exact:true})).toBeVisible();
+ await expect(page.getByLabel('活动版本 CSS',{exact:true})).toHaveValue('body{color:red}');
+ await expect(page.getByLabel('活动版本 JavaScript',{exact:true})).toHaveValue('window.activeRed=true');
+ await expect(page.getByLabel('活动版本 CSS',{exact:true})).toHaveAttribute('readonly','');
+ await expect(page.getByLabel('自定义 CSS',{exact:true})).toHaveValue('body{color:blue}');
+ await expect(page.getByText('编辑内容：已保存草稿（与活动版本分开）',{exact:true})).toBeVisible();
+ await expect(page.getByLabel('活动版本内容')).toContainText('v1');
+ expect(f.modules[0].injection.draft.css).toBe('body{color:blue}');
+ expect(await page.evaluate(()=> (window as any).activeRed)).toBeUndefined();
+ expect(f.requests.filter(x=>x.path.endsWith('/rollback'))).toHaveLength(1);
+ expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);expect(f.consoleErrors).toEqual([]);
+});
+
+test('R3 旧导航覆盖在升级、排序、编辑保存后保持显示一致',async({page})=>{
+ const f=await fixture(page,{legacyNavigation:true});
+ await expect(page.locator('aside [data-nav-id="quota"]')).toHaveText('原来配置的显示名');
+ await expect(page.locator('aside [data-nav-id="quota"] svg path').first()).toHaveAttribute('d','M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z');
+ await page.getByRole('button',{name:'下移 原来配置的显示名',exact:true}).click();
+ await expect(page.getByText('导航已同步',{exact:true})).toBeVisible();
+ await page.reload();
+ await page.getByRole('button',{name:'编辑 原来配置的显示名',exact:true}).click();
+ await expect(page.getByLabel('显示名称',{exact:true})).toHaveValue('原来配置的显示名');
+ await expect(page.getByRole('button',{name:'选择图标，当前书籍',exact:true})).toBeVisible();
+ await page.getByLabel('显示名称',{exact:true}).fill('用户明确改名');
+ await page.getByRole('button',{name:'保存',exact:true}).click();
+ await expect(page.locator('.inline-editor')).toHaveCount(0);
+ await expect(page.locator('aside [data-nav-id="quota"]')).toHaveText('用户明确改名');
+ expect(f.requests.find(x=>x.path==='/website-settings/quota').body.icon).toBe('book');
+ expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);expect(f.consoleErrors).toEqual([]);
+});
+
+test('R2 既有heart实际预览与改名payload均保留，不能静默替换',async({page})=>{
+ const f=await fixture(page,{legacyIcon:true});
+ await page.getByRole('button',{name:'编辑 额度',exact:true}).click();
+ await expect(page.getByRole('button',{name:'选择图标，当前爱心（旧图标）',exact:true})).toBeVisible();
+ const heart='M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z';
+ await expect(page.getByLabel('侧栏效果').locator('svg path').first()).toHaveAttribute('d',heart);
+ await expect(page.locator('aside [data-nav-id="quota"] svg path').first()).toHaveAttribute('d',heart);
+ await page.getByRole('button',{name:'选择图标，当前爱心（旧图标）',exact:true}).click();
+ await expect(page.getByRole('radio',{name:'首页',exact:true})).toBeFocused();
+ await page.keyboard.press('Escape');
+ await expect(page.getByRole('button',{name:'选择图标，当前爱心（旧图标）',exact:true})).toBeFocused();
+ await page.getByLabel('显示名称',{exact:true}).fill('只改名字');
+ await page.getByRole('button',{name:'保存',exact:true}).click();
+ await expect(page.locator('.inline-editor')).toHaveCount(0);
+ expect(f.requests.find(x=>x.path==='/website-settings/quota').body.icon).toBe('heart');
+ await page.reload();await page.getByRole('button',{name:'编辑 只改名字',exact:true}).click();
+ await expect(page.getByRole('button',{name:'选择图标，当前爱心（旧图标）',exact:true})).toBeVisible();
+ expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);expect(f.consoleErrors).toEqual([]);
+});
+
+for(const normalized of ['', 'file:///still-unsafe'])test('R4 检测拒绝保留原始地址、姓名和代码草稿 '+(normalized?'invalid':'empty'),async({page})=>{
+ const f=await fixture(page);
+ await page.route('**/website-settings/check',route=>route.fulfill({json:{normalized_url:normalized,name_suggestion:'',access:{status:'unknown',http_status:null},embedding:{status:'unknown',reason_code:'unsafe_address',reason:'只支持 HTTP(S) 地址'},injection:{status:'unknown',reason:'地址未通过安全检查'},help:null,can_save:false,recommended_behavior:'external',issues:['只支持 HTTP(S) 地址']}}));
+ await page.getByRole('button',{name:'添加网站'}).click();
+ await page.getByLabel('网站地址',{exact:true}).fill('file:///user-draft');
+ await page.getByLabel('显示名称',{exact:true}).fill('用户姓名草稿');
+ await page.getByText('自定义外观与脚本（可选）',{exact:true}).click();
+ await page.getByLabel('自定义 CSS',{exact:true}).fill('body{color:blue}');
+ await page.getByRole('button',{name:'检测',exact:true}).click();
+ await expect(page.getByLabel('检测结果')).toContainText('只支持 HTTP(S) 地址');
+ await expect(page.getByLabel('网站地址',{exact:true})).toHaveValue('file:///user-draft');
+ await expect(page.getByLabel('显示名称',{exact:true})).toHaveValue('用户姓名草稿');
+ await expect(page.getByLabel('自定义 CSS',{exact:true})).toHaveValue('body{color:blue}');
+ await expect(page.getByRole('button',{name:'检测',exact:true})).toBeEnabled();
+ await page.getByRole('button',{name:'保存',exact:true}).click();
+ await expect(page.getByText('当前设置不能保存；请按检测结果处理或显式选择新窗口后重试。',{exact:true})).toBeVisible();
+ await expect(page.getByLabel('网站地址',{exact:true})).toHaveValue('file:///user-draft');
+ expect(f.requests.filter(x=>x.path==='/website-settings')).toHaveLength(0);
+ expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);expect(f.consoleErrors).toEqual([]);
+});
+
+test('回退版本回读不一致保留编辑器，只重试精确读取不重复回退',async({page})=>{
+ const f=await fixture(page,{savedDraft:true});
+ await page.getByRole('button',{name:'编辑 额度',exact:true}).click();
+ await page.getByText('自定义外观与脚本（可选）',{exact:true}).click();
+ let corrupt=true;
+ await page.route('**/external-modules/quota',route=>route.fulfill({json:corrupt?{...f.modules[0],injection:{...f.modules[0].injection,active:{...f.modules[0].injection.active,version:'wrong-version'}}}:f.modules[0]}));
+ await page.getByRole('button',{name:'回退上一版本',exact:true}).click();
+ await expect(page.getByText('回退结果未确认，请刷新活动版本，不要重复回退。',{exact:true})).toBeVisible();
+ await expect(page.getByLabel('自定义 CSS',{exact:true})).toHaveValue('body{color:blue}');
+ await expect(page.getByText('已回退并回读活动版本；已打开的网站请手动重载。',{exact:true})).toHaveCount(0);
+ corrupt=false;await page.getByRole('button',{name:'回退结果回读',exact:true}).click();
+ await expect(page.getByLabel('活动版本 CSS',{exact:true})).toHaveValue('body{color:red}');
+ await expect(page.getByLabel('自定义 CSS',{exact:true})).toHaveValue('body{color:blue}');
+ expect(f.requests.filter(x=>x.path.endsWith('/rollback'))).toHaveLength(1);
+ expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);expect(f.consoleErrors).toEqual([]);
+});
+
+test('检测归一化后可立即重检，不遗留检测中或覆盖手写名称',async({page})=>{
+ const f=await fixture(page);
+ await page.getByRole('button',{name:'添加网站'}).click();
+ await page.getByLabel('网站地址',{exact:true}).fill('normalize.example.test/path?q=1#last');
+ await page.getByLabel('显示名称',{exact:true}).fill('手写名称');
+ await page.getByRole('button',{name:'检测',exact:true}).click();
+ await expect(page.getByLabel('网站地址',{exact:true})).toHaveValue('https://normalize.example.test/path?q=1#last');
+ await expect(page.getByRole('button',{name:'检测',exact:true})).toBeEnabled();
+ await page.getByRole('button',{name:'检测',exact:true}).click();
+ await expect.poll(()=>f.requests.filter(x=>x.path==='/website-settings/check').length).toBe(2);
+ await expect(page.getByRole('button',{name:'检测',exact:true})).toBeEnabled();
+ await expect(page.getByLabel('显示名称',{exact:true})).toHaveValue('手写名称');
+ expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);expect(f.consoleErrors).toEqual([]);
+});
+
+test('旧合法cloud导航图标保留原key并明确说明网站预览，不伪装为globe',async({page})=>{
+ const f=await fixture(page,{legacyNavigation:true,legacyNavigationIcon:'cloud'});
+ await page.getByRole('button',{name:'编辑 原来配置的显示名',exact:true}).click();
+ await expect(page.getByRole('button',{name:'选择图标，当前旧图标：cloud（网站预览，保存时保留）',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'保存',exact:true}).click();
+ await expect(page.locator('.inline-editor')).toHaveCount(0);
+ expect(f.requests.find(x=>x.path==='/website-settings/quota').body.icon).toBe('cloud');
+ expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);expect(f.consoleErrors).toEqual([]);
+});
+
 test('统一列表为文字，仅在选中行下面展开编辑器',async({page})=>{
  const f=await fixture(page);
  await expect(page.locator('.nav-row')).toHaveCount(8);
