@@ -6,9 +6,7 @@ import pytest
 
 @pytest.fixture
 def workspace_id(client):
-    user = client.post("/users/", json={
-        "username": f"user_{uuid4().hex[:8]}", "display_name": "正文测试"
-    }).json()
+    user = client.get("/auth/me").json()
     ws = client.post("/workspaces/", json={
         "user_id": user["id"], "name": "正文测试工作区"
     }).json()

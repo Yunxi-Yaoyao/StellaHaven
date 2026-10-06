@@ -1,6 +1,11 @@
 <script setup lang="ts">
-// 设置面板：右侧滑出。第一批设置项 = 主页主题 / 粒子氛围 / 背景图（附件系统）
-import { ref, computed, watch } from "vue";
+// 唯一设置页内的主页外观表单；旧齿轮开关仅负责跳转到集中设置。
+import { ref, computed, watch, onMounted } from "vue";
+import { useRouter } from "vue-router";
+const props = defineProps<{embedded?:boolean}>();
+const router = useRouter();
+watch(settingsOpen,open=>{if(open && !props.embedded){settingsOpen.value=false;void router.push({path:"/settings",query:{section:"navigation",module:"home"}});}});
+onMounted(()=>{if(props.embedded)void loadBgList();});
 import { settingsOpen, bgManagerOpen, homeSettings, DEFAULT_HOME_BG } from "../modules/home/settings";
 import { auth, displayBg } from "../modules/home/auth";
 import Dropdown from "./Dropdown.vue";
@@ -16,7 +21,7 @@ const themes = [
 
 /* 背景图：当前项的名字 + 预览 */
 const bgList = backgroundEntries;
-const { media, quality, status } = useBackgroundMedia(computed(() => settingsOpen.value ? displayBg.value : ""));
+const { media, quality, status } = useBackgroundMedia(computed(() => props.embedded ? displayBg.value : ""));
 async function loadBgList() {
   try { await loadBackgroundEntries(); } catch { /* no notification spam */ }
 }
@@ -54,17 +59,7 @@ function pickParticle(v: string | number | boolean) {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="fade">
-      <div v-if="settingsOpen" class="mask" @click="settingsOpen = false" />
-    </Transition>
-    <Transition name="slide">
-      <aside v-if="settingsOpen" class="panel">
-        <div class="p-head">
-          <div class="p-title">主页设置</div>
-          <button class="p-close" title="关闭" @click="settingsOpen = false">✕</button>
-        </div>
-
+  <aside v-if="embedded" class="panel">
         <section class="sec">
           <div class="sec-t">主页主题</div>
           <button
@@ -136,10 +131,7 @@ function pickParticle(v: string | number | boolean) {
           </div>
         </section>
 
-        <div class="p-foot">更多设置施工中 · Stella</div>
-      </aside>
-    </Transition>
-  </Teleport>
+  </aside>
 </template>
 
 <style scoped>
@@ -147,16 +139,7 @@ function pickParticle(v: string | number | boolean) {
   position: fixed; inset: 0; z-index: 90;
   background: rgba(6, 10, 16, 0.45);
 }
-.panel {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 95;
-  width: 320px;
-  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
-  backdrop-filter: var(--blur);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.45);
-  padding: 22px 20px;
-  overflow-y: auto;
-}
+.panel { margin-top:18px; width:100%; background:var(--bg-panel); border:1px solid #ffffff12; border-radius:14px; padding:20px; }
 .p-head { display: flex; align-items: center; justify-content: space-between; }
 .p-title { font-size: 17px; font-weight: 600; color: var(--text-hi); letter-spacing: 2px; }
 .p-close {

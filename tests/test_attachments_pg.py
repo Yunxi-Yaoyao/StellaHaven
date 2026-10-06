@@ -9,7 +9,7 @@ def pg_doc(client,monkeypatch,tmp_path):
     monkeypatch.setenv('STELLA_BLOB_CACHE',str(tmp_path/'cache'))
     from app.routers import attachment
     monkeypatch.setattr(attachment,'STORAGE',tmp_path/'legacy');attachment.STORAGE.mkdir()
-    u=client.post('/users/',json={'username':'pgblob_'+uuid4().hex[:12],'display_name':'test'}).json()
+    u=client.get("/auth/me").json()
     w=client.post('/workspaces/',json={'user_id':u['id'],'name':'pgblobs'}).json()
     d=client.post('/documents/',json={'title':'blob','file_path':'/blob.md','workspace_id':w['id'],'content':''}).json()
     return d['id'],attachment.STORAGE

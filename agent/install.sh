@@ -87,6 +87,85 @@ if ! id -u stella >/dev/null 2>&1; then
   echo "    已创建独立用户 stella"
 fi
 
+# Docker privileged helper is root-owned OUTSIDE the agent self-update directory.
+_HELPER_DIR=/usr/local/libexec
+_HELPER=/usr/local/libexec/stella-docker-helper
+_VISUDO=$(command -v visudo) || fail "缺少 visudo，不能安全安装 sudoers"
+python3 -I - "$_HELPER_DIR" /etc/stella-agent/docker /etc/sudoers.d <<'STELLA_TRUSTED_DIRS'
+import pathlib, sys
+for raw in sys.argv[1:]:
+    path = pathlib.Path(raw)
+    for part in [*reversed(path.parents), path]:
+        if part.is_symlink(): raise SystemExit('unsafe privilege directory')
+        if part.exists():
+            st = part.stat()
+            if not part.is_dir() or st.st_uid != 0 or st.st_mode & 0o022:
+                raise SystemExit('unsafe privilege directory')
+    path.mkdir(parents=True, exist_ok=True, mode=0o755)
+STELLA_TRUSTED_DIRS
+_HELPER_TMP=$(mktemp "$_HELPER_DIR/.stella-docker.XXXXXX")
+cat > "$_HELPER_TMP" <<'STELLA_DOCKER_HELPER'
+#!/usr/bin/python3 -I
+"""Privileged Docker gateway. Install root:root 0755 outside agent-writable dirs."""
+import subprocess
+import sys
+import re
+
+DOCKER = "/usr/bin/docker"
+ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/var/empty",
+       "LANG": "C", "LC_ALL": "C", "DOCKER_CONFIG": "/etc/stella-agent/docker"}
+
+
+def docker_args(args):
+    if args == ['ps']:
+        return ['ps', '-a', '--format', '{{json .}}']
+    if (len(args) == 2 and args[0] in ('inspect', 'start', 'stop', 'restart')
+            and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', args[1])):
+        if args[0] == 'inspect':
+            return ['inspect', '--type', 'container', args[1]]
+        return args
+    if (len(args) == 3 and args[0] == 'logs'
+            and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', args[1])
+            and re.fullmatch(r'[1-9][0-9]{0,2}', args[2]) and int(args[2]) <= 500):
+        return ['logs', '--tail', args[2], args[1]]
+    raise ValueError('request refused')
+
+
+def main():
+    try:
+        args = docker_args(sys.argv[1:])
+        result = subprocess.run([DOCKER, '--host', 'unix:///var/run/docker.sock'] + args,
+                                shell=False, env=ENV, cwd='/', stdin=subprocess.DEVNULL,
+                                timeout=65)
+        return result.returncode
+    except ValueError:
+        print('stella Docker helper: request refused', file=sys.stderr)
+        return 2
+    except (OSError, subprocess.TimeoutExpired):
+        print('stella Docker helper: command failed or timed out', file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())
+STELLA_DOCKER_HELPER
+python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); compile(p.read_bytes(),str(p),"exec")' "$_HELPER_TMP"
+chown root:root "$_HELPER_TMP"
+chmod 755 "$_HELPER_TMP"
+[[ ! -L "$_HELPER" ]] || fail "拒绝 helper 符号链接"
+mv -f -- "$_HELPER_TMP" "$_HELPER"
+_HELPER_TMP=""
+_DOCKER_SUDO_TMP=$(mktemp /etc/sudoers.d/.stella-docker.XXXXXX)
+for _ACTION in ps inspect logs start stop restart; do
+  _ARGS="*"; [[ "$_ACTION" == "ps" ]] && _ARGS=""
+  printf 'stella ALL=(root) NOPASSWD: %s %s %s\n' "$_HELPER" "$_ACTION" "$_ARGS"
+done > "$_DOCKER_SUDO_TMP"
+"$_VISUDO" -cf "$_DOCKER_SUDO_TMP" >/dev/null 2>&1 || fail "Docker sudoers 校验失败"
+chown root:root "$_DOCKER_SUDO_TMP"
+chmod 440 "$_DOCKER_SUDO_TMP"
+mv -f -- "$_DOCKER_SUDO_TMP" /etc/sudoers.d/stella-docker
+_DOCKER_SUDO_TMP=""
+
 # sudoers：允许 stella 卸载自己 + 代装 iperf3（NOPASSWD 白名单，路径按当前系统动态取）
 _APT=$(command -v apt-get || true)
 _DNF=$(command -v dnf || true)
@@ -114,9 +193,7 @@ fi
 [ -n "$_APK" ] && _CMDS="${_CMDS}, ${_APK} add ufw, ${_APK} add docker, ${_APK} add mtr"
 [ -n "$_PACMAN" ] && _CMDS="${_CMDS}, ${_PACMAN} -S --noconfirm ufw, ${_PACMAN} -S --noconfirm docker, ${_PACMAN} -S --noconfirm mtr"
 _CMDS="${_CMDS}, ${_SYSCTL} enable --now docker"
-# Docker 面板：容器列表/启停重启（只读+容器级操作，不放开镜像/网络管理）
-_DOCKER=$(command -v docker || true)
-[ -n "$_DOCKER" ] && _CMDS="${_CMDS}, ${_DOCKER}"
+# Docker panel is authorized exclusively in stella-docker via the validated helper.
 # 网络操作（改 IP 回退 / 防火墙查看 / PBR 查看）：允许 stella sudo 执行这些网络配置/只读命令
 _IP=$(command -v ip || true)
 _NMCLI=$(command -v nmcli || true)
@@ -133,10 +210,17 @@ _IPTABLES=$(command -v iptables || true)
 # 改 IP 连通性验证：sudo ping 绕 owner-mark（agent 被 PBR 打标走固定出口，直连探测摸不到被改接口的网关）
 _PING=$(command -v ping || true)
 [ -n "$_PING" ] && _CMDS="${_CMDS}, ${_PING}"
-cat > /etc/sudoers.d/stella-uninstall << EOF
-stella ALL=(root) NOPASSWD: ${_CMDS}
-EOF
-chmod 440 /etc/sudoers.d/stella-uninstall
+_SUDO_TMP=$(mktemp /etc/sudoers.d/.stella-uninstall.XXXXXX)
+# One command per rule, preserving authorized networking capabilities.
+IFS=',' read -ra _ENTRIES <<< "$_CMDS"
+for _ENTRY in "${_ENTRIES[@]}"; do
+  printf 'stella ALL=(root) NOPASSWD: %s\n' "${_ENTRY# }"
+done > "$_SUDO_TMP"
+"$_VISUDO" -cf "$_SUDO_TMP" >/dev/null 2>&1 || fail "sudoers 校验失败"
+chown root:root "$_SUDO_TMP"
+chmod 440 "$_SUDO_TMP"
+mv -f -- "$_SUDO_TMP" /etc/sudoers.d/stella-uninstall
+_SUDO_TMP=""
 
 # pip 安装：用系统包管理器（Ubuntu/Debian 的 python3 不带 ensurepip，用 ensurepip 必然失败）
 _install_pip() {
@@ -265,7 +349,7 @@ fi
 STAGE="校验 token"
 echo "==> 校验 token..."
 _TOKEN_HTTP=$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w "%{http_code}" \
-  --get --data-urlencode "token=$TOKEN" "$STELLA_URL/agent/config" 2>/dev/null) || fail "无法连接中心校验 token"
+  --header "Authorization: Bearer $TOKEN" "$STELLA_URL/agent/config" 2>/dev/null) || fail "无法连接中心校验 token"
 case "$_TOKEN_HTTP" in
   200) echo "    token 校验通过" ;;
   401) fail "HTTP 401：token 无效或已失效，请从面板复制最新安装命令" ;;
@@ -294,6 +378,18 @@ chown -R stella:stella "$INSTALL_DIR"
 STAGE="systemd"
 # ── 7. 写 systemd 单元（独立用户 + raw socket 权限跑探测） ──
 echo "==> 配置 systemd 服务..."
+_ENV_TMP=$(mktemp /etc/stella-agent/.agent-env.XXXXXX)
+STELLA_TOKEN="$TOKEN" STELLA_URL="$STELLA_URL" python3 -I - > "$_ENV_TMP" <<'STELLA_AGENT_ENV'
+import json, os
+for name in ('STELLA_URL', 'STELLA_TOKEN'):
+    value = os.environ[name]
+    if any(c in value for c in '\r\n'): raise SystemExit('invalid agent configuration')
+    print(name + '=' + json.dumps(value))
+STELLA_AGENT_ENV
+chown root:root "$_ENV_TMP"
+chmod 600 "$_ENV_TMP"
+mv -f -- "$_ENV_TMP" /etc/stella-agent/agent.env
+_ENV_TMP=""
 cat > /etc/systemd/system/stella-agent.service << EOF
 [Unit]
 Description=Stella Agent
@@ -304,11 +400,11 @@ Wants=network-online.target
 Type=simple
 User=stella
 AmbientCapabilities=CAP_NET_RAW
-ExecStart=/usr/bin/env python3 $INSTALL_DIR/stella_agent.py --url $STELLA_URL --token $TOKEN
+ExecStart=/usr/bin/env python3 $INSTALL_DIR/stella_agent.py
+EnvironmentFile=/etc/stella-agent/agent.env
 Restart=always
 RestartSec=5
-Environment=STELLA_URL=$STELLA_URL
-Environment=STELLA_TOKEN=$TOKEN
+
 
 [Install]
 WantedBy=multi-user.target

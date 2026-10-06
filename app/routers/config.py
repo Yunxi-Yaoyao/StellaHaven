@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.routers.auth import current_user
+from app.routers.auth import current_user, admin_user
 from app.repositories import config as config_repo
 
 # 需登录的配置路由（公网地址等）
@@ -24,7 +24,7 @@ def get_public_host(user: User = Depends(current_user), db: Session = Depends(ge
 
 
 @router.put("/public-host")
-def set_public_host(data: PublicHostIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def set_public_host(data: PublicHostIn, user: User = Depends(admin_user), db: Session = Depends(get_db)):
     v = data.value.strip()
     config_repo.put(db, "public_host", v)
     return {"ok": True, "value": v}
@@ -33,5 +33,8 @@ def set_public_host(data: PublicHostIn, user: User = Depends(current_user), db: 
 @public_router.get("/site-background")
 def get_site_background(db: Session = Depends(get_db)):
     """站点背景 = 管理员的壁纸。管理员登录后自选背景，未登录访客看到的就是它。"""
-    admin = db.query(User).filter(User.is_admin == True).order_by(User.created_at).first()  # noqa: E712
-    return {"value": admin.home_bg if admin else ""}
+    from app.services.admin_security import owner_id
+    if not db.query(User.id).first():
+        return {'value': ''}
+    owner = db.get(User, owner_id(db))
+    return {'value': owner.home_bg if owner else ''}

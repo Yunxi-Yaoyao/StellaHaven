@@ -7,7 +7,7 @@ from app.models.document import Document
 from app.schemas.document import DocumentCreate, DocumentUpdate
 
 # 列表型查询都不取正文（PG TOAST 外置存储，捞 content 要额外 I/O；摘要模型也不会用它）
-_SUMMARY_ONLY = [defer(Document.content)]
+_SUMMARY_ONLY = [defer(Document.content, raiseload=True), defer(Document.draft_content, raiseload=True)]
 
 
 def get_by_id(db: Session, doc_id: UUID) -> Document | None:
@@ -92,7 +92,7 @@ def create(db: Session, data: DocumentCreate) -> Document:
     return doc
 
 
-def update(db: Session, doc_id: UUID, data: DocumentUpdate) -> Document | None:
+def update(db: Session, doc_id: UUID, data: DocumentUpdate, *, commit: bool = True) -> Document | None:
     """乐观锁更新：WHERE updated_at = 前端传的旧值，中间有人改过就拒。
     updated_at 由这里显式推进（不用 onupdate——草稿同步不该动它）"""
     result = db.execute(
@@ -103,7 +103,8 @@ def update(db: Session, doc_id: UUID, data: DocumentUpdate) -> Document | None:
             updated_at=datetime.now(),
         )
     )
-    db.commit()
+    if commit:
+        db.commit()
     if result.rowcount == 0:
         return None  # 冲突
     return get_by_id(db, doc_id)

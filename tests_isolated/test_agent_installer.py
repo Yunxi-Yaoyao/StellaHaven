@@ -54,12 +54,14 @@ class AgentInstallerTest(unittest.TestCase):
             root = Path(tmp)
             bindir = root / 'bin'
             bindir.mkdir()
-            for directory in ('opt/stella-agent', 'etc/sudoers.d', 'etc/systemd/system', 'usr/local/bin'):
-                (root / directory).mkdir(parents=True, exist_ok=True)
+            prefixes = ('/opt/stella-agent', '/etc/sudoers.d', '/etc/systemd/system',
+                        '/usr/local/bin', '/usr/local/libexec', '/etc/stella-agent')
+            for prefix in prefixes:
+                (root / prefix.lstrip('/')).mkdir(parents=True, exist_ok=True)
             old = root / 'opt/stella-agent/stella_agent.py'
             old.write_text('# old working agent\n')
             script = SOURCE.read_text()
-            for prefix in ('/opt/stella-agent', '/etc/sudoers.d', '/etc/systemd/system', '/usr/local/bin'):
+            for prefix in prefixes:
                 script = script.replace(prefix, str(root) + prefix)
             installer = root / 'install.sh'
             installer.write_text(script)
@@ -67,7 +69,9 @@ class AgentInstallerTest(unittest.TestCase):
                 executable = shutil.which(name)
                 assert executable, name
                 (bindir / name).symlink_to(executable)
-            for name in ('id', 'useradd', 'chown', 'systemctl', 'apt-get', 'python3', 'curl', 'iperf3', 'speedtest-go', 'sleep'):
+            # Real syntax parser only; every destination path is relocated first.
+            (bindir / 'visudo').symlink_to('/usr/sbin/visudo')
+            for name in ('id', 'useradd', 'chown', 'systemctl', 'apt-get', 'python3', 'curl', 'iperf3', 'speedtest-go', 'sleep', 'docker', 'ip', 'ufw', 'wg'):
                 if name in missing:
                     continue
                 stub = bindir / name

@@ -28,14 +28,16 @@ def no_live_http(monkeypatch):
 
 @pytest.fixture
 def api():
-    engine = create_engine('sqlite://', poolclass=StaticPool, connect_args={'check_same_thread': False})
+    engine = create_engine('sqlite://', poolclass=StaticPool, connect_args={'check_same_thread': False, 'autocommit':False})
     # Import-time default engine is replaced before app.database can construct it.
     with patch('sqlalchemy.create_engine', return_value=engine):
         assert importlib.util.find_spec('app.routers.metrics_source'), 'comparison/config router not implemented'
         from app.routers import metrics_source as routes
         from app.routers.auth import current_user
         from app.models import Node, NodeSysMetric, AppConfig
-    for table in (Node.__table__, NodeSysMetric.__table__, AppConfig.__table__):
+        from app.models.user import User, AuthSession
+        from app.routers.auth import router as auth_router
+    for table in (Node.__table__, NodeSysMetric.__table__, AppConfig.__table__, User.__table__, AuthSession.__table__):
         table.create(engine)
     with Session(engine) as db:
         db.add(Node(id=7, name='private-test', platform='linux', host='192.0.2.7'))
@@ -46,8 +48,11 @@ def api():
     app = FastAPI()
     app.include_router(routes.router)
     app.dependency_overrides[routes.get_db] = private_db
-    app.dependency_overrides[current_user] = lambda: SimpleNamespace(is_admin=True)
+    app.include_router(auth_router)
     with TestClient(app) as client:
+        assert client.post('/auth/register',json={'username':'metrics-owner','password':'metrics-daily-123'}).status_code == 201
+        assert client.post('/auth/admin/setup',json={'user_password':'metrics-daily-123','new_password':'metrics-management-independent'}).status_code == 200
+        assert client.post('/auth/admin/unlock',json={'password':'metrics-management-independent'}).status_code == 200
         yield client, app, engine, routes, current_user
     engine.dispose()
 
@@ -60,7 +65,7 @@ def test_config_opt_in_roundtrip(api):
     assert client.get('/config/prometheus').json() == data
     from app.models import AppConfig
     with Session(engine) as db:
-        assert db.query(AppConfig).count() == 1
+        assert db.query(AppConfig).filter(AppConfig.key == "prometheus_connection").count() == 1
         assert db.get(AppConfig, 'prometheus_connection') is not None
 
 
@@ -99,17 +104,17 @@ def test_comparison_is_readonly_and_reports_raw_cadence(api):
     adapter.sample_spacing.assert_called_once_with('node', '192.0.2.7:9100')
     with Session(engine) as db:
         assert db.query(NodeSysMetric).count() == 2
-        assert db.query(AppConfig).count() == 1
+        assert db.query(AppConfig).filter(AppConfig.key == "prometheus_connection").count() == 1
 
 
 @pytest.mark.parametrize('path', ['/config/prometheus', '/nodes/7/metrics-comparison'])
 def test_admin_only(api, path):
     client, app, _, _, current_user = api
-    app.dependency_overrides[current_user] = lambda: SimpleNamespace(is_admin=False)
+    assert client.post('/auth/admin/lock').status_code == 200
     assert client.get(path).status_code == 403
     if path == '/config/prometheus':
         assert client.put(path, json={'enabled': False}).status_code == 403
-    app.dependency_overrides.pop(current_user)
+    assert client.post('/auth/logout').status_code == 200
     assert client.get(path).status_code == 401
 
 
@@ -134,7 +139,7 @@ def test_unsafe_url_rejected_without_writes(api, url):
     assert client.put('/config/prometheus', json={'url': url}).status_code == 422
     from app.models import AppConfig
     with Session(engine) as db:
-        assert db.query(AppConfig).count() == 0
+        assert db.query(AppConfig).filter(AppConfig.key == "prometheus_connection").count() == 0
 
 
 @pytest.mark.parametrize('data', [
@@ -199,7 +204,7 @@ def test_upstream_failure_is_sanitized_and_no_write(api):
         assert 'secret' not in response.text
     from app.models import AppConfig
     with Session(engine) as db:
-        assert db.query(AppConfig).count() == 1
+        assert db.query(AppConfig).filter(AppConfig.key == "prometheus_connection").count() == 1
 
 
 def test_unmapped_node_and_corrupt_config_fail_closed(api):

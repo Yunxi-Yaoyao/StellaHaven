@@ -1,0 +1,6 @@
+stella ALL=(root) NOPASSWD: /usr/local/libexec/stella-docker-helper ps
+stella ALL=(root) NOPASSWD: /usr/local/libexec/stella-docker-helper inspect *
+stella ALL=(root) NOPASSWD: /usr/local/libexec/stella-docker-helper logs *
+stella ALL=(root) NOPASSWD: /usr/local/libexec/stella-docker-helper start *
+stella ALL=(root) NOPASSWD: /usr/local/libexec/stella-docker-helper stop *
+stella ALL=(root) NOPASSWD: /usr/local/libexec/stella-docker-helper restart *

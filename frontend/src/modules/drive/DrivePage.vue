@@ -2,16 +2,17 @@
 // External service connection; background controls remain independent.
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { api } from "../../api/client";
-import { isAdmin } from "../home/auth";
+import { useRouter } from 'vue-router';
+const router = useRouter();
 import Icon from "../../shell/Icon.vue";
-import ConnectionPanel from "./ConnectionPanel.vue";
+
 import { displayBg } from "../home/auth";
 import { DEFAULT_HOME_BG } from "../home/settings";
 
 const status = ref<any>(null);
 const loading = ref(true);
 const error = ref("");
-const manageOpen = ref(false);
+
 const frameUrl = ref("");
 const frameEl = ref<HTMLIFrameElement | null>(null);
 const frameReady = ref(false);
@@ -46,12 +47,6 @@ const pageStyle = computed(() => {
   }
   return { backgroundColor: '#14171f' };
 });
-
-function toggleBg() {
-  bgMode.value = bgMode.value === 'solid' ? 'image' : 'solid';
-  localStorage.setItem(BG_KEY, bgMode.value);
-  applyIframeBg();
-}
 
 function clearIframeBg() {
   const doc = frameEl.value?.contentDocument;
@@ -136,15 +131,15 @@ watch(bgImage, () => { if (bgMode.value === 'image') applyIframeBg(); });
     <div class="frame-bar">
       <div class="frame-title"><Icon name="drive" :size="16" /><span>网盘 · OpenList</span><span class="chip">外部服务</span></div>
       <div class="frame-actions">
-        <button class="manage-btn" @click="toggleBg">{{ bgMode === 'solid' ? '背景图' : '纯色' }}</button>
+
         <button class="manage-btn" :disabled="loading" @click="refresh">{{ loading ? "连接中…" : "重新连接" }}</button>
-        <button v-if="isAdmin" class="manage-btn" @click="manageOpen = true">连接设置</button>
+        <button class="manage-btn" @click="router.push({path:'/settings',query:{section:'navigation',module:'drive'}})">连接设置</button>
       </div>
     </div>
     <p v-if="error" class="hint" role="alert">{{ error }}</p>
     <p v-if="loading" class="hint">加载连接…</p>
     <iframe v-if="frameUrl" :key="frameKey" ref="frameEl" title="OpenList 网盘" class="frame" :class="{ ready: frameReady }" :src="frameUrl" referrerpolicy="no-referrer" @load="onFrameLoad" />
-    <ConnectionPanel v-if="manageOpen" kind="drive" @close="manageOpen = false" @saved="refresh" />
+
   </div>
 </template>
 

@@ -16,11 +16,28 @@ export interface Me {
 
 export const auth = reactive({
   me: null as Me | null,
+  sessionGeneration: 0,
+  sessionClosing: false,
   checked: false, // 首次 /auth/me 探测过没有
 });
 
 export const loggedIn = computed(() => auth.me !== null);
-export const isAdmin = computed(() => auth.me?.is_admin === true);
+export interface SecurityState { enabled:boolean; configured:boolean; elevated:boolean; expires_at:string|null; single_user:boolean; setup_required:boolean }
+export const security = reactive<SecurityState>({enabled:true,configured:false,elevated:false,expires_at:null,single_user:true,setup_required:true});
+export const securityChecked = ref(false);
+export const isAdmin = computed(() => !!auth.me && securityChecked.value && (!security.enabled || security.elevated && (!security.expires_at || Date.parse(security.expires_at)>Date.now())));
+let securityExpiry:ReturnType<typeof setTimeout>|undefined;
+let securityGeneration=0;
+export async function loadSecurity() {
+  const owner=auth.me?.id,sequence=++securityGeneration;
+  const r = await fetch('/auth/security');
+  if (!r.ok) { securityChecked.value=false; throw new Error('安全状态加载失败'); }
+  const state=await r.json();if(sequence!==securityGeneration||owner!==auth.me?.id)return;
+  Object.assign(security, state); securityChecked.value=true;
+  clearTimeout(securityExpiry);
+  if(security.enabled && security.elevated && security.expires_at)securityExpiry=setTimeout(()=>{security.elevated=false;},Math.max(0,Date.parse(security.expires_at)-Date.now()));
+}
+export function clearSecurity() { securityGeneration++;clearTimeout(securityExpiry);securityChecked.value=false; Object.assign(security,{enabled:true,configured:false,elevated:false,expires_at:null,setup_required:true}); }
 /** 系统是否已初始化（有管理员）。未初始化访客看默认壁纸；初始化后看管理员站点背景 */
 export const initialized = ref(true);
 
@@ -129,6 +146,7 @@ export async function login(username: string, password: string, remember: boolea
     body: JSON.stringify({ username, password, remember, device }),
   });
   if (!r.ok) return (await r.json()).detail ?? "登录失败";
+  auth.sessionGeneration++; auth.sessionClosing = false;
   auth.me = await r.json();
   auth.checked = true;
   migrateLegacyBg(); // 迁旧背景（一次性）
@@ -142,15 +160,18 @@ export async function register(username: string, password: string, displayName?:
     body: JSON.stringify({ username, password, display_name: displayName }),
   });
   if (!r.ok) return (await r.json()).detail ?? "注册失败";
+  auth.sessionGeneration++; auth.sessionClosing = false;
   auth.me = await r.json();
   auth.checked = true;
   return null;
 }
 
 export async function logout(): Promise<void> {
+  auth.sessionClosing = true; auth.sessionGeneration++;
+  clearSecurity();
   const r = await fetch("/auth/logout", { method: "POST" });
   if (!r.ok) throw new Error('退出未成功，请检查网络后重试');
-  auth.me = null;
+  auth.me = null; auth.sessionClosing = false;
   lastActivityReport = 0;
 }
 

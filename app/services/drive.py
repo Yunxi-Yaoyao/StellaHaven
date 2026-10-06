@@ -468,28 +468,14 @@ OPENLIST_THEME_JS = """
 })();
 """.strip()
 
-def inject_theme_html(html: str) -> str:
-    """反代注入：把深色主题 CSS 塞进 HTML 的 <head>，让首屏第一次渲染就是深色。
+def inject_theme_html(html: str, db=None) -> str:
+    """Compatibility entry point; central PG active + exact legacy dedupe.
 
-    消除「先显示默认浅色主题，再被 customize_head 覆盖」的闪烁。
-    同时把 OpenList 的 <meta name="color-scheme" content="light dark"> 改成 normal，
-    否则 iframe canvas 在真实浏览器下会被填成黑色/白色，导致背景图透不出来。
+    Callers must pass their request DB to apply published custom settings.
+    With no DB, permanent theme/cache/layout fixes still apply.
     """
-    style = f"<style>{OPENLIST_THEME_CSS}</style>"
-    if "</head>" in html:
-        html = html.replace("</head>", style + "</head>", 1)
-    elif "<head>" in html:
-        html = html.replace("<head>", "<head>" + style, 1)
-    else:
-        html = style + html
-    # 覆盖 OpenList 的 color-scheme meta，让 iframe canvas 在透明 html/body 下也能透背景
-    html = re.sub(
-        r'<meta\s+name="color-scheme"\s+content="[^"]*"\s*/?>',
-        '<meta name="color-scheme" content="normal">',
-        html,
-        flags=re.IGNORECASE,
-    )
-    return html
+    from app.services.builtin_injection import transform_html
+    return transform_html(html, 'drive', db)
 
 def get_status(db):
     cfg = external.load(db, 'drive')

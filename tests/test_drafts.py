@@ -10,9 +10,7 @@ from app.models.document import Document
 @pytest.fixture
 def doc_id(client):
     """建 user → workspace → document，返回 doc_id"""
-    user = client.post("/users/", json={
-        "username": f"user_{uuid4().hex[:8]}", "display_name": "草稿测试"
-    }).json()
+    user = client.get("/auth/me").json()
     ws = client.post("/workspaces/", json={
         "user_id": user["id"], "name": "草稿测试工作区"
     }).json()

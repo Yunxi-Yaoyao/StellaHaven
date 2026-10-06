@@ -86,7 +86,7 @@ try {
 # ── 4. 校验 token（提前发现 token 错误，避免装完一直离线） ──
 Write-Host "==> 校验 token..."
 try {
-    Invoke-WebRequest "$Url/agent/config?token=$Token" -UseBasicParsing -ErrorAction Stop | Out-Null
+    Invoke-WebRequest "$Url/agent/config" -Headers @{Authorization = "Bearer $Token"} -MaximumRedirection 0 -UseBasicParsing -ErrorAction Stop | Out-Null
     Write-Host "    token 校验通过"
 } catch {
     $code = 0

@@ -1,14 +1,21 @@
-"""认证全流程：注册收口/登录/刷新/会话记录/吊销/邀请链接。
+"""Single-owner auth/session regressions with retained foreign records.
 
-约定：每个测试独立回滚（conftest），互不影响。
-注意：注册通道在「已有账号」后是关闭的（公开注册仅限初始化/老账号认领），
-所以多数用例直接用 ORM 建号。
+Each test owns a guarded schema; real repository commits never pollute peers.
+Invites are retired (410 contract); blank-password legacy claims are denied.
 """
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from app.models.user import User, Invite
 from app.security import hash_password
+
+
+def _owner(db_session):
+    # Owner remains pinned; vary the daily credential only inside this test DB.
+    u = db_session.query(User).filter(User.username.in_(['test_owner','policy-user'])).one()
+    u.password_hash = hash_password('secret123')
+    db_session.commit()
+    return u
 
 
 def _name() -> str:
@@ -36,18 +43,17 @@ def test_register_closed_when_users_exist(client):
 
 
 def test_register_short_password(client):
-    r = client.post("/auth/register", json={"username": _name(), "password": "123"})
-    assert r.status_code == 400
+    # Initialized installations reject any attempted second registration.
+    r = client.post('/auth/register', json={'username':_name(),'password':'123'})
+    assert r.status_code == 403
 
 
 def test_login_ok_and_wrong_password(client, db_session):
-    name = _name()
-    _make_user(db_session, name)
-    bad = client.post("/auth/login", json={"username": name, "password": "wrong"})
-    assert bad.status_code == 401
-    ok = client.post("/auth/login", json={"username": name, "password": "secret123"})
+    u = _owner(db_session)
+    assert client.post('/auth/login', json={'username':u.username,'password':'wrong'}).status_code == 401
+    ok = client.post('/auth/login', json={'username':u.username,'password':'secret123'})
     assert ok.status_code == 200
-    assert ok.json()["username"] == name
+    assert ok.json()['id'] == str(u.id)
 
 
 def test_me_requires_login(client):
@@ -86,72 +92,39 @@ def test_refresh_rotates_and_returns_user(client):
 
 
 def test_legacy_claim(client, db_session):
-    """老账号认领：无密码遗留账号补设密码接管；有密码后同名注册 409"""
-    legacy = User(username=_name(), display_name="老账号", password_hash="")
-    db_session.add(legacy)
-    db_session.flush()
-
-    r = client.post("/auth/register", json={"username": legacy.username, "password": "newpass88"})
-    assert r.status_code == 201
-    assert client.get("/auth/me").status_code == 200
-
-    client.post("/auth/logout")
-    r2 = client.post("/auth/register", json={"username": legacy.username, "password": "other9999"})
-    assert r2.status_code == 409
+    legacy = User(username=_name(), display_name='保留遗留账号', password_hash='')
+    db_session.add(legacy); db_session.commit()
+    old_id = legacy.id
+    r = client.post('/auth/register', json={'username':legacy.username,'password':'newpass88'})
+    assert r.status_code == 403
+    db_session.refresh(legacy)
+    assert legacy.id == old_id and legacy.password_hash == ''
 
 
 # ---------- 邀请链接 ----------
 
 def test_invite_flow(client, db_session):
-    """admin 发链接 → 凭链注册（非 admin）→ 一链一人（再用 410）"""
-    # 夹具用户已是 admin，直接发链接
-    inv = client.post("/auth/invites")
-    assert inv.status_code == 201
-    token = inv.json()["token"]
-
-    client.post("/auth/logout")
-    r = client.post("/auth/register-invite", json={
-        "token": token, "username": _name(), "password": "secret123",
-    })
-    assert r.status_code == 201
-    assert r.json()["is_admin"] is False
-
-    # 同一个链接再用 → 410
-    r2 = client.post("/auth/register-invite", json={
-        "token": token, "username": _name(), "password": "secret123",
-    })
-    assert r2.status_code == 410
+    before = db_session.query(Invite).count()
+    assert client.post('/auth/invites').status_code == 410
+    assert client.post('/auth/register-invite', json={'token':'retired','username':_name(),'password':'secret123'}).status_code == 410
+    assert db_session.query(Invite).count() == before
 
 
 def test_invite_bad_token(client):
-    r = client.post("/auth/register-invite", json={
-        "token": "not-exist", "username": _name(), "password": "secret123",
-    })
-    assert r.status_code == 404
+    assert client.post('/auth/register-invite', json={'token':'not-exist','username':_name(),'password':'secret123'}).status_code == 410
 
 
 def test_invite_expired(client, db_session):
-    inv = Invite(token="expired-token",
-                 created_by=_make_user(db_session, _name()).id,
-                 expires_at=datetime.now(timezone.utc) - timedelta(minutes=1))
-    db_session.add(inv)
-    db_session.flush()
-    r = client.post("/auth/register-invite", json={
-        "token": "expired-token", "username": _name(), "password": "secret123",
-    })
-    assert r.status_code == 410
+    inv = Invite(token='expired-token', created_by=_owner(db_session).id, expires_at=datetime.now(timezone.utc)-timedelta(minutes=1))
+    db_session.add(inv); db_session.commit(); old_id=inv.id
+    assert client.post('/auth/register-invite', json={'token':inv.token,'username':_name(),'password':'secret123'}).status_code == 410
+    assert db_session.get(Invite,old_id) is not None
 
 
 def test_invite_requires_admin(client, db_session):
-    """非 admin 不能发链接"""
-    _make_user(db_session, _name())  # 普通用户
-    # 夹具用户是 admin——先确认能发；再把夹具用户降级验证 403
-    from app.models.user import User as U
-    me = db_session.query(U).filter(U.username.like("test_%")).order_by(U.created_at.desc()).first()
-    me.is_admin = False
-    db_session.flush()
-    r = client.post("/auth/invites")
-    assert r.status_code == 403
+    # Retired even for elevated owner; legacy is_admin cannot re-enable invites.
+    owner = _owner(db_session); owner.is_admin = False; db_session.commit()
+    assert client.post('/auth/invites').status_code == 410
 
 
 # ---------- 邮箱验证 ----------
@@ -204,7 +177,7 @@ def test_email_verify_wrong_code(client, db_session, monkeypatch):
 
 def test_login_by_nickname_and_email(client, db_session):
     """昵称和已验证邮箱都能登录"""
-    u = _make_user(db_session, _name())
+    u = _owner(db_session)
     u.display_name = "独特昵称喵"
     u.email = "login@x.com"
     u.email_verified = True
@@ -239,7 +212,7 @@ def test_forgot_reset_flow(client, db_session, monkeypatch):
         "enabled": True, "host": "h", "username": "u", "password": "p", "port": 465,
     })
     from app.models.user import EmailCode
-    u = _make_user(db_session, _name())
+    u = _owner(db_session)
     u.email = "reset@x.com"
     u.email_verified = True
     db_session.flush()
@@ -262,7 +235,7 @@ def test_login_by_email_code(client, db_session, monkeypatch):
         "enabled": True, "host": "h", "username": "u", "password": "p", "port": 465,
     })
     from app.models.user import EmailCode
-    u = _make_user(db_session, _name())
+    u = _owner(db_session)
     u.email = "code-login@x.com"
     u.email_verified = True
     db_session.flush()
@@ -296,7 +269,7 @@ def test_login_code_unverified(client, db_session, monkeypatch):
     monkeypatch.setattr("app.routers.admin_email._load", lambda: {
         "enabled": True, "host": "h", "username": "u", "password": "p", "port": 465,
     })
-    u = _make_user(db_session, _name())
+    u = _owner(db_session)
     u.email = "unverified@x.com"
     u.email_verified = False
     db_session.flush()
@@ -311,7 +284,7 @@ def test_code_reuse_not_regenerated(client, db_session, monkeypatch):
     monkeypatch.setattr("app.routers.admin_email._load", lambda: {
         "enabled": True, "host": "h", "username": "u", "password": "p", "port": 465,
     })
-    u = _make_user(db_session, _name())
+    u = _owner(db_session)
     u.email = "reuse@x.com"
     u.email_verified = True
     db_session.flush()
@@ -330,7 +303,7 @@ def test_resend_throttled_5min(client, db_session, monkeypatch):
     monkeypatch.setattr("app.routers.admin_email._load", lambda: {
         "enabled": True, "host": "h", "username": "u", "password": "p", "port": 465,
     })
-    u = _make_user(db_session, _name())
+    u = _owner(db_session)
     u.email = "throttle@x.com"
     u.email_verified = True
     db_session.flush()

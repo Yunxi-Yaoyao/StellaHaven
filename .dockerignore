@@ -12,3 +12,4 @@ frontend/dist
 *.pyc
 .github
 docs
+upgrade/

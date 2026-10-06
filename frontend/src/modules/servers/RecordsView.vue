@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createPoller } from "./polling";
 // 记录页：打流 / MTR / 命令 三类任务的统一时间线。
 // 数据不另存，直接读三类任务表（每类后端只留最近 100 条）；5s 轮询让进行中的任务原地更新。
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
@@ -101,15 +102,17 @@ function mtrHops(t: MtrTask): { host: string; loss: number; snt: number | null; 
 const KIND_LABEL: Record<string, string> = { iperf: "打流", mtr: "MTR", command: "命令" };
 
 // ── 轮询 ──
-let timer: ReturnType<typeof setInterval> | null = null;
-async function refresh() {
+const statusPoll = createPoller(refreshStatus, 5000);
+function onVisibility() { if (document.hidden) statusPoll.stop(); else statusPoll.start(); }
+async function refreshStatus(signal: AbortSignal) {
   try {
-    const [n, i, m, c] = await Promise.all([listNodes(), listIperfTasks(), listMtrTasks(), listCommands()]);
+    const [n, i, m, c] = await Promise.all([listNodes(signal), listIperfTasks(signal), listMtrTasks(signal), listCommands(signal)]);
+    if (signal.aborted) return;
     nodes.value = n; iperfTasks.value = i; mtrTasks.value = m; commands.value = c;
   } catch { /* 静默 */ }
 }
-onMounted(() => { refresh(); timer = setInterval(refresh, 5000); });
-onUnmounted(() => { if (timer) clearInterval(timer); });
+onMounted(() => { if (!document.hidden) statusPoll.start(); document.addEventListener("visibilitychange", onVisibility); });
+onUnmounted(() => { statusPoll.stop(); document.removeEventListener("visibilitychange", onVisibility); });
 // 外部（详情页「操作」）带 node 跳入时同步过滤器
 watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immediate: true });
 </script>

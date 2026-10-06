@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { api } from '../../api/client';
-import { isAdmin } from '../home/auth';
-import ConnectionPanel from '../drive/ConnectionPanel.vue';
+import { useRouter } from 'vue-router';
+const router = useRouter();
+
 const status = ref<any>(null);
-const manageOpen = ref(false);
+
 const error = ref('');
 const frameKey = ref(0);
 async function refresh() {
@@ -21,13 +22,13 @@ onMounted(refresh);
       <div class="frame-actions">
         <a class="manage-btn" href="/gallery/connect" target="_blank" rel="noopener noreferrer">新窗口打开</a>
         <button class="manage-btn" @click="refresh">重新连接</button>
-        <button v-if="isAdmin" class="manage-btn" @click="manageOpen = true">连接设置</button>
+        <button class="manage-btn" @click="router.push({path:'/settings',query:{section:'navigation',module:'gallery'}})">连接设置</button>
       </div>
     </div>
     <p v-if="error" class="hint" role="alert">{{ error }}</p>
     <p v-if="error" class="hint">使用原 Immich 账号或已有 OIDC 登录。无法嵌入时请在新窗口打开。</p>
     <iframe v-if="status" :key="frameKey" title="Immich 图库" class="frame ready" src="/gallery/connect" referrerpolicy="no-referrer" allow="fullscreen" />
-    <ConnectionPanel v-if="manageOpen" kind="gallery" @close="manageOpen = false" @saved="refresh" />
+
   </div>
 </template>
 <style scoped>

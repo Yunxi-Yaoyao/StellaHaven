@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { createPoller } from "./polling";
 // 工具页：打流测速 / MTR / 下发命令（由 tool prop 决定渲染哪一个）
 import { waitForTask } from "./taskWait";
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import * as echarts from "echarts";
+import * as echarts from "./chartRuntime";
 import {
   listNodes, listIperfTasks, getIperfTask, createIperfTask, cancelIperfTask, listMtrTasks, createMtrTask,
   listCommands, createCommand,
@@ -209,14 +210,22 @@ const mtrPsize = ref(64);
 const cmdNodeId = ref<number | null>(null);
 const cmdText = ref("");
 
-let timer: ReturnType<typeof setInterval> | null = null;
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+const statusPoll = createPoller(refreshStatus, 5000);
+function refresh() { return statusPoll.run(); }
+function onVisibility() {
+  if(document.hidden) {statusPoll.stop();stopPoll();mtrPoll.stop();}
+  else {statusPoll.start();if(activeTask.value && ["pending","running"].includes(activeTask.value.status)) startPoll();
+    if(props.tool==="mtr" && runningMtr.value) mtrPoll.start();}
+}
 
-async function refresh() {
+
+async function refreshStatus(signal: AbortSignal) {
   try {
-    [nodes.value, iperfTasks.value, mtrTasks.value, commands.value] = await Promise.all([
-      listNodes(), listIperfTasks(), listMtrTasks(), listCommands(),
+    const [n,i,c] = await Promise.all([
+      listNodes(signal), listIperfTasks(signal), listCommands(signal), mtrPoll.run(),
     ]);
+    if (signal.aborted) return;
+    nodes.value=n; iperfTasks.value=i; commands.value=c;
     // 默认选中：服务端选唯一公网在线节点（多台公网时选第一台），客户端选第一台在线（且≠服务端）
     if (iperfServerId.value === null || !iperfServerOptions.value.some((o) => o.value === iperfServerId.value)) {
       iperfServerId.value = iperfServerOptions.value[0]?.value ?? null;
@@ -241,11 +250,14 @@ function applyPresetNode() {
   presetApplied = true;
 }
 
-onMounted(() => { refresh().then(applyPresetNode); timer = setInterval(refresh, 5000); });
+onMounted(() => { if (!document.hidden) statusPoll.start(); document.addEventListener("visibilitychange", onVisibility); });
+watch(nodes, applyPresetNode);
 onUnmounted(() => {
-  if (timer) clearInterval(timer);
+  statusPoll.stop();
+  document.removeEventListener("visibilitychange", onVisibility);
   stopPoll();
-  if (mtrLiveTimer) clearInterval(mtrLiveTimer);
+  mtrPoll.stop();
+  disposed = true;
   chart?.dispose();
 });
 
@@ -276,6 +288,7 @@ async function startIperf() {
       zerocopy: iperfZerocopy.value,
       speedtest_server: iperfMode.value === "speedtest" && stServerId.value ? stServerId.value : null,
     });
+    if (disposed) return;
     toast("打流任务已下发");
     // 开始实时跟踪
     activeTaskId.value = t.id;
@@ -292,42 +305,32 @@ async function startIperf() {
 // 实时进度游标：独立于 chartPoints.length——之前直接用数组长度当 cursor，
 // 两次轮询并发时旧请求带回重复点把长度推高，后续点被永久跳过（发送端虚线最常丢）。
 let progressCursor = 0;
-let pollInFlight = false;
-
-function startPoll() {
-  stopPoll();
-  pollTimer = setInterval(async () => {
-    if (activeTaskId.value === null || pollInFlight) return;  // 串行化：上一次没回来就跳过这轮
-    pollInFlight = true;
-    try {
-      // 增量拉取：只取游标之后的进度点（progress 是 append-only，下标稳定），
-      // 不用每秒扛全量数组——10s 任务全量也就 20 点，60s 长任务省 95% 流量
-      const t = await getIperfTask(activeTaskId.value, { progressAfter: progressCursor });
-      activeTask.value = t;
-      if (t.progress_json?.length) {
-        chartPoints.value = chartPoints.value.concat(t.progress_json);
-        progressCursor += t.progress_json.length;  // 游标只按真实新增推进，不吃重复
-        renderChart();
-      }
-      if (t.status === "done" || t.status === "failed") {
-        stopPoll();
-        // 收尾全量补拉一次：server 端最后几秒的进度点可能晚于 client 的 done 回传，
-        // 增量轮询已停，不全量补一次实时曲线会比历史记录少尾巴
-        try {
-          const full = await getIperfTask(activeTaskId.value);
-          if (full.progress_json?.length) {
-            chartPoints.value = full.progress_json;
-            progressCursor = full.progress_json.length;
-            renderChart();
-          }
-        } catch { /* 静默 */ }
-        await refresh(); // 历史记录刷新
-      }
-    } catch { /* 静默 */ }
-    finally { pollInFlight = false; }
-  }, 1000);
-}
-function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+let disposed = false;
+const iperfPoll = createPoller(async signal => {
+  const id=activeTaskId.value;
+  if (id===null || props.tool!=="iperf") return;
+  try {
+    const t=await getIperfTask(id,{progressAfter:progressCursor, signal});
+    if(signal.aborted || activeTaskId.value!==id) return;
+    activeTask.value=t;
+    if(t.progress_json?.length) {
+      chartPoints.value=chartPoints.value.concat(t.progress_json);
+      progressCursor+=t.progress_json.length;
+      renderChart();
+    }
+    if(["done","failed","cancelled"].includes(t.status)) {
+      try {
+        const full=await getIperfTask(id,{signal});
+        if(signal.aborted) return;
+        if(full.progress_json?.length) {chartPoints.value=full.progress_json;progressCursor=full.progress_json.length;renderChart();}
+      } catch { /* keep the last complete progress on a failed tail fetch */ }
+      if(signal.aborted) return;
+      stopPoll(); await refresh();
+    }
+  } catch { /* next completion-driven poll retries */ }
+},1000);
+function startPoll() { if(!disposed && !document.hidden && props.tool==="iperf") iperfPoll.start(); }
+function stopPoll() { iperfPoll.stop(); }
 
 async function cancelTask() {
   if (activeTaskId.value === null) return;
@@ -498,15 +501,18 @@ const runningMtr = computed(() =>
 const mtrLiveRows = computed(() => mtrHopRows(runningMtr.value?.live_json?.hops));
 const mtrLiveCount = computed(() => runningMtr.value?.params_json?.count ?? 10);
 
-let mtrLiveTimer: ReturnType<typeof setInterval> | null = null;
-watch([runningMtr, () => props.tool], ([rm, tool]) => {
-  if (mtrLiveTimer) { clearInterval(mtrLiveTimer); mtrLiveTimer = null; }
-  if (rm && tool === "mtr") {
-    mtrLiveTimer = setInterval(async () => {
-      try { mtrTasks.value = await listMtrTasks(); } catch { /* 静默 */ }
-    }, 2000);
-  }
-}, { immediate: true });
+const mtrPoll = createPoller(async signal => {
+  const rows=await listMtrTasks(signal);
+  if(!signal.aborted) mtrTasks.value=rows;
+},2000);
+watch(() => `${props.tool}:${runningMtr.value?.id ?? "none"}`, () => {
+  mtrPoll.stop();
+  if(runningMtr.value && props.tool==="mtr" && !document.hidden && !disposed) mtrPoll.start();
+});
+watch(() => props.tool, () => {
+  stopPoll();
+  if(props.tool==="iperf" && activeTask.value && ["pending","running"].includes(activeTask.value.status)) startPoll();
+});
 
 // 展开历史记录时渲染该任务的吞吐曲线。
 // 列表接口不再带 progress_json（省流量），展开时懒加载单任务全量详情。

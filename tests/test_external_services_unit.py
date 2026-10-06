@@ -27,31 +27,21 @@ def test_admin_secret_not_shared(monkeypatch):
     assert 'token' not in svc.masked(cfg) and svc.masked(cfg)['has_token']
 
 
-def test_routes_authorization_and_removed_lifecycle(monkeypatch):
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from types import SimpleNamespace
-    from app.routers import drive, gallery
-    from app.routers.auth import current_user
-    from app.database import get_db
+def test_routes_authorization_and_removed_lifecycle(client, monkeypatch):
     from app.services import external_services as svc
-    app = FastAPI()
-    app.include_router(drive.router)
-    app.include_router(gallery.router)
-    app.dependency_overrides[get_db] = lambda: None
-    app.dependency_overrides[current_user] = lambda: SimpleNamespace(is_admin=False)
+    from tests.conftest import ADMIN_PASSWORD
     cfg = svc.Connection(browser_url='https://example.com')
     monkeypatch.setattr(svc, 'load', lambda *args: cfg)
-    with TestClient(app) as client:
-        for kind in ('drive', 'gallery'):
-            assert client.get('/'+kind+'/status').status_code == 200
-            assert client.get('/'+kind+'/connection').status_code == 403
-            assert client.put('/'+kind+'/connection', json=cfg.model_dump()).status_code == 403
-            assert client.post('/'+kind+'/connection/test', json=cfg.model_dump()).status_code == 403
-            for action in ('start', 'stop', 'restart', 'install', 'docker/install', 'uninstall', 'update'):
-                assert client.post('/'+kind+'/'+action).status_code == 404
-        app.dependency_overrides[current_user] = lambda: SimpleNamespace(is_admin=True)
-        assert client.get('/drive/connection').json()['has_token'] is False
+    assert client.post('/auth/admin/lock').status_code == 200
+    for kind in ('drive','gallery'):
+        assert client.get('/'+kind+'/status').status_code == 200
+        assert client.get('/'+kind+'/connection').status_code == 403
+        assert client.put('/'+kind+'/connection',json=cfg.model_dump()).status_code == 403
+        assert client.post('/'+kind+'/connection/test',json=cfg.model_dump()).status_code == 403
+        for action in ('start','stop','restart','install','docker/install','uninstall','update'):
+            assert client.post('/'+kind+'/'+action).status_code == 405  # main's GET-only SPA fallback
+    assert client.post('/auth/admin/unlock',json={'password':ADMIN_PASSWORD}).status_code == 200
+    assert client.get('/drive/connection').json()['has_token'] is False
 
 
 def test_probe_detects_application_failure(monkeypatch):
@@ -119,28 +109,18 @@ def test_gallery_manual_login_does_not_force_configured_oidc(monkeypatch):
     assert gallery.browser_url(None) == 'https://photos.example/'
 
 
-def test_drive_single_service_url_and_explicit_admin_token_reveal(monkeypatch):
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from types import SimpleNamespace
-    from app.routers import drive
-    from app.routers.auth import current_user
-    from app.database import get_db
+def test_drive_single_service_url_and_explicit_admin_token_reveal(client, monkeypatch):
     from app.services import external_services as svc
-    app=FastAPI();app.include_router(drive.router)
-    app.dependency_overrides[get_db]=lambda:None
-    app.dependency_overrides[current_user]=lambda:SimpleNamespace(is_admin=True)
     cfg=svc.Connection(browser_url='https://legacy.invalid/drive/openlist',upstream_url='http://10.66.0.2:12544/drive/openlist',token='TEST_SECRET',auth_mode='token')
     monkeypatch.setattr(svc,'load',lambda *args:cfg)
-    with TestClient(app) as client:
-        data=client.get('/drive/connection').json()
-        assert data=={'service_url':cfg.upstream_url,'auth_mode':'token','has_token':True}
-        assert 'TEST_SECRET' not in str(data)
-        response=client.post('/drive/connection/token')
-        assert response.json()=={'token':'TEST_SECRET'}
-        assert response.headers['cache-control']=='no-store'
-        app.dependency_overrides[current_user]=lambda:SimpleNamespace(is_admin=False)
-        assert client.post('/drive/connection/token').status_code==403
+    data=client.get('/drive/connection').json()
+    assert data=={'service_url':cfg.upstream_url,'auth_mode':'token','has_token':True}
+    assert 'TEST_SECRET' not in str(data)
+    response=client.post('/drive/connection/token')
+    assert response.json()=={'token':'TEST_SECRET'}
+    assert response.headers['cache-control']=='no-store'
+    assert client.post('/auth/admin/lock').status_code == 200
+    assert client.post('/drive/connection/token').status_code==403
     form=svc.DriveConnection(service_url=cfg.upstream_url,auth_mode='token',token='TEST_SECRET')
     assert form.as_connection().upstream_url==cfg.upstream_url
     assert form.as_connection().use_proxy is True

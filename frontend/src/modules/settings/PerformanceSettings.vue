@@ -1,0 +1,11 @@
+<script setup lang="ts">
+import {ref,onMounted} from 'vue';
+import BackupHealthPanel from './BackupHealthPanel.vue';
+import Dropdown from '../../shell/Dropdown.vue';
+import {quality,qualityOptions,setBackgroundQuality} from '../home/backgroundMedia';
+const snapshot=ref<{requests:number;bytes:number;ttfb:number|null;domReady:number|null}>({requests:0,bytes:0,ttfb:null,domReady:null});
+function refresh(){const nav=performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming|undefined;const resources=performance.getEntriesByType('resource') as PerformanceResourceTiming[];snapshot.value={requests:resources.length,bytes:resources.reduce((sum,r)=>sum+r.transferSize,0),ttfb:nav?Math.round(nav.responseStart-nav.requestStart):null,domReady:nav?.domContentLoadedEventEnd?Math.round(nav.domContentLoadedEventEnd):null};}
+onMounted(refresh);
+</script>
+<template><section class="performance-card"><header><h2>本页性能</h2><button @click="refresh">刷新性能读数</button></header><p>来自当前浏览器 Performance API，不等于生产基准或前后优化比较；跨域资源可能不提供传输大小，缓存项可为零。</p><dl><dt>文档 TTFB</dt><dd>{{snapshot.ttfb===null?'不可读':snapshot.ttfb+' ms'}}</dd><dt>DOM ready</dt><dd>{{snapshot.domReady===null?'尚未记录':snapshot.domReady+' ms'}}</dd><dt>已记录资源请求</dt><dd>{{snapshot.requests}}</dd><dt>已记录传输字节</dt><dd>{{snapshot.bytes}}</dd></dl><div class="row"><span>背景画质</span><Dropdown :model-value="quality" :options="qualityOptions" @update:model-value="setBackgroundQuality" /></div><p>画质仅保存到当前设备；导航、网站和活动注入配置保存于服务器。笔记页面保留原有状态缓存；网站默认切页卸载，不常驻所有 iframe。</p></section><BackupHealthPanel style="--border:#ffffff12;--text-secondary:var(--text-lo);--danger:var(--pink);background:var(--bg-panel)" /></template>
+<style scoped>.performance-card{padding:20px;border:1px solid #ffffff12;border-radius:14px;background:var(--bg-panel);margin-bottom:18px}header{display:flex;justify-content:space-between;align-items:center;gap:12px}h2{font-size:15px}p{font-size:12px;color:var(--text-lo);line-height:1.7;margin:12px 0}dl{display:grid;grid-template-columns:auto 1fr;gap:12px;font-size:13px}dt{color:var(--text-lo)}dd{margin:0}.row{display:flex;align-items:center;gap:12px;margin-top:18px;font-size:13px}button{padding:7px 12px;background:var(--bg-raised);border:1px solid #ffffff20;border-radius:7px;color:var(--text-hi);white-space:nowrap;cursor:pointer}</style>

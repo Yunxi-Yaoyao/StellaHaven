@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from pwdlib import PasswordHash
+from pwdlib.exceptions import UnknownHashError
 
 # 本地自托管单实例：密钥落盘 data/secret_key（首次自动生成）
 from pathlib import Path
@@ -50,7 +51,12 @@ def hash_password(raw: str) -> str:
 
 
 def verify_password(raw: str, hashed: str) -> bool:
-    return pwd.verify(raw, hashed)
+    if not isinstance(raw, str) or not isinstance(hashed, str) or not hashed or len(raw) > 256:
+        return False
+    try:
+        return pwd.verify(raw, hashed)
+    except (UnknownHashError, ValueError, TypeError):
+        return False
 
 
 def make_access_token(user_id: str, session_id: str = "") -> str:
@@ -84,3 +90,56 @@ def make_refresh_token() -> tuple[str, str]:
 
 def hash_refresh(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+from fastapi import Request, HTTPException
+
+
+def agent_token(request: Request) -> str:
+    """Authorization is authoritative; legacy query is accepted only without it."""
+    header = request.headers.get('authorization')
+    if header is not None:
+        parts = header.split()
+        if len(parts) != 2 or parts[0].lower() != 'bearer':
+            raise HTTPException(401, '无效的agent凭证')
+        token = parts[1]
+    else:
+        token = request.query_params.get('token', '')
+    if not token or len(token) > 512:
+        raise HTTPException(401, '缺少agent凭证')
+    return token
+
+
+def install_log_redaction():
+    """First-layer filter protects old agents too, before uvicorn formats targets."""
+    import logging
+    import re
+
+    class SecretFilter(logging.Filter):
+        def filter(self, record):
+            if record.name == 'uvicorn.access' and isinstance(record.args, tuple) and len(record.args) == 5:
+                args = list(record.args)
+                args[2] = str(args[2]).split('?', 1)[0]
+                record.args = tuple(args)
+            else:
+                message = record.getMessage()
+                message = re.sub(r'(https?://[^\s?]+|/(?:agent|auth|oauth)/[^\s?]*)\?[^\s]+', r'\1?[redacted]', message)
+                message = re.sub(r'(?i)([\"\']?(?:token|password|password_hash|user_password|new_password|old_password|current_password|client_secret|authorization|stdout|stderr)[\"\']?\s*[:=]\s*)([\"\'][^\"\']*[\"\']|[^,\s}]+)', r'\1[redacted]', message)
+                record.msg = message
+                record.args = ()
+            return True
+
+    for name in ('uvicorn.access', 'uvicorn.error', 'stella'):
+        logger = logging.getLogger(name)
+        if not any(getattr(f, '_stella_secret_filter', False) for f in logger.filters):
+            filt = SecretFilter()
+            filt._stella_secret_filter = True
+            logger.addFilter(filt)
+    for handler in logging.getLogger().handlers:
+        if not any(getattr(f, '_stella_secret_filter', False) for f in handler.filters):
+            filt = SecretFilter()
+            filt._stella_secret_filter = True
+            handler.addFilter(filt)
+
+
+install_log_redaction()

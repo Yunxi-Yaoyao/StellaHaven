@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from app.database import get_db
 from app.models.user import User
 from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentRead, DocumentListItem, DraftRead
-from app.routers.auth import current_user, require_ws_owner, require_doc_owner
+from app.routers.auth import current_user, admin_user, require_ws_owner, require_doc_owner
 from app.services.document import (
     get_document, list_documents, create_document, update_document, delete_document,
     restore_document, list_trash_documents, search_documents,
@@ -96,7 +96,7 @@ def read_trash(workspace_id: UUID, db: Session = Depends(get_db), user: User = D
 
 
 @router.post("/trash/empty")
-def empty_trash_endpoint(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def empty_trash_endpoint(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(admin_user)):
     """一键清空回收站（前端有二次确认弹窗）。返回清了几篇"""
     require_ws_owner(db, workspace_id, user)  # 数据隔离
     n = empty_trash(db, workspace_id)
@@ -105,7 +105,7 @@ def empty_trash_endpoint(workspace_id: UUID, db: Session = Depends(get_db), user
 
 
 @router.post("/clear-all")
-def clear_all_endpoint(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def clear_all_endpoint(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(admin_user)):
     """清空笔记：工作区全部笔记移入回收站（可还原），前端二次确认"""
     require_ws_owner(db, workspace_id, user)  # 数据隔离
     n = clear_workspace_docs(db, workspace_id)
@@ -189,6 +189,9 @@ def update_one(doc_id: UUID, data: DocumentUpdate, request: Request, db: Session
     try:
         result = update_document(db, doc_id, data)
     except ValueError as e:
+        db.rollback()
+        if str(e) in {"Invalid parent", "Document not found"}:
+            raise HTTPException(status_code=404, detail="文档或父文档不存在")
         if str(e) == "Circular parent":
             raise HTTPException(status_code=409, detail={"message": "不能移动到它自己或它的子页面下面"})
         raise HTTPException(status_code=409, detail={
@@ -233,7 +236,7 @@ def toggle_favorite(doc_id: UUID, db: Session = Depends(get_db), user: User = De
 
 
 @router.post("/{doc_id}/restore")
-def restore_one(doc_id: UUID, cascade: bool = False, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def restore_one(doc_id: UUID, cascade: bool = False, db: Session = Depends(get_db), user: User = Depends(admin_user)):
     """从回收站还原。cascade=True 时下挂一起还原。
     返回 {doc, reattached, restored}：reattached=父页面不在已挂回根级（前端提醒）"""
     require_doc_owner(db, doc_id, user)  # 数据隔离
@@ -251,7 +254,7 @@ def restore_one(doc_id: UUID, cascade: bool = False, db: Session = Depends(get_d
 
 
 @router.delete("/{doc_id}", status_code=204)
-def delete_one(doc_id: UUID, cascade: bool = True, db: Session = Depends(get_db), user: User = Depends(current_user)):
+def delete_one(doc_id: UUID, cascade: bool = True, db: Session = Depends(get_db), user: User = Depends(admin_user)):
     """两级删除 + 级联策略：cascade=True 下挂一起进回收站；False 子页上移一级。
     回收站里的再删 → 物理删除"""
     require_doc_owner(db, doc_id, user)  # 数据隔离

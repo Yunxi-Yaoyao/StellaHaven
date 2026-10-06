@@ -1,5 +1,6 @@
 """节点域 services：节点纳管 + agent 上报处理。"""
 import platform
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.repositories import node as repo
@@ -123,6 +124,49 @@ def finish_uninstall(db: Session, token: str, status: str, error: str) -> None:
 
 
 # ── 详情页 ──
+MAX_QUERY_POINTS = 5000
+MAX_QUERY_WINDOW = timedelta(days=31)
+MAX_QUERY_IFACES = 16
+
+
+def query_window(start=None, end=None, limit: int = 720, step: int | None = None):
+    """HTTP-safe service budget, including internal callers bypassing Query()."""
+    from fastapi import HTTPException
+    def reject(message):
+        raise HTTPException(422, detail={"code": "monitor_query_budget", "message": message})
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= MAX_QUERY_POINTS:
+        reject(f"limit must be between 1 and {MAX_QUERY_POINTS}")
+    if step is not None and (not isinstance(step, int) or isinstance(step, bool) or not 1 <= step <= 86400):
+        reject("step must be between 1 and 86400 seconds")
+    if end is None:
+        end = start + timedelta(hours=1) if start is not None else datetime.now(timezone.utc)
+    if start is None:
+        start = end - timedelta(hours=1)
+    if start.tzinfo is None or end.tzinfo is None:
+        reject("start/end must include a timezone")
+    start, end = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+    if end <= start or end - start > MAX_QUERY_WINDOW:
+        reject("window must be positive and at most 31 days")
+    return start, end
+
+
+def run_history_query(db, query, *args):
+    """A hard per-statement budget; output LIMIT alone does not bound aggregation."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+    from fastapi import HTTPException
+    try:
+        if db is not None:
+            db.execute(text("SET LOCAL statement_timeout = '5000ms'"))
+        return query(db, *args)
+    except OperationalError as exc:
+        if getattr(exc.orig, "pgcode", None) != "57014":
+            raise
+        db.rollback()
+        raise HTTPException(503, detail={"code": "monitor_query_timeout",
+                            "message": "Query exceeded 5 seconds; select a shorter window"}) from None
+
+
 def _monitored_ifaces(node: Node) -> list[str]:
     """详情页显示网卡：优先显示偏好，否则默认出口/首张网卡；不限制历史采集。"""
     if node.monitored_ifaces:
@@ -161,25 +205,31 @@ def get_node_detail(db: Session, node_id: int) -> NodeDetail:
 def get_node_metrics(db: Session, node_id: int, iface: str | None = None,
                      start=None, end=None, limit: int = 720, step: int | None = None) -> list[MetricPoint]:
     """流量历史（倒序）。step>5 时降采样聚合。"""
+    start, end = query_window(start, end, limit, step)
     return [
         MetricPoint(iface=r.iface, ts=r.ts, rx_delta=r.rx_delta, tx_delta=r.tx_delta)
-        for r in repo.get_metrics(db, node_id, iface, start, end, limit, step)
+        for r in run_history_query(db, repo.get_metrics, node_id, iface, start, end, limit, step)
     ]
 
 
 def get_node_sys_metrics(db: Session, node_id: int, start=None, end=None,
                          limit: int = 720, step: int | None = None) -> list[SysMetricPoint]:
     """系统指标历史（倒序）。step>60 时降采样聚合。"""
+    start, end = query_window(start, end, limit, step)
     return [
         SysMetricPoint(ts=r.ts, cpu_pct=r.cpu_pct, mem_pct=r.mem_pct, disk_pct=r.disk_pct)
-        for r in repo.get_sys_metrics(db, node_id, start, end, limit, step)
+        for r in run_history_query(db, repo.get_sys_metrics, node_id, start, end, limit, step)
     ]
 
 
 def get_traffic_stats(db: Session, node_id: int, ifaces: list[str] | None = None,
                       start=None, end=None) -> dict:
     """流量统计（多网卡聚合）。"""
-    return repo.get_traffic_stats(db, node_id, ifaces, start, end)
+    start, end = query_window(start, end)
+    if ifaces is not None and len(ifaces) > MAX_QUERY_IFACES:
+        from fastapi import HTTPException
+        raise HTTPException(422, detail={"code": "monitor_query_budget", "message": "at most 16 interfaces"})
+    return run_history_query(db, repo.get_traffic_stats, node_id, ifaces, start, end)
 
 
 def update_monitored_ifaces(db: Session, node_id: int, ifaces: dict | None) -> Node:

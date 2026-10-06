@@ -1,0 +1,38 @@
+import {chromium} from '@playwright/test';
+const {assetOrigin,targetOrigin}=JSON.parse(process.env.BUILTIN_BROWSER_INPUT);
+const browser=await chromium.launch({headless:true,executablePath:process.env.STELLA_TEST_CHROMIUM||undefined,args:['--no-sandbox','--no-proxy-server','--host-resolver-rules=MAP stella.builtin.test 127.0.0.1, MAP immich.builtin.test 127.0.0.1']});
+const context=await browser.newContext({ignoreHTTPSErrors:true});
+await context.addCookies(JSON.parse(process.env.BUILTIN_BROWSER_COOKIES||'[]'));
+const page=await context.newPage();
+await page.route('**/*',route=>[assetOrigin,targetOrigin].includes(new URL(route.request().url()).origin)?route.continue():route.abort());
+const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+try {
+  await page.goto(assetOrigin+'/');
+  await page.waitForFunction(()=>document.querySelector('iframe'));
+  const frame=page.frames().find(f=>f.url().startsWith(targetOrigin));
+  if(!frame)throw new Error('target frame not loaded');
+  await frame.waitForFunction(()=>document.querySelector('style[data-stella-builtin="gallery"]'));
+  const evidence=await frame.evaluate(()=>({origin:location.origin,logo:getComputedStyle(document.querySelector('img')).content,version:document.querySelector('style[data-stella-builtin]').dataset.version,custom:window.galleryClient??null,color:getComputedStyle(document.querySelector('h1')).color}));
+  const parent=await page.evaluate(()=>({custom:window.galleryClient??null,styles:document.querySelectorAll('style[data-stella-builtin]').length,untouched:document.querySelector('#main').textContent,blocked:(()=>{try{return document.querySelector('iframe').contentWindow.document?'UNSAFE':'no'}catch{return 'SecurityError'}})()}));
+  if(evidence.origin!==targetOrigin||!evidence.logo.includes('avatar.png'))throw new Error('gallery baseline not applied');
+  if(parent.custom!==null||parent.styles!==0||parent.untouched!=='MAIN-UNCHANGED'||parent.blocked!=='SecurityError')throw new Error('main origin isolation failed');
+  const expected=process.env.BUILTIN_EXPECTED;
+  if(expected==='enabled'&&(!evidence.custom?.includes('中文 </script>')||evidence.color!=='rgb(12, 34, 56)'))throw new Error('published code not executed on target');
+  if(expected==='disabled'&&evidence.custom!==null)throw new Error('disabled or draft code executed');
+  await page.goto(targetOrigin+'/drive/openlist/');
+  await page.waitForFunction(()=>document.querySelector('nav')?.contains(document.querySelector('[aria-label="switch layout"]')));
+  await page.evaluate(async()=>{await fetch('/api/fs/move',{method:'POST',body:JSON.stringify({src_dir:'/src',dst_dir:'/dst'})});});
+  await page.waitForFunction(()=>!window.snapshotCache.has('/src')&&!window.snapshotCache.has('/dst'));
+  const drive=await page.evaluate(()=>({cache:[...window.snapshotCache.keys()],switches:document.querySelectorAll('[aria-label="switch layout"]').length,kept:window.upstreamKept,markers:document.querySelectorAll('meta[name="stella-builtin-injection"]').length,theme:getComputedStyle(document.body).backgroundColor}));
+  if(drive.switches!==1||drive.kept!==1||drive.markers!==1||drive.theme!=='rgb(20, 23, 31)')throw new Error('drive baseline failed');
+  await page.evaluate(async()=>{const body=new FormData();body.append('file',new Blob(['fixture']),'fixture.txt');const req=new Request(location.origin+'/api/fs/remove',{method:'POST',body});const r=await fetch(req);window.deniedStatus=r.status;});
+  await page.waitForSelector('[data-stella-admin-required]',{timeout:5000});
+  const notice=await page.locator('[data-stella-admin-required]').textContent();
+  if(!notice.includes('手动重试')||!notice.includes('集中安全设置'))throw new Error('missing manual unlock notice');
+  await page.evaluate(()=>new Promise(resolve=>{const x=new XMLHttpRequest();x.open('POST','/api/fs/remove');x.addEventListener('load',resolve);x.send(JSON.stringify({dir:'/'}));}));
+  const noReplay=await page.evaluate(async()=>({count:(await (await fetch('/api/replay-counts')).json()).calls,status:window.deniedStatus,banners:document.querySelectorAll('[data-stella-admin-required]').length}));
+  if(noReplay.count!==2||noReplay.status!==403||noReplay.banners!==1)throw new Error('denied write replayed or notice duplicated');
+  const cookieBoundary=(await context.cookies()).filter(x=>x.name==='stella_at').map(x=>({domain:x.domain,secure:x.secure,httpOnly:x.httpOnly,sameSite:x.sameSite}));
+  if(errors.length)throw new Error(errors.join('\n'));
+  console.log(JSON.stringify({gallery:evidence,parent,drive,noReplay,notice,cookieBoundary,errors}));
+} finally {await browser.close();}

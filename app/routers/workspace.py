@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.workspace import WorkspaceCreate, WorkspaceRead
-from app.routers.auth import current_user, require_ws_owner
+from app.routers.auth import current_user, admin_user, require_ws_owner
 from app.services.workspace import (
     get_workspace, list_user_workspaces, create_workspace,
     rename_workspace, delete_workspace,
@@ -59,7 +59,7 @@ def rename_one(ws_id: UUID, name: str, user: User = Depends(current_user), db: S
 
 
 @router.delete("/{ws_id}", status_code=204)
-def delete_one(ws_id: UUID, force: bool = False, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def delete_one(ws_id: UUID, force: bool = False, user: User = Depends(admin_user), db: Session = Depends(get_db)):
     """删除工作区（仅自己的）：有笔记不 force → 409 提醒；force=true → 连笔记一起永久删"""
     from fastapi import HTTPException
     require_ws_owner(db, ws_id, user)

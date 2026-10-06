@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 总览页三区：服务器卡（状态+CPU/内存迷你条）+ 流量速览（选一台+实时开关）+ 服务监控（图表⇄简易双模式）。
 // 定位：全局健康一眼看 + 跳转入口。5s 刷状态；图表区独立节奏（静态不自动刷，实时 3s 增量）。
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, defineAsyncComponent } from "vue";
 import { useRouter } from "vue-router";
-import * as echarts from "echarts";
+import * as echarts from "./chartRuntime";
+import { summarizeMonitorPoints } from "./monitorStats";
+import { createRequestLane, createPoller, mapBounded } from "./polling";
 import {
   listNodes, getNodeDetail, getNodeMetrics, listMonitors, createMonitor, removeMonitor, getMonitorSeries,
   type Node, type NodeDetail, type Monitor, type MetricPoint,
@@ -11,8 +13,8 @@ import {
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
 import Dropdown from "../../shell/Dropdown.vue";
-import MonitorDetailModal from "./MonitorDetailModal.vue";
-import ServerWorldMap from "./ServerWorldMap.vue";
+const MonitorDetailModal = defineAsyncComponent(() => import("./MonitorDetailModal.vue"));
+const ServerWorldMap = defineAsyncComponent(() => import("./ServerWorldMap.vue"));
 
 const router = useRouter();
 const nodes = ref<Node[]>([]);
@@ -38,7 +40,8 @@ const trafficPoints = ref<MetricPoint[]>([]);
 const trafficIface = ref<string>("");
 const chartEl = ref<HTMLElement | null>(null);
 let chart: echarts.ECharts | null = null;
-let liveTimer: ReturnType<typeof setInterval> | null = null;
+const trafficLane = createRequestLane();
+const livePoll = createPoller(async () => { await trafficLane.run(signal => fetchTraffic(false, signal)); }, 3000);
 let trafficSeq = 0;
 
 const onlineNodes = computed(() => nodes.value.filter((n) => n.status === "online"));
@@ -61,7 +64,7 @@ function defaultIface(n: NodeDetail | undefined): string {
   return def ? def[0] : "";
 }
 
-async function fetchTraffic(full: boolean) {
+async function fetchTraffic(full: boolean, signal: AbortSignal) {
   const id = trafficNodeId.value;
   const iface = trafficIface.value;
   if (!id || !iface) { trafficPoints.value = []; paintTraffic(); return; }
@@ -77,8 +80,8 @@ async function fetchTraffic(full: boolean) {
     start = new Date(now.getTime() - trafficWindow.value * 1000).toISOString();
   }
   try {
-    const data = await getNodeMetrics(id, { iface, start, end, limit });
-    if (seq !== trafficSeq) return;
+    const data = await getNodeMetrics(id, { iface, start, end, limit, signal });
+    if (signal.aborted || seq !== trafficSeq) return;
     const pts = [...data].reverse();
     if (full || !existing.length) trafficPoints.value = pts;
     else {
@@ -139,17 +142,23 @@ function paintTraffic() {
   }, { notMerge: true });
 }
 
-function startLive() { stopLive(); liveTimer = setInterval(() => fetchTraffic(false), 3000); }
-function stopLive() { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } }
-watch(trafficLive, (on) => { if (on) { fetchTraffic(true); startLive(); } else stopLive(); });
-watch(trafficWindow, () => { if (trafficLive.value) fetchTraffic(true); });
+function loadTraffic() {
+  trafficLane.reset();
+  if (document.hidden) return Promise.resolve();
+  return trafficLane.run(signal => fetchTraffic(true, signal));
+}
+let disposed = false;
+function startLive() { if (!disposed && trafficLive.value && !document.hidden) livePoll.start(); }
+function stopLive() { livePoll.stop(); trafficLane.reset(); }
+watch(trafficLive, (on) => { stopLive(); if (on) void loadTraffic().then(startLive); });
+watch(trafficWindow, () => { if (trafficLive.value) { stopLive(); void loadTraffic().then(startLive); } });
 watch(trafficNodeId, async () => {
   trafficIface.value = defaultIface(nodeDetails.value[trafficNodeId.value ?? -1]);
   trafficPoints.value = [];
-  await fetchTraffic(true);
+  await loadTraffic();
 });
 // 换网卡：清空重来
-watch(trafficIface, () => { trafficPoints.value = []; fetchTraffic(true); });
+watch(trafficIface, () => { trafficPoints.value = []; void loadTraffic(); });
 
 // ═══════════ 区3：服务监控（双模式）═══════════
 const monMode = ref<"chart" | "simple">((localStorage.getItem("stella_mon_mode") as "chart" | "simple") || "chart");
@@ -164,25 +173,21 @@ const sparkEls = new Map<number, HTMLElement>();
 // 24h 逐小时桶：图表模式算可用率、简易模式画色块，一次查询喂两个模式
 const monDaily = ref<Record<number, { avail: number | null; loss: number | null; buckets: { ts: string; success: boolean; latency_ms: number | null }[] }>>({});
 
-async function loadMonDaily() {
+async function loadMonDaily(signal: AbortSignal) {
   const end = new Date();
   const start = new Date(end.getTime() - 86400000);
-  for (const m of monitors.value) {
+  await mapBounded(monitors.value, 3, async m => {
     try {
       // 两次取数：小时桶画色块；原始点按探测次数算可用率（和详情页口径一致，桶粒度会虚低）
       const [buckets, raw] = await Promise.all([
-        getMonitorSeries(m.id, { start: start.toISOString(), end: end.toISOString(), step: 3600 }),
-        getMonitorSeries(m.id, { start: start.toISOString(), end: end.toISOString(), limit: 3000 }),
+        getMonitorSeries(m.id, { start: start.toISOString(), end: end.toISOString(), step: 3600, signal }),
+        getMonitorSeries(m.id, { start: start.toISOString(), end: end.toISOString(), step: 60, limit: 5000, signal }),
       ]);
-      const ok = raw.filter((c) => c.success).length;
-      // 丢包率：ping 有逐次 loss_pct 用真实值；其余类型用失败率
-      const withLoss = raw.filter((c) => c.loss_pct != null);
-      const loss = !raw.length ? null
-        : withLoss.length ? withLoss.reduce((s, c) => s + (c.loss_pct ?? 0), 0) / withLoss.length
-        : (raw.length - ok) / raw.length * 100;
-      monDaily.value[m.id] = { avail: raw.length ? ok / raw.length * 100 : null, loss, buckets };
+      if (signal.aborted) return;
+      const stat = summarizeMonitorPoints(raw);
+      monDaily.value[m.id] = { avail: stat.total ? stat.avail : null, loss: stat.total ? stat.loss : null, buckets };
     } catch { /* 单个失败不影响其他 */ }
-  }
+  }, signal);
 }
 
 // 简易模式的 24 格色块：对齐到小时，无数据的小时=null（空心）
@@ -207,19 +212,25 @@ function hourBlocks(id: number): ({ ok: boolean; label: string } | null)[] {
 }
 
 // 监控图表数据统一入口：24h 小时桶（两种模式都用）+ 图表模式的 1h sparkline
+const monitorLane = createRequestLane();
 function loadMonAll() {
-  loadMonDaily();
-  if (monMode.value === "chart") loadSparklines();
+  if (document.hidden) return Promise.resolve();
+  return monitorLane.run(async signal => {
+    await Promise.all([loadMonDaily(signal), monMode.value === "chart" ? loadSparklines(signal) : Promise.resolve()]);
+  });
 }
 
-async function loadSparklines() {
+async function loadSparklines(signal: AbortSignal) {
   const end = new Date();
   const start = new Date(end.getTime() - 3600000);  // 近 1 小时
-  for (const m of monitors.value) {
+  await mapBounded(monitors.value, 3, async m => {
     try {
-      sparks.value[m.id] = await getMonitorSeries(m.id, { start: start.toISOString(), end: end.toISOString() });
+      const rows = await getMonitorSeries(m.id, { start: start.toISOString(), end: end.toISOString(), step: 5, signal });
+      if (signal.aborted) return;
+      sparks.value[m.id] = rows;
     } catch { /* 单个失败不影响其他 */ }
-  }
+  }, signal);
+  if (signal.aborted) return;
   await nextTick();
   paintSparklines();
 }
@@ -248,7 +259,7 @@ function paintSparklines() {
     }, { notMerge: true });
   }
 }
-let sparkTimer: ReturnType<typeof setInterval> | null = null;
+const sparkPoll = createPoller(async () => { await loadMonAll(); }, 60000);
 
 // ── 添加监控弹窗（编辑在 MonitorDetailModal 的 tab3）──
 const showMonDialog = ref(false);
@@ -301,7 +312,7 @@ async function saveMonitor() {
     toast("监控项已添加");
     showMonDialog.value = false;
     await refresh();
-    if (monMode.value === "chart") loadSparklines();
+    if (monMode.value === "chart") void loadMonAll();
   } catch { toast("添加失败"); }
 }
 
@@ -322,14 +333,18 @@ async function delMonitor(m: Monitor, ev: Event) {
 }
 
 // ═══════════ 轮询 ═══════════
-let timer: ReturnType<typeof setInterval> | null = null;
-async function refresh() {
+const statusPoll = createPoller(refreshStatus, 5000);
+function refresh() { return statusPoll.run(); }
+async function refreshStatus(signal: AbortSignal) {
   try {
-    const [newNodes, newMonitors] = await Promise.all([listNodes(), listMonitors()]);
+    const [newNodes, newMonitors] = await Promise.all([listNodes(signal), listMonitors(signal)]);
+    if (signal.aborted) return;
     nodes.value = newNodes;
     monitors.value = [...newMonitors].sort((a, b) => a.id - b.id);
     // 逐台拿详情（latest_sys_metric 喂迷你条）——节点数少，量级可控
-    const details = await Promise.all(nodes.value.filter((n) => n.status === "online").map((n) => getNodeDetail(n.id).catch(() => null)));
+    const details = await mapBounded(nodes.value.filter((n) => n.status === "online"), 3,
+      n => getNodeDetail(n.id, signal).catch(() => null), signal);
+    if (signal.aborted) return;
     const map: Record<number, NodeDetail> = {};
     for (const d of details) if (d) map[d.id] = d;
     nodeDetails.value = map;
@@ -340,21 +355,26 @@ async function refresh() {
   } catch { /* 后端未就绪静默 */ }
 }
 onMounted(() => {
-  refresh();
-  timer = setInterval(refresh, 5000);   // 5s 只刷状态（卡片/监控状态），图表区不管
-  loadMonAll();
-  sparkTimer = setInterval(loadMonAll, 60000);  // 图表数据 60s 一轮（两种模式都要）
+  if (!document.hidden) { statusPoll.start(); sparkPoll.start(); if (trafficLive.value) startLive(); }
+  document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("resize", onResize);
   document.addEventListener("click", onDocClick);
 });
 onUnmounted(() => {
-  if (timer) clearInterval(timer);
-  if (sparkTimer) clearInterval(sparkTimer);
+  disposed = true;
+  statusPoll.stop(); sparkPoll.stop(); monitorLane.reset();
+  document.removeEventListener("visibilitychange", onVisibility);
+  for (const el of sparkEls.values()) echarts.getInstanceByDom(el)?.dispose();
+  sparkEls.clear();
   stopLive();
   window.removeEventListener("resize", onResize);
   document.removeEventListener("click", onDocClick);
   chart?.dispose();
 });
+function onVisibility() {
+  if (document.hidden) { statusPoll.stop(); sparkPoll.stop(); monitorLane.reset(); stopLive(); }
+  else { statusPoll.start(); sparkPoll.start(); if (trafficLive.value) void loadTraffic().then(startLive); }
+}
 function onResize() { chart?.resize(); paintSparklines(); }
 function onDocClick() { winOpen.value = false; }
 // 监控项列表晚于 onMounted 回来，id 集合变化时（首次加载/增删）补图表数据
@@ -497,7 +517,7 @@ watch(() => monitors.value.map((m) => m.id).join(","), (v, old) => {
       :node-name="nodeName(detailMon.node_id)"
       :initial-tab="detailTab"
       @close="detailMon = null"
-      @saved="detailMon = null; refresh(); monMode === 'chart' && loadSparklines()"
+      @saved="detailMon = null; refresh(); loadMonAll()"
     />
   </div>
 </template>

@@ -6,9 +6,7 @@ import pytest
 @pytest.fixture
 def workspace_id(client):
     """建 user → 建 workspace，返回 workspace_id（documents 的 FK 需要）"""
-    user = client.post("/users/", json={
-        "username": f"user_{uuid4().hex[:8]}", "display_name": "文档测试"
-    }).json()
+    user = client.get("/auth/me").json()
     ws = client.post("/workspaces/", json={
         "user_id": user["id"], "name": "文档测试工作区"
     }).json()

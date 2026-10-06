@@ -8,6 +8,7 @@ from app.repositories import config as config_repo
 from app.models.monitor import Monitor, MonitorCheck
 from app.schemas.monitor import MonitorRead
 from app.services.server_status import monitor_status
+from app.services.node import query_window, run_history_query
 
 
 def list_monitors(db: Session) -> list[MonitorRead]:
@@ -98,28 +99,15 @@ def list_checks_range(db: Session, monitor_id: int, start: datetime | None = Non
     返回 dict 列表：{ts, success, latency_ms, loss_pct}。分桶时 latency 取桶内
     成功样本均值，success=桶内全部成功才算 True（有一个失败就算桶失败，偏保守）。
     """
-    rows = repo.list_checks_range(db, monitor_id, start, end, limit)
-    if not step:
-        return [{"ts": r.ts, "success": r.success, "latency_ms": r.latency_ms, "loss_pct": r.loss_pct} for r in rows]
-    buckets: dict[int, list] = {}
-    for r in rows:
-        k = int(r.ts.timestamp()) // step
-        buckets.setdefault(k, []).append(r)
-    out = []
-    for k in sorted(buckets):
-        rs = buckets[k]
-        # 桶成功 = 过半探测成功（全对才算好的规则太狠：一小时 60 次探测丢 1 次就整小时标红，
-        # 和按探测次数算的可用率对不上）
-        ok = sum(1 for r in rs if r.success) * 2 >= len(rs)
-        lats = [r.latency_ms for r in rs if r.success and r.latency_ms is not None]
-        losses = [r.loss_pct for r in rs if r.loss_pct is not None]
-        out.append({
-            "ts": datetime.fromtimestamp(k * step, tz=rows[0].ts.tzinfo),
-            "success": ok,
-            "latency_ms": round(sum(lats) / len(lats), 2) if lats else None,
-            "loss_pct": round(sum(losses) / len(losses), 2) if losses else None,
-        })
-    return out
+    start, end = query_window(start, end, limit, step)
+    if step:
+        return run_history_query(db, repo.list_checks_bucketed, monitor_id, start, end, step, limit)
+    rows = run_history_query(db, repo.list_checks_range, monitor_id, start, end, limit)
+    return [{"ts": r.ts, "success": r.success, "latency_ms": r.latency_ms,
+             "loss_pct": r.loss_pct, "sample_count": 1,
+             "success_count": int(r.success),
+             "latency_count": int(r.success and r.latency_ms is not None),
+             "loss_count": int(r.loss_pct is not None)} for r in rows]
 
 
 def record_check(db: Session, monitor_id: int, ts: datetime, success: bool,

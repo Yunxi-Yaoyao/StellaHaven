@@ -11,6 +11,14 @@ _KNOWN_HOSTS. Inventory JSON is operator-owned (NEVER generated from inspect):
 "schema_revision":"b7c8d9e0f1a2","forward_compatible":true}
 Mounts must describe the complete existing bind set, not PGDATA. The schema
 revision and resource manifest are checked only; no migration/copy is allowed.
+Actual release/dry-run also requires nodes.<node>.application_env_overrides:
+exactly STELLA_TRUSTED_ORIGINS, STELLA_MAIN_ORIGIN, STELLA_OWNER_ID (UUID),
+STELLA_COOKIE_SECURE=true, STELLA_AGENT_ROLLOUT_VERSION=0.6.9 or explicitly
+approved 0.6.10, STELLA_BACKUP_RECEIPT_DIR=/app/data/backup-receipts.
+Legacy initial/rollback containers may lack these fields; candidates may not.
+Both nodes require identical application approvals. target_mounts is rejected.
+Optional previous_manifest_sha256 only permits old/rollback bundle readback;
+target candidates must use manifest_sha256 and exact target image schema head.
 --validate-pack is offline; --dry-run does read-only SSH probes, no pull/login.
 A sampled role guard is NOT fencing. Hard kill/SSH loss may require recovery;
 receipts preserve each node's status rather than claim atomic cross-node rollback.
@@ -46,15 +54,29 @@ def validate_inventory(inv):
                 'previous schema revision invalid')
     for key in ('manifest_sha256', 'signing_sha256'):
         require(re.fullmatch('[0-9a-f]{64}', inv.get(key, '')), key + ' required')
+    if 'previous_manifest_sha256' in inv:
+        require(re.fullmatch('[0-9a-f]{64}', inv['previous_manifest_sha256']) and
+                inv['previous_manifest_sha256'] != inv['manifest_sha256'], 'previous manifest invalid')
     require(set(inv.get('nodes', {})) == set(NODES), 'exact two-node inventory required')
     for node, ip in NODES.items():
         item = inv['nodes'][node]
+        require('target_mounts' not in item, 'target mounts unsupported; retain exact old mount inventory')
         require(item.get('host') == ip and item.get('alias') == 'stella-prod-' + node, 'pinned node/SSH identity')
         require(re.fullmatch('[0-9a-f]{64}', item.get('startup_sha256', '')), 'trusted startup hash required')
         require(isinstance(item.get('command'), list) and item['command'] and
                 all(isinstance(x, str) for x in item['command']) and '/shadow-start.py' in item['command'], 'trusted existing startup command')
         require(type(item.get('memory')) is int and 0 < item['memory'] <= 4294967296, 'memory bound')
         require(type(item.get('nano_cpus')) is int and 0 < item['nano_cpus'] <= 4000000000, 'CPU bound')
+        if 'application_env_overrides' in item:
+            # Load the self-contained node helper; one validation implementation
+            # is used by offline inventory checks and the remote request boundary.
+            import importlib.util
+            spec = importlib.util.spec_from_file_location('stella_node_contract', Path(__file__).with_name('node_production.py'))
+            require(spec is not None and spec.loader is not None, 'application validation helper missing')
+            assert spec is not None and spec.loader is not None
+            contract = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(contract)
+            contract.validate_application_env_overrides(item['application_env_overrides'])
         mounts = item.get('mounts', [])
         destinations = set()
         for mount in mounts:
@@ -66,6 +88,21 @@ def validate_inventory(inv):
                 require(mount['RW'] is False, 'resource/secret/startup must be read-only')
             destinations.add(dest)
         require((('/tmp' in destinations) or ('/scratch' in destinations)) and {'/app/data', '/data/secret_key', '/run/secrets/app-password', '/run/secrets/oidc-private.json', '/shadow-start.py'} <= destinations, 'required mounts missing')
+    return inv
+
+
+def validate_release_approval(inv, approved_agent_version='0.6.9'):
+    # Version announcement is deliberately paused at the backwards-compatible
+    # agent until operators have installed/read back the root helper on ALL
+    # monitored servers (not just the two HA app hosts).
+    require(approved_agent_version in {'0.6.9', '0.6.10'}, 'agent rollout approval invalid')
+    require(all('application_env_overrides' in item for item in inv['nodes'].values()),
+            'application upgrade approval required')
+    for item in inv['nodes'].values():
+        require(item['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] == approved_agent_version,
+                'agent rollout approval mismatch')
+    require(inv['nodes']['nyarch']['application_env_overrides'] == inv['nodes']['nas']['application_env_overrides'],
+            'two-node application approval mismatch')
     return inv
 
 
@@ -101,12 +138,18 @@ class SSHTransport:
 
 def orchestrate(transport, inv, dry_run=False):
     receipt = {'status':'blocked', 'nodes':{}, 'schema_migrated':False, 'pg_mutated':False}
+    upgraded = set()
     def snapshot(expected=None):
-        states = {n:transport.call(n, 'probe') for n in NODES}
+        states = {n:transport.call(n, 'probe', target=n in upgraded) for n in NODES}
         for n, s in states.items():
             require(s.get('status') == 'healthy' and s.get('node') == n, 'node probe failed')
-            require((s['manifest'], s['signing'], s['revision']) ==
-                    (inv['manifest_sha256'], inv['signing_sha256'], inv['schema_revision']), 'resource/signing/schema mismatch')
+            manifests = {inv['manifest_sha256']}
+            if n not in upgraded and inv.get('previous_manifest_sha256'):
+                manifests.add(inv['previous_manifest_sha256'])
+            require(s['manifest'] in manifests and (s['signing'], s['revision']) ==
+                    (inv['signing_sha256'], inv['schema_revision']), 'resource/signing/schema mismatch')
+            if n in upgraded and inv.get('nodes', {}).get(n, {}).get('application_env_overrides'):
+                require(s.get('application_environment_matches') is True, 'upgraded application environment mismatch')
         roles = {n:s['primary'] for n,s in states.items()}
         require(all(type(x) is bool for x in roles.values()) and sum(roles.values()) == 1, 'exactly one primary required')
         require(all(s.get('roles') == roles for s in states.values()), 'peer role observations disagree')
@@ -122,6 +165,7 @@ def orchestrate(transport, inv, dry_run=False):
             result = transport.call(node, 'release', expected_roles=roles)
             receipt['nodes'][node] = result
             require(result['status'] in ('deployed', 'unchanged'), 'node release did not complete')
+            upgraded.add(node)
             snapshot(roles)
         receipt['status'] = 'deployed' if any(s['status']=='deployed' for s in receipt['nodes'].values()) else 'unchanged'
     except Exception as exc:
@@ -147,6 +191,7 @@ def main():
                 os.environ.get('STELLA_DEPLOY_TARGET') == 'local-ha', 'protected master/local-ha required')
         require(re.fullmatch(re.escape(REGISTRY) + '@sha256:[0-9a-f]{64}', args.image or ''), 'full immutable image digest required')
         inv = validate_inventory(json.loads(Path(args.inventory).read_text()))
+        validate_release_approval(inv, os.environ.get('STELLA_APPROVED_AGENT_ROLLOUT_VERSION', '0.6.9'))
         # Explicit CI approval binds inventory to this release's schema/resource.
         require(os.environ.get('STELLA_EXPECTED_SCHEMA') == inv['schema_revision'], 'CI schema approval mismatch')
         require(os.environ.get('STELLA_RESOURCE_MANIFEST_SHA256') == inv['manifest_sha256'], 'CI resource approval mismatch')

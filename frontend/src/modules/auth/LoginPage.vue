@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 登录/初始化页：夜港风。
 // 形态自动检测：未初始化 → 「还没初始化哦，点击开始喵~」引导进初始化表单；
-// 已初始化 → 纯登录（没有注册链接，注册只走管理员的邀请链接）。
+// 已初始化 → 单用户纯登录；初始化只创建唯一 owner。
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { login, register, auth } from "../home/auth";
@@ -171,15 +171,15 @@ async function resendCode(email: string, purpose: "login" | "reset") {
         <div class="sub">港湾还没有主人哦</div>
         <div class="init-hint">
           检测到系统还没初始化喵~<br />
-          第一个进港的人会成为管理员。
+          <span>创建唯一账号，日常登录不会直接解锁管理权限。</span>
         </div>
         <button class="submit" @click="phase = 'init-form'">开始初始化</button>
       </template>
 
       <!-- 初始化表单 -->
       <template v-else-if="phase === 'init-form'">
-        <div class="site">创建管理员</div>
-        <div class="sub">初始化只此一次，之后注册只走邀请链接</div>
+        <div class="site">创建唯一账号</div>
+        <div class="sub">初始化只此一次；登录后在设置中创建独立管理密码。</div>
         <div class="field">
           <span class="f-label">用户名</span>
           <input v-model="username" class="input" autocomplete="username" @keydown.enter="submit" />

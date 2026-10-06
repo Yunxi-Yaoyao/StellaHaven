@@ -1,34 +1,34 @@
-// fetch 封装：统一 JSON、错误带 status（409 乐观锁要靠它区分）
-import { refreshAccess } from "../modules/home/auth";
-
+import { refreshAccess } from '../modules/home/auth';
 export class ApiError extends Error {
   status: number;
   detail: unknown;
-  constructor(status: number, detail: unknown) {
-    super(`API ${status}`);
-    this.status = status;
-    this.detail = detail;
-  }
+  constructor(status: number, detail: unknown) { super(`API ${status}`); this.status = status; this.detail = detail; }
 }
-
+export type ElevationCode = 'admin_elevation_required' | 'admin_setup_required';
+type ElevationHandler = (code: ElevationCode, path: string) => Promise<boolean>;
+let elevationHandler: ElevationHandler | undefined;
+export function setElevationHandler(handler?: ElevationHandler) { elevationHandler = handler; }
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const doFetch = () =>
-    fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
-
-  let resp = await doFetch();
-  // access token 过期（30min）→ 单例 refresh 续命后重试一次
-  if (resp.status === 401) {
-    if (await refreshAccess()) resp = await doFetch();
+  const headers = new Headers(options?.headers);
+  if (typeof FormData !== 'undefined' && options?.body instanceof FormData) {
+    headers.delete('Content-Type'); // Browser supplies the matching multipart boundary.
+  } else if (typeof options?.body === 'string' && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
   }
-  if (!resp.ok) {
-    let detail: unknown = null;
-    try {
-      detail = (await resp.json()).detail;
-    } catch {
-      /* 非 JSON 错误体 */
+  const doFetch = () => fetch(path, { ...options, headers });
+  let response = await doFetch();
+  if (response.status === 401 && !path.startsWith('/auth/admin/') && path !== '/auth/security' && await refreshAccess()) response = await doFetch();
+  if (response.status === 403 && elevationHandler && !path.startsWith('/auth/admin/') && path !== '/auth/security') {
+    const detail = await response.clone().json().then(body => body.detail).catch(() => null);
+    if (['admin_elevation_required','admin_setup_required'].includes(detail?.code) && await elevationHandler(detail.code, path)) {
+      if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      response = await doFetch(); // Exactly one retry, after the user's explicit confirmation.
     }
-    throw new ApiError(resp.status, detail);
   }
-  if (resp.status === 204) return undefined as T;
-  return resp.json();
+  if (!response.ok) {
+    const detail = await response.json().then(body => body.detail).catch(() => null);
+    throw new ApiError(response.status, detail);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json();
 }

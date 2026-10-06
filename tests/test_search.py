@@ -5,9 +5,7 @@ import pytest
 
 @pytest.fixture
 def workspace_id(client):
-    user = client.post("/users/", json={
-        "username": f"user_{uuid4().hex[:8]}", "display_name": "搜索测试"
-    }).json()
+    user = client.get("/auth/me").json()
     ws = client.post("/workspaces/", json={
         "user_id": user["id"], "name": "搜索测试工作区"
     }).json()
@@ -69,9 +67,7 @@ def test_search_excludes_trash(client, workspace_id):
 def test_search_scoped_to_workspace(client, workspace_id):
     """别的 workspace 的文档不被搜到"""
     # 另一个 workspace 里的文档
-    user = client.post("/users/", json={
-        "username": f"user_{uuid4().hex[:8]}", "display_name": "别人"
-    }).json()
+    user = client.get("/auth/me").json()
     other_ws = client.post("/workspaces/", json={
         "user_id": user["id"], "name": "别人的工作区"
     }).json()

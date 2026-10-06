@@ -63,7 +63,7 @@ def authorize(request: Request, response_type: str = "code", client_id: str = ""
     # 未登录 → 跳前端登录页，登录后回 authorize
     if user is None:
         next_url = str(request.url)
-        return RedirectResponse(f"{_frontend_login(issuer)}?next={next_url}")
+        return RedirectResponse(f"{_frontend_login(issuer)}?{urlencode({'next': next_url})}")
 
     # 已登录 → 直接发授权码
     code = oidc_svc.create_authorization_code(

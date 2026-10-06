@@ -45,7 +45,7 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.9"
+AGENT_VERSION = "0.6.10"
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
@@ -53,6 +53,14 @@ MTR_FAIL_DEBOUNCE = 600   # 失败触发 MTR 防抖（10 分钟）
 POLL_INTERVAL = 1         # 任务轮询间隔（秒）——打流领取要快，1s 让图表几乎秒出
 UPDATE_CHECK_INTERVAL = 300  # 版本自更新检查间隔（秒）
 QUEUE_MAX = 24 * 3600 // REPORT_INTERVAL  # 队列上限 = 24h 的采样点数
+
+
+def _agent_urlopen(request, timeout):
+    import urllib.request
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+    return urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout)
 
 
 class _BackgroundScheduler:
@@ -410,6 +418,14 @@ class Agent:
     def __init__(self, url: str, token: str):
         if "://" not in url:
             url = "https://" + url
+        from urllib.parse import urlsplit
+        parsed = urlsplit(url)
+        if (parsed.scheme not in ('http', 'https') or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or parsed.query or parsed.fragment or any(c in url for c in '\r\n')):
+            raise ValueError('center URL must be http(s), without credentials/query/fragment')
+        if not token or any(c in token for c in '\r\n'):
+            raise ValueError('invalid agent token')
         self.url = url.rstrip("/")
         self.token = token
         self.queue = deque(maxlen=QUEUE_MAX)  # 内存队列：补传用
@@ -436,10 +452,11 @@ class Agent:
         # A separate bounded read, not the generic unbounded JSON helper.
         import urllib.request
         import urllib.parse
-        url = self.url + '/agent/map-targets?' + urllib.parse.urlencode({'token': self.token})
+        url = self.url + '/agent/map-targets'
+        headers = {**self._auth_headers({}), 'Accept-Encoding': 'identity'}
         if httpx:
             with httpx.stream('GET', url, timeout=2, follow_redirects=False,
-                              headers={'Accept-Encoding': 'identity'}) as response:
+                              headers=headers) as response:
                 response.raise_for_status()
                 raw = bytearray()
                 deadline = time.monotonic() + 3
@@ -452,7 +469,8 @@ class Agent:
                 def redirect_request(self, req, fp, code, msg, headers, newurl):
                     raise ValueError('target redirect refused')
             opener = urllib.request.build_opener(NoRedirect())
-            with opener.open(url, timeout=2) as response:
+            request = urllib.request.Request(url, headers=headers)
+            with opener.open(request, timeout=2) as response:
                 raw = bytearray()
                 deadline = time.monotonic() + 3
                 while True:
@@ -522,12 +540,13 @@ class Agent:
 
     def _check_docker(self) -> dict:
         """检测 Docker：是否安装 + 版本 + 守护进程是否运行（--version/is-active 查询不需要 root）。"""
-        docker_bin = shutil.which("docker")
+        # Linux Docker path is pinned, including this non-privileged version read.
+        docker_bin = '/usr/bin/docker' if os.path.isfile('/usr/bin/docker') else None
         installed = docker_bin is not None
         running = False
         if installed:
             try:
-                r = subprocess.run(["systemctl", "is-active", "docker"], capture_output=True, text=True, timeout=5)
+                r = subprocess.run(["/usr/bin/systemctl", "is-active", "docker"], capture_output=True, text=True, timeout=5)
                 running = (r.stdout or "").strip() == "active"
             except Exception:
                 pass
@@ -594,20 +613,28 @@ class Agent:
         return None
 
     # ── HTTP 基础 ──
+    def _auth_headers(self, params):
+        # Keep existing call sites compatible, but never serialize token in URLs.
+        params.pop('token', None)
+        return {'Authorization': 'Bearer ' + self.token}
+
     def _get(self, path: str, **params):
+        headers = self._auth_headers(params)
         if httpx:
-            r = httpx.get(self.url + path, params=params, timeout=10)
+            r = httpx.get(self.url + path, params=params, headers=headers, timeout=10)
             r.raise_for_status()
             return r.json()
         import urllib.request
         import urllib.parse
         q = urllib.parse.urlencode(params)
-        with urllib.request.urlopen(self.url + path + ("?" + q if q else ""), timeout=10) as resp:
+        req = urllib.request.Request(self.url + path + ("?" + q if q else ""), headers=headers)
+        with _agent_urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
 
     def _post(self, path: str, json_body=None, **params):
+        headers = self._auth_headers(params)
         if httpx:
-            r = httpx.post(self.url + path, json=json_body, params=params, timeout=10)
+            r = httpx.post(self.url + path, json=json_body, params=params, headers=headers, timeout=10)
             r.raise_for_status()
             return r.json()
         import urllib.request
@@ -617,9 +644,9 @@ class Agent:
         req = urllib.request.Request(
             self.url + path + ("?" + q if q else ""),
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={**headers, "Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _agent_urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
 
     # ── 采集 ──
@@ -1725,13 +1752,31 @@ class Agent:
             # 2) 兜底：GitHub 直链被限流（下载到 404 页）时，从后端下载预置二进制
             if not (os.path.exists(dest) and os.path.getsize(dest) > 100_000):
                 try:
-                    subprocess.run(
-                        ["curl", "-sSL", "-o", dest,
-                         f"{self.url}/agent/component/speedtest-go?token={self.token}"],
-                        check=True, timeout=120)
+                    # Keep credentials out of subprocess argv and reject redirects.
+                    import urllib.request
+                    class NoRedirect(urllib.request.HTTPRedirectHandler):
+                        def redirect_request(self, *args, **kwargs):
+                            raise ValueError('component redirect refused')
+                    opener = urllib.request.build_opener(NoRedirect())
+                    request = urllib.request.Request(self.url + '/agent/component/speedtest-go',
+                                                     headers=self._auth_headers({}))
+                    deadline = time.monotonic() + 120
+                    with opener.open(request, timeout=30) as response, open(dest, 'wb') as output:
+                        size = 0
+                        while True:
+                            chunk = response.read(65536)
+                            if not chunk:
+                                break
+                            size += len(chunk)
+                            if size > 32 * 1024 * 1024 or time.monotonic() > deadline:
+                                raise ValueError('component download limit')
+                            output.write(chunk)
                     os.chmod(dest, 0o755)
                 except Exception:
-                    pass
+                    try:
+                        os.remove(dest)
+                    except OSError:
+                        pass
 
             if os.path.exists(dest) and os.path.getsize(dest) > 100_000:
                 return None
@@ -1941,13 +1986,12 @@ class Agent:
         try:
             out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
             self._post(f"/agent/commands/{cid}/result",
-                       token=self.token, status="done",
-                       stdout=out.stdout[-5000:], stderr=out.stderr[-5000:],
-                       exit_code=out.returncode)
+                       json_body={"status": "done", "stdout": out.stdout[-5000:],
+                                  "stderr": out.stderr[-5000:], "exit_code": out.returncode})
         except subprocess.TimeoutExpired:
             self._post(f"/agent/commands/{cid}/result",
-                       token=self.token, status="failed",
-                       stderr="timeout", exit_code=-1)
+                       json_body={"status": "failed", "stdout": "",
+                                  "stderr": "timeout", "exit_code": -1})
 
     # ── 网络操作任务（改 IP 回退 / 防火墙修改）──
     def _run_net_task(self, task):
@@ -1995,13 +2039,27 @@ class Agent:
             return None
 
     # ── Docker 面板：容器列表 + 启停重启 ──
+    @staticmethod
+    def _docker_run(args, timeout):
+        # No PATH lookup, direct Docker fallback, or root bypass of validation.
+        prefix = [] if hasattr(os, 'geteuid') and os.geteuid() == 0 else ['/usr/bin/sudo', '-n']
+        return subprocess.run(prefix + ['/usr/local/libexec/stella-docker-helper'] + args,
+                              capture_output=True, text=True, timeout=timeout, shell=False)
+
+    def _docker_read(self, args, timeout):
+        try:
+            result = self._docker_run(args, timeout)
+            return result.stdout if result.returncode == 0 else None
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
     def _docker_scan(self) -> dict:
         """容器列表：docker ps -a --format json 逐行 JSON 解析。"""
-        if not shutil.which("docker"):
+        if not os.path.isfile('/usr/bin/docker'):
             return {"installed": False}
-        out = self._sudo_run(["docker", "ps", "-a", "--format", "{{json .}}"], timeout=20)
+        out = self._docker_read(['ps'], timeout=20)
         if out is None:
-            return {"installed": True, "error": "docker 命令需要 root（sudo 白名单未含 docker）"}
+            return {"installed": True, "error": "Docker helper 未部署或权限不足"}
         containers = []
         for line in out.splitlines():
             line = line.strip()
@@ -2027,8 +2085,7 @@ class Agent:
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.\-]*", name):
             return {"error": "容器名不合法"}
         try:
-            r = subprocess.run(["sudo", "-n", "docker", action, name],
-                               capture_output=True, text=True, timeout=60)
+            r = self._docker_run([action, name], timeout=70)
             if r.returncode == 0:
                 return {"ok": True, "action": action, "container": name}
             return {"error": (r.stderr or r.stdout).strip()[-300:]}
@@ -2042,8 +2099,7 @@ class Agent:
             return {"error": "容器名不合法"}
         tail = max(1, min(int(payload.get("tail") or 150), 500))
         try:
-            r = subprocess.run(["sudo", "-n", "docker", "logs", "--tail", str(tail), name],
-                               capture_output=True, text=True, timeout=30)
+            r = self._docker_run(['logs', name, str(tail)], timeout=70)
             text = (r.stdout or "") + (r.stderr or "")
             text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)  # 去 ANSI 颜色码
             return {"container": name, "lines": text[-20000:], "tail": tail}
@@ -2055,7 +2111,7 @@ class Agent:
         name = str(payload.get("container") or "")
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.\-]*", name):
             return {"error": "容器名不合法"}
-        out = self._sudo_run(["docker", "inspect", name], timeout=15)
+        out = self._docker_read(['inspect', name], timeout=70)
         if out is None:
             return {"error": "docker inspect 失败（容器不存在或权限不足）"}
         try:

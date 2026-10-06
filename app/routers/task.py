@@ -1,13 +1,16 @@
 """任务域路由：打流/MTR/命令 发起（前端，登录）+ agent 轮询领取/回传（token）。"""
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
+from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from typing import Annotated
+from app.security import agent_token
 
 from app.database import get_db
 from app.models.user import User
-from app.routers.auth import current_user
+from app.routers.auth import current_user, admin_user
 from app.repositories import node as node_repo
 from app.schemas.monitor import (
     IperfTaskCreate, IperfTaskRead, MtrTaskCreate, MtrTaskRead, CommandCreate, CommandRead,
@@ -44,7 +47,7 @@ def get_iperf(task_id: int, progress_after: int | None = None,
 
 
 @router.post("/iperf-tasks/{task_id}/cancel")
-def cancel_iperf(task_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def cancel_iperf(task_id: int, user: User = Depends(admin_user), db: Session = Depends(get_db)):
     """中止打流任务（前端中止按钮）。agent 检测到 cancelled 后 terminate iperf3 进程。"""
     t = task_svc.cancel_iperf(db, task_id)
     if t is None:
@@ -53,7 +56,7 @@ def cancel_iperf(task_id: int, user: User = Depends(current_user), db: Session =
 
 
 @router.post("/iperf-tasks", response_model=IperfTaskRead, status_code=201)
-def create_iperf(data: IperfTaskCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def create_iperf(data: IperfTaskCreate, user: User = Depends(admin_user), db: Session = Depends(get_db)):
     try:
         return task_svc.create_iperf(db, data.server_node_id, data.client_node_id,
                                      data.mode, data.direction, data.duration, data.parallel,
@@ -83,7 +86,7 @@ def list_commands(user: User = Depends(current_user), db: Session = Depends(get_
 
 
 @router.post("/commands", response_model=CommandRead, status_code=201)
-def create_command(data: CommandCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def create_command(data: CommandCreate, user: User = Depends(admin_user), db: Session = Depends(get_db)):
     return task_svc.create_command(db, data.node_id, data.command)
 
 
@@ -93,7 +96,7 @@ def list_components(user: User = Depends(current_user), db: Session = Depends(ge
 
 
 @router.post("/component-installs", response_model=ComponentTaskRead, status_code=201)
-def install_component(data: ComponentInstallCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def install_component(data: ComponentInstallCreate, user: User = Depends(admin_user), db: Session = Depends(get_db)):
     try:
         return task_svc.install_component(db, data.node_id, data.component)
     except ValueError as e:
@@ -105,7 +108,7 @@ agent_task_router = APIRouter(prefix="/agent", tags=["agent"])
 
 
 @agent_task_router.get("/tasks")
-def poll_tasks(token: str, db: Session = Depends(get_db)):
+def poll_tasks(token: Annotated[str, Depends(agent_token)], db: Session = Depends(get_db)):
     """agent 拉待办任务（领取 pending → running）。"""
     try:
         return task_svc.poll_tasks(db, token)
@@ -114,14 +117,14 @@ def poll_tasks(token: str, db: Session = Depends(get_db)):
 
 
 @agent_task_router.get("/iperf-tasks/{task_id}/status")
-def get_iperf_status(task_id: int, token: str, db: Session = Depends(get_db)):
+def get_iperf_status(task_id: int, token: Annotated[str, Depends(agent_token)], db: Session = Depends(get_db)):
     """agent 查询打流任务状态（用于检测是否被中止，cancelled 则 terminate iperf3 进程）。"""
     t = task_svc.authorize_agent_task(db, token, "iperf", task_id, write=False)
     return {"status": t.status}
 
 
 @agent_task_router.post("/iperf-tasks/{task_id}/result")
-def finish_iperf(task_id: int, token: str, status: str, result_json: dict, db: Session = Depends(get_db)):
+def finish_iperf(task_id: int, token: Annotated[str, Depends(agent_token)], status: str, result_json: dict, db: Session = Depends(get_db)):
     """agent 回传打流结果。status: done / failed"""
     task_svc.authorize_agent_task(db, token, "iperf", task_id, status=status, role=result_json.get("role", "client"))
     task_svc.finish_iperf(db, task_id, status, result_json)
@@ -129,7 +132,7 @@ def finish_iperf(task_id: int, token: str, status: str, result_json: dict, db: S
 
 
 @agent_task_router.post("/iperf-tasks/{task_id}/progress")
-def iperf_progress(task_id: int, token: str, ts: str, bitrate: float = 0,
+def iperf_progress(task_id: int, token: Annotated[str, Depends(agent_token)], ts: str, bitrate: float = 0,
                    lost_pct: float | None = None, jitter_ms: float | None = None,
                    role: str = "client",
                    retry: bool = False, attempt: int = 0, reason: str = "",
@@ -156,7 +159,7 @@ def iperf_progress(task_id: int, token: str, ts: str, bitrate: float = 0,
 
 
 @agent_task_router.post("/component-installs/{task_id}/result")
-def finish_component(task_id: int, token: str, status: str, error: str = "", db: Session = Depends(get_db)):
+def finish_component(task_id: int, token: Annotated[str, Depends(agent_token)], status: str, error: str = "", db: Session = Depends(get_db)):
     """agent 回传组件安装结果。status: done / failed"""
     task_svc.authorize_agent_task(db, token, "component", task_id, status=status)
     task_svc.finish_component(db, task_id, status, error)
@@ -164,7 +167,7 @@ def finish_component(task_id: int, token: str, status: str, error: str = "", db:
 
 
 @agent_task_router.post("/net-tasks/{task_id}/result")
-def finish_net_task(task_id: int, token: str, status: str, result_json: dict | None = None,
+def finish_net_task(task_id: int, token: Annotated[str, Depends(agent_token)], status: str, result_json: dict | None = None,
                     db: Session = Depends(get_db)):
     """agent 回传网络操作任务结果（改 IP 回退 / 防火墙修改）。status: done / failed"""
     task_svc.authorize_agent_task(db, token, "net", task_id, status=status)
@@ -173,7 +176,7 @@ def finish_net_task(task_id: int, token: str, status: str, result_json: dict | N
 
 
 @agent_task_router.get("/component/speedtest-go")
-def download_speedtest_go(token: str, db: Session = Depends(get_db)):
+def download_speedtest_go(token: Annotated[str, Depends(agent_token)], db: Session = Depends(get_db)):
     """agent 代装 speedtest-go 时，GitHub 直链被限流（404）则从后端下载预置二进制兜底。"""
     node = node_repo.get_by_token(db, token)
     if node is None:
@@ -185,29 +188,43 @@ def download_speedtest_go(token: str, db: Session = Depends(get_db)):
 
 
 @agent_task_router.post("/mtr-tasks/{task_id}/result")
-def finish_mtr(task_id: int, token: str, status: str, result_json: dict, db: Session = Depends(get_db)):
+def finish_mtr(task_id: int, token: Annotated[str, Depends(agent_token)], status: str, result_json: dict, db: Session = Depends(get_db)):
     task_svc.authorize_agent_task(db, token, "mtr", task_id, status=status)
     task_svc.finish_mtr(db, task_id, status, result_json)
 
 
 @agent_task_router.post("/mtr-tasks/{task_id}/live")
-def mtr_live(task_id: int, token: str, live_json: dict, db: Session = Depends(get_db)):
+def mtr_live(task_id: int, token: Annotated[str, Depends(agent_token)], live_json: dict, db: Session = Depends(get_db)):
     """agent 跑 mtr --raw 过程中每 ~2s 覆写一次实时逐跳快照（前端轮询显示，跟终端一样实时刷）。"""
     task_svc.authorize_agent_task(db, token, "mtr", task_id)
     task_svc.update_mtr_live(db, task_id, live_json)
     return {"ok": True}
 
 
+class CommandResultIn(BaseModel):
+    # Empty {} from old agents is compatible with the legacy status query.
+    status: str | None = None
+    stdout: str = ''
+    stderr: str = ''
+    exit_code: int = 0
+
+
 @agent_task_router.post("/commands/{cmd_id}/result")
-def finish_command(cmd_id: int, token: str, status: str, stdout: str = "", stderr: str = "",
-                   exit_code: int = 0, db: Session = Depends(get_db)):
+def finish_command(cmd_id: int, token: Annotated[str, Depends(agent_token)], status: str | None = None,
+                   stdout: str = "", stderr: str = "", exit_code: int = 0,
+                   data: CommandResultIn | None = Body(None), db: Session = Depends(get_db)):
+    if data is not None and data.model_fields_set:
+        status = data.status if data.status is not None else status
+        stdout, stderr, exit_code = data.stdout, data.stderr, data.exit_code
+    if status is None:
+        raise HTTPException(422, '缺少status')
     task_svc.authorize_agent_task(db, token, "command", cmd_id, status=status)
     task_svc.finish_command(db, cmd_id, status, stdout, stderr, exit_code)
     return {"ok": True}
 
 
 @agent_task_router.post("/uninstall/result")
-def finish_uninstall(token: str, status: str, error: str = "", db: Session = Depends(get_db)):
+def finish_uninstall(token: Annotated[str, Depends(agent_token)], status: str, error: str = "", db: Session = Depends(get_db)):
     """agent 回传卸载结果。status: done / failed"""
     node_svc.finish_uninstall(db, token, status, error)
     return {"ok": True}

@@ -1,21 +1,22 @@
-"""认证：注册/登录/刷新/登出/我/登录记录。
+"""Single pinned owner, daily authentication and independent session-bound elevation.
 
-- 访问令牌 30min（httpOnly cookie: stella_at），刷新令牌走 auth_sessions 表（cookie: stella_rt）
-- 首个注册用户自动成为 admin
-- 允许多地同时登录：一条会话一行记录，可单独吊销（踢下线）
+Legacy user UUIDs and ownership guards remain; invitations/user CRUD are gone.
+Multiple devices retain separate revocable AuthSessions. is_admin is legacy
+metadata only; privileged operations use PostgreSQL-backed management grants.
 """
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, Query
 from sqlalchemy import and_, or_
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services.session_policy import expired, expires_at, utc
-from app.models.user import User, AuthSession, EmailCode
+from app.models.user import User, AuthSession
 from app.security import (
     ACCESS_MINUTES, REFRESH_DAYS,
     hash_password, verify_password,
@@ -47,16 +48,79 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.get(User, uid)
     if not user or not user.is_active:
         raise HTTPException(401, "账号不可用")
+    from app.services.admin_security import require_owner
+    require_owner(db, user)
+    request.state.auth_session = session
     return user
 
 
-def admin_user(user: User = Depends(current_user)) -> User:
-    if not user.is_admin:
-        raise HTTPException(403, "需要管理员权限")
+def admin_user(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> User:
+    from app.services.admin_security import require_admin
+    require_admin(db, request.state.auth_session)
     return user
+
+
+@router.get('/security')
+def security(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app.services.admin_security import security_status
+    return security_status(db, request.state.auth_session)
 
 
 # ---------- 数据隔离：资源归属校验 ----------
+class SecurityIn(BaseModel):
+    enabled: bool
+    password: str | None = None
+
+
+class AdminPasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.put('/security')
+def update_security(data: SecurityIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app.services.admin_security import change_protection
+    change_protection(db, data.enabled, data.password)
+    return {'ok': True}
+
+
+@router.post('/admin/password')
+def change_management_password(data: AdminPasswordIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app.services.admin_security import change_admin_password
+    change_admin_password(db, user, data.current_password, data.new_password)
+    return {'ok': True}
+
+
+class AdminSetupIn(BaseModel):
+    user_password: str
+    new_password: str
+
+
+class AdminUnlockIn(BaseModel):
+    password: str
+
+
+@router.post('/admin/setup')
+def admin_setup(data: AdminSetupIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app.services.admin_security import setup
+    setup(db, user, data.user_password, data.new_password)
+    return {'ok': True}
+
+
+@router.post('/admin/unlock')
+def admin_unlock(data: AdminUnlockIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app.services.admin_security import unlock, security_status
+    unlock(db, request.state.auth_session, data.password)
+    return security_status(db, request.state.auth_session)
+
+
+@router.post('/admin/lock')
+def admin_lock(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app.services.admin_security import lock
+    lock(db, request.state.auth_session)
+    return {'ok': True}
+
+
 def require_ws_owner(db: Session, ws_id: UUID, user: User):
     """工作区必须属于当前用户（多用户隔离），否则 404（不暴露存在性）"""
     from app.models.workspace import Workspace
@@ -91,13 +155,15 @@ def _device_label(ua: str) -> str:
 
 def _issue_cookies(response: Response, user: User, session: AuthSession, remember: bool) -> None:
     at = make_access_token(str(user.id), str(session.id))
-    access_kwargs = {"httponly": True, "samesite": "lax", "path": "/"}
+    import os
+    secure = os.getenv('STELLA_COOKIE_SECURE', 'true').lower() != 'false'
+    access_kwargs = {"httponly": True, "samesite": "lax", "path": "/", "secure": secure}
     if remember:
         access_kwargs["max_age"] = min(ACCESS_MINUTES * 60, max(0, int((expires_at(session) - datetime.now(timezone.utc)).total_seconds())))
     response.set_cookie(AT_COOKIE, at, **access_kwargs)
     # 记住我 → refresh cookie 30 天；否则会话级（无 max_age）
     rt_raw = session._rt_raw  # type: ignore[attr-defined]
-    kwargs = {"httponly": True, "samesite": "lax", "path": "/"}
+    kwargs = {"httponly": True, "samesite": "lax", "path": "/", "secure": secure}
     if remember:
         kwargs["max_age"] = max(0, int((expires_at(session) - datetime.now(timezone.utc)).total_seconds()))
     response.set_cookie(RT_COOKIE, rt_raw, **kwargs)
@@ -152,38 +218,22 @@ def status(db: Session = Depends(get_db)):
     """公开：初始化状态 + 邮箱服务是否开启（登录页决定显不显示忘记密码）"""
     from app.routers.admin_email import _load as load_cfg
     total = db.query(User).count()
-    has_admin = db.query(User).filter(User.is_admin == True).count() > 0  # noqa: E712
     cfg = load_cfg()
     email_on = bool(cfg.get("enabled") and cfg.get("host") and cfg.get("username") and cfg.get("password"))
-    return {"has_users": total > 0, "initialized": has_admin, "email_enabled": email_on}
+    return {"has_users": total > 0, "initialized": total > 0, "email_enabled": email_on, "single_user": True}
 
 
 @router.post("/register", status_code=201)
 def register(data: RegisterIn, response: Response, request: Request, db: Session = Depends(get_db)):
-    """公开注册仅限两种情况：①初始化（无任何账号）②老账号认领（遗留账号密码为空）。
-    其余一律走邀请链接。"""
-    username = data.username.strip()
-    if not username or len(data.password) < 6:
-        raise HTTPException(400, "用户名不能为空，密码至少 6 位")
-
-    existing = db.query(User).filter(User.username == username).first()
-    if existing:
-        # 老账号认领：密码为空的遗留账号允许补设密码接管
-        if existing.password_hash != "":
-            raise HTTPException(409, "用户名已存在")
-        new_name = (data.display_name or "").strip()
-        _assert_identifiers_free(db, display_name=new_name, exclude=existing.id)
-        existing.password_hash = hash_password(data.password)
-        if new_name:
-            existing.display_name = new_name
-        if db.query(User).filter(User.is_admin == True).count() == 0:  # noqa: E712
-            existing.is_admin = True
-        _create_session(db, existing, request, response, remember=True)
-        db.commit()
-        return _user_out(existing)
-
+    """Initialize a genuinely empty installation; never claim existing accounts."""
+    from app.services.admin_security import locked_state
+    locked_state(db)  # PostgreSQL transaction lock fences simultaneous initialization.
     if db.query(User).count() > 0:
-        raise HTTPException(403, "注册通道已关闭，请向管理员要邀请链接喵~")
+        raise HTTPException(403, "单用户模式已初始化，注册通道关闭")
+    username = data.username.strip()
+    if not username or not 6 <= len(data.password) <= 256:
+        raise HTTPException(400, "用户名不能为空，密码须为6至256位")
+
     _assert_identifiers_free(db, username=username, display_name=(data.display_name or username).strip())
     user = User(
         username=username,
@@ -213,13 +263,15 @@ def login(data: LoginIn, request: Request, response: Response, db: Session = Dep
 
 def _create_session(db: Session, user: User, request: Request, response: Response,
                     remember: bool, device: str | None = None) -> AuthSession:
+    from app.services.admin_security import require_owner
+    require_owner(db, user)
     previous = _presented_session(request, db)
     if previous and previous.user_id == user.id and not previous.revoked and not expired(previous):
         previous.revoked = True
     rt_raw, rt_hash = make_refresh_token()
-    # 真实 IP：反代/开发代理后面读 X-Forwarded-For 第一跳
-    xff = request.headers.get("x-forwarded-for", "")
-    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+    # The ASGI server may trust an explicitly configured proxy peer; do not
+    # consume arbitrary client-supplied X-Forwarded-For here.
+    ip = request.client.host if request.client else ""
     session = AuthSession(
         user_id=user.id,
         refresh_hash=rt_hash,
@@ -247,6 +299,8 @@ def rotate_refresh(request: Request, response: Response, db: Session) -> User:
     user = db.get(User, session.user_id)
     if not user or not user.is_active:
         raise HTTPException(401, "账号不可用")
+    from app.services.admin_security import require_owner
+    require_owner(db, user)
     # 旋转：旧 refresh 作废，发新的
     rt_raw, rt_hash = make_refresh_token()
     session.refresh_hash = rt_hash
@@ -263,11 +317,8 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
 
 
 def _presented_session(request: Request, db: Session):
-    raw = request.cookies.get(RT_COOKIE)
-    if raw:
-        session = db.query(AuthSession).filter(AuthSession.refresh_hash == hash_refresh(raw)).first()
-        if session:
-            return session
+    # Elevation is access-SID bound. Prefer that exact session even when a
+    # stale/mixed refresh cookie names another device's session.
     claims = read_access_token(request.cookies.get(AT_COOKIE, "")) or {}
     try:
         session = db.get(AuthSession, UUID(claims["sid"]))
@@ -275,6 +326,9 @@ def _presented_session(request: Request, db: Session):
             return session
     except (KeyError, ValueError, TypeError):
         pass
+    raw = request.cookies.get(RT_COOKIE)
+    if raw:
+        return db.query(AuthSession).filter(AuthSession.refresh_hash == hash_refresh(raw)).first()
     return None
 
 
@@ -283,7 +337,8 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     session = _presented_session(request, db)
     if session:
         session.revoked = True
-        db.commit()
+        from app.services.admin_security import lock
+        lock(db, session)
     response.delete_cookie(AT_COOKIE, path="/")
     response.delete_cookie(RT_COOKIE, path="/")
     return {"ok": True}
@@ -350,6 +405,9 @@ def change_password(data: PasswordIn, user: User = Depends(current_user), db: Se
         raise HTTPException(401, "原密码不对")
     if len(data.new_password) < 6:
         raise HTTPException(400, "新密码至少 6 位")
+    from app.services.admin_security import require_owner, daily_password_changed
+    require_owner(db, user)
+    daily_password_changed(db, data.new_password)
     user.password_hash = hash_password(data.new_password)
     db.query(AuthSession).filter(AuthSession.user_id == user.id).update({"revoked": True})
     db.commit()
@@ -440,14 +498,6 @@ def avatar_history(user: User = Depends(current_user)):
 
 # ---------- 邮箱验证码（绑定/换绑验证） ----------
 CODE_MINUTES = 10
-RESEND_WINDOW_MINUTES = 5
-
-
-def _code_expired(row) -> bool:
-    expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
-    return expires < datetime.now(timezone.utc)
-
-
 def _mail_for(purpose: str, code: str) -> tuple[str, str]:
     """按用途返回 (subject, html)——Stella 夜色 + 樱粉大码 + 喵~"""
     if purpose == "reset":
@@ -470,14 +520,6 @@ def _mail_for(purpose: str, code: str) -> tuple[str, str]:
     return subject, html
 
 
-def _valid_code(db: Session, email: str) -> EmailCode | None:
-    """邮箱当前在有效期内的验证码（没有或过期返回 None）"""
-    row = db.query(EmailCode).filter(EmailCode.email == email).first()
-    if not row or _code_expired(row):
-        return None
-    return row
-
-
 @router.get("/email-service")
 def email_service_status(user: User = Depends(current_user)):
     """登录用户可查：邮箱服务状态（configured=填了配置，enabled=开了开关，ready=两者都齐）"""
@@ -492,45 +534,42 @@ class SendCodeIn(BaseModel):
     email: str
 
 
-@router.post("/email/send-code")
-def send_email_code(data: SendCodeIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """发 6 位验证码到指定邮箱（10 分钟有效）。服务未配置 → 503 + reason"""
-    import random
-    from app.routers.admin_email import _load as load_cfg, _send
+def _verified_email_owner(db, email):
+    from app.services.admin_security import owner_id
+    user = db.get(User, owner_id(db))
+    if not user or not user.is_active or not user.email_verified or user.email != email:
+        raise HTTPException(404, "账号不可用")
+    return user
 
-    cfg = load_cfg()
+
+def _send_purpose_code(db, email, purpose, *, resend=False):
+    from app.routers.admin_email import _load, _send
+    from app.services.email_attempts import issue_code
+    cfg = _load()
     if not (cfg.get("enabled") and cfg.get("host") and cfg.get("username") and cfg.get("password")):
         raise HTTPException(503, "邮箱服务还没配置")
-
-    email = data.email.strip()
-    if "@" not in email:
+    if "@" not in email or len(email) > 254:
         raise HTTPException(400, "邮箱格式不对喵~")
-    if _valid_code(db, email):
+    code = issue_code(db, email, purpose, resend=resend)
+    if code is None:
         return {"ok": True, "already_sent": True, "minutes": CODE_MINUTES}
-    code = f"{random.randint(0, 999999):06d}"
-    db.query(EmailCode).filter(EmailCode.email == email).delete()  # 同邮箱只留最新
-    db.add(EmailCode(email=email, code=code,
-                     expires_at=datetime.now(timezone.utc) + timedelta(minutes=CODE_MINUTES)))
-    db.commit()
-
-    html = f"""
-    <div style="font-family:Georgia,serif;background:#0d1017;padding:32px;border-radius:16px;color:#e8ecf4;max-width:420px">
-      <div style="font-size:22px;color:#c9d4e8;letter-spacing:3px">✦ StellaHaven</div>
-      <div style="margin-top:14px;font-size:14px;color:#9aa3b5;line-height:1.9">你的验证码喵~（10 分钟内有效）</div>
-      <div style="margin:18px 0;font-size:32px;letter-spacing:10px;color:#e8a0bf;font-weight:700">{code}</div>
-      <div style="font-size:12px;color:#5c6474">不是你操作的就不要理这封信喵。—— 港务局</div>
-    </div>
-    """
+    subject, html = _mail_for(purpose, code)
     try:
-        _send(cfg, email, "StellaHaven 邮箱验证码喵~", html)
-    except Exception as e:
-        raise HTTPException(502, f"发送失败：{type(e).__name__}")
+        _send(cfg, email, subject, html)
+    except Exception as exc:
+        raise HTTPException(502, f"发送失败：{type(exc).__name__}") from None
     return {"ok": True, "minutes": CODE_MINUTES}
 
 
+@router.post("/email/send-code")
+def send_email_code(data: SendCodeIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    _assert_identifiers_free(db, email=data.email.strip(), exclude=user.id)
+    return _send_purpose_code(db, data.email.strip(), "bind")
+
+
 class VerifyCodeIn(BaseModel):
-    email: str
-    code: str
+    email: str = Field(max_length=254)
+    code: str = Field(max_length=64)
 
 
 # ---------- 忘记密码（邮箱服务开启时可用） ----------
@@ -540,42 +579,17 @@ class ForgotIn(BaseModel):
 
 @router.post("/forgot")
 def forgot_password(data: ForgotIn, db: Session = Depends(get_db)):
-    """发重置码到账号绑定的已验证邮箱。无论账号存不存在都回 ok（不暴露账号存在性）"""
-    import random
-    from app.routers.admin_email import _load as load_cfg, _send
-
-    cfg = load_cfg()
-    if not (cfg.get("enabled") and cfg.get("host") and cfg.get("username") and cfg.get("password")):
-        raise HTTPException(503, "邮箱服务还没配置")
-
     email = data.email.strip()
-    user = db.query(User).filter(User.email == email, User.email_verified == True).first()  # noqa: E712
-    if user:
-        if _valid_code(db, email):
-            return {"ok": True, "already_sent": True, "minutes": CODE_MINUTES}
-        code = f"{random.randint(0, 999999):06d}"
-        db.query(EmailCode).filter(EmailCode.email == email).delete()
-        db.add(EmailCode(email=email, code=code,
-                         expires_at=datetime.now(timezone.utc) + timedelta(minutes=CODE_MINUTES)))
-        db.commit()
-        html = f"""
-        <div style="font-family:Georgia,serif;background:#0d1017;padding:32px;border-radius:16px;color:#e8ecf4;max-width:420px">
-          <div style="font-size:22px;color:#c9d4e8;letter-spacing:3px">✦ StellaHaven</div>
-          <div style="margin-top:14px;font-size:14px;color:#9aa3b5;line-height:1.9">有人在重置你的密码喵~ 是你本人就用这个码（10 分钟内有效）：</div>
-          <div style="margin:18px 0;font-size:32px;letter-spacing:10px;color:#e8a0bf;font-weight:700">{code}</div>
-          <div style="font-size:12px;color:#5c6474">不是你操作的赶紧改密码喵。—— 港务局</div>
-        </div>
-        """
-        try:
-            _send(cfg, email, "StellaHaven 密码重置码喵~", html)
-        except Exception as e:
-            raise HTTPException(502, f"发送失败：{type(e).__name__}")
+    from app.services.admin_security import owner_id
+    user = db.get(User, owner_id(db))
+    if user.email == email and user.email_verified and user.is_active:
+        return _send_purpose_code(db, email, "reset")
     return {"ok": True, "minutes": CODE_MINUTES}
 
 
 class ResetIn(BaseModel):
-    email: str
-    code: str
+    email: str = Field(max_length=254)
+    code: str = Field(max_length=64)
     new_password: str
 
 
@@ -586,65 +600,28 @@ class LoginCodeSendIn(BaseModel):
 
 @router.post("/login-code/send")
 def send_login_code(data: LoginCodeSendIn, db: Session = Depends(get_db)):
-    """发登录验证码。账号不存在 / 邮箱未验证 都明确提示（个人工具，不藏存在性）"""
-    import random
-    from app.routers.admin_email import _load as load_cfg, _send
-
-    cfg = load_cfg()
-    if not (cfg.get("enabled") and cfg.get("host") and cfg.get("username") and cfg.get("password")):
-        raise HTTPException(503, "邮箱服务还没配置")
-
     email = data.email.strip()
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
+    from app.services.admin_security import owner_id
+    user = db.get(User, owner_id(db))
+    if user.email != email or not user.is_active:
         raise HTTPException(404, "没有这个账号喵~ 检查下邮箱有没有输错")
     if not user.email_verified:
         raise HTTPException(409, "这个邮箱绑定了但还没验证喵~ 先去密码登录，再到「我的资料」重新验证邮箱")
-    if _valid_code(db, email):
-        return {"ok": True, "already_sent": True, "minutes": CODE_MINUTES}
-
-    code = f"{random.randint(0, 999999):06d}"
-    db.query(EmailCode).filter(EmailCode.email == email).delete()
-    db.add(EmailCode(email=email, code=code,
-                     expires_at=datetime.now(timezone.utc) + timedelta(minutes=CODE_MINUTES)))
-    db.commit()
-    html = f"""
-    <div style="font-family:Georgia,serif;background:#0d1017;padding:32px;border-radius:16px;color:#e8ecf4;max-width:420px">
-      <div style="font-family:Georgia,serif;font-size:22px;color:#c9d4e8;letter-spacing:3px">✦ StellaHaven</div>
-      <div style="margin-top:14px;font-size:14px;color:#9aa3b5;line-height:1.9">你的登录验证码喵~（10 分钟内有效，输完直接进港不用密码）：</div>
-      <div style="margin:18px 0;font-size:32px;letter-spacing:10px;color:#e8a0bf;font-weight:700">{code}</div>
-      <div style="font-size:12px;color:#5c6474">不是你操作的就不要理这封信喵。—— 港务局</div>
-    </div>
-    """
-    try:
-        _send(cfg, email, "StellaHaven 登录验证码喵~", html)
-    except Exception as e:
-        raise HTTPException(502, f"发送失败：{type(e).__name__}")
-    return {"ok": True, "minutes": CODE_MINUTES}
+    return _send_purpose_code(db, email, "login")
 
 
 class LoginCodeIn(BaseModel):
-    email: str
-    code: str
+    email: str = Field(max_length=254)
+    code: str = Field(max_length=64)
     remember: bool = False
     device: str | None = None
 
 
 @router.post("/login-code")
 def login_by_code(data: LoginCodeIn, request: Request, response: Response, db: Session = Depends(get_db)):
-    """验证码免密登录：码对就进"""
-    row = db.query(EmailCode).filter(EmailCode.email == data.email.strip()).first()
-    if not row:
-        raise HTTPException(404, "没发过验证码，先点发送喵~")
-    expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
-    if expires < datetime.now(timezone.utc):
-        raise HTTPException(410, "验证码过期了，重新发一个喵~")
-    if row.code != data.code.strip():
-        raise HTTPException(401, "验证码不对喵~")
-    user = db.query(User).filter(User.email == data.email.strip(), User.email_verified == True).first()  # noqa: E712
-    if not user or not user.is_active:
-        raise HTTPException(404, "账号不可用")
-    db.delete(row)
+    from app.services.email_attempts import consume_code
+    user = _verified_email_owner(db, data.email.strip())
+    consume_code(db, data.email.strip(), "login", data.code)
     _create_session(db, user, request, response, remember=data.remember, device=data.device)
     db.commit()
     return _user_out(user)
@@ -653,79 +630,44 @@ def login_by_code(data: LoginCodeIn, request: Request, response: Response, db: S
 @router.post("/reset")
 def reset_password(data: ResetIn, db: Session = Depends(get_db)):
     """凭重置码改密码：全部会话下线"""
-    row = db.query(EmailCode).filter(EmailCode.email == data.email.strip()).first()
-    if not row:
-        raise HTTPException(404, "没发过重置码，先点发送喵~")
-    expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
-    if expires < datetime.now(timezone.utc):
-        raise HTTPException(410, "重置码过期了，重新发一个喵~")
-    if row.code != data.code.strip():
-        raise HTTPException(401, "重置码不对喵~")
-    if len(data.new_password) < 6:
-        raise HTTPException(400, "新密码至少 6 位")
-    user = db.query(User).filter(User.email == data.email.strip(), User.email_verified == True).first()  # noqa: E712
-    if not user:
-        raise HTTPException(404, "账号不存在")
+    from app.services.email_attempts import consume_code
+    if not 6 <= len(data.new_password) <= 256:
+        raise HTTPException(400, "新密码须为6至256位")
+    user = _verified_email_owner(db, data.email.strip())
+    from app.services.admin_security import require_owner, daily_password_changed
+    require_owner(db, user)
+    consume_code(db, data.email.strip(), "reset", data.code)
+    daily_password_changed(db, data.new_password)
     user.password_hash = hash_password(data.new_password)
     db.query(AuthSession).filter(AuthSession.user_id == user.id).update({"revoked": True})
-    db.delete(row)
     db.commit()
     return {"ok": True, "hint": "密码已重置，全部会话已下线，用新密码登录喵~"}
 
 
 @router.post("/email/verify")
 def verify_email_code(data: VerifyCodeIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """验证码校验：过了就绑定+标绿"""
-    row = db.query(EmailCode).filter(EmailCode.email == data.email.strip()).first()
-    if not row:
-        raise HTTPException(404, "没发过验证码，先点发送喵~")
-    expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
-    if expires < datetime.now(timezone.utc):
-        raise HTTPException(410, "验证码过期了，重新发一个喵~")
-    if row.code != data.code.strip():
-        raise HTTPException(401, "验证码不对喵~")
+    from app.services.email_attempts import consume_code
+    _assert_identifiers_free(db, email=data.email.strip(), exclude=user.id)
+    consume_code(db, data.email.strip(), "bind", data.code)
     user.email = data.email.strip()
     user.email_verified = True
-    db.delete(row)
     db.commit()
     return _user_out(user)
 
 
 class ResendIn(BaseModel):
     email: str
-    purpose: str = "login"  # login | bind | reset（决定邮件文案）
+    purpose: Literal["login", "bind", "reset"] = "login"
 
 
 @router.post("/email/resend")
-def resend_code(data: ResendIn, db: Session = Depends(get_db)):
-    """重新发送验证码：5 分钟内只允许一次；换新码、旧码作废"""
-    import random
-    from app.routers.admin_email import _load as load_cfg, _send
-
-    cfg = load_cfg()
-    if not (cfg.get("enabled") and cfg.get("host") and cfg.get("username") and cfg.get("password")):
-        raise HTTPException(503, "邮箱服务还没配置")
-
-    email = data.email.strip()
-    row = db.query(EmailCode).filter(EmailCode.email == email).first()
-    if not row:
-        raise HTTPException(404, "先发一次验证码喵~")
-    if row.resent_at:
-        rt = row.resent_at if row.resent_at.tzinfo else row.resent_at.replace(tzinfo=timezone.utc)
-        if (datetime.now(timezone.utc) - rt).total_seconds() < RESEND_WINDOW_MINUTES * 60:
-            raise HTTPException(429, "喵~ 5 分钟内只能重发一次，先用刚才那个码")
-
-    code = f"{random.randint(0, 999999):06d}"
-    row.code = code
-    row.expires_at = datetime.now(timezone.utc) + timedelta(minutes=CODE_MINUTES)
-    row.resent_at = datetime.now(timezone.utc)
-    db.commit()
-    subject, html = _mail_for(data.purpose, code)
-    try:
-        _send(cfg, email, subject, html)
-    except Exception as e:
-        raise HTTPException(502, f"发送失败：{type(e).__name__}")
-    return {"ok": True, "minutes": CODE_MINUTES}
+def resend_code(data: ResendIn, request: Request, db: Session = Depends(get_db)):
+    if data.purpose == "bind":
+        user = current_user(request, db)
+        _assert_identifiers_free(db, email=data.email.strip(), exclude=user.id)
+    else:
+        _verified_email_owner(db, data.email.strip())
+    return _send_purpose_code(db, data.email.strip(), data.purpose, resend=True)
 
 
 class AvatarPickIn(BaseModel):
@@ -755,93 +697,14 @@ def pick_avatar(data: AvatarPickIn, user: User = Depends(current_user), db: Sess
     return _user_out(user)
 
 
-# ---------- 邀请链接（初始化后唯一的注册通道：30min、一链一人） ----------
-INVITE_MINUTES = 30
+# Explicit tombstones close legacy clients without reviving multi-user behavior.
+@router.api_route('/invites', methods=['GET', 'POST'])
+@router.post('/register-invite')
+def retired_invitation_api():
+    raise HTTPException(410, '单用户模式已移除邀请与新增账号功能')
 
 
-class InviteOut(BaseModel):
-    token: str
-    created_at: str
-    expires_at: str
-    used: bool
-
-
-@router.post("/invites", status_code=201)
-def create_invite(user: User = Depends(admin_user), db: Session = Depends(get_db)):
-    """admin 生成注册链接"""
-    from secrets import token_urlsafe
-    from app.models.user import Invite
-
-    inv = Invite(
-        token=token_urlsafe(24),
-        created_by=user.id,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=INVITE_MINUTES),
-    )
-    db.add(inv)
-    db.commit()
-    return {"token": inv.token, "url": f"/invite/{inv.token}", "expires_in_minutes": INVITE_MINUTES}
-
-
-@router.get("/invites")
-def list_invites(user: User = Depends(admin_user), db: Session = Depends(get_db)):
-    from app.models.user import Invite
-
-    now = datetime.now(timezone.utc)
-    rows = db.query(Invite).order_by(Invite.created_at.desc()).limit(50).all()
-    return [
-        {
-            "token": i.token,
-            "created_at": i.created_at.isoformat(),
-            "expires_at": i.expires_at.isoformat(),
-            "used": i.used_by is not None,
-            "expired": i.expires_at.replace(tzinfo=timezone.utc) < now if i.expires_at.tzinfo is None else i.expires_at < now,
-        }
-        for i in rows
-    ]
-
-
-class InviteRegisterIn(BaseModel):
-    token: str
-    username: str
-    password: str
-    display_name: str | None = None
-
-
-@router.post("/register-invite", status_code=201)
-def register_invite(data: InviteRegisterIn, response: Response, request: Request, db: Session = Depends(get_db)):
-    """凭邀请链接注册：30min 内、未使用、一链一人"""
-    from app.models.user import Invite
-
-    inv = db.query(Invite).filter(Invite.token == data.token).first()
-    if not inv:
-        raise HTTPException(404, "邀请链接不存在")
-    if inv.used_by is not None:
-        raise HTTPException(410, "这个链接已经被用过了喵~")
-    expires = inv.expires_at if inv.expires_at.tzinfo else inv.expires_at.replace(tzinfo=timezone.utc)
-    if expires < datetime.now(timezone.utc):
-        raise HTTPException(410, "链接过期了，找管理员再要一个喵~")
-
-    username = data.username.strip()
-    if not username or len(data.password) < 6:
-        raise HTTPException(400, "用户名不能为空，密码至少 6 位")
-    if db.query(User).filter(User.username == username).first():
-        raise HTTPException(409, "用户名已存在")
-    _assert_identifiers_free(db, username=username, display_name=(data.display_name or username).strip())
-
-    user = User(
-        username=username,
-        display_name=(data.display_name or username).strip(),
-        password_hash=hash_password(data.password),
-        is_admin=False,
-    )
-    db.add(user)
-    db.flush()
-    inv.used_by = user.id
-    inv.used_at = datetime.now(timezone.utc)
-    _create_session(db, user, request, response, remember=True)
-    db.commit()
-    return _user_out(user)
-
+# Historical invitation/user rows remain for non-destructive migration.
 
 @router.get("/sessions")
 def my_sessions(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db),
@@ -850,8 +713,7 @@ def my_sessions(request: Request, user: User = Depends(current_user), db: Sessio
     raw = request.cookies.get(RT_COOKIE)
     current_hash = hash_refresh(raw) if raw else None
     q = db.query(AuthSession).filter(_active_sessions())
-    if not user.is_admin:
-        q = q.filter(AuthSession.user_id == user.id)
+    q = q.filter(AuthSession.user_id == user.id)
     rows = q.order_by(AuthSession.last_seen.desc(), AuthSession.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     out = []
     for s in rows:
@@ -861,8 +723,8 @@ def my_sessions(request: Request, user: User = Depends(current_user), db: Sessio
             "device": s.device,
             "ip": s.ip,
             "remember": s.remember,
-            "created_at": s.created_at.isoformat(),
-            "last_seen": s.last_seen.isoformat(),
+            "created_at": utc(s.created_at).isoformat(),
+            "last_seen": utc(s.last_seen).isoformat(),
             "current": s.refresh_hash == current_hash,
             "owner": owner.display_name if owner else "?",
             "mine": s.user_id == user.id,
@@ -881,8 +743,7 @@ def _active_sessions():
 def session_history(user: User = Depends(current_user), db: Session = Depends(get_db),
                     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
     q = db.query(AuthSession).filter(~_active_sessions())
-    if not user.is_admin:
-        q = q.filter(AuthSession.user_id == user.id)
+    q = q.filter(AuthSession.user_id == user.id)
     total = q.count()
     rows = q.order_by(AuthSession.created_at.desc(), AuthSession.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return {"items": [{"id": str(s.id), "device": s.device, "ip": s.ip,
@@ -899,7 +760,7 @@ def revoke_session(session_id: UUID, user: User = Depends(current_user), db: Ses
     session = db.get(AuthSession, session_id)
     if not session:
         raise HTTPException(404, "会话不存在")
-    if session.user_id != user.id and not user.is_admin:
+    if session.user_id != user.id:
         raise HTTPException(403, "只能吊销自己的会话")
     session.revoked = True
     db.commit()

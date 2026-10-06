@@ -1,0 +1,2 @@
+<template><section class="not-found"><h1>页面不存在</h1><p>此入口不存在，可能已删除或地址有误。</p><RouterLink to="/">回到主页</RouterLink><RouterLink to="/settings">打开设置</RouterLink></section></template>
+<style scoped>.not-found{padding:40px 20px;text-align:center}h1{font-size:24px}p{margin:20px;color:var(--text-lo)}a{display:inline-block;padding:8px 14px;margin:6px;background:var(--bg-raised);color:var(--accent);border-radius:8px}</style>

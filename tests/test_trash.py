@@ -8,9 +8,7 @@ from app.models.document import Document
 
 @pytest.fixture
 def workspace_id(client):
-    user = client.post("/users/", json={
-        "username": f"user_{uuid4().hex[:8]}", "display_name": "回收站测试"
-    }).json()
+    user = client.get("/auth/me").json()
     ws = client.post("/workspaces/", json={
         "user_id": user["id"], "name": "回收站测试工作区"
     }).json()
@@ -72,20 +70,21 @@ def test_delete_trashed_purges(client, workspace_id):
     assert doc["id"] not in {d["id"] for d in trash}
 
 
-def test_expired_trash_lazy_purged(client, db_session, workspace_id):
-    """超过 30 天的回收站内容：看回收站时被顺手物理清掉（惰性清理）"""
-    doc = make_doc(client, workspace_id, "过期垃圾").json()
-    client.delete(f"/documents/{doc['id']}")
-
-    # 手动把删除时间改成 31 天前
-    row = db_session.get(Document, UUID(doc["id"]))
+def test_expired_trash_readonly_until_explicit_elevated_purge(client, db_session, workspace_id):
+    """GET is read-only even after retention; only explicit elevated purge deletes."""
+    from tests.conftest import ADMIN_PASSWORD
+    doc = make_doc(client, workspace_id, '保留过期回收站').json()
+    assert client.delete(f"/documents/{doc['id']}").status_code == 204
+    row = db_session.get(Document, UUID(doc['id']))
     row.deleted_at = datetime.now() - timedelta(days=31)
-    db_session.commit()
-    db_session.expire_all()
-
-    # 访问回收站 → 触发惰性清理
-    trash = client.get(f"/documents/trash?workspace_id={workspace_id}").json()
-    assert doc["id"] not in {d["id"] for d in trash}
-
-    # 物理上也真没了
-    assert db_session.get(Document, UUID(doc["id"])) is None
+    db_session.commit(); db_session.expire_all()
+    assert client.post('/auth/admin/lock').status_code == 200
+    response = client.get(f'/documents/trash?workspace_id={workspace_id}')
+    assert response.status_code == 200
+    assert doc['id'] in {d['id'] for d in response.json()}
+    assert db_session.get(Document,UUID(doc['id'])) is not None
+    assert client.post(f'/documents/trash/empty?workspace_id={workspace_id}').status_code == 403
+    assert db_session.get(Document,UUID(doc['id'])) is not None
+    assert client.post('/auth/admin/unlock',json={'password':ADMIN_PASSWORD}).status_code == 200
+    assert client.post(f'/documents/trash/empty?workspace_id={workspace_id}').json()['purged'] == 1
+    assert db_session.get(Document,UUID(doc['id'])) is None

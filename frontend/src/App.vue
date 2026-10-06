@@ -1,25 +1,32 @@
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from "vue";
+import { ref, reactive, watch, computed, defineAsyncComponent } from "vue";
 import SideBar from "./shell/SideBar.vue";
 import SettingsPanel from "./shell/SettingsPanel.vue";
+import AdminElevationModal from "./shell/AdminElevationModal.vue";
+import ExternalModuleCache from "./shell/ExternalModuleCache.vue";
+import { loadNavigation, resetNavigation, navigationRows } from "./stores/navigation";
+const CommandPalette = defineAsyncComponent(() => import("./modules/notes/CommandPalette.vue"));
+const commandModules = computed(() => navigationRows.value.filter(row => row.visible).map(row => ({label:row.label,path:row.to})));
 import BgManager from "./modules/home/BgManager.vue";
 import { toasts } from "./composables/useToast";
-import { auth, loggedIn, fetchMe, reportActivity } from "./modules/home/auth";
+import { auth, loggedIn, fetchMe, reportActivity, loadSecurity, clearSecurity } from "./modules/home/auth";
 import { startNotifications, stopNotifications } from "./stores/notifications";
 import { useNotesStore } from "./stores/notes";
 import { useRouter, useRoute } from "vue-router";
 import { onMounted, onUnmounted } from "vue";
 
 const notesStore = useNotesStore();
-watch(() => auth.me?.id, (id, old) => {
-  if (id !== old) {
+watch(() => [auth.me?.id, auth.sessionGeneration, auth.sessionClosing] as const, ([id, session, closing], previous) => {
+  if (id !== previous?.[0] || session !== previous?.[1] || closing !== previous?.[2]) {
     notesStore.resetSession();
+    resetNavigation(); clearSecurity();
+    if (id && !closing) { void loadNavigation(); void loadSecurity().catch(() => {}); }
     if (id) startNotifications(); else stopNotifications();
     let cachedUser: string | undefined;
     try { cachedUser = JSON.parse(localStorage.getItem('stella_bootstrap') || '{}').userId; } catch { /* Invalid cache is discarded below. */ }
     if (!id || cachedUser !== id) localStorage.removeItem('stella_bootstrap');
   }
-}, { flush: 'sync' });
+}, { flush: 'sync', immediate: true });
 const router = useRouter();
 const route = useRoute();
 const notesHop = ref(route.name === 'notes');
@@ -112,14 +119,17 @@ function toggleSidebar() {
 
     <!-- 设置面板（右侧滑出） -->
     <SettingsPanel />
+    <AdminElevationModal />
+    <CommandPalette v-if="loggedIn" :modules="commandModules" />
     <!-- 背景图库浮窗 -->
     <BgManager />
 
     <main class="content" :class="{ flush: flushPage }">
+      <ExternalModuleCache :key="auth.sessionGeneration" />
       <RouterView v-slot="{ Component }">
         <Transition name="fade" :css="!notesHop" :mode="notesHop ? undefined : 'out-in'">
-          <KeepAlive :key="auth.me?.id ?? 'guest'" include="NotesPage" :max="1">
-            <component :is="Component" />
+          <KeepAlive :key="`${auth.me?.id ?? 'guest'}:${auth.sessionGeneration}`" include="NotesPage" :max="1">
+            <component :is="Component" v-if="route.name !== 'external-module'" />
           </KeepAlive>
         </Transition>
       </RouterView>
@@ -158,6 +168,7 @@ function toggleSidebar() {
   height: 100%;
 }
 .content {
+  min-width: 0;
   flex: 1;
   overflow-y: auto;
   padding: 28px 32px;

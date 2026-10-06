@@ -30,10 +30,19 @@ def create_iperf(db: Session, server_node_id: int | None, client_node_id: int,
                   udp=udp, bitrate=bitrate, port=port, window=window,
                   length=length, omit=omit, zerocopy=zerocopy, bytes=bytes,
                   speedtest_server=speedtest_server)
-    db.add(t)
-    db.commit()
-    trim_old(db, IperfTask)
-    db.commit()
+    try:
+        # One global admission lock, shared by every worker/process. No commit
+        # may occur between the active count and inserting the pending task.
+        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": 0x5354454C49504552})
+        if db.query(IperfTask).filter(IperfTask.status.in_(["pending", "running"])).count():
+            raise ValueError("已有打流任务进行中")
+        db.add(t)
+        db.flush()
+        trim_old(db, IperfTask)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(t)
     return t
 

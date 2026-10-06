@@ -18,7 +18,10 @@ from test_server_map import node, snapshot, NOW
 
 @pytest.fixture
 def db():
-    engine = create_engine("sqlite://")
+    from sqlalchemy.pool import StaticPool
+    engine = create_engine('sqlite://',connect_args={'check_same_thread':False,'autocommit':False},poolclass=StaticPool)
+    from app.models.user import User, AuthSession
+    User.__table__.create(engine); AuthSession.__table__.create(engine)
     AppConfig.__table__.create(engine)
     # handle_report 会惰性评估告警规则——需要告警域表（空表即可，无规则早退）
     from app.models.alert import AlertEvent, AlertRule, AlertState, Notification
@@ -88,8 +91,7 @@ def test_get_topology_reads_only_and_routes_auth(db, monkeypatch):
     app = FastAPI()
     app.include_router(monitor.node_router)
     app.dependency_overrides[get_db] = lambda: db
-    user = SimpleNamespace(is_admin=False)
-    app.dependency_overrides[auth.current_user] = lambda: user
+    app.include_router(auth.router)
     # SQLite connection stays on this thread for the read-only service exercise.
     result = server_map.get_topology(db)
     assert result["nodes"][0]["location_source"] == "nat"
@@ -100,15 +102,15 @@ def test_get_topology_reads_only_and_routes_auth(db, monkeypatch):
     save = Mock(return_value=result["nodes"][0])
     monkeypatch.setattr(server_map, "set_manual_location", save)
     client = TestClient(app)
+    assert client.post('/auth/register',json={'username':'mapowner','password':'map-daily-123'}).status_code == 201
+    assert client.post('/auth/admin/setup',json={'user_password':'map-daily-123','new_password':'map-management-independent'}).status_code == 200
     assert client.get("/nodes/map-topology").status_code == 200
     body = dict(latitude=0, longitude=0, label="Origin")
     assert client.patch("/nodes/1/map-location", json=body).status_code == 403
     save.assert_not_called()
-    user.is_admin = True
+    assert client.post('/auth/admin/unlock',json={'password':'map-management-independent'}).status_code == 200
     assert client.patch("/nodes/1/map-location", json=body).status_code == 200
     assert client.patch("/nodes/1/map-location", json=dict(latitude=0, longitude=None)).status_code == 422
-    def deny():
-        raise HTTPException(401, "not logged in")
-    app.dependency_overrides[auth.current_user] = deny
+    assert client.post('/auth/logout').status_code == 200
     assert client.get("/nodes/map-topology").status_code == 401
     assert client.patch("/nodes/1/map-location", json=body).status_code == 401

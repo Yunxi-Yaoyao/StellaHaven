@@ -14,3 +14,5 @@ data/
 !.env.example
 artifacts/
 .local-ha-private/
+/frontend/node_modules
+/upgrade/

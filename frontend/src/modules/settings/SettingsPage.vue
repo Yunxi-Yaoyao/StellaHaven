@@ -1,24 +1,26 @@
 <script setup lang="ts">
-// 设置页：标签页切换（我的资料 / 管理员设置[admin] / 其他），页内切换不新开
-import { ref, computed, onMounted } from "vue";
+// 单用户集中设置；危险操作权限来自服务器会话管理授权。
+import { ref, computed, onMounted, watch } from "vue";
 import { auth, isAdmin, currentAvatar, logout } from "../home/auth";
 import { useRouter, useRoute } from "vue-router";
 import AvatarCropper from "./AvatarCropper.vue";
+import SecuritySettings from "./SecuritySettings.vue";
+import NavigationSettings from "./NavigationSettings.vue";
+import WebsiteSettings from "./WebsiteSettings.vue";
+import SettingsPanel from "../../shell/SettingsPanel.vue";
+import PerformanceSettings from "./PerformanceSettings.vue";
+import ConnectionPanel from "../drive/ConnectionPanel.vue";
+import BuiltinInjectionSettings from "./BuiltinInjectionSettings.vue";
+import { api } from "../../api/client";
 import { getPublicHost, setPublicHost } from "../../api/servers";
 
 const router = useRouter();
 const route = useRoute();
 
 /* ---------- 标签页 ---------- */
-const tab = ref<"profile" | "admin" | "misc">(
-  (route.query.tab as "profile" | "admin" | "misc") || "profile"
-);
-const tabs = computed(() => {
-  const t = [{ key: "profile", label: "我的资料" }];
-  if (isAdmin.value) t.push({ key: "admin", label: "管理员设置" });
-  t.push({ key: "misc", label: "其他" });
-  return t;
-});
+const tab = computed(() => String(route.query.section || (route.query.tab === "admin" ? "services" : route.query.tab === "misc" ? "performance" : "profile")));
+const tabs = [{key:"profile",label:"资料与安全"},{key:"navigation",label:"导航与网站"},{key:"services",label:"服务与通知"},{key:"performance",label:"性能与数据"}];
+function chooseSection(key:string){router.replace({path:"/settings",query:{section:key}}); }
 
 /* ---------- 我的资料 ---------- */
 const editingName = ref(false);
@@ -104,12 +106,12 @@ async function sendMailCode() {
     // 分三种情况给精准提示
     if (isAdmin.value) {
       if (emailSvc.value.configured && !emailSvc.value.enabled) {
-        mailMsg.value = "邮箱服务的开关没开喵~ 去「管理员设置 → Stella 邮箱服务」把开关打开就能用";
+        mailMsg.value = "邮箱服务已配置但未启用，请前往「设置 → 服务与通知」开启 SMTP。";
       } else {
-        mailMsg.value = "邮箱服务还没配置喵~ 你是管理员——去「管理员设置 → Stella 邮箱服务」填上域名/密钥就能用";
+        mailMsg.value = "邮箱服务尚未配置，请前往「设置 → 服务与通知」配置 SMTP。";
       }
     } else {
-      mailMsg.value = "邮箱服务还没配置喵~ 戳管理员让他在「管理员设置 → Stella 邮箱服务」里配置";
+      mailMsg.value = "邮箱服务尚未配置，请前往设置 → 服务与通知。";
     }
     return;
   }
@@ -199,6 +201,8 @@ async function doLogout() {
   router.push("/login");
 }
 
+watch([isAdmin, tab], () => { if (isAdmin.value && tab.value === "services") void loadEmailCfg(); });
+
 /* ---------- 登录记录 ---------- */
 interface SessionRow {
   id: string; device: string; ip: string; remember: boolean;
@@ -232,9 +236,7 @@ function toggleHistory(event: Event) {
   historyOpen.value = (event.target as HTMLDetailsElement).open;
   if (historyOpen.value) void loadHistory();
 }
-// 分组：当前账号 vs 其他账号（admin 可见其他）
-const mineSessions = computed(() => sessions.value.filter((s) => s.mine));
-const otherSessions = computed(() => sessions.value.filter((s) => !s.mine));
+const mineSessions = computed(() => sessions.value);
 
 async function loadSessions() {
   const r = await fetch(`/auth/sessions?page=${activePage.value}&page_size=20`);
@@ -242,9 +244,14 @@ async function loadSessions() {
 }
 
 async function revoke(s: SessionRow) {
-  if (!confirm(`踢下线「${s.owner} 的 ${s.device} · ${s.ip}」？`)) return;
+  revokeTarget.value = s;
+}
+const revokeTarget = ref<SessionRow | null>(null);
+async function confirmRevoke() {
+  const s = revokeTarget.value; if (!s) return;
   const r = await fetch(`/auth/sessions/${s.id}`, { method: "DELETE" });
   if (r.ok) {
+    revokeTarget.value = null;
     sessMsg.value = "已踢下线";
     loadSessions();
     if (historyOpen.value) void loadHistory(1);
@@ -253,65 +260,32 @@ async function revoke(s: SessionRow) {
   }
 }
 
-/* ---------- 管理员设置 ---------- */
-interface UserRow { id: string; username: string; display_name: string; is_admin: boolean; }
-const users = ref<UserRow[]>([]);
-interface InviteRow { token: string; created_at: string; used: boolean; expired: boolean; }
-const invites = ref<InviteRow[]>([]);
-const inviteMsg = ref("");
-
-async function loadUsers() {
-  const r = await fetch("/users/?limit=1000");
-  if (r.ok) users.value = await r.json();
-}
-async function loadInvites() {
-  const r = await fetch("/auth/invites");
-  if (r.ok) invites.value = await r.json();
-}
-async function createInvite() {
-  inviteMsg.value = "";
-  const r = await fetch("/auth/invites", { method: "POST" });
-  if (!r.ok) { inviteMsg.value = "生成失败：" + r.status; return; }
-  const d = await r.json();
-  const full = location.origin + d.url;
-  try {
-    await navigator.clipboard.writeText(full);
-    inviteMsg.value = `链接已复制（30 分钟内有效）：${full}`;
-  } catch {
-    inviteMsg.value = `链接（30 分钟内有效）：${full}`;
-  }
-  loadInvites();
-}
-
 /* ---------- Stella 邮箱服务（admin） ---------- */
 const emailCfg = ref({ host: "", port: 465, username: "", password: "", from_name: "StellaHaven 港务局", enabled: false });
 const emailMsg = ref("");
+const emailLoaded = ref(false), emailBusy = ref(false), smtpPassword = ref(""), smtpHasPassword = ref(false);
 const testTo = ref("");
 const testMsg = ref("");
 
 async function loadEmailCfg() {
-  const r = await fetch("/admin/email/config");
-  if (r.ok) emailCfg.value = await r.json();
+  if (emailBusy.value) return; emailBusy.value = true;
+  try { emailCfg.value = await api("/admin/email/config"); smtpHasPassword.value = !!emailCfg.value.password; smtpPassword.value = ""; emailLoaded.value = true; return true; } catch { emailMsg.value = "邮箱配置读取失败"; return false; }
+  finally { emailBusy.value = false; }
 }
 async function saveEmailCfg() {
-  emailMsg.value = "";
-  const r = await fetch("/admin/email/config", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(emailCfg.value),
-  });
-  emailMsg.value = r.ok ? "配置已保存" : "保存失败：" + r.status;
+  if (!emailLoaded.value || emailBusy.value) return;
+  emailMsg.value = ""; emailBusy.value = true;
+  try {
+    await api("/admin/email/config", {method:"PUT",body:JSON.stringify({...emailCfg.value,password:smtpPassword.value || (smtpHasPassword.value ? "••••••" : "")})});
+    emailBusy.value=false; if (!await loadEmailCfg()) throw new Error("配置回读失败"); emailMsg.value = "配置已保存";
+  } catch { emailMsg.value = "未保存，请重试"; }
+  finally { smtpPassword.value = ""; emailBusy.value = false; }
 }
 async function sendTestMail() {
   testMsg.value = "";
-  if (!testTo.value.includes("@")) { testMsg.value = "先填收件邮箱喵~"; return; }
-  const r = await fetch("/admin/email/test", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to: testTo.value }),
-  });
-  const d = await r.json();
-  testMsg.value = r.ok ? `已发往 ${d.to}，去收件箱看看喵~` : (d.detail ?? "发送失败");
+  if (!testTo.value.includes("@")) { testMsg.value = "请填写收件邮箱"; return; }
+  try { await api("/admin/email/test",{method:"POST",body:JSON.stringify({to:testTo.value})}); testMsg.value="测试邮件已提交发送"; }
+  catch {testMsg.value="测试邮件未发送";}
 }
 
 function fmtTime(iso: string) {
@@ -349,7 +323,7 @@ onMounted(() => {
   loadSessions();
   loadAvatarHistory();
   loadPublicHost();
-  if (isAdmin.value) { loadUsers(); loadInvites(); loadEmailCfg(); }
+  if (isAdmin.value && tab.value === "services") loadEmailCfg();
 });
 </script>
 
@@ -365,12 +339,13 @@ onMounted(() => {
           :key="t.key"
           class="tab"
           :class="{ on: tab === t.key }"
-          @click="tab = t.key as any"
+          @click="chooseSection(t.key)"
         >{{ t.label }}</button>
       </div>
 
       <!-- ═══ 我的资料 ═══ -->
       <template v-if="tab === 'profile'">
+        <SecuritySettings />
         <section class="card">
           <div class="me-row">
             <button class="me-avatar-btn" title="点我换头像" @click="cropperOpen = true">
@@ -387,7 +362,7 @@ onMounted(() => {
                 <button class="mini" @click="saveName">存</button>
                 <button class="mini" @click="editingName = false">取消</button>
               </div>
-              <div class="me-sub">@{{ auth.me?.username }} · {{ auth.me?.is_admin ? "管理员" : "成员" }}</div>
+              <div class="me-sub">@{{ auth.me?.username }} · 单用户</div>
               <div class="me-sub">
                 📮 {{ auth.me?.email || "未绑定邮箱" }}
                 <span v-if="auth.me?.email" class="mail-badge" :class="auth.me?.email_verified ? 'ok' : 'pending'">
@@ -421,7 +396,7 @@ onMounted(() => {
         </section>
 
         <section class="card">
-          <div class="sec-t">登录记录 <span class="sec-sub">{{ isAdmin ? "管理员可看全部、踢任意" : "只能踢自己的" }}</span></div>
+          <div class="sec-t">登录记录 <span class="sec-sub">自己的登录设备与历史</span></div>
           <div v-if="sessMsg" class="ok-msg">{{ sessMsg }}</div>
           <template v-if="mineSessions.length">
             <div class="sess-group">当前账号</div>
@@ -433,17 +408,6 @@ onMounted(() => {
               </div>
               <div class="sess-sub">{{ s.ip || "局域网" }} · 登录 {{ fmtTime(s.created_at) }} · 最近活动 {{ fmtTime(s.last_seen) }}</div>
               <button v-if="!s.current" class="mini danger" @click="revoke(s)">踢下线</button>
-            </div>
-          </template>
-          <template v-if="otherSessions.length">
-            <div class="sess-group">其他账号</div>
-            <div v-for="s in otherSessions" :key="s.id" class="sess-row">
-              <div class="sess-main">
-                <span class="sess-device">{{ s.device }}</span>
-                <span class="rem">{{ s.owner }}</span>
-              </div>
-              <div class="sess-sub">{{ s.ip || "局域网" }} · 登录 {{ fmtTime(s.created_at) }} · 最近活动 {{ fmtTime(s.last_seen) }}</div>
-              <button class="mini danger" @click="revoke(s)">踢下线</button>
             </div>
           </template>
           <div v-if="!sessions.length" class="hint">暂无会话</div>
@@ -472,56 +436,8 @@ onMounted(() => {
       </template>
 
       <!-- ═══ 管理员设置 ═══ -->
-      <template v-else-if="tab === 'admin'">
-        <section class="card">
-          <div class="sec-t">用户列表</div>
-          <div v-for="u in users" :key="u.id" class="user-row">
-            <span class="u-name">{{ u.display_name }}</span>
-            <span class="u-sub">@{{ u.username }}</span>
-            <span v-if="u.is_admin" class="u-admin">admin</span>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="sec-t">邀请新用户</div>
-          <div class="hint">注册通道已关闭——新用户只能靠邀请链接：30 分钟有效、一个链接只进一个人。</div>
-          <button class="btn" style="margin-top:10px" @click="createInvite">生成注册链接</button>
-          <div v-if="inviteMsg" class="ok-msg">{{ inviteMsg }}</div>
-          <div v-for="i in invites" :key="i.token" class="sess-row">
-            <div class="sess-main">
-              <span class="sess-device">/invite/{{ i.token.slice(0, 8) }}…</span>
-              <span v-if="i.used" class="cur">已使用</span>
-              <span v-else-if="i.expired" class="rem">已过期</span>
-              <span v-else class="cur">可用</span>
-            </div>
-            <div class="sess-sub">{{ fmtTime(i.created_at) }} 生成</div>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="sec-t">Stella 邮箱服务 <span class="sec-sub">网站外发邮件（重置密码验证码等）</span></div>
-          <div class="field-row">
-            <span class="f-label">开关</span>
-            <button class="switch" :class="{ on: emailCfg.enabled }" role="switch" @click="emailCfg.enabled = !emailCfg.enabled"><i /></button>
-            <span class="f-hint">开启后启用邮箱认证登录 / 忘记密码</span>
-          </div>
-          <div class="field-row"><span class="f-label">域名</span><input v-model="emailCfg.host" class="input" placeholder="smtp.example.com" /></div>
-          <div class="field-row"><span class="f-label">端口</span><input v-model.number="emailCfg.port" type="number" class="input" placeholder="465" /></div>
-          <div class="field-row"><span class="f-label">账号</span><input v-model="emailCfg.username" class="input" placeholder="noreply@xiya.live" /></div>
-          <div class="field-row"><span class="f-label">密钥</span><input v-model="emailCfg.password" type="password" class="input" placeholder="SMTP 密码 / 授权码" /></div>
-          <div class="field-row"><span class="f-label">签名</span><input v-model="emailCfg.from_name" class="input" placeholder="StellaHaven 港务局" /></div>
-          <button class="btn" @click="saveEmailCfg">保存配置</button>
-          <div v-if="emailMsg" class="ok-msg">{{ emailMsg }}</div>
-          <div class="mail-test">
-            <input v-model="testTo" class="input" placeholder="测试收件邮箱" />
-            <button class="btn" @click="sendTestMail">发送测试邮件</button>
-          </div>
-          <div v-if="testMsg" class="ok-msg">{{ testMsg }}</div>
-        </section>
-      </template>
-
-      <!-- ═══ 其他 ═══ -->
-      <template v-else>
+      <template v-else-if="tab === 'navigation'"><NavigationSettings /><WebsiteSettings /><SettingsPanel v-if="route.query.module === 'home'" embedded /><div class="btn-row"><RouterLink :to="{path:'/settings',query:{section:'navigation',module:'home'}}">主页外观</RouterLink><RouterLink :to="{path:'/settings',query:{section:'navigation',module:'drive'}}">OpenList 接入</RouterLink><RouterLink :to="{path:'/settings',query:{section:'navigation',module:'gallery'}}">Immich / OIDC 接入</RouterLink></div><ConnectionPanel v-if="route.query.module === 'drive' || route.query.module === 'gallery'" :key="String(route.query.module)" :kind="route.query.module === 'drive' ? 'drive' : 'gallery'" /><BuiltinInjectionSettings v-if="route.query.module === 'drive' || route.query.module === 'gallery'" :key="'injection-'+String(route.query.module)" :site="route.query.module === 'drive' ? 'drive' : 'gallery'" /></template>
+      <template v-else-if="tab === 'services'">
         <section class="card">
           <div class="sec-t">公网地址 <span class="sec-sub">给远程服务器装 agent 时用</span></div>
           <div class="field-row">
@@ -532,14 +448,35 @@ onMounted(() => {
           <div class="hint">没填的话，给远程机器复制安装命令时会提示「未设置公网 IP/域名喵~」</div>
           <div v-if="publicHostMsg" class="ok-msg">{{ publicHostMsg }}</div>
         </section>
-
+        <section class="card"><h2 class="sec-t">通知与已有 OIDC</h2><p class="hint">站内通知统一通过侧栏铃铛查看。邮件通知复用下方 SMTP 服务。Immich 保留原域名、原账号及已配置的 OIDC；Stella 不保存原服务密码。</p><div class="btn-row"><RouterLink :to="{path:'/settings',query:{section:'navigation',module:'gallery'}}">Immich / OIDC 接入</RouterLink><RouterLink to="/status?view=alerts">查看节点告警规则</RouterLink></div></section>
         <section class="card">
-          <div class="sec-t">其他</div>
-          <div class="hint">通用设置以后搬来这里。现在先去主页齿轮里玩主题和背景图喵~</div>
+          <div class="sec-t">Stella 邮箱服务 <span class="sec-sub">网站外发邮件（重置密码验证码等）</span></div>
+          <button v-if="!emailLoaded" class="btn" :disabled="emailBusy" @click="loadEmailCfg">读取 SMTP 配置</button>
+          <template v-if="emailLoaded"><div class="smtp-fields">
+          <div class="field-row">
+            <span class="f-label">开关</span>
+            <button class="switch" :class="{ on: emailCfg.enabled }" role="switch" @click="emailCfg.enabled = !emailCfg.enabled"><i /></button>
+            <span class="f-hint">开启后启用邮箱认证登录 / 忘记密码</span>
+          </div>
+          <div class="field-row"><span class="f-label">域名</span><input v-model="emailCfg.host" aria-label="SMTP 服务地址" class="input" placeholder="smtp.example.com" /></div>
+          <div class="field-row"><span class="f-label">端口</span><input v-model.number="emailCfg.port" type="number" class="input" placeholder="465" /></div>
+          <div class="field-row"><span class="f-label">账号</span><input v-model="emailCfg.username" class="input" placeholder="noreply@xiya.live" /></div>
+          <div class="field-row"><span class="f-label">密钥</span><input v-model="smtpPassword" type="password" aria-label="SMTP 密钥" class="input" :placeholder="smtpHasPassword ? '已保存 · 留空不修改' : 'SMTP 密码 / 授权码'" autocomplete="new-password" /></div>
+          <div class="field-row"><span class="f-label">签名</span><input v-model="emailCfg.from_name" class="input" placeholder="StellaHaven 港务局" /></div>
+          </div><button class="btn" :disabled="emailBusy" @click="saveEmailCfg">应用 SMTP 配置</button>
+
+          <div class="mail-test">
+            <input v-model="testTo" class="input" placeholder="测试收件邮箱" />
+            <button class="btn" @click="sendTestMail">发送测试邮件</button>
+          </div>
+          <div v-if="testMsg" class="ok-msg">{{ testMsg }}</div></template><p v-if="emailMsg" role="status">{{emailMsg}}</p>
         </section>
       </template>
+
+      <template v-else><PerformanceSettings /></template>
     </div>
 
+    <Teleport to="body"><div v-if="revokeTarget" class="mini-mask" @click.self="revokeTarget = null"><section class="mini-pop" role="dialog" aria-label="确认下线设备"><h2>确认下线 {{ revokeTarget.device }}？</h2><p>此设备需要重新登录。</p><div class="mp-actions"><button class="btn ghost" @click="revokeTarget = null">取消</button><button class="btn" @click="confirmRevoke">确认下线</button></div></section></div></Teleport>
     <AvatarCropper v-if="cropperOpen" @close="cropperOpen = false" @done="onAvatarDone" />
 
     <!-- 修改密码浮窗 -->
@@ -593,11 +530,12 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.page { height: 100%; overflow-y: auto; padding: 40px 24px 60px; }
-.wrap { max-width: 640px; margin: 0 auto; }
+.page { min-height:100%; padding: 8px 0 32px; min-width:0; }
+.smtp-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin:14px 0}.smtp-fields .field-row{margin:0}@media(max-width:650px){.smtp-fields{grid-template-columns:1fr}}
+.wrap { max-width: 1040px; margin: 0 auto; min-width:0; }
 .h1 { font-size: 24px; font-weight: 600; color: var(--text-hi); letter-spacing: 3px; margin-bottom: 20px; }
 
-.tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+.tabs { display: flex; flex-wrap:wrap; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.07); }
 .tab {
   padding: 9px 18px;
   border: none;

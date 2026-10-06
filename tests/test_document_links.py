@@ -6,9 +6,7 @@ import pytest
 @pytest.fixture
 def two_docs(client):
     """建 user → workspace → 两篇文档，返回 (source_id, target_id)"""
-    user = client.post("/users/", json={
-        "username": f"user_{uuid4().hex[:8]}", "display_name": "链接测试"
-    }).json()
+    user = client.get("/auth/me").json()
     ws = client.post("/workspaces/", json={
         "user_id": user["id"], "name": "链接测试工作区"
     }).json()

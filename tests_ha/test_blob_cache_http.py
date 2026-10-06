@@ -29,6 +29,7 @@ def live(tmp_path, monkeypatch):
     from fastapi import FastAPI
     from app.database import get_db
     from app.models import User, AuthSession, Workspace, Document, Attachment, BlobObject, BlobChunk
+    from app.models.config import AppConfig
     from app.routers.attachment import router
     from app.routers.dynamic_assets import router as assets
     from app.security import make_access_token
@@ -47,12 +48,13 @@ def live(tmp_path, monkeypatch):
         connect_args['options'] += f' -csearch_path={schema} -capplication_name={schema}'
         return create_engine(url, connect_args=connect_args)
     engine = build_test_engine(dsn, guard_env, factory=schema_engine)
-    tables = (User, AuthSession, Workspace, Document, Attachment, BlobObject, BlobChunk)
+    tables = (User, AuthSession, Workspace, Document, Attachment, BlobObject, BlobChunk, AppConfig)
     for model in tables:
         model.__table__.create(engine)
     payload = b'http-pg-cache-regression-'*65536
     with Session(engine) as db:
-        user = User(username='cachetest', display_name='Cache')
+        from app.security import hash_password
+        user = User(username='cachetest', display_name='Cache', password_hash=hash_password('cache-daily-123'))
         db.add(user); db.flush()
         auth = AuthSession(user_id=user.id, refresh_hash=uuid4().hex)
         ws = Workspace(user_id=user.id, name='Test')
@@ -72,6 +74,14 @@ def live(tmp_path, monkeypatch):
             yield db
     app.dependency_overrides[get_db] = get_test_db
     app.include_router(router); app.include_router(assets)
+    from app.routers.auth import router as auth_router
+    from fastapi.testclient import TestClient
+    app.include_router(auth_router)
+    with TestClient(app) as login:
+        assert login.post('/auth/login',json={'username':'cachetest','password':'cache-daily-123'}).status_code == 200
+        assert login.post('/auth/admin/setup',json={'user_password':'cache-daily-123','new_password':'cache-management-independent'}).status_code == 200
+        assert login.post('/auth/admin/unlock',json={'password':'cache-management-independent'}).status_code == 200
+        token = login.cookies.get('stella_at')
     started, release = threading.Event(), threading.Event()
     state = {'slow':False, 'checkedout':None}
     class Gate:

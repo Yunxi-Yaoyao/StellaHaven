@@ -45,9 +45,10 @@ from alembic.script import ScriptDirectory
 # 过渡期容忍：forward-compatible 迁移（纯新增）时，运行中的旧镜像 heads == previous 也算健康；
 # DB 必须已到目标 revision（下面 alembic_version 检查不变），候选新镜像 heads == revision。
 allowed = {p['revision']}
-if p.get('previous'):
+if p.get('previous') and not p.get('target'):
     allowed.add(p['previous'])
-if not set(ScriptDirectory.from_config(Config('/app/alembic.ini')).get_heads()) <= allowed:
+heads = set(ScriptDirectory.from_config(Config('/app/alembic.ini')).get_heads())
+if not heads or not heads <= allowed or (p.get('target') and heads != {p['revision']}):
     raise ValueError('image schema revision mismatch')
 client=urllib.request.build_opener(urllib.request.ProxyHandler({}))
 def http(url):
@@ -72,7 +73,10 @@ assert sum(roles.values())==1
 if p.get('expected_roles') is not None: assert roles==p['expected_roles']
 root=Path('/app/data').resolve()
 raw=(root/'manifest.json').read_bytes()
-assert hashlib.sha256(raw).hexdigest()==p['manifest']
+manifest=hashlib.sha256(raw).hexdigest()
+allowed_manifests={p['manifest']}
+if not p.get('target') and p.get('previous_manifest'): allowed_manifests.add(p['previous_manifest'])
+assert manifest in allowed_manifests
 files=json.loads(raw)['files']; assert isinstance(files,dict) and files
 for name,record in files.items():
     path=root/name
@@ -80,9 +84,18 @@ for name,record in files.items():
     assert path.resolve().is_relative_to(root) and path.is_file() and not path.is_symlink()
     assert path.stat().st_size==record['size']
     with path.open('rb') as f: assert hashlib.file_digest(f,'sha256').hexdigest()==record['sha256']
+if p.get('receipt_dir'):
+    assert p['receipt_dir']=='/app/data/backup-receipts'
+    receipt_root=root/'backup-receipts'
+    assert receipt_root.is_dir() and not receipt_root.is_symlink()
+    receipts={name for name in files if name.startswith('backup-receipts/') and name.endswith('.json')}
+    assert receipts and len(receipts)<=64
+    assert all(len(Path(name).parts)==2 and 0<files[name]['size']<=65536 for name in receipts)
+    actual_receipts={'backup-receipts/'+entry.name for entry in receipt_root.iterdir()}
+    assert actual_receipts==receipts
 signing=hashlib.sha256(Path('/data/secret_key').read_text().strip().encode()).hexdigest()
 assert signing==p['signing']
-result=dict(roles=roles,manifest=p['manifest'],signing=signing,revision=p['revision'])
+result=dict(roles=roles,manifest=manifest,signing=signing,revision=p['revision'])
 if p.get('port'):
     live,_=http('http://127.0.0.1:'+str(p['port'])+'/live')
     ready,_=http('http://127.0.0.1:'+str(p['port'])+'/ready-primary')
@@ -110,6 +123,50 @@ def validate_environment(env):
     require(not any('\n' in k or '\n' in v or '\r' in v for k,v in env.items()), 'unsafe env-file value')
 
 
+APPLICATION_ENV_KEYS = frozenset({
+    'STELLA_TRUSTED_ORIGINS', 'STELLA_MAIN_ORIGIN', 'STELLA_OWNER_ID',
+    'STELLA_COOKIE_SECURE', 'STELLA_AGENT_ROLLOUT_VERSION', 'STELLA_BACKUP_RECEIPT_DIR',
+})
+
+
+def validate_application_env_overrides(overrides):
+    require(isinstance(overrides, dict) and set(overrides) == APPLICATION_ENV_KEYS,
+            'application environment must contain exactly approved fields')
+    require(all(isinstance(v, str) and v and not any(c in v for c in '\n\r\x00')
+                for v in overrides.values()), 'application environment values invalid')
+    public = {'https://stella.xiya.live', 'https://stella.yunxi.life'}
+    health = {'http://127.0.0.1:25131', 'http://127.0.0.1:25132'}
+    origins = overrides['STELLA_TRUSTED_ORIGINS'].split(',')
+    require(len(origins) == len(set(origins)) and health <= set(origins) and
+            set(origins) <= public | health and bool(public.intersection(origins)),
+            'application trusted origins must be exact owned HTTPS and loopback health authorities')
+    require(overrides['STELLA_MAIN_ORIGIN'] in public.intersection(origins),
+            'application main origin must be a trusted owned HTTPS origin')
+    owner = overrides['STELLA_OWNER_ID']
+    require(re.fullmatch('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', owner)
+            and uuid.UUID(owner).int != 0, 'application owner must be an exact nonzero UUID')
+    require(overrides['STELLA_COOKIE_SECURE'] == 'true', 'application secure cookies required')
+    require(overrides['STELLA_AGENT_ROLLOUT_VERSION'] in {'0.6.9', '0.6.10'},
+            'application agent rollout version rejected')
+    require(overrides['STELLA_BACKUP_RECEIPT_DIR'] == '/app/data/backup-receipts',
+            'application receipts must use the existing read-only model bundle')
+    return overrides
+
+
+def validate_receipt_bundle(mounts):
+    data = [m for m in mounts if m['Destination'] == '/app/data']
+    require(len(data) == 1 and data[0]['RW'] is False, 'receipt bundle must be read-only')
+    source = Path(data[0]['Source'])
+    require(str(source).startswith(BASE) and '..' not in source.parts,
+            'receipt bundle outside approved base')
+    receipt = source / 'backup-receipts'
+    for part in [*reversed(receipt.parents), receipt]:
+        require(not part.is_symlink() and part.is_dir(), 'receipt bundle directory chain invalid')
+        info = part.stat()
+        require(info.st_uid == 0 and not info.st_mode & 0o022,
+                'receipt bundle chain must be root-owned and not group/world writable')
+
+
 def same_image_content(a, b):
     """Engine IDs may identify index/manifest/config; compare resolved content."""
     keys = ('RootFS', 'Config', 'Architecture', 'Os')
@@ -124,14 +181,24 @@ class Node:
         self.inv = request['inventory']
         require(self.inv.get('scope') == 'stella-production-app-v1' and self.inv.get('forward_compatible') is True, 'inventory approval required')
         self.cfg = self.inv['nodes'][self.node]
+        if request.get('op') == 'release':
+            require('application_env_overrides' in self.cfg, 'application upgrade approval required')
+        require('target_mounts' not in self.cfg, 'target mounts unsupported; retain exact old mount inventory')
+        if 'application_env_overrides' in self.cfg:
+            validate_application_env_overrides(self.cfg['application_env_overrides'])
         require(self.cfg['host'] == NODES[self.node], 'node address mismatch')
         self.name = 'stella-app-shadow-' + self.node
         self.expected = request.get('expected_roles')
+        self.target_names = set()
 
     def inspect(self, name):
         return json.loads(run(['docker','inspect',name]))[0]
 
-    def validate(self, c, name=None, port=25131, replacement=False):
+    def application_environment_matches(self, c):
+        env = dict(row.split('=', 1) for row in c['Config'].get('Env', []))
+        return all(env.get(k) == v for k,v in self.cfg.get('application_env_overrides', {}).items())
+
+    def validate(self, c, name=None, port=25131, replacement=False, approved_environment=False):
         require(c['Name'] == '/' + (name or self.name) and c['State']['Running'], 'app name/state mismatch')
         cfg, host = c['Config'], c['HostConfig']
         require(cfg.get('Entrypoint') == ['/app/.venv/bin/python'] and cfg.get('WorkingDir') == '/app', 'entrypoint/workdir mismatch')
@@ -139,6 +206,10 @@ class Node:
         env = dict(x.split('=',1) for x in cfg['Env'])
         validate_environment(env)
         require(len(env) == len(cfg['Env']), 'duplicate environment')
+        if approved_environment or port == 25132:
+            require(self.application_environment_matches(c), 'approved application environment mismatch')
+            if 'application_env_overrides' in self.cfg:
+                validate_receipt_bundle(self.cfg['mounts'])
         for k,v in {'POSTGRES_HOST':'127.0.0.1','POSTGRES_PORT':'24532','POSTGRES_DB':'stella',
                     'STELLA_HA_MODE':'primary-only','STELLA_BLOB_STORAGE':'postgres','STELLA_SHARED_STATE':'postgres',
                     'STELLA_PATRONI_URL':'http://' + NODES[self.node] + ':24808'}.items():
@@ -181,9 +252,12 @@ class Node:
         return pg['Id']
 
     def probe(self, name=None, port=25131, expected=True):
+        target = (name or self.name) in self.target_names
         data = {'node':self.node,'port':port,'revision':self.inv['schema_revision'],
                 'previous':self.inv.get('previous_schema_revision'),
                 'manifest':self.inv['manifest_sha256'],'signing':self.inv['signing_sha256'],
+                'target':target, 'previous_manifest':self.inv.get('previous_manifest_sha256'),
+                'receipt_dir':self.cfg.get('application_env_overrides', {}).get('STELLA_BACKUP_RECEIPT_DIR') if target else None,
                 'expected_roles':self.expected if expected else None}
         return json.loads(run(['docker','exec','-i',name or self.name,'/app/.venv/bin/python','-c',PROBE],json.dumps(data),timeout=90))
 
@@ -220,14 +294,22 @@ class Node:
         for k,v in (old['Config'].get('Labels') or {}).items():
             args += ['--label',k+'='+v]
         args += [image_id,'-c',START,str(port)]
-        return run(args, '\n'.join(old['Config']['Env'])+'\n')
+        env = dict(row.split('=', 1) for row in old['Config']['Env'])
+        require(len(env) == len(old['Config']['Env']), 'duplicate environment')
+        if 'application_env_overrides' in self.cfg:
+            env.update(validate_application_env_overrides(self.cfg['application_env_overrides']))
+            validate_receipt_bundle(self.cfg['mounts'])
+        validate_environment(env)
+        return run(args, '\n'.join(k+'='+v for k,v in env.items())+'\n')
 
     def image_matches(self, container_image, expected_info):
         actual = json.loads(run(['docker','image','inspect',container_image]))[0]
         return actual.get('Id') == expected_info.get('Id') and same_image_content(actual, expected_info)
 
     def release(self):
+        self.target_names = set()
         old = self.inspect(self.name)
+        old_environment = tuple(old['Config'].get('Env', []))
         new_style = old['Config'].get('Cmd') == ['-c',START,'25131']
         self.validate(old,replacement=new_style)
         self.pg_id = self.pg_guard()
@@ -248,7 +330,10 @@ class Node:
         require(image in info.get('RepoDigests',[]), 'pulled digest identity missing')
         self.guard()
         base = dict(node=self.node,digest=image,image_id=image_id,previous_id=old['Id'],roles=initial['roles'])
-        if self.image_matches(old['Image'], info):
+        if (self.image_matches(old['Image'], info) and self.application_environment_matches(old)
+                and initial['manifest'] == self.inv['manifest_sha256']):
+            self.target_names.add(self.name)
+            self.validate(old,replacement=new_style,approved_environment=True)
             return dict(base,status='unchanged',container_id=old['Id'],http=self.health(self.name,25131)['http'])
         suffix = uuid.uuid4().hex[:12]
         candidate, backup = self.name+'-candidate-'+suffix, self.name+'-rollback-'+suffix
@@ -258,6 +343,7 @@ class Node:
             self.guard()
             stage = 'candidate-create'
             candidate_id = self.create(old,candidate,image_id,25132)
+            self.target_names.add(candidate)
             self.action('start',candidate)
             self.validate(self.inspect(candidate),candidate,25132,True)
             require(self.image_matches(self.inspect(candidate)['Image'], info), 'candidate local image mismatch')
@@ -275,9 +361,10 @@ class Node:
             self.guard(candidate)
             stage = 'stable-create'
             replacement_id = self.create(old,self.name,image_id,25131)
+            self.target_names.add(self.name)
             self.action('start',replacement_id,probe_name=candidate)
             stage = 'stable-validate'
-            live = self.validate(self.inspect(self.name),replacement=True)
+            live = self.validate(self.inspect(self.name),replacement=True,approved_environment=True)
             require(self.image_matches(live['Image'], info), 'replacement image mismatch')
             stage = 'stable-health'
             health = self.health(self.name,25131)
@@ -288,6 +375,7 @@ class Node:
             # Backup intentionally retained even after commit; no broad cleanup.
             return dict(base,status='deployed',container_id=live['Id'],http=health['http'],backup=backup)
         except Exception as original_error:
+            self.target_names.discard(self.name)
             # Rollback must be possible even after role drift. No PG operation.
             # Remove ONLY IDs created by this attempt, never a namesake unknown ID.
             try:
@@ -302,6 +390,7 @@ class Node:
                     run(['docker','start',old['Id']])
                     restored = self.validate(self.inspect(self.name),replacement=new_style)
                     require(restored['Id'] == old['Id'] and restored['Image'] == old['Image'], 'rollback identity failed')
+                    require(tuple(restored['Config'].get('Env', [])) == old_environment, 'rollback environment changed')
                     health = self.health(self.name,25131,expected=False)
                 else:
                     health = self.health(self.name,25131,expected=False)
@@ -314,10 +403,14 @@ class Node:
     def execute(self):
         if self.r['op'] == 'probe':
             c = self.inspect(self.name)
-            self.validate(c,replacement=c['Config'].get('Cmd') == ['-c',START,'25131'])
+            target = self.r.get('target') is True
+            if target:
+                self.target_names.add(self.name)
+            self.validate(c,replacement=c['Config'].get('Cmd') == ['-c',START,'25131'],approved_environment=target)
             self.pg_guard()
             result = self.probe()
-            return dict(result,status='healthy',node=self.node,primary=result['roles'][self.node],container_id=c['Id'],image_id=c['Image'])
+            return dict(result,status='healthy',node=self.node,primary=result['roles'][self.node],container_id=c['Id'],image_id=c['Image'],
+                        application_environment_matches=self.application_environment_matches(c))
         require(self.r['op'] == 'release', 'operation rejected')
         # Host-local lock prevents other release jobs/processes from overlapping.
         # CI additionally serializes the entire two-node transaction.

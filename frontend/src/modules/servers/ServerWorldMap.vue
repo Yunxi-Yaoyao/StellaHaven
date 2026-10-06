@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core';
+import type { ECharts, SeriesOption } from 'echarts';
+import { LinesChart, ScatterChart } from 'echarts/charts';
+import { GeoComponent, TooltipComponent } from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+echarts.use([LinesChart, ScatterChart, GeoComponent, TooltipComponent, CanvasRenderer]);
 import Icon from '../../shell/Icon.vue';
 import { isAdmin } from '../home/auth';
 import { getMapTopology, updateMapLocation, type MapTopology, type MapNode, type MapLinkState } from '../../api/serverMap';
@@ -27,7 +32,7 @@ const visibleLinks = computed(() => (topology.value?.links ?? []).filter(l => se
 const stateLabels: Record<MapLinkState, string> = { recent: '近期握手', stale: '握手过期', never: '从未握手', unknown: '握手未知' };
 const sourceLabels = { manual: '人工位置', nat: '公网出口推断', unknown: '位置未知' };
 const statusLabels: Record<string, string> = { online: '在线', offline: '离线', pending: '待报到', removed: '已移除' };
-let chart: echarts.ECharts | undefined;
+let chart: ECharts | undefined;
 let observer: ResizeObserver | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
 let controller: AbortController | undefined;
@@ -91,7 +96,7 @@ function render() {
       }
     });
   }
-  const series: echarts.SeriesOption[] = (['ok', 'degraded', 'failed', 'unknown'] as const).map(health => ({
+  const series: SeriesOption[] = (['ok', 'degraded', 'failed', 'unknown'] as const).map(health => ({
     id: `wg-${health}`, type: 'lines', coordinateSystem: 'geo', z: 2,
     lineStyle: { color: healthColors[health], width: 1.5, opacity: 0.75, curveness: 0.16, type: health === 'unknown' ? 'dashed' : 'solid' },
     effect: { show: false }, emphasis: { lineStyle: { width: 2, opacity: 0.9 } },

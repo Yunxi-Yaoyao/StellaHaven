@@ -1,25 +1,7 @@
-from uuid import UUID
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+"""Retained import compatibility only; single-owner mode exposes no user CRUD API.
 
-from app.database import get_db
-from app.routers.auth import admin_user
-from app.schemas.user import UserCreate, UserRead
-from app.services.user import get_user, list_users, create_user
+Do not delete legacy User rows, IDs, foreign keys, workspaces, or invites.
+"""
+from fastapi import APIRouter
 
-router = APIRouter(dependencies=[Depends(admin_user)], prefix="/users", tags=["users"])
-
-
-@router.get("/{user_id}", response_model=UserRead)
-def read_one(user_id: UUID, db: Session = Depends(get_db)):
-    return get_user(db, user_id)
-
-
-@router.get("/", response_model=list[UserRead])
-def read_all(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
-    return list_users(db, skip, limit)
-
-
-@router.post("/", response_model=UserRead, status_code=201)
-def create_one(data: UserCreate, db: Session = Depends(get_db)):
-    return create_user(db, data)
+router = APIRouter(prefix='/users', tags=['users'])

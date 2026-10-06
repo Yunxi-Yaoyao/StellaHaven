@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, defineAsyncComponent } from "vue";
 
 /* ================= 签名（信纸上的字） ================= */
 const signature = computed(() => homeSettings.signature);
@@ -29,7 +29,7 @@ function setBg() {
 }
 
 /* ================= Live2D 挂件（Miku，戳她播报今日塔罗） ================= */
-import Live2dWidget from "../Live2dWidget.vue";
+const Live2dWidget = defineAsyncComponent(() => import("../Live2dWidget.vue"));
 
 const tarotBubble = ref(false);
 let bubbleTimer: ReturnType<typeof setTimeout> | null = null;

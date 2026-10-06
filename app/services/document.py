@@ -47,22 +47,40 @@ def create_document(db: Session, data: DocumentCreate) -> Document:
     return doc
 
 
-def update_document(db: Session, doc_id: UUID, data: DocumentUpdate) -> Document:
-    doc = get_by_id(db, doc_id)
-    if doc is None:
+def update_document(db: Session, doc_id: UUID, data: DocumentUpdate, *, force_version: bool = False) -> Document:
+    if 'parent_id' in data.model_fields_set:
+        # Serialize competing A->B / B->A moves before locking either document.
+        workspace_id = db.query(Document.workspace_id).filter(Document.id == doc_id).scalar()
+        if workspace_id is not None:
+            from app.services.notes_tools import lock_key
+            lock_key(db, 'document-tree:' + str(workspace_id))
+    doc = db.query(Document).filter(Document.id == doc_id).populate_existing().with_for_update().first()
+    if doc is None or doc.deleted_at is not None:
         raise ValueError("Document not found")
+    if doc.updated_at != data.updated_at:
+        raise ValueError("Conflict")
     # 循环引用防护：新父级不能是自己或自己的后代（A挂B下、B挂A下 → 树成环）
     if data.parent_id is not None:
         cur = get_by_id(db, data.parent_id)
+        if cur is None or cur.workspace_id != doc.workspace_id or cur.deleted_at is not None:
+            raise ValueError("Invalid parent")
+        seen = {doc_id}
         while cur is not None:
-            if cur.id == doc_id:
+            if cur.id in seen:
                 raise ValueError("Circular parent")
+            seen.add(cur.id)
+            if cur.workspace_id != doc.workspace_id or cur.deleted_at is not None:
+                raise ValueError("Invalid parent")
             cur = get_by_id(db, cur.parent_id) if cur.parent_id else None
     # 正文变了 → 服务端重算 hash，不信前端算的
     if data.content is not None:
         data.content_hash = _hash_content(data.content)
-    result = update(db, doc_id, data)
+    if data.content is not None and data.content != (doc.content or ""):
+        from app.services.document_version import checkpoint_save
+        checkpoint_save(db, doc, data.content, force=force_version)
+    result = update(db, doc_id, data, commit=False)
     if result is None:
+        db.rollback()
         raise ValueError("Conflict")
     # 手动保存成功 → 草稿槽清空（草稿已被 promote 成正文）
     result.draft_content = None
@@ -74,8 +92,9 @@ def update_document(db: Session, doc_id: UUID, data: DocumentUpdate) -> Document
     if data.content is not None:
         sync_wikilinks(db, result, result.content or "")
         # 老婆的规则：正文不再引用的附件，连文件带记录删除
-        from app.routers.attachment import cleanup_unreferenced
-        cleanup_unreferenced(db, result, result.content or "")
+        if not force_version:
+            from app.routers.attachment import cleanup_unreferenced
+            cleanup_unreferenced(db, result, result.content or "")
     return result
 
 
@@ -175,15 +194,14 @@ def sync_wikilinks(db: Session, doc: Document, content: str) -> None:
 
 
 def get_backlinks(db: Session, doc_id: UUID) -> list[Document]:
-    """反链：哪些页面链接到了我"""
-    links = link_repo.get_links_for_doc(db, doc_id)
-    result = []
-    for l in links:
-        if l.target_id == doc_id:
-            src = get_by_id(db, l.source_id)
-            if src and src.deleted_at is None:
-                result.append(src)
-    return result
+    """Scoped backlink summaries, including both legacy-corrupt edge endpoints."""
+    from app.models.document_link import DocumentLink
+    from app.repositories.document import _SUMMARY_ONLY
+    from sqlalchemy.orm import aliased
+    target = aliased(Document)
+    return db.query(Document).options(*_SUMMARY_ONLY).join(DocumentLink, DocumentLink.source_id == Document.id).join(target, target.id == DocumentLink.target_id).filter(
+        target.id == doc_id, target.deleted_at.is_(None), Document.deleted_at.is_(None),
+        Document.workspace_id == target.workspace_id).order_by(Document.updated_at.desc(), Document.id).all()
 
 
 def touch_view(db: Session, doc_id: UUID) -> None:
@@ -244,8 +262,7 @@ def clear_workspace_docs(db: Session, workspace_id: UUID) -> int:
 
 
 def list_trash_documents(db: Session, workspace_id: UUID) -> list[Document]:
-    """看回收站 = 惰性清理时机：先顺手清掉过期的，再返回剩下的"""
-    purge_expired_trash(db, TRASH_RETENTION_DAYS)
+    """Read-only: physical cleanup is explicit and requires admin elevation."""
     return list_trash(db, workspace_id)
 
 

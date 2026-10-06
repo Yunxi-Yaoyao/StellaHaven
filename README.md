@@ -24,14 +24,16 @@
 - **JWT（httpOnly cookie）+ refresh token 旋转**：访问令牌 30 分钟短效；刷新令牌哈希落库、可吊销、多端并存
 - **会话看门狗**：30s 巡检，被吊销的会话即时踢下线
 - **邮箱验证**：SMTP 验证码，10min 有效期 + 5min 重发限流
-- **邀请注册**：公开注册仅初始化时开放，之后走管理员邀请链接（30min 一链一人）
+- **单用户身份**：仅首次初始化创建唯一账号；邀请和用户管理入口关闭，原用户 ID 与数据归属保持不变
+- **独立管理密码**：日常登录不自动提权；关键操作使用独立 Argon2id 管理密码，服务端会话授权默认十分钟。保护默认开启，关闭或改密需再次验证，关闭后登录态可直接管理
+- **验证码预算**：单码最多五次错误，全账户共享失败/发送窗口；邮箱恢复仅修改日常密码，不重置管理密码
 - **全站标识互斥**：用户名 / 昵称 / 邮箱交叉查重
 
 <div align="center">
   <img src="assets/screenshots/login.png" width="55%" alt="登录页">
 </div>
 
-### 数据隔离
+### 数据归属与恢复
 
 - workspace / document / attachment / tag / link / version 全部按当前用户过滤
 - 资源不存在或无权限时统一返回 404，**不暴露资源存在性**（防探测）
@@ -42,7 +44,8 @@
 - 双链 `[[]]` 自动补全 + 反链面板
 - 关系图谱（d3-force 力导向图）
 - 标签、附件（粘贴上传 + 引用计数清理）
-- 文档版本、回收站、草稿槽、全文搜索
+- 自动版本检查点、差异比较、提权且带乐观锁的恢复；回收站与草稿槽
+- Ctrl/Cmd+K 统一搜索、工作区快捷记录收件夹，以及节点/告警/任务/笔记关联时间线
 - CodeMirror 6 编辑器 + 实时预览 + PDF / HTML / PNG 导出
 
 ### 主页
@@ -52,13 +55,16 @@
 - 三套主题（破晓 / 夜泊 / 海岸线）
 - 时光进度条、心情便签、自定义背景（图片 / 视频）
 
-### 网盘 / 图库（嵌入式整合）
+### 导航与网站接入
 
-网盘和图库**不重复造轮子**，而是把成熟产品嵌入站内，Stella 负责代管与主题融合：
+设置统一在“资料与安全 / 导航与网站 / 服务与通知 / 性能与数据”四分类。
 
-- **网盘 = OpenList**（Docker 容器）：页面三态（未装 Docker → 未装 OpenList → 已就绪），前端内嵌 iframe，并注入 CSS 做深色主题与背景图对齐（纯色 / 主页壁纸两种模式可切换）
-- **图库 = Immich**（Docker 容器）：iframe 嵌入 + 管理浮窗（启动 / 停止 / 重启）；iframe 地址走 Stella 的 `/gallery/connect`（第一方代签 OIDC code 再 302 到 Immich），解决第三方 iframe 上下文里 `SameSite=Lax` cookie 不发送、登录态认不出的问题
-- Immich 公网入口用 nginx `sub_filter` 在响应 HTML 里注入样式，把品牌 logo 替换为站内头像
+- 导航支持名称、图标、显隐、顺序、恢复默认，配置进入 PG；底部账号入口始终可找回设置。
+- 网站支持直连 iframe、外链、OpenList 兼容路径及独立 origin 根代理。固定上游在同一设置页解析、明确批准并冻结 IP；运行时 socket pin，不提供任意 URL 开放代理。
+- CSS/JS 草稿、语法检查、主动应用、上一版回退；目标 origin 执行，不在主页面执行。跨域 iframe 不凭 load 或健康检查声称 ready。
+- 可选网站现场缓存，最多三项 LRU，笔记缓存独立；关闭/隐藏/退出会清理，缓存不延长登录或管理授权。
+- OpenList 保留主题、目录缓存及布局修复，由响应层去重并加载集中配置；写操作仍校验当前管理授权，缓存 Token 不能绕过锁回。
+- Immich 保留独立域名、原账号和已有 OIDC。其自身发起 OAuth state/PKCE 流程；图库 head loader 可读取集中发布的目标站代码，不接管原移动 App API。入口加载器和独立代理域名需一次部署，设置保存不冒充部署完成。
 
 ### 服务器监控
 
@@ -68,7 +74,7 @@
 - **采集**：5s 上报网卡流量（上报即心跳）、60s 上报系统指标；上报失败时数据压内存队列（24h 上限），恢复后按序补传
 - **任务下发**：打流（iperf3）、MTR 路由追踪（五类型 × 三触发：手动 / 定时 30min / 失败防抖 10min）、远程命令、防火墙/PBR/Docker 扫描——全部走「服务端建任务 → agent 轮询领取 → 执行 → 回传结果」
 - **惰性扫描缓存**：扫描类数据（防火墙规则 / PBR 策略路由 / Docker 容器）读最近一次快照，超过 10 分钟自动后台重扫 + 手动刷新按钮——不设服务端定时任务
-- **组件代装**：iperf3 / speedtest / mtr / ufw / docker 缺失时可远程安装，系统命令走 sudoers 白名单（additive，最小授权）
+- **组件代装**：iperf3 / speedtest / mtr / ufw / docker 缺失时可远程安装；Docker 面板使用固定语法 root-owned helper。网络管理与管理员授权命令仍具备较强权限，不宣传全局最小权限
 - **自更新**：agent 每 300s 对比服务端版本号，不一致则拉新脚本原地替换重启
 - **改 IP 带回滚**：改网卡地址后用 `ping -I <iface>` 验证连通性，不通自动回退（用 root 权限 ping 是为了绕开本机 PBR owner-mark 对 agent 进程的路由劫持）
 - **Docker 面板**：容器竖向卡片 + 日志查看（tail ≤500）+ inspect 配置摘要（白名单字段）
@@ -78,7 +84,7 @@
   <img src="assets/screenshots/servers.png" width="80%" alt="服务器监控">
 </div>
 
-### WebSocket 实时协同
+### WebSocket 与多设备编辑状态
 
 - 在线状态感知（presence）、编辑中状态、文档变更广播
 
@@ -144,6 +150,9 @@ POSTGRES_PORT=5432
 POSTGRES_USER=your_user
 POSTGRES_PASSWORD=your_password
 POSTGRES_DB=stella
+STELLA_TRUSTED_ORIGINS=http://localhost:5173,http://localhost:12031
+STELLA_MAIN_ORIGIN=http://localhost:5173
+STELLA_COOKIE_SECURE=false  # 仅本地 HTTP 开发；生产必须 true
 EOF
 
 # 4. 跑数据库迁移
@@ -160,7 +169,7 @@ npm run dev
 
 启动后访问 `http://localhost:5173`（前端）和 `http://localhost:12031/docs`（API 文档）。
 
-> 首次启动会在 `data/secret_key` 自动生成 JWT 密钥；数据库初始化后需通过注册流程创建管理员账号。
+> 首次启动创建唯一账号，然后在“设置 → 资料与安全”初始化独立管理密码。数据库口令没有源码默认值，必须通过环境或受控密钥文件提供。生产 JWT/数据库/OIDC 密钥需按双端发布协议预置，不在运行时随意重生成。
 
 ### 生产构建
 
@@ -173,7 +182,7 @@ systemctl restart stella-backend               # 后端直接托管 dist，无�
 
 ### 纳管新节点
 
-在「服务器 → 节点」页添加节点拿到 token，然后在被控机上跑 `agent/install.sh`（或手动部署 `stella_agent.py --url <stella地址> --token <token>`）。agent 会自动上报并进入监控；缺失的组件可在页面上远程代装。
+在“服务器 → 节点”完成管理提权后添加节点，通过受控安装命令接口显式取得安装凭据，再运行 `agent/install.sh`。Linux 安装器使用 root-only EnvironmentFile，不把 Token 留在 ExecStart 参数中。Agent 0.6.10 使用 Bearer/JSON；在全节点 helper 准备好之前，通过发布变量暂停版本公告，保留旧协议的限期兼容与日志脱敏。
 
 ## 目录结构
 
@@ -207,7 +216,9 @@ StellaHaven/
 - **CI/CD**：GitLab 承担受保护主分支的生产发布；GitHub Actions 验证镜像代码，不部署生产。测试使用独立 PostgreSQL 服务。
 
 ```bash
-uv run pytest          # 本地跑全部测试
+uv run pytest tests tests_ha  # 先配置专用测试 DSN，guard 拒绝生产目标
+# SQLite/协议测试必须分进程：各 tests_isolated 文件使用 --noconftest
+# tests_notes_upgrade、tests_builtin、tests_iframe_cache 也按各自夹具独立运行
 ```
 
 ## 路线图

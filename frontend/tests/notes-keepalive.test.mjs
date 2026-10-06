@@ -23,10 +23,11 @@ test('draft socket pauses, resumes once, and ignores late close after destructio
 test('editor hooks retain state while pausing and idempotently resuming resources', () => {
   const section = editor.slice(editor.indexOf('let listenersActive ='), editor.indexOf('function fmtDraftTime'));
   const hooks = {}, listeners = new Set(), timers = new Set(), loads = []; let flushed = 0;
-  const env = { ownsSession: () => true, editorActive: true, loadSequence: 0, draftTimer: 123, tickTimer: null, nowTick: { value: 0 }, onWinResize() {}, onKey() {}, renderMermaid() {}, props: { docId: 'a' }, load: (...args) => loads.push(args), flushDraft: () => flushed++, window: { addEventListener: name => listeners.add(name), removeEventListener: name => listeners.delete(name) }, setInterval: () => { timers.add(1); return 1; }, clearInterval: id => timers.delete(id), clearTimeout() {}, onMounted: cb => hooks.mount = cb, onActivated: cb => hooks.activate = cb, onDeactivated: cb => hooks.deactivate = cb };
+  const env = { versionsOpen: {value:true}, timelineOpen: {value:true}, ownsSession: () => true, editorActive: true, loadSequence: 0, draftTimer: 123, tickTimer: null, nowTick: { value: 0 }, onWinResize() {}, onKey() {}, renderMermaid() {}, props: { docId: 'a' }, load: (...args) => loads.push(args), flushDraft: () => flushed++, window: { addEventListener: name => listeners.add(name), removeEventListener: name => listeners.delete(name) }, setInterval: () => { timers.add(1); return 1; }, clearInterval: id => timers.delete(id), clearTimeout() {}, onMounted: cb => hooks.mount = cb, onActivated: cb => hooks.activate = cb, onDeactivated: cb => hooks.deactivate = cb };
   new Function(...Object.keys(env), compile(section))(...Object.values(env));
   hooks.mount(); hooks.activate(); assert.equal(timers.size, 1); assert.equal(loads.length, 0);
   hooks.deactivate(); assert.equal(flushed, 1); assert.equal(timers.size, 0); assert.equal(listeners.size, 0);
+  assert.equal(env.versionsOpen.value, false); assert.equal(env.timelineOpen.value, false);
   hooks.activate(); assert.equal(timers.size, 1); assert.equal(listeners.size, 2); assert.deepEqual(loads, [['a', true]]);
 });
 test('background document response cannot overwrite edits made while awaiting it', async () => {

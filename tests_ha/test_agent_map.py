@@ -128,7 +128,7 @@ class CollectorTests(unittest.TestCase):
             a._parse_map_wireguard(data, {})
 
     def test_unknown_retries_after_one_minute(self):
-        agent = a.Agent('https://unused.invalid', '')
+        agent = a.Agent('https://unused.invalid', 'a'*32)
         with patch.object(a, '_collect_map_location', return_value={'status': 'unknown'}) as loc, patch.object(a, '_collect_map_wireguard', return_value={'status': 'unavailable', 'interfaces': []}), patch.object(a.time, 'monotonic', side_effect=[0, 59, 60]):
             for _ in range(3):
                 agent.collect_map_snapshot()

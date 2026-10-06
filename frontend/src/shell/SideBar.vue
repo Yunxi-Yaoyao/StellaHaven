@@ -5,6 +5,7 @@ import Icon from "./Icon.vue";
 import NotificationBell from "./NotificationBell.vue";
 import { auth, loggedIn, currentAvatar } from "../modules/home/auth";
 import { computed } from "vue";
+import { navigationRows, builtinNavigation, isNavigationActive } from "../stores/navigation";
 
 // 未登录显示站点名 StellaHaven；登录后昵称优先、回退用户名
 const displayName = computed(() =>
@@ -17,14 +18,7 @@ const emit = defineEmits<{ toggle: []; closeMobile: [] }>();
 function preloadNotes(to: string) {
   if (to === '/notes' && loggedIn.value) void import('../modules/notes/NotesPage.vue');
 }
-const navItems = [
-  { to: "/", icon: "home", label: "个人主页" },
-  { to: "/notes", icon: "note", label: "笔记" },
-  { to: "/gallery", icon: "image", label: "图库" },
-  { to: "/drive", icon: "drive", label: "网盘" },
-  { to: "/status", icon: "server", label: "服务器" },
-  { to: "/settings", icon: "settings", label: "设置" },
-];
+const navItems = computed(() => (loggedIn.value ? navigationRows.value : builtinNavigation).filter(row => row.visible));
 </script>
 
 <template>
@@ -47,10 +41,11 @@ const navItems = [
     <nav class="nav">
       <RouterLink
         v-for="item in navItems"
-        :key="item.label"
+        :key="item.id"
+        :title="item.label"
         :to="item.to"
         class="nav-item"
-        :class="{ active: $route.path === item.to }"
+        :class="{ active: isNavigationActive($route.path, item.to) }"
         @mouseenter="preloadNotes(item.to)" @focus="preloadNotes(item.to)"
         @click="emit('closeMobile')"
       >
@@ -59,12 +54,7 @@ const navItems = [
       </RouterLink>
     </nav>
 
-    <div class="spacer" />
 
-    <!-- 三段：扩展小模块位 -->
-    <div class="extra">
-      <div class="extra-hint">更多模块 · 装饰阶段</div>
-    </div>
 
     <!-- 底行：账号位 + 折叠钮同一行 -->
     <div class="bottom-row">
@@ -149,6 +139,7 @@ const navItems = [
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1; min-height: 0; overflow-y: auto;
 }
 .nav-item {
   display: flex;
@@ -194,7 +185,7 @@ const navItems = [
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 10px; flex-shrink: 0;
 }
 .bottom-row .fold-btn { margin-top: 0; flex-shrink: 0; }
 .account {

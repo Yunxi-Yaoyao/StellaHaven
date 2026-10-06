@@ -15,6 +15,18 @@ import GraphPanel from "./GraphPanel.vue";
 import MoveDialog from "./MoveDialog.vue";
 import ImportDialog from "./ImportDialog.vue";
 import NewChildDialog from "./NewChildDialog.vue";
+import QuickRecordDialog from './QuickRecordDialog.vue';
+const captureOpen = ref(false);
+async function onCaptureCreated(doc: import('../../api/notes').Doc) {
+  const owner = auth.me?.id;
+  try { await store.refreshList(); }
+  catch { toast('记录已保存，但列表刷新失败；正在打开已保存的笔记'); }
+  if (owner === auth.me?.id && active.value) await onOpen(doc.id);
+}
+async function openCapture() {
+  if (editorRef.value && !(await editorRef.value.prepareNavigation())) return;
+  captureOpen.value = true;
+}
 const newChildTarget = ref<{id:string|null;title:string}|null>(null);
 const editorRef = ref<InstanceType<typeof DocEditor> | null>(null);
 import { auth } from "../home/auth";
@@ -141,7 +153,7 @@ onActivated(() => {
   connectListWs();
   void Promise.allSettled([store.refreshList(), store.refreshRecent(), store.refreshWorkspaces(), store.refreshTags()]);
 });
-onDeactivated(() => { active.value = false; ++linkedSequence; importing.value = null; newChildTarget.value = null; stopListWs(); });
+onDeactivated(() => { active.value = false; captureOpen.value=false; ++linkedSequence; importing.value = null; newChildTarget.value = null; stopListWs(); });
 onUnmounted(() => { active.value = false; stopListWs(); });
 
 // 切换工作区 → 列表频道重连 + 关掉所有面板（图谱/附件/回收站都是旧工作区的数据）+ 打开新工作区的第一篇
@@ -218,6 +230,7 @@ function onDeleted() {
 
 <template>
   <div ref="pageRoot" class="notes-page" :aria-busy="!ready" @dragover.capture="captureDragOver" @drop.capture="captureDrop">
+    <QuickRecordDialog v-if="captureOpen" :workspace-id="store.workspaceId" @close="captureOpen=false" @created="onCaptureCreated" />
     <input ref="importInput" type="file" accept=".md,.txt,.zip" multiple hidden @change="pickedFiles" />
     <ImportDialog v-if="importing" v-bind="importing" @busy="importBusy = $event" @close="importing = null" />
     <!-- 列表收起时的窄条把手 -->
@@ -233,6 +246,7 @@ function onDeleted() {
       @show-attachments="attachOpen = true; trashOpen = false; graphOpen = false"
       @show-graph="graphOpen = true; trashOpen = false; attachOpen = false"
       @new-child="onNewChild"
+      @capture="openCapture"
       @move="onMove"
       @del="onDel"
       @switched="onWsSwitched"

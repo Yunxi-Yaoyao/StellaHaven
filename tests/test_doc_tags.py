@@ -6,9 +6,7 @@ import pytest
 @pytest.fixture
 def doc_and_tag(client):
     """建 user → workspace → document + tag，返回 (doc_id, tag_id)"""
-    user = client.post("/users/", json={
-        "username": f"user_{uuid4().hex[:8]}", "display_name": "标签测试"
-    }).json()
+    user = client.get("/auth/me").json()
     ws = client.post("/workspaces/", json={
         "user_id": user["id"], "name": "标签测试工作区"
     }).json()
@@ -70,9 +68,7 @@ def test_remove_tag_purges_orphan(client, doc_and_tag):
 
 def test_delete_doc_purges_orphan_tags(client):
     """删文档 → 它独占的标签本体被清掉；共享的标签保留"""
-    user = client.post("/users/", json={
-        "username": f"user_{uuid4().hex[:8]}", "display_name": "删档测试"
-    }).json()
+    user = client.get("/auth/me").json()
     ws = client.post("/workspaces/", json={
         "user_id": user["id"], "name": "删档工作区"
     }).json()

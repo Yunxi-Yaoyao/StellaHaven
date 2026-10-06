@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 节点详情页：基本信息 + 流量图（时间范围/时区/网卡多选/单位/统计卡）+ 系统指标 + 监控项
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, defineAsyncComponent } from "vue";
 import { waitForTask } from "./taskWait";
+import { summarizeMonitorPoints } from "./monitorStats";
+import { createRequestLane, createPoller, mapBounded } from "./polling";
 import { useRouter, useRoute } from "vue-router";
-import * as echarts from "echarts";
+import * as echarts from "./chartRuntime";
 import Icon from "../../shell/Icon.vue";
 import {
   getNodeDetail, getNodeMetrics, getNodeSysMetrics, getTrafficStats, updateNodeIfaces, updateNetType, changeIp,
@@ -14,8 +16,8 @@ import {
 } from "../../api/servers";
 import { toast } from "../../composables/useToast";
 import Dropdown from "../../shell/Dropdown.vue";
-import MonitorDetailModal from "./MonitorDetailModal.vue";
-import MetricsCompare from "./MetricsCompare.vue";
+const MonitorDetailModal = defineAsyncComponent(() => import("./MonitorDetailModal.vue"));
+const MetricsCompare = defineAsyncComponent(() => import("./MetricsCompare.vue"));
 import { isAdmin } from "../home/auth";
 const metricsCompareOpen = ref(false);
 
@@ -284,8 +286,7 @@ const PRESETS: { key: RangeKey; label: string; seconds?: number }[] = [
   { key: "24h", label: "24小时", seconds: 86400 },
   { key: "7d", label: "7天", seconds: 604800 },
   { key: "30d", label: "近30天", seconds: 2592000 },
-  { key: "90d", label: "近90天", seconds: 7776000 },
-  { key: "180d", label: "近180天", seconds: 15552000 },
+
   { key: "thismonth", label: "本月" },
   { key: "lastmonth", label: "上月" },
   { key: "custom", label: "自定义" },
@@ -304,7 +305,8 @@ const LIVE_WINDOWS = [
 const liveMode = ref(false);
 const liveWindow = ref(300);
 const liveOpen = ref(false);   // 窗长下拉
-let liveTimer: ReturnType<typeof setInterval> | null = null;
+const chartLane = createRequestLane();
+const livePoll = createPoller(async () => { await chartLane.run(signal => liveTick(signal)); }, 3000);
 
 // ── 时区（分钟偏移，默认 UTC+8，两图共享）──
 const TZ_OPTIONS = [
@@ -393,7 +395,7 @@ function getRange(): { start: string; end: string; limit: number; step?: number 
   else if (seconds > 86400 * 30) { step = 3600; limit = 2200; }  // >30d
   else if (seconds > 86400 * 7) { step = 900; limit = 3000; }
   else if (seconds > 86400) { step = 300; limit = 2016; }
-  else if (seconds > 21600) { step = undefined; limit = 17280; }
+  else if (seconds > 21600) { step = 30; limit = 3000; }
   else if (seconds > 3600) { step = undefined; limit = 4320; }
   else { step = undefined; limit = 720; }
   return { start: new Date(s.startMs).toISOString(), end: new Date(s.endMs).toISOString(), limit, step };
@@ -456,7 +458,8 @@ function sortedIfaces(): Array<[string, { is_default: boolean; is_physical?: boo
 
 // ── 单位格式化 ──
 function rateValue(delta: number): { value: number; suffix: string } {
-  const bytesPerSec = delta / windowSeconds();
+  // Statistics are exact percentiles of original 5s deltas, not chart buckets.
+  const bytesPerSec = delta / 5;
   const bitsPerSec = bytesPerSec * 8;
   if (unitMode.value === "auto") {
     if (bitsPerSec >= 1e9) return { value: bitsPerSec / 1e9, suffix: "Gbps" };
@@ -528,12 +531,17 @@ function fmtVal(v: number): string {
 }
 
 // 状态类加载（节点详情 + 监控项）：5s 轮询只走这里，不碰图表
-async function load() {
+async function load(signal: AbortSignal) {
   try {
-    detail.value = await getNodeDetail(nodeId.value);
+    const id = nodeId.value;
+    const d = await getNodeDetail(id, signal);
+    if (signal.aborted) return;
+    detail.value = d;
     netType.value = detail.value.net_type === "public" ? "public" : "internal";
     publicIpInput.value = detail.value.public_ip || "";
-    monitors.value = (await listMonitors()).filter((m) => m.node_id === nodeId.value);
+    const rows = await listMonitors(signal);
+    if (signal.aborted) return;
+    monitors.value = rows.filter((m) => m.node_id === id);
     const ifaces = monitoredIfaces(detail.value);
     if (!selectedIfaces.value.length) selectedIfaces.value = ifaces;
   } catch { /* 静默 */ }
@@ -541,7 +549,9 @@ async function load() {
 
 // 图表全量加载：进入页面 / 切范围 / 开实时 时整段重取一次
 async function loadCharts() {
-  await Promise.all([fetchTraffic(true), fetchSys(true), loadStats()]);
+  chartLane.reset();
+  if (document.hidden || taskLifecycle.signal.aborted) return;
+  await chartLane.run(signal => Promise.all([fetchTraffic(true, signal), fetchSys(true, signal), loadStats(signal)]).then(() => {}));
 }
 
 const COLORS = ["#ff9ec7", "#7be39a", "#7bd0e3", "#f0c060", "#bf7aff", "#ff8f8f"];
@@ -582,14 +592,14 @@ let trafficRenderSeq = 0;  // 请求序号：丢弃乱序返回的旧渲染
 const trafficPoints = ref<Record<string, MetricPoint[]>>({});  // 每网卡时序（时间正序）
 const sysPoints = ref<SysMetricPoint[]>([]);
 
-async function fetchTraffic(full: boolean) {
+async function fetchTraffic(full: boolean, signal: AbortSignal) {
   const seq = ++trafficRenderSeq;
   // 首屏 detail 还没回来时 monitoredIfaces 会炸，直接跳过等下一轮
   const ifaces = selectedIfaces.value.length ? selectedIfaces.value : (detail.value ? monitoredIfaces(detail.value) : []);
   if (!ifaces.length) return;
   const base = getRange();
-  const next: Record<string, MetricPoint[]> = full ? {} : { ...trafficPoints.value };
-  for (const iface of ifaces) {
+  const next: Record<string, MetricPoint[]> = { ...trafficPoints.value };
+  await mapBounded(ifaces, 3, async iface => {
     let start = base.start, end = base.end, limit = base.limit, step = base.step;
     const existing = next[iface] || [];
     if (!full && existing.length) {
@@ -599,8 +609,8 @@ async function fetchTraffic(full: boolean) {
       limit = 300; step = undefined;
     }
     try {
-      const data = await getNodeMetrics(nodeId.value, { iface, start, end, limit, step });
-      if (seq !== trafficRenderSeq) return;  // 已有更新请求，丢弃
+      const data = await getNodeMetrics(nodeId.value, { iface, start, end, limit, step, signal });
+      if (signal.aborted || seq !== trafficRenderSeq) return;  // 已有更新请求，丢弃
       const points = [...data].reverse();
       if (full) {
         next[iface] = points;
@@ -610,9 +620,9 @@ async function fetchTraffic(full: boolean) {
         if (liveMode.value) merged = merged.filter((pt) => new Date(pt.ts).getTime() >= Date.now() - liveWindow.value * 1000);
         next[iface] = merged;
       }
-    } catch { /* 单网卡失败不影响其他 */ }
-  }
-  if (seq !== trafficRenderSeq) return;
+    } catch { /* 单网卡失败保留其他及旧图 */ }
+  }, signal);
+  if (signal.aborted || seq !== trafficRenderSeq) return;
   // 丢掉不再选中的网卡
   trafficPoints.value = Object.fromEntries(Object.entries(next).filter(([k]) => ifaces.includes(k)));
   paintTraffic();
@@ -660,16 +670,16 @@ function paintTraffic() {
 }
 
 let statsSeq = 0;  // 请求序号：丢弃乱序返回的旧统计
-async function loadStats() {
+async function loadStats(signal: AbortSignal) {
   const seq = ++statsSeq;
   const range = getRange();
   const ifaces = selectedIfaces.value.length ? selectedIfaces.value : (detail.value ? monitoredIfaces(detail.value) : []);
   if (!ifaces.length) { trafficStats.value = null; return; }
   try {
-    const s = await getTrafficStats(nodeId.value, { ifaces, start: range.start, end: range.end });
-    if (seq !== statsSeq) return;  // 已有更新请求，丢弃本次旧结果
+    const s = await getTrafficStats(nodeId.value, { ifaces, start: range.start, end: range.end, signal });
+    if (signal.aborted || seq !== statsSeq) return;  // 已有更新请求，丢弃本次旧结果
     trafficStats.value = s;
-  } catch { if (seq === statsSeq) trafficStats.value = null; }
+  } catch { /* Retain last valid statistics on timeout/offline. */ }
 }
 
 function applyCustom() {
@@ -689,22 +699,17 @@ function onCustomEdit() {
 function selectPreset(key: RangeKey) {
   presetOpen.value = false;
   if (key === "custom") { openCustomEdit(); return; }  // 先编辑起止时间，确定后再加载
-  timeRange.value = key;
-  loadCharts();
+  if (timeRange.value === key) void loadCharts();
+  else timeRange.value = key;
 }
 
 // ── 实时模式控制 ──
-async function liveTick() {
-  await Promise.all([fetchTraffic(false), fetchSys(false)]);
-  loadStats();
+async function liveTick(signal: AbortSignal) {
+  await Promise.all([fetchTraffic(false, signal), fetchSys(false, signal), loadStats(signal)]);
 }
-function startLive() {
-  stopLive();
-  liveTimer = setInterval(liveTick, 3000);
-}
-function stopLive() {
-  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
-}
+let disposed = false;
+function startLive() { if (!disposed && liveMode.value && !document.hidden) livePoll.start(); }
+function stopLive() { livePoll.stop(); chartLane.reset(); }
 function toggleLive() {
   liveMode.value = !liveMode.value;
 }
@@ -713,14 +718,14 @@ function pickLiveWindow(s: number) {
   liveOpen.value = false;
 }
 watch(liveMode, (on) => {
-  if (on) { loadCharts(); startLive(); }
+  if (on) { void loadCharts().then(startLive); }
   else stopLive();
 });
-watch(liveWindow, () => { if (liveMode.value) loadCharts(); });
+watch(liveWindow, () => { if (liveMode.value) { stopLive(); void loadCharts().then(startLive); } });
 
 
 let sysRenderSeq = 0;  // 防乱序：只认最后一次请求的结果
-async function fetchSys(full: boolean) {
+async function fetchSys(full: boolean, signal: AbortSignal) {
   const seq = ++sysRenderSeq;
   const base = getSysRange();
   let start = base.start, end = base.end, limit = base.limit, step = base.step;
@@ -731,8 +736,8 @@ async function fetchSys(full: boolean) {
     limit = 100; step = undefined;
   }
   try {
-    const data = await getNodeSysMetrics(nodeId.value, { start, end, limit, step });
-    if (seq !== sysRenderSeq) return;  // 已有更新的请求，丢弃本次旧结果
+    const data = await getNodeSysMetrics(nodeId.value, { start, end, limit, step, signal });
+    if (signal.aborted || seq !== sysRenderSeq) return;  // 已有更新的请求，丢弃本次旧结果
     const points = [...data].reverse();
     if (full) {
       sysPoints.value = points;
@@ -780,8 +785,7 @@ function toggleIface(name: string) {
   if (i >= 0) selectedIfaces.value.splice(i, 1);
   else selectedIfaces.value.push(name);
   saveIfaces();
-  fetchTraffic(true);
-  loadStats();
+  void loadCharts();
 }
 async function saveIfaces() {
   if (!detail.value) return;
@@ -793,8 +797,8 @@ async function saveIfaces() {
 }
 // 切换时间/单位/时区/网卡时刷新
 watch(timeRange, () => { loadCharts(); });
-watch(unitMode, () => { paintTraffic(); loadStats(); });  // 单位只影响格式化，不重拉数据
-watch(tzOffset, () => { paintTraffic(); paintSys(); loadStats(); });  // 时区只影响轴标签，不重拉数据
+watch(unitMode, () => { paintTraffic(); });  // 单位只影响格式化，不重拉数据
+watch(tzOffset, () => { paintTraffic(); paintSys(); });  // 时区只影响轴标签，不重拉数据
 
 // ── 监控项（只读：列表 + 状态 + 延迟曲线；增删在总览页）──
 const expandedMonId = ref<number | null>(null);
@@ -830,12 +834,9 @@ async function loadMonSeries() {
       start: start.toISOString(), end: end.toISOString(), step: r.step,
     });
     // 24h 可用率：独立取原始点（不降采样，成功率按探测次数算才准）
-    const raw24 = await getMonitorSeries(id, { start: new Date(end.getTime() - 86400000).toISOString(), end: end.toISOString(), limit: 3000 });
-    const okCount = raw24.filter((c) => c.success).length;
-    const lats = raw24.filter((c) => c.success && c.latency_ms != null).map((c) => c.latency_ms!);
-    monAvail.value = raw24.length
-      ? { pct: okCount / raw24.length * 100, avg: lats.length ? lats.reduce((a, b) => a + b, 0) / lats.length : null, total: raw24.length }
-      : null;
+    const raw24 = await getMonitorSeries(id, { start: new Date(end.getTime() - 86400000).toISOString(), end: end.toISOString(), step: 60, limit: 5000 });
+    const stat = summarizeMonitorPoints(raw24);
+    monAvail.value = stat.total ? {pct: stat.avail, avg: stat.avgLat, total: stat.total} : null;
     await nextTick();
     paintMonChart(id);
   } catch { /* 静默 */ }
@@ -872,7 +873,11 @@ function paintMonChart(id: number) {
   }, { notMerge: true });
 }
 
-let timer: ReturnType<typeof setInterval> | null = null;
+const statusPoll = createPoller(load, 5000);
+function onVisibility() {
+  if (document.hidden) { statusPoll.stop(); stopLive(); }
+  else { statusPoll.start(); if (liveMode.value) void loadCharts().then(startLive); }
+}
 function onResize() { trafficChart?.resize(); sysChart?.resize(); }
 function onDocClick() { ifaceDropdownOpen.value = false; presetOpen.value = false; unitOpen.value = false; tzOpen.value = false; liveOpen.value = false; opsOpen.value = false; }
 
@@ -886,23 +891,29 @@ watch(() => props.nodeId, (newId, oldId) => {
   sysPoints.value = [];
   expandedMonId.value = null;
   monAvail.value = null;
-  load();
-  loadCharts();
+  statusPoll.reset();
+  stopLive();
+  void statusPoll.run().then(() => loadCharts()).then(() => { if (liveMode.value) startLive(); });
 });
 
 onMounted(async () => {
-  await load();        // 先拿节点详情（网卡清单），再画图表
+  await statusPoll.run();
+  if (taskLifecycle.signal.aborted) return;        // 先拿节点详情（网卡清单），再画图表
   loadCharts();
   // 惰性扫描缓存：面板打开即有数据（10 分钟内快照直接用，过期后台重扫）
   viewFirewall(false);
   loadPbr(false);
-  timer = setInterval(load, 5000);  // 5s 只刷状态类，图表不动
+  statusPoll.start();  // 5s 只刷状态类，图表不动
   uptimeTimer = setInterval(() => { uptimeTick.value++; }, 30000);
+  document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("resize", onResize);
   document.addEventListener("click", onDocClick);
 });
 onUnmounted(() => {
-  if (timer) clearInterval(timer);
+  disposed = true;
+  statusPoll.stop();
+  chartLane.reset();
+  document.removeEventListener("visibilitychange", onVisibility);
   if (uptimeTimer) clearInterval(uptimeTimer);
   stopLive();
   window.removeEventListener("resize", onResize);
@@ -1454,7 +1465,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
       :monitor="monModal"
       :node-name="detail?.name ?? ''"
       @close="monModal = null"
-      @saved="monModal = null; load()"
+      @saved="monModal = null; statusPoll.run()"
     />
   </div>
 </template>

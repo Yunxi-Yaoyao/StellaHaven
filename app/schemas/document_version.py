@@ -10,7 +10,16 @@ class DocumentVersionCreate(BaseModel):
     version_no: int
 
 
-class DocumentVersionRead(BaseModel):
+class DocumentVersionSummary(BaseModel):
+    id: UUID
+    doc_id: UUID
+    version_no: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DocumentVersionRead(DocumentVersionSummary):
     id: UUID
     doc_id: UUID
     content: str

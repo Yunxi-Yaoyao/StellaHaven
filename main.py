@@ -9,6 +9,7 @@ from app.routers.attachment import router as attachment_router
 from app.routers.homebg import router as homebg_router
 from app.routers.auth import router as auth_router
 from app.routers.admin_email import router as admin_email_router
+from app.routers.operations_status import router as operations_status_router
 from app.routers.monitor import node_router, agent_router, monitor_router
 from app.routers.alerts import router as alerts_router
 # /ws/notifications 必须先于 ws_router 的 /ws/{doc_id} 注册——否则 "notifications" 被当 doc_id 抢走
@@ -19,6 +20,12 @@ from app.routers.metrics_source import router as metrics_source_router
 from app.routers.drive import router as drive_router
 from app.routers.gallery import router as gallery_router
 from app.routers.oidc import router as oidc_router
+from app.routers.integrations import router as integrations_router
+from app.routers.integrations_host import IntegrationsHostMiddleware
+from app.routers.notes_tools import router as notes_tools_router
+from app.routers.unified_search import router as unified_search_router
+from app.routers.timeline import router as timeline_router
+from app.routers.builtin_injection import router as builtin_injection_router, assets_router as integration_assets_router
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -33,7 +40,10 @@ API_PREFIXES = (
     "/documents", "/tags", "/doc-tags", "/document-links",
     "/document-versions", "/attachments", "/homebg", "/iperf-tasks",
     "/mtr-tasks", "/commands", "/ws", "/assets", "/drive", "/gallery",
-    "/.well-known", "/oauth",
+    "/.well-known", "/oauth", "/users", "/alerts", "/notifications",
+    "/component-installs", "/external-modules", "/navigation", "/audit", "/backup-health",
+    "/operations", "/admin", "/integration-targets", "/integration-presets",
+    "/notes-tools", "/search", "/timeline", "/builtin-injections", "/integration-assets",
 )
 
 app = FastAPI(title="StellaHaven")
@@ -44,11 +54,15 @@ import os
 from app.services.ha_readiness import PrimaryOnlyMiddleware
 from app.services.media_limits import MediaLimitsMiddleware
 app.add_middleware(MediaLimitsMiddleware, enabled=os.getenv('STELLA_BLOB_STORAGE') == 'postgres')
-app.add_middleware(PrimaryOnlyMiddleware, enabled=os.getenv('STELLA_HA_MODE') == 'primary-only')
+
 
 # gzip 压缩：API JSON（文档列表等大 payload）和构建产物都受益，跨 frp/HK 链路尤其明显
 from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+from app.services.request_security import MainSiteSecurityMiddleware, contained_spa_path
+app.add_middleware(MainSiteSecurityMiddleware)
+# Integration host middleware MUST be registered after this (outermost dispatch).
+# Unrecognized app-ID origins are never allowed to reach the main site's SPA/API.
 
 
 @app.middleware("http")
@@ -77,6 +91,7 @@ app.include_router(attachment_router)
 app.include_router(homebg_router)
 app.include_router(auth_router)
 app.include_router(admin_email_router)
+app.include_router(operations_status_router)
 app.include_router(node_router)
 app.include_router(monitor_router)
 app.include_router(alerts_router)
@@ -89,6 +104,12 @@ app.include_router(metrics_source_router)
 app.include_router(drive_router)
 app.include_router(gallery_router)
 app.include_router(oidc_router)
+app.include_router(integrations_router)
+app.include_router(notes_tools_router)
+app.include_router(unified_search_router)
+app.include_router(timeline_router)
+app.include_router(builtin_injection_router)
+app.include_router(integration_assets_router)
 # Exact media routes must precede StaticFiles; other packaged assets still fall through.
 from app.routers.dynamic_assets import router as dynamic_assets_router
 app.include_router(dynamic_assets_router)
@@ -102,11 +123,20 @@ async def spa_fallback(full_path: str, request: Request):
     # 只拦截「带子路径」的 API 请求（/drive/status），不拦截「精确等于前缀」的前端路由（/drive）
     if any(path.startswith(p + "/") for p in API_PREFIXES):
         raise HTTPException(404, "Not Found")
-    candidate = FRONTEND_DIR / full_path
+    try:
+        candidate = contained_spa_path(FRONTEND_DIR, full_path)
+        index = contained_spa_path(FRONTEND_DIR, 'index.html')
+    except (ValueError, OSError, RuntimeError):
+        raise HTTPException(404, "Not Found")
     if full_path and candidate.is_file():
         return FileResponse(candidate)
-    index = FRONTEND_DIR / "index.html"
     if index.exists():
         return FileResponse(index)
     raise HTTPException(404, "Not Found")
+
+
+# Host dispatch must precede main-site origin/auth/SPA, but never bypass HA role.
+app.add_middleware(IntegrationsHostMiddleware,
+                   main_origin=os.getenv("STELLA_MAIN_ORIGIN", "https://stella.xiya.live"))
+app.add_middleware(PrimaryOnlyMiddleware, enabled=os.getenv("STELLA_HA_MODE") == "primary-only")
 

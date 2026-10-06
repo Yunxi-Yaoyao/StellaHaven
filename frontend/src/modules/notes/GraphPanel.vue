@@ -8,7 +8,7 @@ import Icon from "../../shell/Icon.vue";
 
 const emit = defineEmits<{ close: []; open: [id: string] }>();
 const store = useNotesStore();
-const { docs, tags, docTags } = storeToRefs(store);
+const { allDocs: docs, tags, docTags } = storeToRefs(store);
 
 interface GNode extends SimulationNodeDatum {
   id: string;
@@ -47,7 +47,7 @@ onMounted(async () => {
   }
 
   // 数据：文档节点 + 标签节点 + 双链边 + 标签归属边
-  const wikiLinks = await listAllLinks();
+  const wikiLinks = await listAllLinks(store.workspaceId);
   const docIds = new Set(docs.value.map((d) => d.id));
   // 只保留当前工作区的标签关联（不然别的工作区的标签会漏进图谱）
   const wsDocTags = docTags.value.filter((r) => docIds.has(r.doc_id));

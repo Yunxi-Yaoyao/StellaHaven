@@ -16,12 +16,7 @@ const router = createRouter({
       component: () => import("../modules/auth/LoginPage.vue"),
       meta: { title: "登录", public: true, bare: true },
     },
-    {
-      path: "/invite/:token",
-      name: "invite",
-      component: () => import("../modules/auth/InvitePage.vue"),
-      meta: { title: "受邀入港", public: true, bare: true },
-    },
+    { path:"/apps/:id", name:"external-module", props:true, component:()=>import("../shell/ExternalModulePage.vue"), meta:{title:"网站模块"} },
     {
       path: "/settings",
       name: "settings",
@@ -68,6 +63,7 @@ const router = createRouter({
         },
       ],
     },
+    { path:'/:pathMatch(.*)*',name:'not-found',component:()=>import('../shell/NotFoundPage.vue'),meta:{title:'页面不存在',public:true} },
   ],
 });
 

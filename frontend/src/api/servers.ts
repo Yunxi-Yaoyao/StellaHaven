@@ -141,7 +141,7 @@ export interface Command {
 }
 
 // ── 节点 ──
-export const listNodes = () => api<Node[]>("/nodes/");
+export const listNodes = (signal?: AbortSignal) => api<Node[]>("/nodes/", { signal });
 export const createNode = (data: { name: string; platform: string; host: string }) =>
   api<Node>("/nodes/", { method: "POST", body: JSON.stringify(data) });
 export const removeNode = (id: number) => api<void>(`/nodes/${id}`, { method: "DELETE" });
@@ -164,23 +164,23 @@ export interface NodeDetail extends Node {
   latest_sys_metric: SysMetricPoint | null;
 }
 
-export const getNodeDetail = (id: number) => api<NodeDetail>(`/nodes/${id}`);
-export const getNodeMetrics = (id: number, opts?: { iface?: string; start?: string; end?: string; limit?: number; step?: number }) => {
+export const getNodeDetail = (id: number, signal?: AbortSignal) => api<NodeDetail>(`/nodes/${id}`, { signal });
+export const getNodeMetrics = (id: number, opts?: { iface?: string; start?: string; end?: string; limit?: number; step?: number; signal?: AbortSignal }) => {
   const q = new URLSearchParams();
   if (opts?.iface) q.set("iface", opts.iface);
   if (opts?.start) q.set("start", opts.start);
   if (opts?.end) q.set("end", opts.end);
   if (opts?.limit) q.set("limit", String(opts.limit));
   if (opts?.step) q.set("step", String(opts.step));
-  return api<MetricPoint[]>(`/nodes/${id}/metrics?${q.toString()}`);
+  return api<MetricPoint[]>(`/nodes/${id}/metrics?${q.toString()}`, { signal: opts?.signal });
 };
-export const getNodeSysMetrics = (id: number, opts?: { start?: string; end?: string; limit?: number; step?: number }) => {
+export const getNodeSysMetrics = (id: number, opts?: { start?: string; end?: string; limit?: number; step?: number; signal?: AbortSignal }) => {
   const q = new URLSearchParams();
   if (opts?.start) q.set("start", opts.start);
   if (opts?.end) q.set("end", opts.end);
   if (opts?.limit) q.set("limit", String(opts.limit));
   if (opts?.step) q.set("step", String(opts.step));
-  return api<SysMetricPoint[]>(`/nodes/${id}/sys-metrics?${q.toString()}`);
+  return api<SysMetricPoint[]>(`/nodes/${id}/sys-metrics?${q.toString()}`, { signal: opts?.signal });
 };
 
 export interface TrafficStats {
@@ -194,12 +194,12 @@ export interface TrafficStats {
   tx_total: number;
   sample_count: number;
 }
-export const getTrafficStats = (id: number, opts?: { ifaces?: string[]; start?: string; end?: string }) => {
+export const getTrafficStats = (id: number, opts?: { ifaces?: string[]; start?: string; end?: string; signal?: AbortSignal }) => {
   const q = new URLSearchParams();
   if (opts?.ifaces?.length) opts.ifaces.forEach((i) => q.append("iface", i));
   if (opts?.start) q.set("start", opts.start);
   if (opts?.end) q.set("end", opts.end);
-  return api<TrafficStats>(`/nodes/${id}/traffic-stats?${q.toString()}`);
+  return api<TrafficStats>(`/nodes/${id}/traffic-stats?${q.toString()}`, { signal: opts?.signal });
 };
 
 export const updateNodeIfaces = (id: number, monitored_ifaces: Record<string, unknown> | null) =>
@@ -235,7 +235,7 @@ export const ctlDocker = (id: number, action: "start" | "stop" | "restart", cont
   api<NetTask>(`/nodes/${id}/docker-ctl`, { method: "POST", body: JSON.stringify({ action, container }) });
 
 // ── 监控项 ──
-export const listMonitors = () => api<Monitor[]>("/monitors/");
+export const listMonitors = (signal?: AbortSignal) => api<Monitor[]>("/monitors/", { signal });
 export const createMonitor = (data: { name: string; type: string; target: string; node_id: number; interval?: number; timeout?: number }) =>
   api<Monitor>("/monitors/", { method: "POST", body: JSON.stringify(data) });
 export const updateMonitor = (id: number, data: Partial<{ name: string; type: string; target: string; node_id: number; interval: number; timeout: number }>) =>
@@ -249,26 +249,30 @@ export const runMonitorMtr = (id: number) => api<MtrTask>(`/monitors/${id}/mtr`,
 
 // 延迟曲线点（范围/降采样）
 export interface MonitorCheckPoint {
+  sample_count?: number;
+  success_count?: number;
+  latency_count?: number;
+  loss_count?: number;
   ts: string;
   success: boolean;
   latency_ms: number | null;
   loss_pct: number | null;
 }
-export const getMonitorSeries = (id: number, opts?: { start?: string; end?: string; step?: number; limit?: number }) => {
+export const getMonitorSeries = (id: number, opts?: { start?: string; end?: string; step?: number; limit?: number; signal?: AbortSignal }) => {
   const q = new URLSearchParams();
   if (opts?.start) q.set("start", opts.start);
   if (opts?.end) q.set("end", opts.end);
   if (opts?.step) q.set("step", String(opts.step));
   if (opts?.limit) q.set("limit", String(opts.limit));
   const qs = q.toString();
-  return api<MonitorCheckPoint[]>(`/monitors/${id}/series${qs ? "?" + qs : ""}`);
+  return api<MonitorCheckPoint[]>(`/monitors/${id}/series${qs ? "?" + qs : ""}`, { signal: opts?.signal });
 };
 
 // ── 任务 ──
-export const listIperfTasks = () => api<IperfTask[]>("/iperf-tasks");
+export const listIperfTasks = (signal?: AbortSignal) => api<IperfTask[]>("/iperf-tasks", {signal});
 // progressAfter=N：progress_json 只返回第 N 点之后的增量（append-only，下标稳定），实时轮询省流量
-export const getIperfTask = (id: number, opts?: { progressAfter?: number }) =>
-  api<IperfTask>(`/iperf-tasks/${id}${opts?.progressAfter != null ? `?progress_after=${opts.progressAfter}` : ""}`);
+export const getIperfTask = (id: number, opts?: { progressAfter?: number; signal?: AbortSignal }) =>
+  api<IperfTask>(`/iperf-tasks/${id}${opts?.progressAfter != null ? `?progress_after=${opts.progressAfter}` : ""}`, {signal: opts?.signal});
 export const cancelIperfTask = (id: number) => api<{ ok: boolean }>(`/iperf-tasks/${id}/cancel`, { method: "POST" });
 export const createIperfTask = (data: {
   server_node_id: number | null;
@@ -288,7 +292,7 @@ export const createIperfTask = (data: {
   speedtest_server?: string | null;
 }) => api<IperfTask>("/iperf-tasks", { method: "POST", body: JSON.stringify(data) });
 
-export const listMtrTasks = () => api<MtrTask[]>("/mtr-tasks");
+export const listMtrTasks = (signal?: AbortSignal) => api<MtrTask[]>("/mtr-tasks", {signal});
 export const createMtrTask = (data: { node_id: number; target: string; protocol?: string; params?: MtrParams }) =>
   api<MtrTask>("/mtr-tasks", { method: "POST", body: JSON.stringify(data) });
 

@@ -19,6 +19,19 @@ import { openLightbox } from "../../composables/useLightbox";
 import Icon from "../../shell/Icon.vue";
 import TagBar from "./TagBar.vue";
 import AutoDirectory from "./AutoDirectory.vue";
+import VersionsPanel from "./VersionsPanel.vue";
+import NoteTimelinePanel from './NoteTimelinePanel.vue';
+const timelineOpen = ref(false);
+const versionsOpen = ref(false);
+function onVersionRestored(restored: Doc) {
+  if (!ownsSession() || props.docId !== restored.id) return;
+  doc.value = restored;
+  title.value = savedTitle.value = restored.title;
+  content.value = savedContent.value = restored.content || '';
+  savedAt.value = restored.updated_at;
+  draftSynced.value = false; draftBanner.value = null;
+  void loadBacklinks(); emit('saved');
+}
 import { TEMPLATE_TAG } from "./noteTemplates";
 
 const props = defineProps<{ docId: string }>();
@@ -907,7 +920,7 @@ onActivated(() => {
   if (activatedOnce && ownsSession()) void load(props.docId, true);
   activatedOnce = true;
 });
-onDeactivated(() => { flushDraft(); pauseEditor(); });
+onDeactivated(() => { versionsOpen.value=false; timelineOpen.value=false; flushDraft(); pauseEditor(); });
 
 function fmtDraftTime(iso: string) {
   return new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -916,6 +929,8 @@ function fmtDraftTime(iso: string) {
 
 <template>
   <div class="editor" v-if="doc">
+    <VersionsPanel v-if="versionsOpen" :doc="doc" :dirty="dirty" @close="versionsOpen=false" @restored="onVersionRestored" />
+    <NoteTimelinePanel v-if="timelineOpen" :doc="doc" @close="timelineOpen=false" />
     <!-- 草稿提示条 -->
     <div v-if="draftBanner" class="draft-banner">
       <span>
@@ -948,6 +963,8 @@ function fmtDraftTime(iso: string) {
       <input v-if="!reading" v-model="title" class="title-input" placeholder="无标题" />
       <div v-else class="title-input title-readonly">{{ title || "无标题" }}</div>
       <div class="actions">
+        <button class="mode-toggle" @click="versionsOpen = true">版本历史</button>
+        <button class="mode-toggle" @click="timelineOpen = true">关联时间线</button>
         <button
           class="star-btn"
           :class="{ fav: doc.is_favorite }"

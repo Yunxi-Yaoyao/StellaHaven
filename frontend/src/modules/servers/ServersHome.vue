@@ -1,14 +1,14 @@
 <script setup lang="ts">
 // 服务器模块列表视图：总览 / 服务器 / 工具（二级），由路由 query 驱动（/status?view=...&tool=...）。
 // 节点详情是独立子路由 /status/:id，不在此组件内。
-import { computed } from "vue";
+import { computed, defineAsyncComponent } from "vue";
 import { useRoute } from "vue-router";
-import OverviewView from "./OverviewView.vue";
-import ToolsView from "./ToolsView.vue";
-import NodesView from "./NodesView.vue";
-import RecordsView from "./RecordsView.vue";
-import DockerView from "./DockerView.vue";
-import AlertsView from "./AlertsView.vue";
+const OverviewView = defineAsyncComponent(() => import("./OverviewView.vue"));
+const ToolsView = defineAsyncComponent(() => import("./ToolsView.vue"));
+const NodesView = defineAsyncComponent(() => import("./NodesView.vue"));
+const RecordsView = defineAsyncComponent(() => import("./RecordsView.vue"));
+const DockerView = defineAsyncComponent(() => import("./DockerView.vue"));
+const AlertsView = defineAsyncComponent(() => import("./AlertsView.vue"));
 
 const route = useRoute();
 const view = computed(() => (route.query.view as string) || "nodes");

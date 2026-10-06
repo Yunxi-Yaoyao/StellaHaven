@@ -9,7 +9,7 @@ class  Settings(BaseSettings):
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str = "stalla"
-    postgres_password: str = "St@106954021"
+    postgres_password: str = ""
     postgres_db: str = "stella"
 
     @property

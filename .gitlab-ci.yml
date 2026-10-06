@@ -43,6 +43,9 @@ backend-test:
     POSTGRES_DB: stella
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
+    STELLA_COOKIE_SECURE: "false"  # disposable HTTP TestClient only
+    STELLA_MAIN_ORIGIN: "http://testserver"
+    STELLA_TRUSTED_ORIGINS: "http://testserver"
   before_script:
     - python -c "from pathlib import Path; p=Path('/etc/apt/sources.list.d/debian.sources'); p.write_text(p.read_text().replace('http://deb.debian.org/debian-security','https://mirrors.tuna.tsinghua.edu.cn/debian-security').replace('http://deb.debian.org/debian','https://mirrors.tuna.tsinghua.edu.cn/debian'))"
     - apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends ffmpeg
@@ -52,7 +55,11 @@ backend-test:
     - uv venv
     - uv pip sync --index-url "$PIP_INDEX_URL" --require-hashes /tmp/ci-requirements.txt
     - .venv/bin/python deploy/ci/create-test-db.py
-    - .venv/bin/pytest -q tests tests_ha
+    # Never combine module-stubbing suites or notes fixtures with PG main.
+    - .venv/bin/pytest -q tests
+    - .venv/bin/pytest -q tests_ha --noconftest
+    - for file in tests_isolated/test_*.py; do .venv/bin/pytest -q "$file" --noconftest || exit $?; done
+    - .venv/bin/pytest -q tests_notes_upgrade --confcutdir=tests_notes_upgrade
 
 frontend-build:
   extends: .branch-validation

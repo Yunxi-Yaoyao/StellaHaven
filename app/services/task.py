@@ -59,9 +59,7 @@ def create_iperf(db: Session, server_node_id: int | None, client_node_id: int,
                  speedtest_server: str | None = None) -> IperfTask:
     # 打流并发限制：同一时间只允许一个 running/pending 打流任务（防打满带宽拖垮代理）
     sweep_stale_iperf(db)  # 先清卡死任务，别让僵尸占着并发锁
-    active = db.query(IperfTask).filter(IperfTask.status.in_(["pending", "running"])).count()
-    if active > 0:
-        raise ValueError("已有打流任务进行中")
+    # Atomic admission is enforced inside repo.create_iperf's transaction.
     # 节点约束：两端都必须在线；iperf3 互打时服务端必须是公网节点（client 要能连到 5201），且两端不同机
     client = node_repo.get_by_id(db, client_node_id)
     if node_status(client) != "online":

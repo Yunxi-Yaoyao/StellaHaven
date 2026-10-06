@@ -3,7 +3,9 @@ import platform
 import os
 import shutil
 import subprocess
+import json
 from pathlib import Path
+from app.services.agent_install import install_privileges, remove_legacy_docker_grants, _root_file
 
 AGENT_SERVICE = "stella-agent"
 AGENT_DIR = "/opt/stella-agent"
@@ -74,6 +76,7 @@ def _is_agent_installed() -> bool:
 def install_host(token: str, center_url: str = "http://127.0.0.1:12031") -> dict:
     """本机一键安装 agent：创建独立用户 + 复制脚本 + 写 systemd 单元 + 启动。"""
     _ensure_user()
+    install_privileges()
     _ensure_sudoers()
 
     src = Path(__file__).resolve().parents[2] / "agent" / "stella_agent.py"
@@ -82,6 +85,11 @@ def install_host(token: str, center_url: str = "http://127.0.0.1:12031") -> dict
     dst = dst_dir / "stella_agent.py"
     dst.write_text(src.read_text(encoding="utf-8"))
     dst.chmod(0o755)
+
+    if any(c in token + center_url for c in '\r\n'):
+        raise ValueError('invalid agent configuration')
+    _root_file(Path('/etc/stella-agent/agent.env'),
+               f'STELLA_URL={json.dumps(center_url)}\nSTELLA_TOKEN={json.dumps(token)}\n', 0o600)
 
     unit = (
         "[Unit]\n"
@@ -92,7 +100,8 @@ def install_host(token: str, center_url: str = "http://127.0.0.1:12031") -> dict
         "Type=simple\n"
         "User=stella\n"
         "AmbientCapabilities=CAP_NET_RAW\n"
-        f"ExecStart=/usr/bin/env python3 {dst} --url {center_url} --token {token}\n"
+        f"ExecStart=/usr/bin/env python3 {dst}\n"
+        "EnvironmentFile=/etc/stella-agent/agent.env\n"
         "Restart=always\n"
         "RestartSec=5\n\n"
         "[Install]\n"
@@ -132,7 +141,7 @@ def _ensure_user() -> None:
 
 
 def _ensure_sudoers() -> None:
-    """给 stella 用户 sudo 权限（仅卸载命令白名单，NOPASSWD）。"""
+    """Install explicit uninstall rules, retain authorized networking, remove old Docker grant."""
     sysctl = shutil.which("systemctl") or "/usr/sbin/systemctl"
     rm = shutil.which("rm") or "/usr/bin/rm"
     content = (
@@ -142,5 +151,18 @@ def _ensure_sudoers() -> None:
         f"{rm} -rf /opt/stella-agent\n"
     )
     p = Path("/etc/sudoers.d/stella-uninstall")
-    p.write_text(content)
-    p.chmod(0o440)
+    existing = remove_legacy_docker_grants(p.read_text()) if p.exists() else ''
+    # New rules are one command per line; do not erase prior network/WG grants.
+    prefix = 'stella ALL=(root) NOPASSWD: '
+    commands = content.strip()[len(prefix):].split(', ')
+    lines: list[str] = [str(line) for line in existing.splitlines()]
+    for command in commands:
+        line = prefix + command
+        if line not in lines:
+            lines.append(line)
+    visudo = shutil.which('visudo')
+    if not visudo:
+        raise RuntimeError('visudo required')
+    _root_file(p, '\n'.join(lines) + '\n', 0o440,
+               lambda stage: subprocess.run([visudo, '-cf', stage], check=True,
+                                             capture_output=True, timeout=10))

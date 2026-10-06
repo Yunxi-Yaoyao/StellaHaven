@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createPoller } from "./polling";
 // 服务器页：节点清单 + 添加节点（纳管）+ 移除
 import { ref, onMounted, onUnmounted, computed } from "vue";
 import { useRouter } from "vue-router";
@@ -14,11 +15,14 @@ const showAdd = ref(false);
 const newName = ref("");
 const newPlatform = ref("linux");
 
-let timer: ReturnType<typeof setInterval> | null = null;
+const statusPoll = createPoller(refreshStatus, 5000);
+function refresh() { return statusPoll.run(); }
+function onVisibility() { if (document.hidden) statusPoll.stop(); else statusPoll.start(); }
 
-async function refresh() {
+async function refreshStatus(signal: AbortSignal) {
   try {
-    nodes.value = await listNodes();
+    const rows = await listNodes(signal);
+    if (!signal.aborted) nodes.value = rows;
   } catch {
     /* 后端未就绪时静默 */
   }
@@ -49,12 +53,13 @@ async function doInstallHost() {
 }
 
 onMounted(() => {
-  refresh();
+  if (!document.hidden) statusPoll.start();
+  document.addEventListener("visibilitychange", onVisibility);
   refreshHost();
   loadPublicHost();
-  timer = setInterval(refresh, 5000); // 5s 刷新（心跳状态实时）
+
 });
-onUnmounted(() => { if (timer) clearInterval(timer); });
+onUnmounted(() => { statusPoll.stop(); document.removeEventListener("visibilitychange", onVisibility); });
 
 const onlineCount = computed(() => nodes.value.filter((n) => n.status === "online").length);
 
@@ -175,7 +180,7 @@ async function doAutoInstall() {
 const router = useRouter();
 function goSettings() {
   installTarget.value = null;
-  router.push("/settings?tab=misc");
+  router.push("/settings?section=services");
 }
 
 // 点卡片 → 独立路由进详情（SPA 切换不刷新，刷新/后退行为正常）

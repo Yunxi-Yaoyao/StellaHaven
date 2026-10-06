@@ -212,11 +212,15 @@ class MonitorCheckRead(BaseModel):
 
 
 class MonitorCheckPoint(BaseModel):
-    """延迟曲线点（范围/降采样查询用，无行 id）。"""
+    """Series point; counts preserve exact weighted statistics after bucketing."""
     ts: datetime
     success: bool
     latency_ms: float | None = None
     loss_pct: float | None = None
+    sample_count: int = 1
+    success_count: int = 0
+    latency_count: int = 0
+    loss_count: int = 0
 
 
 # ── 任务（打流 / MTR / 命令）──

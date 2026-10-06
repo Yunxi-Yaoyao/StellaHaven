@@ -17,6 +17,8 @@ def isolated():
     engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     User.__table__.create(engine)
     AuthSession.__table__.create(engine)
+    from app.models.config import AppConfig
+    AppConfig.__table__.create(engine)
     with Session(engine) as db:
         user = User(username='policy-user', display_name='Policy', password_hash=hash_password('secret123'), is_admin=False)
         db.add(user)

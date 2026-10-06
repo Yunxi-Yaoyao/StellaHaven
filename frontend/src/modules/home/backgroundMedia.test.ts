@@ -24,7 +24,7 @@ function consume(input = ref(url)) {
 }
 function mount(component: typeof SettingsPanel | typeof BgManager) {
   const node = document.createElement('div'); document.body.append(node);
-  const app = createApp(component); app.mount(node); cleanups.push(() => app.unmount());
+  const app = createApp(component, component === SettingsPanel ? { embedded: true } : {}); app.mount(node); cleanups.push(() => app.unmount());
 }
 test('shared quality updates all consumers immediately without changing original identity', async () => {
   storeBackgroundMedia(record()); const a = consume(); const b = consume();

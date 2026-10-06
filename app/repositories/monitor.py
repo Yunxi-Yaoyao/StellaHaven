@@ -1,6 +1,7 @@
 """监控项域 repositories：监控项 CRUD + 探测结果写入（幂等）+ 历史查询。"""
 from datetime import datetime
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.monitor import Monitor, MonitorCheck
@@ -97,6 +98,31 @@ def list_checks_range(db: Session, monitor_id: int, start: datetime | None = Non
     if end is not None:
         q = q.filter(MonitorCheck.ts <= end)
     return q.order_by(MonitorCheck.ts.asc()).limit(limit).all()
+
+
+def list_checks_bucketed(db: Session, monitor_id: int, start: datetime,
+                        end: datetime, step: int, limit: int) -> list[dict]:
+    """Aggregate all bounded raw samples before limiting output buckets.
+
+    Counts travel with means: frontend availability/latency must weight uneven
+    buckets by samples, not treat a majority-success bucket as one successful probe.
+    """
+    bucket = func.to_timestamp(func.floor(func.extract("epoch", MonitorCheck.ts) / step) * step)
+    row_query = db.query(
+        bucket.label("ts"), func.count().label("sample_count"),
+        func.count().filter(MonitorCheck.success).label("success_count"),
+        func.avg(MonitorCheck.latency_ms).filter(MonitorCheck.success).label("latency_ms"),
+        func.count(MonitorCheck.latency_ms).filter(MonitorCheck.success).label("latency_count"),
+        func.avg(MonitorCheck.loss_pct).label("loss_pct"),
+        func.count(MonitorCheck.loss_pct).label("loss_count"),
+    ).filter(MonitorCheck.monitor_id == monitor_id, MonitorCheck.ts >= start,
+             MonitorCheck.ts <= end).group_by(bucket).order_by(bucket.asc()).limit(limit)
+    return [{"ts": r.ts, "success": r.success_count * 2 >= r.sample_count,
+             "latency_ms": float(r.latency_ms) if r.latency_ms is not None else None,
+             "loss_pct": float(r.loss_pct) if r.loss_pct is not None else None,
+             "sample_count": int(r.sample_count), "success_count": int(r.success_count),
+             "latency_count": int(r.latency_count), "loss_count": int(r.loss_count)}
+            for r in row_query.all()]
 
 
 # ── 调度：找该探测的监控项 ──

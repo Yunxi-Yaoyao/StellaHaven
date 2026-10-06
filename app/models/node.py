@@ -6,7 +6,7 @@
 status 状态机：pending（已添加未报到）→ online（心跳正常）→ offline（超时）/ removed（移除）。
 """
 from datetime import datetime
-from sqlalchemy import ForeignKey, Integer, BigInteger, DateTime, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, BigInteger, DateTime, String, Text, UniqueConstraint, Index
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
 from app.models import Base, Mapped, mapped_column
@@ -51,6 +51,7 @@ class NodeMetric(Base):
     __table_args__ = (
         # 补传幂等：同一节点同一网卡同一采样时刻唯一
         UniqueConstraint("node_id", "iface", "ts", name="uq_node_metric"),
+        Index("ix_node_metrics_node_ts", "node_id", "ts"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

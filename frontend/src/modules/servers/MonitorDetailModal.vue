@@ -4,8 +4,10 @@
 // Tab2 MTR：近 60 天历史（定时/失败/手动三触发），可展开逐跳表格，支持「立即 MTR」
 // Tab3 编辑：名称/类型/主机/端口/间隔；探测节点灰色禁改（换了历史数据就串台了）
 import { waitForTask } from "./taskWait";
+import { summarizeMonitorPoints } from "./monitorStats";
+import { createRequestLane } from "./polling";
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import * as echarts from "echarts";
+import * as echarts from "./chartRuntime";
 import {
   getMonitorSeries, updateMonitor, listMonitorMtr, runMonitorMtr,
   mtrHopRows, type Monitor, type MtrTask, type MonitorCheckPoint, type MtrHopRow,
@@ -37,25 +39,14 @@ let chart: echarts.ECharts | null = null;
 // 24h 逐小时可用率色块（独立取数，不随范围切换）
 const hourBuckets = ref<{ ts: string; success: boolean; latency_ms: number | null }[]>([]);
 
-const stats = computed(() => {
-  const pts = points.value;
-  if (!pts.length) return null;
-  const ok = pts.filter((p) => p.success);
-  const lats = ok.filter((p) => p.latency_ms != null).map((p) => p.latency_ms!);
-  // 丢包率：ping 有逐次 loss_pct 用真实值；其余类型用失败率（一次探测=一个包的语义）
-  const withLoss = pts.filter((p) => p.loss_pct != null);
-  const loss = withLoss.length
-    ? withLoss.reduce((s, p) => s + (p.loss_pct ?? 0), 0) / withLoss.length
-    : (pts.length - ok.length) / pts.length * 100;
-  return {
-    total: pts.length,
-    avail: ok.length / pts.length * 100,
-    avgLat: lats.length ? lats.reduce((a, b) => a + b, 0) / lats.length : null,
-    loss,
-  };
-});
+const stats = computed(() => points.value.length ? summarizeMonitorPoints(points.value) : null);
+const seriesLane = createRequestLane();
+const hourLane = createRequestLane();
+onUnmounted(() => { seriesLane.reset(); hourLane.reset(); });
 
 async function loadSeries() {
+  seriesLane.reset();
+  await seriesLane.run(async signal => {
   const end = new Date();
   const start = new Date(end.getTime() - range.value * 1000);
   const opts: { start: string; end: string; step?: number; limit?: number } = {
@@ -63,21 +54,28 @@ async function loadSeries() {
   };
   if (range.value >= 604800) opts.step = 600;   // 7d 原始点上万，10 分钟桶降采样
   else if (range.value >= 21600) opts.step = 120; // 6h/24h 两分钟桶足够细
+  else opts.step = 5;
   try {
-    points.value = await getMonitorSeries(props.monitor.id, opts);
+    const rows = await getMonitorSeries(props.monitor.id, { ...opts, signal });
+    if (signal.aborted) return;
+    points.value = rows;
     await nextTick();
     paintChart();
   } catch { /* 静默 */ }
+  });
 }
 
 async function loadHourBuckets() {
+  await hourLane.run(async signal => {
   const end = new Date();
   const start = new Date(end.getTime() - 86400000);
   try {
-    hourBuckets.value = await getMonitorSeries(props.monitor.id, {
-      start: start.toISOString(), end: end.toISOString(), step: 3600,
+    const rows = await getMonitorSeries(props.monitor.id, {
+      start: start.toISOString(), end: end.toISOString(), step: 3600, signal,
     });
+    if (!signal.aborted) hourBuckets.value = rows;
   } catch { /* 静默 */ }
+  });
 }
 
 function hourBlocks(): ({ ok: boolean; label: string } | null)[] {

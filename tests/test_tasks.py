@@ -13,6 +13,10 @@ def _mk_node(client, net_type="internal"):
         "name": f"node_{uuid4().hex[:8]}", "platform": "linux", "host": "10.0.0.1",
     }).json()
     # 上报心跳：pending → online（业务要求创建打流任务时两端都必须在线）
+    install = client.post(f"/nodes/{node['id']}/install-command")
+    assert install.status_code == 200, install.text
+    assert 'token' not in node
+    node['token'] = install.json()['token']
     client.post(f"/agent/report?token={node['token']}", json={"agent_version": "test"})
     if net_type == "public":
         client.patch(f"/nodes/{node['id']}/net-type", json={"net_type": "public"})

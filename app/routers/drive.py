@@ -39,8 +39,12 @@ def reveal_token(db: Session = Depends(get_db)):
         headers={'Cache-Control': 'no-store', 'Pragma': 'no-cache', 'Referrer-Policy': 'no-referrer'})
 
 @router.get('/login-url')
-def login_url(user=Depends(current_user), db: Session = Depends(get_db)):
-    return JSONResponse(service.get_login_url(db, user.is_admin), headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
+def login_url(request: Request, user=Depends(current_user), db: Session = Depends(get_db)):
+    cfg = external.load(db, 'drive')
+    privileged = cfg.auth_mode == 'token' and bool(cfg.token)
+    if privileged:
+        admin_user(request, user, db)
+    return JSONResponse(service.get_login_url(db, privileged), headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
 
 
 # Only service cookies and OpenList's raw-token Authorization survive.
@@ -73,11 +77,28 @@ def proxy_headers(headers):
     return out
 
 
+# Explicit read-only POSTs from OpenList server/router.go. /fs/other invokes
+# driver-specific operations and is NOT a read endpoint despite accepting Any.
+OPENLIST_READ_POST = frozenset({
+    'api/fs/list', 'api/fs/get', 'api/fs/search', 'api/fs/dirs',
+    'api/fs/archive/meta', 'api/fs/archive/list',
+    'api/public/settings', 'api/public/offline_download_tools',
+    'api/public/archive_extensions', 'api/public/init_status',
+})
+
+
 @router.api_route('/openlist/{path:path}', methods=['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
-async def openlist_proxy(path: str, request: Request, db: Session = Depends(get_db)):
-    cfg = external.load(db, 'drive')
-    if any(p in ('.', '..') for p in path.split('/')) or '\\' in path or '%' in path:
+async def openlist_proxy(path: str, request: Request, user=Depends(current_user), db: Session = Depends(get_db)):
+    if path.startswith('/') or '//' in path or any(p in ('.', '..') for p in path.split('/')) or '\\' in path or '%' in path:
         raise HTTPException(400, '非法路径')
+    # Preflight cannot exercise upstream operations or claim management access.
+    if request.method == 'OPTIONS':
+        return Response(status_code=204, headers={'Allow': 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'})
+    management = path == 'api/admin' or path.startswith('api/admin/') or path.rstrip('/') == 'api/fs/other'
+    readonly = request.method in {'GET', 'HEAD'} or (request.method == 'POST' and path in OPENLIST_READ_POST)
+    if management or not readonly:
+        admin_user(request, user, db)  # validated SID + persisted elevation, never cached OpenList token
+    cfg = external.load(db, 'drive')
     base = (cfg.upstream_url or cfg.browser_url).rstrip('/')
     try:
         await asyncio.wait_for(asyncio.to_thread(external.check_resolved, base), 5)
@@ -109,7 +130,7 @@ async def openlist_proxy(path: str, request: Request, db: Session = Depends(get_
     if request.method != 'HEAD' and resp.status_code == 200 and 'text/html' in resp.headers.get('content-type', '') and not resp.headers.get('content-encoding'):
         try:
             body = await resp.aread()
-            html = service.inject_theme_html(body.decode('utf-8', errors='replace'))
+            html = service.inject_theme_html(body.decode('utf-8', errors='replace'), db=db)
             headers.pop('content-length', None)
             headers.pop('etag', None)
             return Response(html, status_code=resp.status_code, headers=headers)

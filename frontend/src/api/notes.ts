@@ -193,5 +193,17 @@ export const addDocTag = (docId: string, tagId: string) =>
 export const removeDocTag = (docId: string, tagId: string) =>
   api<void>(`/doc-tags/?doc_id=${docId}&tag_id=${tagId}`, { method: "DELETE" });
 
-export const listAllLinks = () =>
-  api<{ source_id: string; target_id: string; link_type: string }[]>("/document-links/");
+export const listAllLinks = (workspaceId: string) =>
+  api<{ source_id: string; target_id: string; link_type: string }[]>(`/document-links/?workspace_id=${encodeURIComponent(workspaceId)}`);
+
+export interface SearchItem {kind:string;id:string;label:string;path:string;ts?:string;state?:string;node_id?:number}
+export const unifiedSearch = (q:string, workspaceId?:string, signal?:AbortSignal) => api<{items:SearchItem[]}>(`/search?q=${encodeURIComponent(q)}${workspaceId?`&workspace_id=${encodeURIComponent(workspaceId)}`:''}`,{signal});
+export const captureNote = (workspaceId:string,title:string,content:string,signal?:AbortSignal) => api<Doc>('/notes-tools/quick-record',{method:'POST',body:JSON.stringify({workspace_id:workspaceId,title,content}),signal});
+export const readNoteNode = (id:string,signal?:AbortSignal) => api<{node_id:number|null}>(`/notes-tools/documents/${id}/node`,{signal});
+export const setNoteNode = (id:string,nodeId:number|null,signal?:AbortSignal) => api<{node_id:number|null}>(`/notes-tools/documents/${id}/node`,{method:'PUT',body:JSON.stringify({node_id:nodeId}),signal});
+export const nodeTimeline = (nodeId:number,workspaceId?:string,signal?:AbortSignal) => api<{items:SearchItem[];has_more:boolean}>(`/timeline?node_id=${nodeId}${workspaceId?`&workspace_id=${encodeURIComponent(workspaceId)}`:''}`,{signal});
+
+export interface NoteVersion { id: string; doc_id: string; version_no: number; created_at: string }
+export const listVersions = (docId: string, signal?: AbortSignal) => api<NoteVersion[]>(`/document-versions/?doc_id=${encodeURIComponent(docId)}`, {signal});
+export const versionDiff = (id: string, signal?: AbortSignal) => api<{diff:string}>(`/document-versions/${id}/diff`, {signal});
+export const restoreVersion = (id: string, updatedAt: string, signal?: AbortSignal) => api<Doc>(`/document-versions/${id}/restore`, {method:'POST',body:JSON.stringify({updated_at:updatedAt}),signal});

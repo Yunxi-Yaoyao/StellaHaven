@@ -4,11 +4,16 @@ from uuid import uuid4
 
 
 def _mk_node(client):
-    return client.post("/nodes/", json={
+    node = client.post("/nodes/", json={
         "name": f"node_{uuid4().hex[:8]}",
         "platform": "linux",
         "host": "10.0.0.1",
     }).json()
+    install = client.post(f"/nodes/{node['id']}/install-command")
+    assert install.status_code == 200, install.text
+    assert 'token' not in node
+    node['token'] = install.json()['token']
+    return node
 
 
 def _mk_monitor(client, node_id, target="127.0.0.1:22", mtype="tcp", interval=3600):

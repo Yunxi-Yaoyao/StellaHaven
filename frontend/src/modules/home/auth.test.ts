@@ -4,6 +4,14 @@ import appSource from '../../App.vue?raw';
 vi.mock('./settings', () => ({ homeSettings: {}, siteBackground: { value: '' }, DEFAULT_HOME_BG: '' }));
 import * as store from './auth';
 beforeEach(() => { vi.restoreAllMocks(); store.auth.me = { id: 'u' } as any; });
+it('legacy admin identity never grants management permissions without a server grant', async () => {
+ store.clearSecurity();store.auth.me = {id:'u',is_admin:true} as any;
+ expect(store.isAdmin.value).toBe(false);
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({enabled:true,configured:true,elevated:true,expires_at:new Date(Date.now()+1000).toISOString(),single_user:true,setup_required:false})}));
+ vi.useFakeTimers();await store.loadSecurity();expect(store.isAdmin.value).toBe(true);
+ await vi.advanceTimersByTimeAsync(1001);expect(store.security.elevated).toBe(false);
+ vi.useRealTimers();store.clearSecurity();
+});
 it('only trusted visible input sends throttled activity', async () => {
   const fetch = vi.fn().mockResolvedValue({ ok: true });
   vi.stubGlobal('fetch', fetch);

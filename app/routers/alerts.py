@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.routers.auth import current_user
+from app.routers.auth import current_user, admin_user
 from app.services import alerts
 
 router = APIRouter(dependencies=[Depends(current_user)], tags=["alerts"])
@@ -38,7 +38,7 @@ def list_rules(db: Session = Depends(get_db)):
     return alerts.list_rules(db)
 
 
-@router.post("/alerts/rules", status_code=201)
+@router.post("/alerts/rules", status_code=201, dependencies=[Depends(admin_user)])
 def create_rule(data: RuleCreate, db: Session = Depends(get_db)):
     try:
         rule = alerts.create_rule(db, data.kind, data.target, label=data.label,
@@ -52,7 +52,7 @@ def create_rule(data: RuleCreate, db: Session = Depends(get_db)):
     return {"id": rule.id}
 
 
-@router.patch("/alerts/rules/{rule_id}")
+@router.patch("/alerts/rules/{rule_id}", dependencies=[Depends(admin_user)])
 def patch_rule(rule_id: int, data: RulePatch, db: Session = Depends(get_db)):
     try:
         alerts.update_rule(db, rule_id, data.model_dump(exclude_none=True))
@@ -63,7 +63,7 @@ def patch_rule(rule_id: int, data: RulePatch, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-@router.delete("/alerts/rules/{rule_id}")
+@router.delete("/alerts/rules/{rule_id}", dependencies=[Depends(admin_user)])
 def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     try:
         alerts.delete_rule(db, rule_id)
