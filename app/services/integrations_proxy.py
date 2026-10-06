@@ -18,7 +18,7 @@ def allowed_address(value):
     addr = ipaddress.ip_address(value)
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
         addr = addr.ipv4_mapped
-    if addr.is_link_local or addr.is_unspecified or addr.is_multicast or addr.is_reserved or str(addr) in {'100.100.100.200','fd00:ec2::254','168.63.129.16'}:
+    if addr.is_link_local or addr.is_unspecified or addr.is_multicast or (addr.is_reserved and str(addr) != '::1') or str(addr) in {'100.100.100.200','fd00:ec2::254','168.63.129.16'}:
         raise ValueError('禁止元数据、链路本地、保留地址')
     return str(addr)
 

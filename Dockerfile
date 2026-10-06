@@ -14,7 +14,7 @@ WORKDIR /app
 # ffmpeg/ffprobe generate bounded background derivatives; originals remain unchanged.
 RUN python -c "from pathlib import Path; p=Path('/etc/apt/sources.list.d/debian.sources'); p.write_text(p.read_text().replace('http://deb.debian.org/debian-security','https://mirrors.tuna.tsinghua.edu.cn/debian-security').replace('http://deb.debian.org/debian','https://mirrors.tuna.tsinghua.edu.cn/debian'))" \
     && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update \
-    && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends ffmpeg \
+    && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends ffmpeg nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # uv 装依赖（只装生产依赖，不装 test 组）
