@@ -44,7 +44,8 @@ async function load(){
 function loaded(){if(!url.value||blocked.value)return;clearTimeout(timer);loading.value=false;status.value='浏览器内容状态未知；load 事件不代表页面可用或登录成功';}
 watch(()=>props.id,load,{immediate:true});
 watch(()=>props.active,active=>{if(!active){cancel();if(!url.value)status.value='连接已暂停，请手动重新连接';}},{flush:'sync'});
-watch(()=>[auth.me?.id,auth.sessionGeneration,auth.sessionClosing],()=>{cancel();url.value='';website.value=null;},{flush:'sync'});
+// fetchMe replaces the user object during polling; only identity/session changes invalidate a connection.
+watch([()=>auth.me?.id,()=>auth.sessionGeneration,()=>auth.sessionClosing],()=>{cancel();url.value='';website.value=null;},{flush:'sync'});
 onBeforeUnmount(cancel);
 </script>
 <template><section class="external-page"><header><h1><Icon :name="website?.icon||'globe'" :size="18"/>{{website?.name||'网站模块'}}</h1><div class="actions"><button :disabled="loading" @click="load">重新连接</button><a v-if="website" :href="website.mode==='isolated_proxy'?undefined:url" :aria-disabled="website.mode==='isolated_proxy'" target="_blank" rel="noopener noreferrer">新窗口打开</a><RouterLink :to="{path:'/settings',query:{section:'navigation',module:props.id}}">连接设置</RouterLink></div></header><p v-if="error" role="alert">{{error}}</p><p v-else role="status">{{status}}</p><section v-if="check?.help" class="check-help"><p>{{check.help.title}}</p><p v-if="check.help.location"><code>{{check.help.location}}</code></p><p v-for="line in check.help.instructions" :key="line">{{line}}</p></section><p v-if="website?.keep_alive">已保留现场；第三方网站可能自行后台运行。此缓存不延长会话或管理授权，授权过期后请手动重新连接。</p><p v-if="website?.mode==='isolated_proxy'">独立代理启动票据只经 POST 提交，不包含在 URL 中。新窗口请从原网站域名手动登录。</p><iframe v-if="website && website.mode!=='link' && url && !blocked" :key="frameKey" ref="frame" :name="frameName" :title="website.name" :src="url" referrerpolicy="no-referrer" allow="fullscreen" @load="loaded" /></section></template>
