@@ -1,0 +1,35 @@
+{
+  "schema": "stella-edge-preparation-evidence-v1",
+  "production_write": false,
+  "baseline": "37aabbb94de1a51d3514186ccc1afe2ee2ff52ab",
+  "stage": "/root/.hermes/cache/scratch/stella-edge-20261006/current-stage",
+  "stage_manifest_sha256": "6dcea83238d09f47fe80d03cd97516a8153f6d6d01782a46133b8770ee8ba549",
+  "image": "gitlab-registry.xiya.live/yaoyao/stellahaven@sha256:4c08d85e9cfca39ba91c46a4147a38a73b84dbfc70a2c60a55eb39d35fe5a3f2",
+  "version": "102f2ca805aff392f605acf29e6bd8df5d2418b4857dfb309c99bb61552bf31c",
+  "public_files": 263,
+  "dist_files": 325,
+  "verified_public_bytes": 6873145,
+  "tests": [
+    {
+      "runtime": "local-1.30.5",
+      "tests": 27,
+      "passed": true,
+      "log": "/root/.hermes/cache/scratch/stella-edge-20261006/tests-local-1.30.5.log"
+    },
+    {
+      "runtime": "hk-copy-1.24.0",
+      "tests": 27,
+      "passed": true,
+      "log": "/root/.hermes/cache/scratch/stella-edge-20261006/tests-hk-copy-1.24.0.log"
+    }
+  ],
+  "real_image_http_evidence": [
+    "/root/.hermes/cache/scratch/stella-edge-20261006/current-rehearsal/result.json",
+    "/root/.hermes/cache/scratch/stella-edge-20261006/current-rehearsal-hk/result.json"
+  ],
+  "hk_nginx_binary_sha256": "a24def283d640db0bcad3c81b0630a3444b3079f6c50c956c9bd39330eaca544",
+  "hk_vhost_snapshot_sha256": "03eb728d308c9ba14c8948a021a14e002f093f1031bdf7a44cd7f852fb520d84",
+  "new_image_stage": "pending exact parent-provided image",
+  "stable_app_restart_policy_observed": "no",
+  "review": "self-review only; parent independent review still required"
+}
