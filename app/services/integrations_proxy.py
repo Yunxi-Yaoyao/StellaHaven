@@ -357,7 +357,12 @@ async def proxy_websocket(ws,module,target,db_factory,grant):
                 while True:
                     await asyncio.sleep(5)
                     with db_factory() as db:
-                        if __import__('time').time()>=grant['expires'] or not sessions.session_alive(db,grant['sid']):
+                        try:
+                            fresh_grant=sessions.authorize(db,module['id'],module['origin'],ws.cookies.get(sessions.COOKIE))
+                            if module['adapter']=='openlist':
+                                from app.services.openlist_access import require_grant
+                                require_grant(db,fresh_grant,'WEBSOCKET',ws.url.path.removeprefix('/'))
+                        except HTTPException:
                             return
             tasks=[asyncio.create_task(fn()) for fn in (to_upstream,to_browser,watch_session)]
             done,pending=await asyncio.wait(tasks,return_when=asyncio.FIRST_COMPLETED,timeout=max(0,grant['expires']-__import__('time').time()))

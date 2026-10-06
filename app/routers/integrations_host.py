@@ -95,6 +95,9 @@ class IntegrationsHostMiddleware:
                     from starlette.websockets import WebSocket
                     ws=WebSocket(scope,receive,send)
                     grant=sessions.authorize(db,mid,origin,ws.cookies.get(sessions.COOKIE))
+                    if module['adapter']=='openlist':
+                        from app.services.openlist_access import require_grant
+                        require_grant(db,grant,'WEBSOCKET',ws.url.path.removeprefix('/'))
                     db.close()  # no DB connection held for lifetime of stream/socket
                     return await proxy.proxy_websocket(ws,module,target,self.db_factory,grant)
                 request=Request(scope,receive)
@@ -118,7 +121,10 @@ class IntegrationsHostMiddleware:
                 else:
                     if request.url.path.startswith('/__stella/'):
                         raise HTTPException(404,'保留集成路径')
-                    sessions.authorize(db,mid,origin,request.cookies.get(sessions.COOKIE))
+                    grant=sessions.authorize(db,mid,origin,request.cookies.get(sessions.COOKIE))
+                    if module['adapter']=='openlist':
+                        from app.services.openlist_access import require_grant
+                        require_grant(db,grant,request.method,request.url.path.removeprefix('/'))
                     db.close()
                     def read_builtin_snapshot(site):
                         from app.services import builtin_injection

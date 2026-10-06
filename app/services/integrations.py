@@ -163,6 +163,19 @@ def check_module(value, config):
             raise HTTPException(422,'Immich 域名接管需要受控上游')
 
 
+def derived_origin(mid, value):
+    if value['adapter']=='immich' and value['mode']=='isolated_proxy':
+        parsed = urlsplit(value['browser_url'])
+        return 'https://' + parsed.hostname
+    return f'https://app-{mid}.xiya.live'
+
+
+def ensure_unique_origin(config, mid, origin):
+    from app.services.request_security import canonical_origin
+    if any(key!=mid and canonical_origin(module['origin'])==origin for key,module in config['modules'].items()):
+        raise HTTPException(409, '此集成域名已有模块')
+
+
 def create_module(db, incoming, actor_id):
     value = incoming.model_dump()
     with edit(db) as config:
@@ -170,11 +183,9 @@ def create_module(db, incoming, actor_id):
         if len(config['modules']) >= 128:
             raise HTTPException(422, '模块数量超过限制')
         mid = uuid4().hex
-        value.update(id=mid, origin=f'https://app-{mid}.xiya.live', injection=dict(draft=None,active=None,previous=None))
-        if value['adapter']=='immich' and value['mode']=='isolated_proxy':
-            value['origin']=value['browser_url'].rstrip('/')
-            if any(m['origin']==value['origin'] for m in config['modules'].values()):
-                raise HTTPException(409,'此 Immich 域名已有模块')
+        origin = derived_origin(mid, value)
+        ensure_unique_origin(config, mid, origin)
+        value.update(id=mid, origin=origin, injection=dict(draft=None,active=None,previous=None))
         config['modules'][mid] = value
         record_change(db,action='integration.create',actor_id=actor_id,resource_id=mid,changed_fields=['name','icon','mode','target','enabled'])
     return present(value)
@@ -192,7 +203,13 @@ def patch_module(db, mid, patch, actor_id):
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         check_module(merged, config)
-        value.update(merged)
+        next_origin = derived_origin(mid, merged)
+        ensure_unique_origin(config, mid, next_origin)
+        identity_fields = ('adapter', 'mode', 'browser_url', 'target_id', 'initial_path', 'enabled')
+        if next_origin != value['origin'] or any(merged[key] != value.get(key) for key in identity_fields):
+            for key in ('tickets', 'grants'):
+                config[key] = {identifier: entry for identifier, entry in config[key].items() if entry['id'] != mid}
+        value.update(merged, origin=next_origin)
         record_change(db,action='integration.update',actor_id=actor_id,resource_id=mid,changed_fields=[('target' if k=='target_id' else k) for k in patch])
     return present(value)
 

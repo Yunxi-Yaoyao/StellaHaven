@@ -79,12 +79,7 @@ def proxy_headers(headers):
 
 # Explicit read-only POSTs from OpenList server/router.go. /fs/other invokes
 # driver-specific operations and is NOT a read endpoint despite accepting Any.
-OPENLIST_READ_POST = frozenset({
-    'api/fs/list', 'api/fs/get', 'api/fs/search', 'api/fs/dirs',
-    'api/fs/archive/meta', 'api/fs/archive/list',
-    'api/public/settings', 'api/public/offline_download_tools',
-    'api/public/archive_extensions', 'api/public/init_status',
-})
+from app.services.openlist_access import READ_POST as OPENLIST_READ_POST, management_required
 
 
 @router.api_route('/openlist/{path:path}', methods=['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
@@ -94,9 +89,7 @@ async def openlist_proxy(path: str, request: Request, user=Depends(current_user)
     # Preflight cannot exercise upstream operations or claim management access.
     if request.method == 'OPTIONS':
         return Response(status_code=204, headers={'Allow': 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'})
-    management = path == 'api/admin' or path.startswith('api/admin/') or path.rstrip('/') == 'api/fs/other'
-    readonly = request.method in {'GET', 'HEAD'} or (request.method == 'POST' and path in OPENLIST_READ_POST)
-    if management or not readonly:
+    if management_required(request.method, path):
         admin_user(request, user, db)  # validated SID + persisted elevation, never cached OpenList token
     cfg = external.load(db, 'drive')
     base = (cfg.upstream_url or cfg.browser_url).rstrip('/')
