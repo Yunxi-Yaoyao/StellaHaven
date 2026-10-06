@@ -38,6 +38,21 @@ require = contract.require
 OLD_FIELDS = ('Id', 'Image', 'Config', 'HostConfig', 'Mounts')
 
 
+def same_approved_snapshot(actual, approved):
+    # Docker inspect can reorder the complete Mounts array between reads.
+    # Compare all mount attributes; only presentation order is irrelevant.
+    for key in OLD_FIELDS:
+        if key == 'Mounts':
+            left = sorted(actual[key], key=lambda m: m['Destination'])
+            right = sorted(approved[key], key=lambda m: m['Destination'])
+            if left != right:
+                return False
+        elif actual[key] != approved[key]:
+            return False
+    return True
+
+
+
 class Normalizer(contract.Node):
     def __init__(self, request):
         require(request.get('scope') == 'stella-manual-runtime-normalize-v1', 'manual normalization approval required')
@@ -65,7 +80,7 @@ class Normalizer(contract.Node):
         require(self.application_environment_matches(old), 'normalization must not change approved application environment')
 
     def validate_manual(self, c, name=None):
-        require(all(c[k] == self.r['approved_old'][k] for k in OLD_FIELDS), 'old approved snapshot changed')
+        require(same_approved_snapshot(c, self.r['approved_old']), 'old approved snapshot changed')
         require(c['Name'] == '/' + (name or self.name) and c['State']['Running'], 'manual app name/state mismatch')
         cfg, host = c['Config'], c['HostConfig']
         require(cfg.get('Entrypoint') is None and cfg.get('Cmd') == ['/app/.venv/bin/python', '/shadow-start.py'],
@@ -238,7 +253,7 @@ class Normalizer(contract.Node):
                     receipt['failed_container'] = failed_name
                 if stop_attempted:
                     current_old = self.inspect(old['Id'])
-                    require(all(current_old[k] == old[k] for k in OLD_FIELDS), 'rollback old snapshot changed')
+                    require(same_approved_snapshot(current_old, old), 'rollback old snapshot changed')
                     if current_old['Name'] == '/' + backup:
                         contract.run(['docker', 'rename', old['Id'], self.name])
                     else:

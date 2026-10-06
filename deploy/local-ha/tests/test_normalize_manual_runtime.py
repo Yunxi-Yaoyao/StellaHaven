@@ -111,6 +111,23 @@ class Harness:
 
 class NormalizeTests(unittest.TestCase):
 
+    def test_docker_mount_order_drift_does_not_change_approved_mount_identity(self):
+        m = load('normalize_manual_runtime')
+        h = Harness(m)
+        h.containers[OLD_ID]['Mounts'].reverse()
+        self.assertEqual(h.run()['status'], 'validated')
+        self.assertEqual(h.mutations(), [])
+
+    def test_reordered_mount_with_changed_source_is_still_rejected(self):
+        m = load('normalize_manual_runtime')
+        h = Harness(m)
+        h.containers[OLD_ID]['Mounts'].reverse()
+        h.containers[OLD_ID]['Mounts'][0]['Source'] += '-changed'
+        with self.assertRaisesRegex(ValueError, 'snapshot changed'):
+            h.run()
+        self.assertEqual(h.mutations(), [])
+
+
     def test_default_is_read_only_and_existing_guard_still_rejects_manual(self):
         from pathlib import Path
         self.assertTrue((Path(__file__).resolve().parents[1] / 'normalize_manual_runtime.py').exists(),
