@@ -210,6 +210,9 @@ def patch_module(db, mid, patch, actor_id):
             for key in ('tickets', 'grants'):
                 config[key] = {identifier: entry for identifier, entry in config[key].items() if entry['id'] != mid}
         value.update(merged, origin=next_origin)
+        for entry in config['navigation']:
+            if entry['id'] == mid:
+                entry.update(title=value['name'], icon=value['icon'])
         record_change(db,action='integration.update',actor_id=actor_id,resource_id=mid,changed_fields=[('target' if k=='target_id' else k) for k in patch])
     return present(value)
 
@@ -219,6 +222,8 @@ def delete_module(db, mid, actor_id):
         if mid not in config['modules']:
             raise HTTPException(404, '模块不存在')
         del config['modules'][mid]
+        for key in ('website_version_origins','website_retired_versions'):
+            config.get(key,{}).pop(mid,None)
         config['navigation'] = [e for e in config['navigation'] if e['id'] != mid]
         for key in ('tickets','grants'):
             config[key] = {k:v for k,v in config[key].items() if v['id']!=mid}
@@ -244,6 +249,12 @@ def save_navigation(db, incoming, actor_id):
         ids = [e.id for e in incoming.entries]
         if len(ids)!=len(set(ids)) or not set(ids)<=allowed:
             raise HTTPException(422, '导航包含未知或重复 ID')
+        if not incoming.reset:
+            for entry in incoming.entries:
+                module = config['modules'].get(entry.id)
+                if module:
+                    if entry.title is not None: module['name'] = entry.title
+                    if entry.icon is not None: module['icon'] = entry.icon
         config['navigation'] = [] if incoming.reset else [e.model_dump() for e in incoming.entries]
         record_change(db,action='navigation.update',actor_id=actor_id,changed_fields=['navigation','order','visible','title','icon'])
     return navigation(db)

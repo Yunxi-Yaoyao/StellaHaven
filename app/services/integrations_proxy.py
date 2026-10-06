@@ -12,7 +12,6 @@ import httpx
 from httpcore._backends.anyio import AnyIOBackend
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from app.services import integrations as store
 
 
 def allowed_address(value):
@@ -25,6 +24,7 @@ def allowed_address(value):
 
 
 def upstream_url(value):
+    from app.services import integrations as store
     store.browser_url(value)
     p = urlsplit(value)
     if p.query or p.fragment or p.path not in {'','/'} or p.hostname.lower().rstrip('.') in {'metadata.google.internal','metadata','instance-data'}:
@@ -124,6 +124,7 @@ def resolve(target):
 
 
 async def create_target(db,incoming,actor_id):
+    from app.services import integrations as store
     value=incoming.model_dump()
     try:
         await asyncio.wait_for(asyncio.to_thread(resolve,value),5)
@@ -162,10 +163,10 @@ def request_path(value):
     return value.split('#',1)[0]
 
 
-async def open_response(target,path,method='GET',headers=None,content=None):
+async def open_response(target,path,method='GET',headers=None,content=None,*,resolve_async=None):
     path=request_path(path)
     try:
-        address=await asyncio.wait_for(asyncio.to_thread(resolve,target),5)
+        address=await resolve_async(target) if resolve_async else await asyncio.wait_for(asyncio.to_thread(resolve,target),5)
     except (ValueError,OSError,TimeoutError) as exc:
         raise HTTPException(502,'上游解析不在批准列表') from exc
     p=urlsplit(target['upstream_url']); port=p.port or (443 if p.scheme=='https' else 80)
@@ -205,6 +206,7 @@ def safe_request_headers(headers,origin,target):
 
 
 async def response_headers(response,target,origin,module=None,parent_origin='https://stella.xiya.live'):
+    from app.services import integrations as store
     from urllib.parse import urljoin, urlunsplit
     from http.cookies import SimpleCookie
     out=[]; blocked=hop_headers(response.headers)

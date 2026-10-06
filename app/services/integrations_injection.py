@@ -90,6 +90,12 @@ def rollback(db,mid,actor_id):
         if not module: raise HTTPException(404,'模块不存在')
         injection=module['injection']
         if injection['previous'] is None: raise HTTPException(409,'没有上一版本')
+        binding = config.get('website_version_origins',{}).get(mid,{}).get(injection['previous']['version'])
+        if binding:
+            from app.services.website_check import origin
+            target = config['targets'].get(module.get('target_id'))
+            if not target or origin(binding) != origin(target['upstream_url']):
+                raise HTTPException(409,'上一版本属于旧网站身份，不能在新站自动回退执行')
         injection['active'],injection['previous']=injection['previous'],injection['active']
         record_change(db,action='injection.rollback',actor_id=actor_id,resource_id=mid,changed_fields=['injection'])
         output=injection.copy()

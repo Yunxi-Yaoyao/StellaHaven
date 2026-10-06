@@ -1,0 +1,187 @@
+"""Unified website saves using the existing single-owner AppConfig transaction."""
+import copy
+import hashlib
+import json
+import time
+from typing import Literal
+from uuid import uuid4
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import HTTPException
+from app.services import integrations as store
+from app.services.website_check import CheckInput, check_draft, normalize_url, origin, bounded_dns, safe_address, ProbeFailure
+from app.services import integrations_proxy as proxy, integrations_injection as injection
+import asyncio
+from urllib.parse import urlsplit
+
+NAVIGATION_ICONS = {'home','note','image','drive','server','settings','globe','link','book','folder','terminal','star','activity','box'}
+
+class CustomInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    enabled: bool = False
+    css: str = ''
+    js: str = ''
+    timing: Literal['dom_ready','document_start'] = 'dom_ready'
+
+    @field_validator('css','js')
+    @classmethod
+    def bounded_code(cls, value, info):
+        limit = 65536 if info.field_name == 'css' else 131072
+        if len(value.encode('utf-8')) > limit or '\x00' in value: raise ValueError('代码过长或包含 NUL')
+        return value
+
+class WebsiteInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    address: str = Field(min_length=1,max_length=2048)
+    name: str | None = Field(default=None,min_length=1,max_length=100)
+    icon: str = 'globe'
+    visible: bool = True
+    keep_alive: bool = False
+    open_behavior: Literal['embedded','external'] = 'embedded'
+    custom: CustomInput | None = None
+    idempotency_key: str | None = Field(default=None,min_length=8,max_length=128,pattern=r'^[A-Za-z0-9_.:-]+$')
+
+    @field_validator('icon')
+    @classmethod
+    def valid_icon(cls, value):
+        if value not in NAVIGATION_ICONS: raise ValueError('不支持的图标')
+        return value
+
+def fingerprint(incoming, *, patch=False):
+    body = incoming.model_dump(exclude={'idempotency_key'})
+    if patch: body['provided_fields'] = sorted(incoming.model_fields_set - {'idempotency_key'})
+    try: body['address'] = normalize_url(body['address'])
+    except (ValueError,HTTPException): pass
+    return hashlib.sha256(json.dumps(body,sort_keys=True,ensure_ascii=True).encode()).hexdigest()
+
+def retry_result(config, slot, digest):
+    entry = config.get('website_save_keys',{}).get(slot)
+    if not entry or entry['expires'] <= time.time(): return None
+    if entry['digest'] != digest: raise HTTPException(409,'幂等键已用于不同的网站草稿')
+    module = config['modules'].get(entry['id'])
+    if module is None or hashlib.sha256(json.dumps(module,sort_keys=True).encode()).hexdigest() != entry['module_digest']:
+        raise HTTPException(409,'已保存的网站随后发生变更，请重新读取后保存')
+    return store.present(module) | {'check':copy.deepcopy(entry['check'])}
+
+def css_errors(css):
+    """Parse CSS syntax without executing it; unsupported properties remain browser semantics."""
+    if not css: return []
+    try:
+        import tinycss2
+        def bad(nodes):
+            return any(node.type == 'error' or any(bad(getattr(node,field,[]) or []) for field in ('content','prelude','arguments')) for node in nodes)
+        if bad(tinycss2.parse_stylesheet(css,skip_comments=True,skip_whitespace=True)):
+            return ['CSS 语法检查失败']
+    except (ImportError,RecursionError,ValueError): return ['CSS 检查失败，拒绝保存代码']
+    return []
+
+async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
+    if mid is None and incoming.idempotency_key is None: raise HTTPException(422,'新增网站需要 idempotency_key')
+    digest = fingerprint(incoming,patch=mid is not None)
+    slot = str(actor_id) + ':' + (mid or 'create') + ':' + (incoming.idempotency_key or '')
+    config = store.state(db)
+    result = retry_result(config,slot,digest) if incoming.idempotency_key else None
+    before = copy.deepcopy(config['modules'].get(mid)) if mid else None
+    old_target = copy.deepcopy(config['targets'].get(before.get('target_id'))) if before else None
+    if before:
+        override = next((e for e in config['navigation'] if e['id']==mid),{})
+        defaults = dict(icon=before['icon'],keep_alive=before.get('keep_alive',False),visible=override.get('visible',before['enabled']),open_behavior='external' if before['mode']=='link' else 'embedded')
+        incoming = incoming.model_copy(update={key:value for key,value in defaults.items() if key not in incoming.model_fields_set})
+    db.rollback()  # Release read connection before bounded external I/O.
+    if result is not None: return result
+    if mid and before is None: raise HTTPException(404,'模块不存在')
+    if before and before.get('adapter') in {'openlist','immich'}:
+        raise HTTPException(409,'内置服务请使用原有唯一连接设置')
+    evidence = {}
+    checked = await check_draft(CheckInput(address=incoming.address,open_behavior=incoming.open_behavior,custom_enabled=bool(incoming.custom and incoming.custom.enabled)),parent_origin=parent_origin,evidence=evidence)
+    if not checked['can_save']: raise HTTPException(422,dict(code='website_check_failed',check=checked))
+    prepared = None
+    if incoming.custom and incoming.custom.enabled:
+        parsed = urlsplit(checked['normalized_url'])
+        root = parsed.scheme + '://' + parsed.netloc + '/'
+        try:
+            addresses = [safe_address(a) for a in await bounded_dns(proxy._preview_addresses,root)]
+            if set(addresses) != set(evidence.get('allowed_ips',[])): raise ValueError('检测之后 DNS 发生变化')
+            prepared = proxy.TargetInput(name=incoming.name or checked['name_suggestion'],upstream_url=root,allowed_ips=addresses,headers={},controlled=False).model_dump()
+        except (OSError,ValueError,TimeoutError,ProbeFailure):
+            checked.update(can_save=False,issues=checked['issues']+['提交前目标解析失败或已变更'])
+            raise HTTPException(422,dict(code='website_check_failed',check=checked))
+    custom = incoming.custom.model_dump() | {'csp_policy':'reject'} if incoming.custom else None
+    if custom:
+        problems = await asyncio.to_thread(injection.errors,custom,{'mode':'isolated_proxy' if prepared else 'iframe'},prepared)
+        problems += css_errors(custom['css'])
+        if problems:
+            checked.update(can_save=False,issues=checked['issues']+problems)
+            raise HTTPException(422,dict(code='website_check_failed',check=checked))
+    with store.edit(db) as config:
+        result = retry_result(config,slot,digest) if incoming.idempotency_key else None
+        if result is not None: return result
+        if mid and config['modules'].get(mid) != before: raise HTTPException(409,'检测期间网站已变更，请重新读取')
+        if mid is None and len(config['modules']) >= 128: raise HTTPException(422,'模块数量超过限制')
+        is_new = mid is None
+        mid = mid or uuid4().hex
+        data = store.ModuleInput(name=incoming.name or (before and before['name']) or checked['name_suggestion'] or '网站', icon=incoming.icon,
+                                 browser_url=checked['normalized_url'], mode='link' if incoming.open_behavior=='external' else 'iframe',
+                                 enabled=before['enabled'] if before else True,keep_alive=incoming.keep_alive).model_dump()
+        data.update(id=mid,origin=store.derived_origin(mid,data),injection=copy.deepcopy(before['injection']) if before else dict(draft=None,active=None,previous=None))
+        old_url = (before.get('browser_url') or (old_target and old_target['upstream_url'])) if before else None
+        identity_changed = bool(old_url and origin(old_url) != origin(data['browser_url']))
+        versions = data['injection']
+        bindings = config.setdefault('website_version_origins',{}).setdefault(mid,{})
+        if identity_changed:
+            retired = [copy.deepcopy(v) for v in (versions['active'],versions['previous']) if v]
+            config.setdefault('website_retired_versions',{})[mid] = retired
+            for version in retired: bindings.setdefault(version['version'],old_url)
+            if versions['active']:
+                versions['previous'] = versions['active']
+            versions['active'] = None
+            if versions['draft'] or versions['previous']:
+                versions['draft'] = {k:v for k,v in (versions['draft'] or versions['previous']).items() if k not in {'version','source_origin'}} | {'enabled':False,'csp_policy':'reject'}
+        if prepared:
+            # Never reuse a credential-bearing or controlled target implicitly.
+            safe_reuse = old_target and not old_target['headers'] and not old_target['controlled'] and old_target['upstream_url'] == prepared['upstream_url'] and set(old_target['allowed_ips']) == set(prepared['allowed_ips'])
+            tid = old_target['id'] if safe_reuse else uuid4().hex
+            if not safe_reuse:
+                if len(config['targets']) >= 128: raise HTTPException(422,'目标数量超过限制')
+                config['targets'][tid] = prepared | {'id':tid}
+            parsed = urlsplit(data['browser_url'])
+            initial = (parsed.path or '/') + ('?' + parsed.query if parsed.query else '') + ('#' + parsed.fragment if parsed.fragment else '')
+            data.update(mode='isolated_proxy',target_id=tid,initial_path=initial)
+        if incoming.open_behavior == 'external' and versions['active']:
+            versions['previous'] = versions['active']
+            versions['active'] = None
+        if custom and not custom['enabled'] and not identity_changed and before and before['mode']=='isolated_proxy' and incoming.open_behavior=='embedded':
+            parsed = urlsplit(data['browser_url'])
+            initial = (parsed.path or '/') + ('?' + parsed.query if parsed.query else '') + ('#' + parsed.fragment if parsed.fragment else '')
+            data.update(mode='isolated_proxy',target_id=before['target_id'],initial_path=initial)
+        if custom:
+            versions['draft'] = custom
+            if custom['enabled']:
+                if versions['active']: versions['previous'] = versions['active']
+                versions['active'] = custom | {'version':uuid4().hex}
+                bindings[versions['active']['version']] = data['browser_url']
+            elif versions['active']:
+                versions['previous'] = versions['active']
+                versions['active'] = custom | {'version':uuid4().hex}
+                bindings[versions['active']['version']] = data['browser_url']
+        elif incoming.open_behavior == 'embedded' and not identity_changed and before and before['mode'] == 'isolated_proxy' and versions['active']:
+            # Omitted custom means preserve a same-identity active version, not silently disable it.
+            if checked['injection']['status'] != 'supported': raise HTTPException(422,dict(code='website_check_failed',check=checked | {'can_save':False}))
+            data.update(mode=before['mode'],target_id=before['target_id'],initial_path=(urlsplit(data['browser_url']).path or '/') + ('?' + urlsplit(data['browser_url']).query if urlsplit(data['browser_url']).query else '') + ('#' + urlsplit(data['browser_url']).fragment if urlsplit(data['browser_url']).fragment else ''))
+        if before and any(data[k] != before.get(k) for k in ('browser_url','mode','target_id','initial_path','origin')):
+            for key in ('tickets','grants'):
+                config[key] = {k:v for k,v in config[key].items() if v['id'] != mid}
+        keep_versions = {v['version'] for v in (versions['active'],versions['previous']) if v} | {v['version'] for v in config.get('website_retired_versions',{}).get(mid,[])}
+        config['website_version_origins'][mid] = {key:value for key,value in bindings.items() if key in keep_versions}
+        config['modules'][mid] = data
+        nav = next((e for e in config['navigation'] if e['id'] == mid),None)
+        if nav is None:
+            nav = dict(id=mid); config['navigation'].append(nav)
+        nav.update(title=data['name'],icon=data['icon'],visible=incoming.visible)
+        if incoming.idempotency_key:
+            keys = {k:v for k,v in config.get('website_save_keys',{}).items() if v['expires'] > time.time()}
+            if len(keys) >= 128: keys.pop(min(keys,key=lambda k:keys[k]['expires']))
+            keys[slot] = dict(id=mid,digest=digest,module_digest=hashlib.sha256(json.dumps(data,sort_keys=True).encode()).hexdigest(),check=checked,expires=time.time()+86400)
+            config['website_save_keys'] = keys
+        store.record_change(db,action='integration.create' if is_new else 'integration.update',actor_id=actor_id,resource_id=mid,changed_fields=['name','icon','navigation','visible'])
+        result = store.present(data) | {'check':checked}
+    return result
