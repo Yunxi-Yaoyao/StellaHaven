@@ -206,7 +206,15 @@ class UpgradeContractTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
         p = load('node_production')
-        with tempfile.TemporaryDirectory() as tmp, patch.object(p, 'BASE', tmp + '/'):
+        # The production contract rejects world-writable ancestors. CI's
+        # default /tmp is therefore an invalid positive fixture, not a reason
+        # to weaken the guard. Prefer the runtime scratch root; CI falls back
+        # to its private home and removes the entire owned temporary tree.
+        import os
+        candidate = Path(os.environ.get('TMPDIR') or Path.home()).resolve()
+        if any(part.stat().st_mode & 0o022 for part in [candidate, *candidate.parents]):
+            candidate = Path.home().resolve()
+        with tempfile.TemporaryDirectory(dir=candidate) as tmp, patch.object(p, 'BASE', tmp + '/'):
             root = Path(tmp) / 'modelpack'
             (root / 'backup-receipts').mkdir(parents=True)
             mount = {'Source': str(root), 'Destination': '/app/data', 'RW': False}
