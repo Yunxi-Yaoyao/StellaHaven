@@ -76,6 +76,10 @@ frontend-build:
   script:
     - cd frontend
     - npm ci --include=dev --prefer-offline
+    - npm test
+    - node node_modules/vitest/vitest.mjs run --config vitest.website-key.config.mjs
+    - node node_modules/vitest/vitest.mjs run --config vitest.settings.config.mjs
+    - node node_modules/vitest/vitest.mjs run --config vitest.shell.config.mjs
     - npm run build
 
 # Full SHA tags on every branch; latest only on protected master (legacy k3s).

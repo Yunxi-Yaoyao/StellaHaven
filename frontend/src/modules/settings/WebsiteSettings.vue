@@ -2,6 +2,7 @@
 import {ref,watch,onBeforeUnmount,nextTick} from 'vue';
 import {getWebsite,deleteWebsite,rollbackInjection,websiteError,type Website} from '../../api/integrations';
 import {checkWebsiteDraft,saveWebsiteDraft,type WebsiteDraft,type WebsiteCheck} from '../../api/websiteSettings';
+import {websiteSaveKey} from '../../api/websiteSaveKey';
 import Icon from '../../shell/Icon.vue';
 import IconPicker from './IconPicker.vue';
 import {loadNavigation,navigationRows} from '../../stores/navigation';
@@ -12,7 +13,7 @@ const input=ref(fresh()),original=ref(JSON.stringify(input.value)),selected=ref<
 const result=ref<WebsiteCheck|null>(null),stale=ref(false),busy=ref(false),checking=ref(false),message=ref(''),loadFailed=ref(false);
 let generation=0,alive=true,controller:AbortController|undefined;
 const nameEdited=ref(false);
-const key=crypto.randomUUID();
+const key=websiteSaveKey();
 const pending=ref<{id:string;payload:WebsiteDraft}|null>(null);
 const uncertain=ref<(WebsiteDraft & {idempotency_key:string})|null>(null);
 const rollbackPending=ref<string|null>(null),deleting=ref(false),deletePending=ref(false);
