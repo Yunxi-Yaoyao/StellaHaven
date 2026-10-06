@@ -2582,7 +2582,13 @@ class Agent:
                 os.chown(backup, original.st_uid, original.st_gid)
             with open(backup, 'rb') as f:
                 os.fsync(f.fileno())
-            if os.lstat(me) != original:
+            # Backup reads may legitimately advance atime on relatime mounts.
+            # Keep inode/ownership/mode/size and nanosecond edit timestamps pinned.
+            stable_fields = ('st_dev', 'st_ino', 'st_size', 'st_mode', 'st_uid',
+                             'st_gid', 'st_mtime_ns', 'st_ctime_ns')
+            current_stat = os.lstat(me)
+            if any(getattr(current_stat, field) != getattr(original, field)
+                   for field in stable_fields):
                 raise ValueError('update target changed during staging')
             os.replace(tmp, me)
             tmp = None

@@ -116,6 +116,51 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(self.me.read_bytes(), type(self).body)
         self.exec.assert_called_once()
 
+    def _stat_drift(self, field):
+        import os
+        original_lstat = os.lstat
+        calls = 0
+        def lstat(path, *args, **kwargs):
+            nonlocal calls
+            value = original_lstat(path, *args, **kwargs)
+            if str(path) != str(self.me):
+                return value
+            calls += 1
+            if calls < 2:
+                return value
+            values = list(value)
+            extra = {name: getattr(value, name) for name in
+                     ('st_atime', 'st_mtime', 'st_ctime', 'st_atime_ns', 'st_mtime_ns', 'st_ctime_ns')}
+            if field == 'st_atime_ns':
+                values[7] += 1
+                extra['st_atime'] += 1
+                extra['st_atime_ns'] += 1_000_000_000
+            elif field.endswith('_ns'):
+                extra[field] += 1
+            else:
+                index = {'st_ino': 1, 'st_dev': 2, 'st_mode': 0, 'st_uid': 4,
+                         'st_gid': 5, 'st_size': 6}[field]
+                values[index] += 1
+            return os.stat_result(values, extra)
+        return patch.object(agent.os, 'lstat', lstat)
+
+    def test_simulated_access_time_only_drift_does_not_reject_update(self):
+        with self._stat_drift('st_atime_ns'):
+            self.instance.check_update()
+        self.assertEqual(self.me.read_bytes(), type(self).body)
+        self.exec.assert_called_once()
+
+    def test_stable_identity_and_nanosecond_edit_drift_still_reject_update(self):
+        for field in ('st_dev', 'st_ino', 'st_size', 'st_mode', 'st_uid', 'st_gid',
+                      'st_mtime_ns', 'st_ctime_ns'):
+            with self.subTest(field=field):
+                self.me.write_bytes(self.old)
+                self.me.chmod(0o640)
+                self.exec.reset_mock()
+                with self._stat_drift(field):
+                    self.instance.check_update()
+                self.unchanged()
+
     def test_runtime_load_failure_preserves_live_old_script(self):
         self.publish(type(self).body + b'raise RuntimeError("cannot import")\n')
         self.instance.check_update()
