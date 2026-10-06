@@ -483,8 +483,5 @@ def get_status(db):
 
 
 def get_login_url(db, is_admin=False):
-    cfg = external.load(db, 'drive')
-    base = '/drive/openlist'
-    if is_admin and cfg.auth_mode == 'token' and cfg.token:
-        return {'url': base + '/@login?' + urlencode({'token': cfg.token})}
-    return {'url': base + '/'}
+    # Compatibility argument is intentionally ignored: launch URLs never carry secrets.
+    return {'url': '/drive/openlist/'}

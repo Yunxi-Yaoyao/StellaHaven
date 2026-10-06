@@ -347,7 +347,8 @@ def test_drive_login_url_cannot_bypass_token_reveal_with_legacy_admin_metadata(a
         'auth_mode':'token', 'token':'SYNTHETIC-PRIVILEGED-TOKEN'})))
     db.commit()
     r = c.get('/drive/login-url')
-    assert r.status_code == 403
+    assert r.status_code == 200
+    assert r.json()['url'] == '/drive/openlist/'
     assert 'SYNTHETIC-PRIVILEGED-TOKEN' not in r.text
 
 

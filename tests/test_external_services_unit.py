@@ -23,7 +23,7 @@ def test_admin_secret_not_shared(monkeypatch):
     monkeypatch.setattr(svc, 'load', lambda *args: cfg)
     assert 'private' not in str(drive.get_status(None))
     assert 'private' not in str(drive.get_login_url(None, False))
-    assert 'private' in drive.get_login_url(None, True)['url']
+    assert drive.get_login_url(None, True)['url'] == '/drive/openlist/'
     assert 'token' not in svc.masked(cfg) and svc.masked(cfg)['has_token']
 
 

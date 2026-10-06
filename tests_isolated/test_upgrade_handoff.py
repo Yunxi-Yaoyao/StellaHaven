@@ -6,7 +6,7 @@ from app.models.config import AppConfig
 from app.models.user import User
 
 
-def test_openlist_token_launch_requires_real_session_elevation(auth_env, monkeypatch):
+def test_openlist_launch_uses_server_side_token_not_elevation(auth_env, monkeypatch):
     c, db, app = auth_env
     owner(c)
     from app.routers.integrations import router
@@ -16,14 +16,15 @@ def test_openlist_token_launch_requires_real_session_elevation(auth_env, monkeyp
     db.add(AppConfig(key='external_drive_connection', value=json.dumps({'browser_url':'http://127.0.0.1:5244/drive/openlist','upstream_url':'http://127.0.0.1:5244/drive/openlist','use_proxy':True,'auth_mode':'token','token':'SYNTHETIC-INSTALL-TOKEN'})))
     db.commit()
     r=c.post('/external-modules/test/launch')
-    assert r.status_code==403, r.text
+    assert r.status_code==200 and r.json()['url']=='/drive/openlist/', r.text
     assert 'SYNTHETIC-INSTALL-TOKEN' not in r.text
     c.post('/auth/admin/setup', json={'user_password':DAILY,'new_password':ADMIN})
     c.post('/auth/admin/unlock', json={'password':ADMIN})
     r=c.post('/external-modules/test/launch')
-    assert r.status_code==200 and 'SYNTHETIC-INSTALL-TOKEN' in r.json()['url']
+    assert r.status_code==200 and r.json()['url']=='/drive/openlist/'
+    assert 'SYNTHETIC-INSTALL-TOKEN' not in r.text
     c.post('/auth/admin/lock')
-    assert c.post('/external-modules/test/launch').status_code==403
+    assert c.post('/external-modules/test/launch').json()['url']=='/drive/openlist/'
 
 
 def test_openlist_manual_launch_keeps_daily_access(auth_env, monkeypatch):

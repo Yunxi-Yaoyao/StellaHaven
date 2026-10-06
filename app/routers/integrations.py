@@ -71,12 +71,7 @@ def launch(mid: str, request: Request, response: Response, user=Depends(current_
         return sessions.issue(db,module,str(session.id),str(request.base_url).rstrip('/'))
     if module['mode']=='openlist':
         from app.services.drive import get_login_url
-        from app.services import external_services
-        cfg = external_services.load(db, 'drive')
-        privileged = cfg.auth_mode == 'token' and bool(cfg.token)
-        if privileged:
-            admin_user(request, user, db)
-        return dict(mode='openlist',url=get_login_url(db,privileged)['url'],method='GET')
+        return dict(mode='openlist',url=get_login_url(db)['url'],method='GET')
     if module['adapter']=='immich' and module['mode']!='link':
         # Preserve original domain, issuer, callbacks and account mapping.
         return dict(mode=module['mode'],url='/gallery/connect',method='GET')

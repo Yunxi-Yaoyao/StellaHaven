@@ -40,11 +40,9 @@ def reveal_token(db: Session = Depends(get_db)):
 
 @router.get('/login-url')
 def login_url(request: Request, user=Depends(current_user), db: Session = Depends(get_db)):
-    cfg = external.load(db, 'drive')
-    privileged = cfg.auth_mode == 'token' and bool(cfg.token)
-    if privileged:
-        admin_user(request, user, db)
-    return JSONResponse(service.get_login_url(db, privileged), headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
+    # Opening the drive is ordinary use, not a request to disclose its admin token.
+    # The authenticated proxy supplies service credentials only after path authorization.
+    return JSONResponse(service.get_login_url(db), headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
 
 
 # Only service cookies and OpenList's raw-token Authorization survive.
@@ -100,7 +98,12 @@ async def openlist_proxy(path: str, request: Request, user=Depends(current_user)
     url = base + '/' + quote(path, safe='/@:+,;=-._~')
     client = httpx.AsyncClient(timeout=httpx.Timeout(60, connect=5), follow_redirects=False, trust_env=False)
     try:
-        req = client.build_request(request.method, url, headers=proxy_headers(request.headers), params=request.query_params.multi_items(), content=request.stream())
+        headers = proxy_headers(request.headers)
+        if path.startswith('api/') and cfg.auth_mode == 'token' and cfg.token:
+            # Authenticated Stella owner uses configured credentials server-side.
+            # The management gate above still protects settings and unsafe operations.
+            headers['authorization'] = cfg.token
+        req = client.build_request(request.method, url, headers=headers, params=request.query_params.multi_items(), content=request.stream())
         resp = await client.send(req, stream=True)
     except httpx.HTTPError:
         await client.aclose()
