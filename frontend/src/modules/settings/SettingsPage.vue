@@ -6,7 +6,6 @@ import { useRouter, useRoute } from "vue-router";
 import AvatarCropper from "./AvatarCropper.vue";
 import SecuritySettings from "./SecuritySettings.vue";
 import NavigationSettings from "./NavigationSettings.vue";
-import WebsiteSettings from "./WebsiteSettings.vue";
 import SettingsPanel from "../../shell/SettingsPanel.vue";
 import PerformanceSettings from "./PerformanceSettings.vue";
 import ConnectionPanel from "../drive/ConnectionPanel.vue";
@@ -436,7 +435,15 @@ onMounted(() => {
       </template>
 
       <!-- ═══ 管理员设置 ═══ -->
-      <template v-else-if="tab === 'navigation'"><NavigationSettings /><WebsiteSettings /><SettingsPanel v-if="route.query.module === 'home'" embedded /><div class="btn-row"><RouterLink :to="{path:'/settings',query:{section:'navigation',module:'home'}}">主页外观</RouterLink><RouterLink :to="{path:'/settings',query:{section:'navigation',module:'drive'}}">OpenList 接入</RouterLink><RouterLink :to="{path:'/settings',query:{section:'navigation',module:'gallery'}}">Immich / OIDC 接入</RouterLink></div><ConnectionPanel v-if="route.query.module === 'drive' || route.query.module === 'gallery'" :key="String(route.query.module)" :kind="route.query.module === 'drive' ? 'drive' : 'gallery'" /><BuiltinInjectionSettings v-if="route.query.module === 'drive' || route.query.module === 'gallery'" :key="'injection-'+String(route.query.module)" :site="route.query.module === 'drive' ? 'drive' : 'gallery'" /></template>
+      <template v-else-if="tab === 'navigation'">
+        <NavigationSettings><template #builtin="{id}">
+          <SettingsPanel v-if="id==='home'" embedded />
+          <template v-if="id==='drive'||id==='gallery'">
+            <ConnectionPanel :key="id" :kind="id==='drive'?'drive':'gallery'" />
+            <BuiltinInjectionSettings :key="'injection-'+id" :site="id==='drive'?'drive':'gallery'" />
+          </template>
+        </template></NavigationSettings>
+      </template>
       <template v-else-if="tab === 'services'">
         <section class="card">
           <div class="sec-t">公网地址 <span class="sec-sub">给远程服务器装 agent 时用</span></div>

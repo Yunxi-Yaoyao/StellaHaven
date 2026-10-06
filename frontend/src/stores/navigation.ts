@@ -20,7 +20,7 @@ export function resolveNavigation(config:{entries:NavEntry[]}, modules:Website[]
     if (seen.has(entry.id)) continue;
     const original = defaults.find(row=>row.id===entry.id); if (!original) continue;
     seen.add(entry.id);
-    result.push({...original,label:('title' in entry && entry.title) || original.label, icon:entry.icon && navigationIcons.includes(entry.icon) ? entry.icon : original.icon,visible:entry.visible ?? original.visible});
+    result.push({...original,label:original.builtin ? (('title' in entry && entry.title) || original.label) : original.label, icon:original.builtin && entry.icon && navigationIcons.includes(entry.icon) ? entry.icon : original.icon,visible:entry.visible ?? original.visible});
   }
   return result;
 }
@@ -38,6 +38,6 @@ export async function loadNavigation() {
   } catch { if (current===generation) navigation.error='导航配置加载失败，请重试'; return false; }
 }
 export async function saveNavigation(rows:NavRow[],reset=false) {
-  await api('/navigation',{method:'PUT',body:JSON.stringify({entries:rows.map(row=>({id:row.id,title:row.label,icon:row.icon,visible:row.visible})),reset})});
+  await api('/navigation',{method:'PUT',body:JSON.stringify({entries:rows.map(row=>row.builtin?{id:row.id,title:row.label,icon:row.icon,visible:row.visible}:{id:row.id,visible:row.visible}),reset})});
   if (!await loadNavigation()) throw new Error('Navigation readback failed');
 }

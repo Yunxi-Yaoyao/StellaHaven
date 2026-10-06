@@ -47,7 +47,7 @@ const paths: Record<string, string> = {
     stroke-linejoin="round"
     class="icon"
   >
-    <path v-for="(d, i) in (paths[name] || '').split('|')" :key="i" :d="d" />
+    <path v-for="(d, i) in (paths[name === 'file-text' ? 'note' : name === 'hard-drive' ? 'drive' : name] || paths.globe || '').split('|')" :key="i" :d="d" />
   </svg>
 </template>
 
