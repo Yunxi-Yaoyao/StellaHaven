@@ -128,6 +128,34 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(h.mutations(), [])
 
 
+    def test_memory_bound_restores_default_oom_killer_without_allowing_disable(self):
+        m = load('normalize_manual_runtime')
+        h = Harness(m)
+        old_command = h.command
+        h.request['approved_old']['HostConfig']['OomKillDisable'] = None
+        h.n.r['approved_old']['HostConfig']['OomKillDisable'] = None
+        h.containers[OLD_ID]['HostConfig']['OomKillDisable'] = None
+        def command(args, data=None, **kw):
+            out = old_command(args, data, **kw)
+            if args[1] == 'create':
+                h.containers[out]['HostConfig']['OomKillDisable'] = False
+            return out
+        h.command = command
+        self.assertEqual(h.run(apply=True)['status'], 'normalized')
+        h = Harness(m)
+        h.request['approved_old']['HostConfig']['OomKillDisable'] = None
+        h.n.r['approved_old']['HostConfig']['OomKillDisable'] = None
+        h.containers[OLD_ID]['HostConfig']['OomKillDisable'] = None
+        old_command = h.command
+        def forbidden(args, data=None, **kw):
+            out = old_command(args, data, **kw)
+            if args[1] == 'create':
+                h.containers[out]['HostConfig']['OomKillDisable'] = True
+            return out
+        h.command = forbidden
+        self.assertEqual(h.run(apply=True)['status'], 'blocked')
+        self.assertFalse(any(e[0] == 'start' for e in h.mutations()))
+
     def test_default_is_read_only_and_existing_guard_still_rejects_manual(self):
         from pathlib import Path
         self.assertTrue((Path(__file__).resolve().parents[1] / 'normalize_manual_runtime.py').exists(),

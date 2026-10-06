@@ -134,6 +134,11 @@ class Normalizer(contract.Node):
             if section == 'HostConfig' and expected.get('MemorySwap') == 0:
                 require(actual.get('MemorySwap') in (0, 2 * self.cfg['memory']), 'target swap bound changed')
                 expected['MemorySwap'] = actual['MemorySwap']
+            if section == 'HostConfig' and expected.get('OomKillDisable') is None:
+                # Docker --memory materializes the default false OOM-killer
+                # setting. Null -> false is not disabling its protection.
+                require(actual.get('OomKillDisable') in (None, False), 'target OOM protection changed')
+                expected['OomKillDisable'] = actual.get('OomKillDisable')
             require(actual == expected, 'target non-normalized runtime fields changed')
         require(c['Config']['Env'] == original['Config']['Env'], 'target exact environment changed')
         require(c['Config'].get('Labels') == self.r['approved_old']['Config'].get('Labels'), 'target labels changed')
