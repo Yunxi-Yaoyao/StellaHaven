@@ -241,6 +241,6 @@ def transform_html(html, site, db=None, *, active=None, appearance=None):
     head = re.search(r'<head\b[^>]*>', html, re.I)
     offset = head.end() if head else 0
     html = html[:offset]+fragment+html[offset:]
-    if site == 'drive':
-        html = re.sub(r'<meta\s+name="color-scheme"\s+content="[^"]*"\s*/?>', '<meta name="color-scheme" content="normal">', html, flags=re.I)
+    # Native color-scheme is unchanged. Image mode overrides it reversibly
+    # inside BACKGROUND_JS, never by permanently rewriting upstream metadata.
     return html

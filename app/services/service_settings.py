@@ -18,11 +18,11 @@ async def check(db, site, incoming):
         raise HTTPException(422, '检测只接受 connection')
     try:
         connection = connection_input(site, incoming['connection'])
+        saved = external.load(db, site)
         if site == 'drive' and connection.auth_mode == 'token' and connection.token is None and not connection.clear_token:
-            saved = external.load(db, site)
             if external.endpoint(saved, '') != external.endpoint(connection, ''):
                 raise HTTPException(422, '地址已改变：请使用手动模式检测，或明确填写该地址的凭据；不会向新地址发送已保存凭据')
-        cfg = external.merge(db, site, connection)
+        cfg = external.merge_snapshot(site, connection, saved)
     except (ValidationError, ValueError):
         raise HTTPException(422, '连接配置无效，请检查地址、登录方式和凭据') from None
     db.rollback()  # Authentication/config snapshot complete; release DB before I/O.

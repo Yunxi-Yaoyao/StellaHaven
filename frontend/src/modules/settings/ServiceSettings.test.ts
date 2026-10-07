@@ -98,3 +98,21 @@ it('ordinary owner reads only the nonsecret aggregate; one form and folded advan
  expect(root.querySelector<HTMLDetailsElement>('.advanced')?.open).toBe(false);
  expect(root.querySelector('.icon-picker svg')).not.toBeNull();
 });
+
+for(const site of ['drive','gallery'] as const)it(`confirms accepted ${site} trailing URL separators after exact readback`,async()=>{
+ const state:any=serviceFixture(site);let puts=0;
+ vi.mocked(api).mockImplementation(async(path,options)=>{
+  if(path!=='/service-settings/'+site)throw Error('unexpected');
+  if(options?.method==='PUT'){
+   puts++;const v=JSON.parse(String(options.body));
+   const {token,clear_token,...connection}=v.connection;
+   for(const key of ['service_url','browser_url','upstream_url','alternate_browser_url'])if(typeof connection[key]==='string')connection[key]=connection[key].replace(/\/+$/,'');
+   Object.assign(state,{...v,connection:{...connection,...(site==='drive'?{has_token:true}:{})}});
+  }
+  return structuredClone(state);
+ });
+ const {root,events}=await mount(site);
+ if(site==='drive')input(root,'OpenList 服务地址','http://owned.test:5244/drive/openlist/');
+ else {input(root,'Immich 浏览器地址','https://gallery.test/');input(root,'备用浏览器地址','https://alternate.test/');input(root,'健康检查地址','https://health.test/ping/');}
+ await click(root,'保存');expect(puts).toBe(1);expect(events.saved).toHaveBeenCalledTimes(1);
+});

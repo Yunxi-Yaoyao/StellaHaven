@@ -96,7 +96,11 @@ def masked(cfg):
 
 
 def merge(db, kind, incoming):
-    old = load(db, kind)
+    return merge_snapshot(kind, incoming, load(db, kind))
+
+
+def merge_snapshot(kind, incoming, old):
+    """Bind credential selection to the already validated connection snapshot."""
     cfg = incoming.model_copy(deep=True)
     cfg.token = '' if incoming.clear_token else (incoming.token if incoming.token is not None else old.token)
     cfg.clear_token = False

@@ -25,7 +25,12 @@ export function matchesService(read:ServiceSettings,payload:ServicePayload) {
  if(Object.entries(payload.appearance).some(([k,v])=>(read.appearance as Record<string,unknown>)[k]!==v))return false;
  for(const [k,v] of Object.entries(payload.connection)){
   if(k==='token'||k==='clear_token')continue;
-  if((read.connection as unknown as Record<string,unknown>)[k]!==v)return false;
+  const actual=(read.connection as unknown as Record<string,unknown>)[k];
+  // The backend accepts URLs with trailing slashes and persists rstrip('/').
+  // Match only that documented canonicalization, never a different target.
+  if(['service_url','browser_url','upstream_url','alternate_browser_url'].includes(k)&&typeof v==='string'&&typeof actual==='string'){
+   if(actual!==v.replace(/\/+$/,''))return false;
+  }else if(actual!==v)return false;
  }
  if('clear_token' in payload.connection){
   const stored=(read.connection as DriveConnection).has_token;

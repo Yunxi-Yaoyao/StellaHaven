@@ -12,7 +12,7 @@ def test_openlist_exact_legacy_fragments_become_one_versioned_authority():
     assert out.count('window.upstreamKept=1;') == 1
     assert '<style>'+drive.OPENLIST_THEME_CSS+'</style>' not in out
     assert '<script>'+drive.OPENLIST_THEME_JS+'</script>' not in out
-    assert 'content="normal"' in out
+    assert '<meta name="color-scheme" content="light dark">' in out
     assert builtin.transform_html(out, 'drive') == out
     assert 'clearPathCache' in out  # permanent functional fix
 
