@@ -1,0 +1,50 @@
+{
+  "schema": "stella-experience/v1",
+  "synthetic-process": [
+    "navigation startup holds auth and both sources; navigation first",
+    "navigation startup holds auth and both sources; modules first",
+    "navigation navigation failure offers sidebar retry",
+    "navigation modules failure offers sidebar retry",
+    "navigation same-session watchdog keeps menu identity and positions",
+    "navigation concurrent entry single-flight /settings?section=navigation",
+    "navigation concurrent entry single-flight /drive",
+    "background actual template waits hidden until transparency ACK, not load",
+    "background real image composition stays continuous on resize",
+    "background device preference old current image",
+    "background device preference legacy-only image",
+    "background device preference current solid beats legacy image",
+    "background device preference invalid current falls through to legacy",
+    "background device preference new explicit choice wins",
+    "background injection disabled preserves native child and is not readiness-gated",
+    "background retained page follows real navigation readback and solid is reversible",
+    "background rejects wrong origin, wrong source, module and stale ACK",
+    "background video plays behind the genuinely transparent child"
+  ],
+  "production-readback": [
+    "spec-review",
+    "quality-review",
+    "ordinary-session-navigation",
+    "background-image",
+    "background-video",
+    "static-cache",
+    "data-preservation",
+    "version-readback"
+  ],
+  "performance": {
+    "cold": {
+      "count": 5,
+      "median_ms": 8000,
+      "max_ms": 12000
+    },
+    "warm_reload": {
+      "count": 5,
+      "median_ms": 5000,
+      "max_ms": 8000
+    },
+    "retained_return": {
+      "count": 5,
+      "median_ms": 1000,
+      "max_ms": 2000
+    }
+  }
+}
