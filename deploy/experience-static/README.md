@@ -107,13 +107,13 @@ python3 -m unittest discover -s deploy/experience-static/tests -p test_real_ngin
 
 ## 生产交接：仅由主代理审核后执行
 
-本工具**不部署**。现网信息须由主代理重新回读：`nginx -V/-T`、`/etc/nginx/conf.d/stella-integrations.conf`、目标 module/origin、当前静态 stage 和完整原 vhost SHA。验证远端有 gzip_static，并确认仅此 integration server 使用这份 include。共享 regex server 中同路径的第二个模块不可再插重复 location；那种场景需单独审核精确 Host server，而不是放宽这里的 Host 守卫。
+本工具**不部署**。现网信息须由主代理重新回读：`nginx -V/-T`、`/etc/nginx/conf.d/stella-integrations.conf`、目标 module/origin、当前静态 stage 和完整原 vhost SHA。验证远端有 gzip_static，并确认仅此 integration server 使用这份 include。**禁止把此 include 插入共享 regex server**：即使只有第一份 include，也会抢走其他模块同路径的请求并404。必须新增只匹配目标 module 的精确 Host TLS server，原共享 regex server 保持原样；后续同路径实例继续走其原鉴权上游。
 
 主代理在 HK 的受控目录接收**完整** stage 和此工具，先 `verify-stage`；不能把 `locations.conf` 单独当作可信 payload。部署操作顺序：
 
 1. 持有单独部署锁，确认 vhost SHA 仍等于批准基线，备份 vhost/旧 snippet 的精确字节和权限到 root-only transaction 目录。
 2. 只新增 `target_root/releases/<version>`。已有版本先用 `verify` 核对，**不覆盖、不 delete、不 rsync --delete、不软链接 current**；新版本先复制到同文件系统暂存，再验证、rename。目录 0755、文件 0644，父链 root 所有且无组/全局写权限。
-3. 将经过验证的 snippet 安装到独立 include 路径。仅在回读并审核的现有 TLS integration `server` 中增加下面一行；原 `location /`、FRP 地址、TLS/CSP/Origin/日志策略均保持原样。不要猜测完整 server 配置，更不要把 include 放在 `http` 顶层。
+3. 将经过验证的 snippet 安装到独立 include 路径。复制回读审核的 TLS integration server 策略，建立仅目标 `app-<id>` 精确 server_name 的新 vhost，再在此精确 server 内添加下面一行。原共享 regex server 不动。核对原 `location /`、FRP、TLS/CSP/Origin/日志策略、regex捕获变量依赖及location级add_header继承；不把include放共享server或http顶层。
 
 ```nginx
 include /etc/nginx/stella-public-125398b55f1847c7a9ebb70cc651baee.locations.conf;

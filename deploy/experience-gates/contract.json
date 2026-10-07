@@ -19,7 +19,9 @@
     "background retained page follows real navigation readback and solid is reversible",
     "background rejects wrong origin, wrong source, module and stale ACK",
     "background video plays behind the genuinely transparent child",
-    "background cross-site hidden iframe acknowledges without animation clock"
+    "background cross-site hidden iframe acknowledges without animation clock",
+    "review: real App rejects late fetchMe after logout",
+    "review: real App rejects late refreshAccess after logout"
   ],
   "production-readback": [
     "spec-review",

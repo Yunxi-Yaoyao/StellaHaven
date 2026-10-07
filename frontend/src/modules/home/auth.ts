@@ -60,7 +60,8 @@ export const currentAvatar = computed(() =>
   auth.me?.avatar_url || homeSettings.avatar
 );
 
-let _refreshing: Promise<boolean> | null = null;
+let _refreshing: {generation:number;promise:Promise<boolean>} | null = null;
+const sessionCurrent=(generation:number)=>generation===auth.sessionGeneration&&!auth.sessionClosing;
 let lastActivityReport = 0;
 /** Only actual input extends server idle time; background requests never do. */
 export async function reportActivity(event: Event): Promise<void> {
@@ -78,38 +79,50 @@ export async function reportActivity(event: Event): Promise<void> {
 
 /** 单例 refresh：并发 401 时只发一个 refresh，避免旋转制 refresh token 被并发转废 */
 export function refreshAccess(): Promise<boolean> {
-  if (!_refreshing) {
-    _refreshing = (async () => {
-      let rejected = false;
-      try {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const r = await fetch('/auth/refresh', { method:'POST' });
-            if (r.ok) { auth.me = await r.json(); auth.error=''; return true; }
-            if (r.status !== 401 && r.status !== 403) { auth.error='身份确认失败，请重试'; return false; }
-            rejected = true;
-            if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 300));
-          } catch { auth.error='身份确认失败，请重试'; return false; }
-        }
-        if (rejected) { auth.me = null; auth.error=''; }
-        return false;
-      } finally { _refreshing = null; }
-    })();
-  }
-  return _refreshing;
+  const generation=auth.sessionGeneration;
+  if(!sessionCurrent(generation))return Promise.resolve(false);
+  if(_refreshing?.generation===generation)return _refreshing.promise;
+  // A late old finally must not clear the new session's single-flight request.
+  const flight={generation,promise:Promise.resolve(false)};
+  _refreshing=flight;
+  flight.promise=(async()=>{
+    let rejected=false;
+    try {
+      for(let attempt=0;attempt<2;attempt++) {
+        if(!sessionCurrent(generation))return false;
+        try {
+          const r=await fetch('/auth/refresh',{method:'POST'});
+          if(!sessionCurrent(generation))return false;
+          if(r.ok){const me=await r.json();if(!sessionCurrent(generation))return false;auth.me=me;auth.error='';return true;}
+          if(r.status!==401&&r.status!==403){auth.error='身份确认失败，请重试';return false;}
+          rejected=true;
+          if(attempt===0)await new Promise(resolve=>setTimeout(resolve,300));
+        } catch {if(sessionCurrent(generation))auth.error='身份确认失败，请重试';return false;}
+      }
+      if(rejected&&sessionCurrent(generation)){auth.me=null;auth.error='';}
+      return false;
+    } finally {if(_refreshing===flight)_refreshing=null;}
+  })();
+  return flight.promise;
 }
 
 export async function fetchMe(): Promise<boolean> {
+  const generation=auth.sessionGeneration;
+  if(!sessionCurrent(generation))return false;
   try {
-    const r = await fetch('/auth/me');
-    if (r.ok) {
-      auth.me = await r.json(); auth.error=''; auth.checked = true; migrateLegacyBg(); return true;
+    const r=await fetch('/auth/me');
+    if(!sessionCurrent(generation))return false;
+    if(r.ok){
+      const me=await r.json();if(!sessionCurrent(generation))return false;
+      auth.me=me;auth.error='';auth.checked=true;void migrateLegacyBg();return true;
     }
-    if (r.status !== 401 && r.status !== 403) { auth.error='身份确认失败，请重试'; auth.checked = true; return false; }
-    if (await refreshAccess()) { auth.checked = true; migrateLegacyBg(); return true; }
-  } catch { auth.error='身份确认失败，请重试'; auth.checked = true; return false; }
-  auth.checked = true;
-  if (!auth.me) void loadSiteConfig();
+    if(r.status!==401&&r.status!==403){auth.error='身份确认失败，请重试';auth.checked=true;return false;}
+    const refreshed=await refreshAccess();if(!sessionCurrent(generation))return false;
+    if(refreshed){auth.checked=true;void migrateLegacyBg();return true;}
+  } catch {if(sessionCurrent(generation)){auth.error='身份确认失败，请重试';auth.checked=true;}return false;}
+  if(!sessionCurrent(generation))return false;
+  auth.checked=true;
+  if(!auth.me)void loadSiteConfig();
   return false;
 }
 
@@ -127,6 +140,8 @@ export async function loadSiteConfig(): Promise<void> {
 
 /** 背景从 localStorage 迁到账号级 home_bg：登录后若 home_bg 空，把旧 localStorage 背景迁过去（一次性） */
 async function migrateLegacyBg() {
+  const generation=auth.sessionGeneration,owner=auth.me?.id;
+  if(!owner||!sessionCurrent(generation))return;
   if (auth.me?.home_bg) return; // 已有账号级背景，不用迁移
   try {
     const legacy = localStorage.getItem("stella_home_bg");
@@ -136,7 +151,7 @@ async function migrateLegacyBg() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ home_bg: legacy }),
     });
-    if (r.ok) auth.me = await r.json();
+    if(r.ok){const me=await r.json();if(sessionCurrent(generation)&&auth.me?.id===owner)auth.me=me;}
   } catch { /* 迁移失败不致命，用户可手动重设 */ }
 }
 

@@ -23,8 +23,8 @@ async function start(page:Page,evidence:any,options:any={}){
 async function roots(child:Frame){return child.evaluate(()=>({mode:document.documentElement.dataset.bgMode||'solid',roots:[document.documentElement,document.body,document.getElementById('root')].map(el=>{const s=getComputedStyle(el!);return {background:s.backgroundColor,image:s.backgroundImage,scheme:s.colorScheme};}),layers:[...document.querySelectorAll('.hope-breadcrumb,.list,.list-item')].map(el=>getComputedStyle(el).backgroundColor),media:document.querySelectorAll('video,img').length}));}
 async function pixels(page:Page,info:TestInfo,name:string,motionGrid=false){
  const box=(await page.locator('.external-page').boundingBox())!;
- // testsrc2 contains fixed colour bars at the two image assertion points.
- // Motion needs a spatial grid, not those permanently static source pixels.
+ // testsrc2 can leave these two colour-bar points unchanged in sampled frames.
+ // Motion needs spatial coverage, not a claim that those points never move.
  const points=motionGrid?Array.from({length:81},(_,i)=>[box.x+box.width*((i%9)+1)/10,box.y+box.height*(Math.floor(i/9)+1)/10]):[[box.x+box.width*.25,box.y+box.height*.8],[box.x+box.width*.75,box.y+box.height*.8]];
  const file=info.outputPath(name+'.png');await page.screenshot({path:file});
  const result=JSON.parse(execFileSync('python3',[path.join(tools,'sample_pixels.py'),file,JSON.stringify(points)],{encoding:'utf8'}));
