@@ -30,8 +30,8 @@
   "source_body_bytes_avoided": 3328224,
   "files_sha256": {
     "http.conf": "729d8e75366f1a011b55a8430165c87b09acb7500ca745599e4ea813e695757c",
-    "location.conf": "87dd09437bcc3c5e9631f7f44d379c2b741132b3e6f0b8e412d1d7524f98218e",
-    "test_real_nginx.py": "7579e11a677623e924f71111372956a97a039f2198a479be9e13fb3d988ccacf"
+    "location.conf": "e648cc2875e31276e11ceab994fd0e88a10d4508d2bff9ddc82ac40b9b6b85f2",
+    "test_real_nginx.py": "bf9a549a614c0f0acc7a05371f5988da0c9d747259e6f25cbfedaf6112167ed3"
   },
   "evidence_directory": "/opt/hermes-workstation/docs/2026-10-08-Stella-experience-fix/background-cache/final",
   "production_origin_cache_control_from_supplied_evidence": "public, max-age=604800, immutable",
@@ -62,5 +62,17 @@
     "errors": 0,
     "nginx": "nginx version: nginx/1.30.5",
     "failed_tests": []
+  },
+  "final_derivative_scope": {
+    "result": {
+      "baseline": false,
+      "tests": 23,
+      "failures": 0,
+      "errors": 0,
+      "nginx": "nginx version: nginx/1.30.5",
+      "failed_tests": []
+    },
+    "reason": "Preserve original large-file Range instead of forcing a full origin fill",
+    "red": "original-range-red/result.json"
   }
 }

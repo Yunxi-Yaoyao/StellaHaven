@@ -21,6 +21,9 @@ BODY = b'0123456789abcdef' * 208014
 STATE = {}
 EVENTS = []
 
+def asset(name):
+    return "/assets/homebg/media-" + hashlib.sha256(name.encode()).hexdigest()[:24] + "-compressed1.mp4"
+
 
 class Origin(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -144,13 +147,13 @@ http {{
         self.assertEqual(len(self.events(path)) - before, 2)
 
     def test_warm_full_download(self):
-        path = '/assets/homebg/warm.mp4'
+        path = asset('warm')
         for _ in range(2):
             self.assertEqual(self.request(path)[2], BODY)
         self.assertEqual(len(self.events(path)), 1)
 
     def test_changed_bytes_after_expiry(self):
-        path = '/assets/homebg/changed.mp4'
+        path = asset('changed')
         first = self.request(path)
         STATE[path] = {'body': b'NEW-ORIGIN-BYTES'}
         time.sleep(2.1)
@@ -160,7 +163,7 @@ http {{
         self.assertEqual(self.events(path)[-1]['headers']['If-None-Match'], first[1]['etag'])
 
     def test_deleted_after_expiry(self):
-        path = '/assets/homebg/deleted.mp4'
+        path = asset('deleted')
         self.request(path)
         STATE[path] = {'status': 404}
         time.sleep(2.1)
@@ -169,7 +172,7 @@ http {{
         self.assertEqual(len(self.events(path)), 3)
 
     def test_error_after_expiry_never_stale(self):
-        path = '/assets/homebg/error.mp4'
+        path = asset('error')
         self.request(path)
         STATE[path] = {'status': 500}
         time.sleep(2.1)
@@ -178,7 +181,7 @@ http {{
         self.assertEqual(len(self.events(path)), 3)
 
     def test_range_cold_then_complete_download(self):
-        path = '/assets/homebg/range.mp4'
+        path = asset('range')
         status, headers, body = self.request(path, headers={'Range': 'bytes=10-19'})
         self.assertEqual((status, body), (206, BODY[10:20]))
         self.assertEqual(headers['content-range'], f'bytes 10-19/{len(BODY)}')
@@ -189,7 +192,7 @@ http {{
         self.assertNotIn('Range', events[0]['headers'])
 
     def test_if_range_matches_and_mismatches(self):
-        path = '/assets/homebg/if-range.mp4'
+        path = asset('if-range')
         etag = self.request(path)[1]['etag']
         for condition, status, expected in ((etag, 206, BODY[:8]), ('"old"', 200, BODY)):
             with self.subTest(condition=condition):
@@ -199,7 +202,7 @@ http {{
         self.assertNotIn('If-Range', self.events(path)[0]['headers'])
 
     def test_head_cold_then_get(self):
-        path = '/assets/homebg/head.mp4'
+        path = asset('head')
         status, headers, body = self.request(path, method='HEAD')
         self.assertEqual((status, body), (200, b''))
         self.assertEqual(int(headers['content-length']), len(BODY))
@@ -208,7 +211,7 @@ http {{
         self.assertEqual(self.events(path)[0]['method'], 'GET')
 
     def test_client_conditional(self):
-        path = '/assets/homebg/conditional.mp4'
+        path = asset('conditional')
         etag = self.request(path)[1]['etag']
         self.assertEqual(self.request(path, headers={'If-None-Match': etag})[::2], (304, b''))
         self.assertEqual(len(self.events(path)), 1)
@@ -220,7 +223,7 @@ http {{
             ('cookie', {'Set-Cookie': 'fixture=synthetic; HttpOnly'}),
         ):
             with self.subTest(name=name):
-                path = f'/assets/homebg/{name}.mp4'
+                path = asset(name)
                 STATE[path] = {'headers': headers}
                 self.assert_uncached(path)
                 self.assertFalse(any(path.encode() in p.read_bytes() for p in (self.root / 'cache').rglob('*') if p.is_file()))
@@ -232,7 +235,7 @@ http {{
             ('expires', {'Expires': 'Thu, 31 Dec 2037 23:55:55 GMT'}),
             ('accel', {'X-Accel-Expires': '86400'}),
         ):
-            path = f'/assets/homebg/{name}.mp4'
+            path = asset(name)
             STATE[path] = {'headers': headers}
             self.assertEqual(self.request(path)[2], BODY)
             paths.append(path)
@@ -250,25 +253,25 @@ http {{
                 self.assert_uncached(path)
 
     def test_other_host_never_cached(self):
-        self.assert_uncached('/assets/homebg/other-host.mp4', host='other.xiya.live')
+        self.assert_uncached(asset('other-host'), host='other.xiya.live')
 
     def test_query_encoded_and_traversal_bypass(self):
-        for path in ('/assets/homebg/query.mp4?private=synthetic',
+        for path in (asset('query')+'?private=synthetic',
                      '/assets/homebg/%65ncoded.mp4', '/assets/homebg/a..mp4'):
             with self.subTest(path=path):
                 self.assert_uncached(path)
 
     def test_authorization_and_post_bypass(self):
-        self.assert_uncached('/assets/homebg/auth.mp4', headers={'Authorization': 'Bearer synthetic'})
-        self.assert_uncached('/assets/homebg/post.mp4', method='POST')
+        self.assert_uncached(asset('auth'), headers={'Authorization': 'Bearer synthetic'})
+        self.assert_uncached(asset('post'), method='POST')
 
     def test_html_mime_bypasses(self):
-        path = '/assets/homebg/html.mp4'
+        path = asset('html')
         STATE[path] = {'type': 'text/html', 'body': b'<html>private fixture</html>'}
         self.assert_uncached(path)
 
     def test_security_headers_and_forwarding(self):
-        path = '/assets/homebg/forward.mp4'
+        path = asset('forward')
         status, headers, _ = self.request(path)
         self.assertEqual(status, 200)
         self.assertEqual(headers['x-inherited-security'], 'fixture')
@@ -278,6 +281,13 @@ http {{
         self.assertEqual(sent['X-Real-IP'], '127.0.0.1')
         self.assertEqual(sent['X-Forwarded-For'], '127.0.0.1')
 
+    def test_original_wallpaper_keeps_origin_range_and_bypasses_cache(self):
+        path='/assets/homebg/0123456789ab.mp4'
+        self.assert_uncached(path, headers={'Range':'bytes=10-19','If-Range':'"synthetic"'})
+        for event in self.events(path):
+            self.assertEqual(event['headers'].get('Range'),'bytes=10-19')
+            self.assertEqual(event['headers'].get('If-Range'),'"synthetic"')
+
     def test_worker_only_cache_directory(self):
         stat = (self.root / 'cache').stat()
         self.assertEqual(stat.st_mode & 0o777, 0o700)
@@ -285,7 +295,7 @@ http {{
         self.assertNotIn('Permission denied', (self.root / 'error.log').read_text())
 
     def test_revalidation_respects_explicit_ttl(self):
-        path = '/assets/homebg/revalidate-lifetime.mp4'
+        path = asset('revalidate-lifetime')
         self.request(path)
         STATE[path] = {'headers': {'Cache-Control': 'public, max-age=86400'}}
         time.sleep(2.1)
@@ -296,7 +306,7 @@ http {{
         self.assertEqual([e['status'] for e in self.events(path)], [200, 304])
 
     def test_private_revalidation_not_retained(self):
-        path = '/assets/homebg/revalidate-private.mp4'
+        path = asset('revalidate-private')
         self.request(path)
         STATE[path] = {'headers': {'Cache-Control': 'private, no-store'}}
         time.sleep(2.1)
@@ -308,7 +318,7 @@ http {{
     def test_non_200_with_explicit_public_ttl_not_cached(self):
         for status in (206, 302, 404, 500):
             with self.subTest(status=status):
-                path = f'/assets/homebg/status-{status}.mp4'
+                path = asset('status-'+str(status))
                 STATE[path] = {'status': status, 'headers': {'Cache-Control': 'public, max-age=604800'}}
                 for _ in range(2):
                     self.assertEqual(self.request(path)[0], status)
@@ -316,7 +326,7 @@ http {{
 
     def test_concurrent_cold_requests_coalesce(self):
         from concurrent.futures import ThreadPoolExecutor
-        path = '/assets/homebg/concurrent.mp4'
+        path = asset('concurrent')
         with ThreadPoolExecutor(max_workers=4) as pool:
             responses = list(pool.map(lambda _: self.request(path), range(4)))
         for status, _, body in responses:
@@ -325,7 +335,7 @@ http {{
         self.assertEqual(len(self.events(path)), 1)
 
     def test_revalidate_avoids_second_large_body(self):
-        path = '/assets/homebg/revalidate.mp4'
+        path = asset('revalidate')
         first = self.request(path)
         self.assertEqual(first[0], 200)
         self.assertEqual(first[2], BODY)
