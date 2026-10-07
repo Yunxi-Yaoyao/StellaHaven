@@ -1,12 +1,26 @@
 """Always-on directory cache and same-origin background compatibility."""
 
 BACKGROUND_JS = r"""
+/* stella:background-ready:v1 */
 (()=>{
-  if(window.__stellaBackgroundV2)return;window.__stellaBackgroundV2=true;
+  if(window.__stellaBackgroundV3)return;window.__stellaBackgroundV3=true;
+  const parentOrigin=location.origin;
   const key='stella_drive_bg_mode',legacy='__stella_drive_bg_mode__';
   const valid=v=>v==='image'||v==='solid';
-  let mode='solid',observer=null;
+  let mode='solid',observer=null,pending=null,scheduled=false;
   const changed=new Map();
+  // A style-ready ACK is not an application/content-ready claim.
+  function ready(){
+    if(!pending||scheduled||!document.body||!document.getElementById('root'))return;
+    scheduled=true;
+    requestAnimationFrame(()=>{
+      scheduled=false;
+      if(!pending||!document.body||!document.getElementById('root'))return;
+      const reply=pending;pending=null;
+      window.parent.postMessage({type:'stella-bg-ready',mode,module_id:reply.module_id,request_id:reply.request_id},parentOrigin);
+    });
+  }
+  function requestMode(){if(window.parent!==window)try{window.parent.postMessage({type:'stella-bg-request'},parentOrigin);}catch{}}
   function transparent(el,prop,value){
     if(!el)return;
     if(!changed.has(el))changed.set(el,new Map());
@@ -15,11 +29,12 @@ BACKGROUND_JS = r"""
     if(el.style.getPropertyValue(prop)!==value||el.style.getPropertyPriority(prop)!=='important')el.style.setProperty(prop,value,'important');
   }
   function paint(){
-    if(mode!=='image')return;
+    if(mode!=='image'){ready();return;}
     const html=document.documentElement;
     if(html.dataset.bgMode!=='image')html.dataset.bgMode='image';
     transparent(html,'color-scheme','normal');
     for(const el of [html,document.body,document.getElementById('root')])transparent(el,'background-color','transparent');
+    ready();
   }
   function apply(value){
     if(!valid(value))return;
@@ -33,6 +48,11 @@ BACKGROUND_JS = r"""
       document.documentElement.removeAttribute('data-bg-mode');
       for(const [el,props] of changed)for(const [prop,[v,priority]] of props){if(v)el.style.setProperty(prop,v,priority);else el.style.removeProperty(prop);}
       changed.clear();
+      if(pending&&(!document.body||!document.getElementById('root'))){
+        observer ||= new MutationObserver(paint);
+        observer.observe(document.documentElement,{subtree:true,childList:true});
+      }
+      ready();
     }
   }
   function saved(){
@@ -42,11 +62,15 @@ BACKGROUND_JS = r"""
   }
   function remember(value){try{localStorage.setItem(key,value);localStorage.setItem(legacy,value);}catch{}}
   const initial=saved();remember(initial);apply(initial);
-  document.addEventListener('DOMContentLoaded',paint,{once:true});
+  document.addEventListener('DOMContentLoaded',()=>{paint();requestMode();},{once:true});
   window.addEventListener('message',event=>{
     if(event.origin!==location.origin||event.source!==window.parent)return;
-    if(event.data?.type==='stella-bg-mode'&&valid(event.data.mode)){remember(event.data.mode);apply(event.data.mode);}
+    if(event.data?.type!=='stella-bg-mode'||!valid(event.data.mode))return;
+    const data=event.data;
+    pending=typeof data.module_id==='string'&&data.module_id.length>0&&data.module_id.length<=128&&typeof data.request_id==='string'&&data.request_id.length>0&&data.request_id.length<=128?{module_id:data.module_id,request_id:data.request_id}:null;
+    remember(data.mode);apply(data.mode);
   });
+  requestMode();
   for(const type of ['popstate','hashchange'])window.addEventListener(type,()=>apply(saved()));
 })();
 """.strip()

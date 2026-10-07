@@ -12,6 +12,7 @@ def export_code(site, appearance=None, active=None, *, main_origin=None):
     # The old iframe was same-origin. Materialize the explicit parent boundary
     # in the editable code, not in a hidden runtime patch.
     js = js.replace('event.origin!==location.origin', 'event.origin!==' + safe_json(main_origin))
+    js = js.replace('const parentOrigin=location.origin', 'const parentOrigin=' + safe_json(main_origin))
     old_origin = os.getenv('STELLA_BUILTIN_MAIN_ORIGIN', 'https://stella.xiya.live')
     js = js.replace('const mainOrigin=' + safe_json(old_origin), 'const mainOrigin=' + safe_json(main_origin))
     if active and active.get('enabled'):
