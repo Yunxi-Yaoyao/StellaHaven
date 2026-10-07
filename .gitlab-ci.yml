@@ -102,6 +102,8 @@ experience-gate:
   script:
     - cd frontend
     - npm ci --include=dev --prefer-offline
+    # OS ffmpeg does not install Playwright video-recorder's pinned binary.
+    - node node_modules/@playwright/test/cli.js install ffmpeg
     - npm run test:experience
     - cd .. && python3 -m unittest discover -s deploy/experience-static/tests -v
   artifacts:
