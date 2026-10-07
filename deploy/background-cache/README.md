@@ -4,7 +4,7 @@
 
 ## 范围与缓存合同
 
-- `http.conf`：独立 `stella_homebg` zone（1 MiB 元数据），`max_size=128m`、`inactive=60s`、临时文件使用同一缓存目录。**128 MiB 是 nginx cache-manager 异步淘汰目标，不是文件系统硬配额**；在途下载可暂时超限。需要绝对硬上限时须另审文件系统配额，不能把本方案声称成硬配额。
+- `http.conf`：独立 `stella_homebg` zone（1 MiB 元数据），`max_size=128m`、`inactive=24h`（避免单用户闲置一分钟后每次又传整段视频）、临时文件使用同一缓存目录。**128 MiB 是 nginx cache-manager 异步淘汰目标，不是文件系统硬配额**；在途下载可暂时超限。需要绝对硬上限时须另审文件系统配额，不能把本方案声称成硬配额。
 - `location.conf`：仅放**精确 `server_name stella.xiya.live` 的现有 TLS server**。不能放共享 regex/wildcard server。仅原 `/assets/homebg/{filename}` 单层图片/视频文件、GET/HEAD、上游完整 200 可入缓存；304 只复核已有完整实体。非媒体 MIME、非 200、Authorization、查询参数、编码路径、双点路径、嵌套路径不入缓存。其他域名、网盘、HTML、API、图库、头像、鉴权接口不在缓存范围。
 - 源站该路由原本匿名公开，见 `app/routers/dynamic_assets.py:22-44`。这不是将私人资源“变公开”；文件仍由原 URL 和原源站裁决。不要把路径规则扩展到其他资产类别。
 - 不忽略任何响应头；nginx 原生 `private` / `no-store` / `Set-Cookie` 禁止存储。Cookie 请求头本身不主动删除，也不作为公开路由的鉴权机制；Authorization 请求明确绕过缓存。此路径今后若改为鉴权/按 Cookie 个性化，必须先停用缓存并重新审查。
