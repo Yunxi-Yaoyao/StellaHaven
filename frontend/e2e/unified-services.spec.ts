@@ -50,6 +50,13 @@ for(const site of ['drive','gallery'])test('clean shell contains only owned HTTP
  await page.screenshot({path:testInfo.outputPath(site+'-desktop.png'),animations:'disabled'});
  await page.setViewportSize({width:390,height:852});await page.screenshot({path:testInfo.outputPath(site+'-mobile.png'),animations:'disabled'});
 });
+test('native OpenList colors are not overwritten by the parent frame after loading',async({page,fixture})=>{
+ fixture.states.drive.appearance={theme:'original',simplified:false};
+ await page.route(ROOT+'/drive/openlist/',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><style>html,body,#root{background:rgb(12,34,56)}</style></head><body><div id="root">Owned original colors</div></body></html>'}));
+ await page.goto('/drive');const frame=page.frameLocator('iframe[title="OpenList 网盘"]');await expect(frame.getByText('Owned original colors')).toBeVisible();
+ for(const selector of ['html','body','#root'])await expect(frame.locator(selector)).toHaveCSS('background-color','rgb(12, 34, 56)');
+});
+
 test('ordinary owner sees service categories and one unified form without elevation',async({page,fixture})=>{
  await page.goto('/settings?section=navigation');
  await expect(page.locator('[data-row-id="drive"]')).toContainText('OpenList · 接入服务');await expect(page.locator('[data-row-id="gallery"]')).toContainText('Immich · 接入服务');await expect(page.locator('[data-row-id="notes"]')).toContainText('内置页面');

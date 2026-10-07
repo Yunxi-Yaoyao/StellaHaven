@@ -46,46 +46,9 @@ const pageStyle = computed(() => {
   return { backgroundColor: '#14171f' };
 });
 
-function clearIframeBg() {
-  const doc = frameEl.value?.contentDocument;
-  if (!doc) return;
-  const html = doc.documentElement;
-  const body = doc.body;
-  const root = doc.getElementById('root');
-  html.style.setProperty('background-color', '#14171f', 'important');
-  body.style.setProperty('background-color', '#14171f', 'important');
-  body.style.removeProperty('background-image');
-  body.style.removeProperty('background-size');
-  body.style.removeProperty('background-position');
-  body.style.removeProperty('background-attachment');
-  if (root) root.style.setProperty('background-color', '#14171f', 'important');
-  html.removeAttribute('data-bg-mode');
-}
-
-function applyTransparentBg() {
-  const f = frameEl.value;
-  if (!f || !f.contentDocument || !f.contentDocument.body) return;
-  const doc = f.contentDocument;
-  const html = doc.documentElement;
-  const body = doc.body;
-  const root = doc.getElementById('root');
-  html.style.setProperty('background-color', 'transparent', 'important');
-  html.style.setProperty('color-scheme', 'normal', 'important');
-  body.style.setProperty('background-color', 'transparent', 'important');
-  body.style.removeProperty('background-image');
-  body.style.removeProperty('background-size');
-  body.style.removeProperty('background-position');
-  body.style.removeProperty('background-attachment');
-  if (root) root.style.setProperty('background-color', 'transparent', 'important');
-  html.setAttribute('data-bg-mode', 'image');
-}
-
-// 背景图模式：让 iframe 内部 html/body/#root 全部透明，依赖外层背景图透进来。
-// 同时强制 color-scheme:normal，避免 OpenList 的 light/dark meta 让浏览器给 iframe canvas 填默认色。
+// One authority inside the authenticated OpenList frame owns reversible background changes.
+// The parent only sends the selected mode; it must not overwrite the original theme.
 function applyIframeBg() {
-  try {
-    if (bgMode.value === 'image') applyTransparentBg(); else clearIframeBg();
-  } catch { /* Cross-origin services manage their own theme. */ }
   const cw = frameEl.value?.contentWindow;
   if (cw && frameUrl.value) cw.postMessage({ type: 'stella-bg-mode', mode: bgMode.value }, new URL(frameUrl.value, location.origin).origin);
 }
