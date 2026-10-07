@@ -10,6 +10,7 @@ const root=path.resolve('..');const commit=execFileSync('git',['-C',process.env.
 if(process.env.CI_COMMIT_SHA&&process.env.CI_COMMIT_SHA!==commit)throw new Error('CI checkout/source does not match CI_COMMIT_SHA');
 const run=(cmd,args)=>{const p=spawnSync(cmd,args,{stdio:'inherit',env:process.env});if(p.status!==0)process.exit(p.status||1);};
 run('python3',['../deploy/experience-gates/test_gate.py']);
+run(process.execPath,['node_modules/vitest/vitest.mjs','run','--config','vitest.experience.config.mjs']);
 run(process.execPath,['node_modules/@playwright/test/cli.js','test','--config','playwright.experience.config.ts']);
 run('python3',['../deploy/experience-gates/check_receipt.py','--receipt',path.join(output,'receipt.json'),'--commit',commit,'--kind','synthetic-process']);
 console.log('Verified full experience receipt: '+path.join(output,'receipt.json'));
