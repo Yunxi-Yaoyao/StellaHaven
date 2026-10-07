@@ -29,24 +29,36 @@ export function resolveNavigation(config:{entries:NavEntry[]}, modules:Website[]
 export const navigation = reactive({entries:[] as NavEntry[], modules:[] as Website[],legacy_routes:{} as Record<string,string>,loaded:false,error:''});
 export const navigationRows = computed(()=>resolveNavigation({entries:navigation.entries},navigation.modules));
 export function isNavigationActive(path:string,to:string) { return path===to || to!=='/' && path.startsWith(to+'/'); }
-let generation = 0;
-export function resetNavigation() { generation++; navigation.entries=[]; navigation.modules=[]; navigation.legacy_routes={}; navigation.loaded=false; navigation.error=''; }
-export async function loadNavigation() {
+let generation = 0, sessionEpoch = 0;
+let pending:Promise<boolean>|undefined, request:AbortController|undefined;
+export function resetNavigation() { sessionEpoch++; generation++; request?.abort(); request=undefined; pending=undefined; navigation.entries=[]; navigation.modules=[]; navigation.legacy_routes={}; navigation.loaded=false; navigation.error=''; }
+// Startup callers share a flight. Writes explicitly invalidate it; reset owns session isolation.
+export function loadNavigation({force=false}:{force?:boolean}={}):Promise<boolean> {
+  if(pending&&!force)return pending;
   const current = ++generation;
-  try {
-    const [config, modules] = await Promise.all([api<{entries:NavEntry[];legacy_routes?:Record<string,string>}>('/navigation'), api<Website[]>('/external-modules')]);
-    if (current !== generation) return false;
-    navigation.legacy_routes=config.legacy_routes||{}; navigation.entries=config.entries; navigation.modules=modules; navigation.loaded=true; navigation.error=''; return true;
-  } catch { if (current===generation) navigation.error='导航配置加载失败，请重试'; return false; }
+  request?.abort();const controller=request=new AbortController();
+  navigation.error='';
+  const timeout=setTimeout(()=>controller.abort(),15000);
+  const cancelled=new Promise<never>((_resolve,reject)=>controller.signal.addEventListener('abort',()=>reject(new Error('Navigation cancelled or timed out')),{once:true}));
+  const task=(async()=>{
+    try {
+      const [config, modules] = await Promise.race([cancelled,Promise.all([api<{entries:NavEntry[];legacy_routes?:Record<string,string>}>('/navigation',{signal:controller.signal}), api<Website[]>('/external-modules',{signal:controller.signal})])]);
+      if (current !== generation) return false;
+      navigation.legacy_routes=config.legacy_routes||{}; navigation.entries=config.entries; navigation.modules=modules; navigation.loaded=true; navigation.error=''; return true;
+    } catch { if (current===generation) navigation.error='导航配置加载失败，请重试'; return false; }
+    finally { clearTimeout(timeout);if(current===generation){pending=undefined;request=undefined;} }
+  })();
+  pending=task;return task;
 }
 export async function saveNavigation(rows:NavRow[],reset=false) {
+  const session=sessionEpoch;
   await api('/navigation',{method:'PUT',body:JSON.stringify({entries:rows.map(row=>{
     if(row.builtin)return {id:row.id,title:row.label,icon:row.icon,visible:row.visible};
     // Keep effective legacy overrides until a full website save migrates both sources.
     const module=navigation.modules.find(item=>item.id===row.id);
     return {id:row.id,visible:row.visible,...(module&&row.label!==module.name?{title:row.label}:{}),...(module&&row.icon!==module.icon?{icon:row.icon}:{})};
   }),reset})});
-  if (!await loadNavigation()) throw new Error('Navigation readback failed');
+  if (session!==sessionEpoch || !await loadNavigation({force:true})) throw new Error('Navigation readback failed');
 }
 
 export function resolveLegacyModule(alias:string){const id=navigation.legacy_routes[alias];return id&&navigation.modules.some(item=>item.id===id)?id:null;}

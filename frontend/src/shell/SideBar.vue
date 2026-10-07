@@ -3,9 +3,9 @@
 // collapsed=true → 收成图标栏；移动端由 App 控制 mobile-open 覆盖层
 import Icon from "./Icon.vue";
 import NotificationBell from "./NotificationBell.vue";
-import { auth, loggedIn, currentAvatar } from "../modules/home/auth";
-import { computed } from "vue";
-import { navigationRows, builtinNavigation, isNavigationActive } from "../stores/navigation";
+import { auth, fetchMe, loggedIn, currentAvatar } from "../modules/home/auth";
+import { computed, ref } from "vue";
+import { navigation, loadNavigation, navigationRows, builtinNavigation, isNavigationActive } from "../stores/navigation";
 
 // 未登录显示站点名 StellaHaven；登录后昵称优先、回退用户名
 const displayName = computed(() =>
@@ -18,7 +18,11 @@ const emit = defineEmits<{ toggle: []; closeMobile: [] }>();
 function preloadNotes(to: string) {
   if (to === '/notes' && loggedIn.value) void import('../modules/notes/NotesPage.vue');
 }
-const navItems = computed(() => (loggedIn.value ? navigationRows.value : builtinNavigation).filter(row => row.visible));
+const navigationReady = computed(() => auth.checked && !auth.sessionClosing && (loggedIn.value ? navigation.loaded : !auth.error));
+const navigationError = computed(() => !auth.sessionClosing ? (auth.error || (loggedIn.value ? navigation.error : '')) : '');
+const navItems = computed(() => navigationReady.value ? (loggedIn.value ? navigationRows.value : builtinNavigation).filter(row => row.visible) : []);
+const retrying = ref(false);
+async function retryNavigation() { retrying.value=true;try { if(auth.error || !auth.checked)await fetchMe(); if(auth.me&&!auth.error)await loadNavigation(); } finally { retrying.value=false; } }
 </script>
 
 <template>
@@ -39,6 +43,8 @@ const navItems = computed(() => (loggedIn.value ? navigationRows.value : builtin
 
     <!-- 二段：导航 -->
     <nav class="nav">
+      <div v-if="navigationError" class="nav-message" role="alert">{{navigationError}} <button :disabled="retrying" @click="retryNavigation">重试</button></div>
+      <div v-else-if="!navigationReady" class="nav-placeholder" role="status" aria-label="正在加载导航">正在加载导航…<span v-for="n in 4" :key="n" aria-hidden="true" /></div>
       <RouterLink
         v-for="item in navItems"
         :key="item.id"
@@ -159,6 +165,9 @@ const navItems = computed(() => (loggedIn.value ? navigationRows.value : builtin
   text-align: left;
   cursor: pointer;
 }
+.nav-message,.nav-placeholder{padding:10px 12px;font-size:12px;color:var(--text-lo)}
+.nav-placeholder span{display:block;height:32px;margin:10px 0;border-radius:6px;background:var(--bg-raised);opacity:.5}
+.nav-message button{font:inherit;cursor:pointer;color:var(--text-hi);background:var(--bg-raised);border:1px solid var(--accent-dim);border-radius:5px;padding:4px 8px}
 .nav-item:hover {
   background: var(--bg-raised);
   color: var(--text-hi);

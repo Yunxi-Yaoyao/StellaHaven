@@ -19,6 +19,7 @@ export const auth = reactive({
   sessionGeneration: 0,
   sessionClosing: false,
   checked: false, // 首次 /auth/me 探测过没有
+  error: '', // Transport failures are not a confirmed guest session.
 });
 
 export const loggedIn = computed(() => auth.me !== null);
@@ -84,13 +85,13 @@ export function refreshAccess(): Promise<boolean> {
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             const r = await fetch('/auth/refresh', { method:'POST' });
-            if (r.ok) { auth.me = await r.json(); return true; }
-            if (r.status !== 401 && r.status !== 403) return false;
+            if (r.ok) { auth.me = await r.json(); auth.error=''; return true; }
+            if (r.status !== 401 && r.status !== 403) { auth.error='身份确认失败，请重试'; return false; }
             rejected = true;
             if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 300));
-          } catch { return false; }
+          } catch { auth.error='身份确认失败，请重试'; return false; }
         }
-        if (rejected) auth.me = null;
+        if (rejected) { auth.me = null; auth.error=''; }
         return false;
       } finally { _refreshing = null; }
     })();
@@ -102,11 +103,11 @@ export async function fetchMe(): Promise<boolean> {
   try {
     const r = await fetch('/auth/me');
     if (r.ok) {
-      auth.me = await r.json(); auth.checked = true; migrateLegacyBg(); return true;
+      auth.me = await r.json(); auth.error=''; auth.checked = true; migrateLegacyBg(); return true;
     }
-    if (r.status !== 401 && r.status !== 403) { auth.checked = true; return false; }
+    if (r.status !== 401 && r.status !== 403) { auth.error='身份确认失败，请重试'; auth.checked = true; return false; }
     if (await refreshAccess()) { auth.checked = true; migrateLegacyBg(); return true; }
-  } catch { auth.checked = true; return false; }
+  } catch { auth.error='身份确认失败，请重试'; auth.checked = true; return false; }
   auth.checked = true;
   if (!auth.me) void loadSiteConfig();
   return false;
@@ -146,7 +147,7 @@ export async function login(username: string, password: string, remember: boolea
     body: JSON.stringify({ username, password, remember, device }),
   });
   if (!r.ok) return (await r.json()).detail ?? "登录失败";
-  auth.sessionGeneration++; auth.sessionClosing = false;
+  auth.sessionGeneration++; auth.sessionClosing = false; auth.error='';
   auth.me = await r.json();
   auth.checked = true;
   migrateLegacyBg(); // 迁旧背景（一次性）
@@ -160,7 +161,7 @@ export async function register(username: string, password: string, displayName?:
     body: JSON.stringify({ username, password, display_name: displayName }),
   });
   if (!r.ok) return (await r.json()).detail ?? "注册失败";
-  auth.sessionGeneration++; auth.sessionClosing = false;
+  auth.sessionGeneration++; auth.sessionClosing = false; auth.error='';
   auth.me = await r.json();
   auth.checked = true;
   return null;
@@ -171,7 +172,7 @@ export async function logout(): Promise<void> {
   clearSecurity();
   const r = await fetch("/auth/logout", { method: "POST" });
   if (!r.ok) throw new Error('退出未成功，请检查网络后重试');
-  auth.me = null; auth.sessionClosing = false;
+  auth.me = null; auth.sessionClosing = false; auth.error='';
   lastActivityReport = 0;
 }
 
