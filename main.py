@@ -22,6 +22,7 @@ from app.routers.gallery import router as gallery_router
 from app.routers.oidc import router as oidc_router
 from app.routers.integrations import router as integrations_router
 from app.routers.website_settings import router as website_settings_router
+from app.routers.service_settings import router as service_settings_router
 from app.routers.integrations_host import IntegrationsHostMiddleware
 from app.routers.notes_tools import router as notes_tools_router
 from app.routers.unified_search import router as unified_search_router
@@ -44,7 +45,7 @@ API_PREFIXES = (
     "/.well-known", "/oauth", "/users", "/alerts", "/notifications",
     "/component-installs", "/external-modules", "/navigation", "/audit", "/backup-health",
     "/operations", "/admin", "/integration-targets", "/integration-presets",
-    "/notes-tools", "/search", "/timeline", "/builtin-injections", "/integration-assets", "/website-settings",
+    "/notes-tools", "/search", "/timeline", "/builtin-injections", "/integration-assets", "/website-settings", "/service-settings",
 )
 
 app = FastAPI(title="StellaHaven")
@@ -107,6 +108,7 @@ app.include_router(gallery_router)
 app.include_router(oidc_router)
 app.include_router(integrations_router)
 app.include_router(website_settings_router)
+app.include_router(service_settings_router)
 app.include_router(notes_tools_router)
 app.include_router(unified_search_router)
 app.include_router(timeline_router)

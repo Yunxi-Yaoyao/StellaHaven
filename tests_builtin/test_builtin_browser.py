@@ -38,7 +38,7 @@ def local_server(app, *, tls=False, hostname='127.0.0.1'):
         server.should_exit=True; thread.join(timeout=5); sock.close();certdir.cleanup(); assert not thread.is_alive()
 
 
-def test_real_classic_cross_origin_loader_apply_disable_rollback(pg_db,pg_engine,monkeypatch):
+def test_real_classic_cross_origin_loader_apply_disable_rollback(pg_db,pg_engine,monkeypatch,tmp_path):
     monkeypatch.setenv('STELLA_COOKIE_SECURE', 'true')  # This fixture exercises actual HTTPS origins.
     from app.database import get_db
     from app.routers.builtin_injection import assets_router
@@ -104,7 +104,14 @@ def test_real_classic_cross_origin_loader_apply_disable_rollback(pg_db,pg_engine
                 denied_calls.clear()
                 asset_cookie_seen.clear();target_cookie_leaks.clear()
                 env=os.environ | {'BUILTIN_BROWSER_INPUT':json.dumps({'assetOrigin':asset_origin,'targetOrigin':target_origin}),'BUILTIN_BROWSER_COOKIES':json.dumps(cookies if with_owner else []),'BUILTIN_EXPECTED':expected}
-                result=subprocess.run(['node','tests/builtin-cross-origin.mjs'],cwd=Path(__file__).resolve().parents[1]/'frontend',env=env,text=True,capture_output=True,timeout=60)
+                source=Path(__file__).resolve().parents[1]/'frontend/tests/builtin-cross-origin.mjs'
+                runner=source
+                if os.environ.get('STELLA_TEST_PLAYWRIGHT'):
+                    # Test-owned import overlay; no frontend/node_modules edits or installs.
+                    runner=tmp_path/'builtin-cross-origin.mjs'
+                    shim="import {createRequire} from 'node:module'; const {chromium}=createRequire(import.meta.url)("+json.dumps(os.environ['STELLA_TEST_PLAYWRIGHT'])+");"
+                    runner.write_text(source.read_text().replace("import {chromium} from '@playwright/test';",shim))
+                result=subprocess.run(['node',str(runner)],cwd=tmp_path,env=env,text=True,capture_output=True,timeout=60)
                 assert result.returncode==0,result.stdout+result.stderr
                 evidence=json.loads(result.stdout); results.append(evidence)
                 assert httpx.get(target_origin.replace('immich.builtin.test','127.0.0.1')+'/api/mobile',verify=False,trust_env=False).json()=={'native':'unchanged'}
@@ -113,8 +120,8 @@ def test_real_classic_cross_origin_loader_apply_disable_rollback(pg_db,pg_engine
                 return evidence
             check('disabled') # saved draft must not execute
             first=builtin.apply(pg_db,'gallery',actor)['active']['version']; enabled=check('enabled')
-            assert enabled['gallery']['version']==first
-            assert check('disabled',with_owner=False)['gallery']['version']=='preset-v1'
+            assert enabled['gallery']['version']==builtin.client_version('gallery',{'version':first})
+            assert check('disabled',with_owner=False)['gallery']['version']==builtin.client_version('gallery',builtin.default_active('gallery'))
             builtin.validate_draft(pg_db,'gallery',draft.model_copy(update={'enabled':False}));builtin.apply(pg_db,'gallery',actor)
             check('disabled')
             assert builtin.rollback(pg_db,'gallery',actor)['active']['version']==first

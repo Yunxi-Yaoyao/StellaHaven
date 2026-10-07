@@ -129,7 +129,7 @@ class IntegrationsHostMiddleware:
                     def read_builtin_snapshot(site):
                         from app.services import builtin_injection
                         with self.db_factory() as snapshot_db:
-                            return builtin_injection.read(snapshot_db, site)['active']
+                            return builtin_injection.runtime_snapshot(snapshot_db, site)
                     response=await proxy.proxy_http(request,module,target,self.main_origin,
                                                     builtin_reader=read_builtin_snapshot)
             return await response(scope,receive,send)

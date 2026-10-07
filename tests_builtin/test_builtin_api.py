@@ -48,7 +48,7 @@ def test_real_admin_guard_and_client_projection(pg_db, pg_engine, monkeypatch):
         assert c.get('/builtin-injections/gallery').json()['active']['version'] == applied['active']['version']
         owner_asset=c.get('/integration-assets/gallery.js')
         assert 'galleryClient=73' in owner_asset.text
-        assert owner_asset.headers['x-stella-injection-version']==applied['active']['version']
+        assert owner_asset.headers['x-stella-injection-version']==builtin.client_version('gallery',applied['active'])
         pg_db.add(AppConfig(key='unrelated-private-config', value='SYNTHETIC-SECRET-DO-NOT-PROJECT')); pg_db.commit()
         with TestClient(app, base_url='https://testserver') as anonymous:
             asset = anonymous.get('/integration-assets/gallery.js')
@@ -56,7 +56,7 @@ def test_real_admin_guard_and_client_projection(pg_db, pg_engine, monkeypatch):
             assert 'SYNTHETIC-SECRET' not in asset.text
             assert 'builtin-independent-admin-fixture' not in asset.text
             assert asset.headers['cache-control'] == 'no-store'
-            assert asset.headers['x-stella-injection-version'] == 'preset-v1'
+            assert asset.headers['x-stella-injection-version'] == builtin.client_version('gallery',builtin.default_active('gallery'))
             assert 'access-control-allow-origin' not in asset.headers
             assert asset.headers['vary']=='Cookie'
             assert 'galleryClient' not in anonymous.get('/integration-assets/gallery.js?claimtoken=fake').text

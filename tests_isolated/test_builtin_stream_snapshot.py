@@ -42,7 +42,8 @@ def test_builtin_snapshot_releases_db_before_slow_html_body(integration_env,upst
     with factory() as db:
         row=db.get(AppConfig,store.KEY);cfg=json.loads(row.value);cfg['modules'][mid]['adapter']='openlist';row.value=json.dumps(cfg)
         state=builtin.empty_state();state['drive']['active']=builtin.default_active('drive')|{'enabled':True,'css':'body{--snapshot-proof:1}','js':'','version':'snapshot-test-active'}
-        db.add(AppConfig(key=builtin.KEY,value=json.dumps(state)));db.commit()
+        db.add(AppConfig(key=builtin.KEY,value=json.dumps(state)))
+        db.add(AppConfig(key='service_appearance_v1',value=json.dumps({'drive':{'theme':'original','simplified':False}})));db.commit()
     read=threading.Event();captured=[];original=builtin.read
     def observe(db,site):
         result=original(db,site);captured.append(db);read.set();return result
@@ -57,4 +58,6 @@ def test_builtin_snapshot_releases_db_before_slow_html_body(integration_env,upst
     finally:upstream[2].set()
     try:
         response=future.result(timeout=10);assert response.status_code==200,response.text;assert 'snapshot-test-active' in response.text and 'snapshot-proof' in response.text
+        assert 'clearPathCache' in response.text and 'mergeSwitchLayout' not in response.text
+        assert 'background-color: #14171f !important' not in response.text
     finally:pool.shutdown(wait=True)

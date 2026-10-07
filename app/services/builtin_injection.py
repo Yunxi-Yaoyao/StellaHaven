@@ -21,13 +21,20 @@ KEY = 'builtin_injection_v1'
 GALLERY_LOGO_CSS = 'img[alt="Immich logo"]{content:url("https://stella.xiya.live/avatar.png");border-radius:50%;object-fit:cover}img[alt="Immich logo"].h-12{width:48px}'
 
 
-def presets(site):
+def presets(site, appearance=None):
+    from app.services.service_appearance import DEFAULTS, check_site
+    check_site(site)
+    appearance = appearance or DEFAULTS[site]
     if site == 'drive':
-        from app.services.drive import OPENLIST_THEME_CSS, OPENLIST_THEME_JS
-        return OPENLIST_THEME_CSS, OPENLIST_THEME_JS + '\n' + admin_notice_code()
-    if site == 'gallery':
-        return GALLERY_LOGO_CSS, ''
-    raise HTTPException(404, '内置网站不存在')
+        from app.services.openlist_appearance import THEME_CSS, SIMPLIFIED_CSS, BACKGROUND_CSS, SIMPLIFIED_JS
+        from app.services.openlist_compat import CACHE_JS, BACKGROUND_JS
+        css = BACKGROUND_CSS
+        if appearance['theme'] == 'stella': css = THEME_CSS + '\n' + css
+        if appearance['simplified']: css += '\n' + SIMPLIFIED_CSS
+        js = CACHE_JS + '\n' + BACKGROUND_JS + '\n' + admin_notice_code()
+        if appearance['simplified']: js += '\n' + SIMPLIFIED_JS
+        return css, js
+    return GALLERY_LOGO_CSS if appearance['logo'] == 'stella' else '', ''
 
 
 def default_active(site):
@@ -103,10 +110,12 @@ def rollback(db, site, actor_id):
 
 
 def strip_legacy(html, site):
-    css, js = presets(site)
     if site == 'drive':
-        from app.services.drive import OPENLIST_THEME_JS
-        js = OPENLIST_THEME_JS
+        # Immutable originals are only fingerprints, never runtime presets.
+        from app.services.drive import OPENLIST_THEME_CSS, OPENLIST_THEME_JS
+        css, js = OPENLIST_THEME_CSS, OPENLIST_THEME_JS
+    else:
+        css, js = presets(site)
     counts = {'css': 0, 'js': 0}
     def remove(match):
         kind = match.group(1).lower()
@@ -134,12 +143,34 @@ const original=window.fetch;window.fetch=async function(...args){const response=
 const open=XMLHttpRequest.prototype.open,send=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(method,url,...rest){this.__stellaAdminUrl=url;return open.call(this,method,url,...rest);};XMLHttpRequest.prototype.send=function(body){if(target(this.__stellaAdminUrl))this.addEventListener('load',function(){if(this.status!==403)return;try{notify(this.responseType==='json'?this.response:JSON.parse(this.responseText));}catch{}});return send.call(this,body);};})();""".replace('ORIGIN', safe_json(main_origin))
 
 
-def client_code(site, active):
-    css, js = presets(site)
-    payload = safe_json({'site': site, 'version': active['version'], 'base_css': css, 'base_js': js,
+def client_version(site, active, appearance=None):
+    from hashlib import sha256
+    from app.services.service_appearance import DEFAULTS
+    visual = appearance or DEFAULTS[site]
+    return active['version'] + '-v2-' + sha256(safe_json(visual).encode()).hexdigest()[:12]
+
+
+def runtime_snapshot(db, site):
+    from app.services.service_appearance import read as read_appearance
+    return {'active': read(db, site)['active'], 'appearance': read_appearance(db, site)}
+
+
+def client_code(site, active, appearance=None):
+    css, js = presets(site, appearance)
+    payload = safe_json({'site': site, 'version': client_version(site, active, appearance), 'base_css': css, 'base_js': js,
                          'css': active['css'] if active['enabled'] else '',
                          'js': active['js'] if active['enabled'] else '', 'timing': active['timing']})
-    return """(()=>{const p=PAYLOAD;const key='__stellaBuiltin_'+p.site;if(window[key]===p.version)return;window[key]=p.version;const style=document.createElement('style');style.dataset.stellaBuiltin=p.site;style.dataset.version=p.version;style.textContent=p.base_css+'\\n'+p.css;(document.head||document.documentElement).appendChild(style);const run=()=>{for(const code of [p.base_js,p.js]){if(!code)continue;const script=document.createElement('script');script.dataset.stellaBuiltin=p.site;script.textContent=code;(document.head||document.documentElement).appendChild(script);}};if(p.timing==='document_start'||document.readyState!=='loading')run();else document.addEventListener('DOMContentLoaded',run,{once:true});})();""".replace('PAYLOAD', payload)
+    return r"""(()=>{
+const p=PAYLOAD,key='__stellaBuiltin_'+p.site;
+if(p.site==='gallery')document.querySelectorAll('style[data-stella-gallery-base]').forEach(e=>e.remove());
+if(window[key]===p.version)return;window[key]=p.version;
+document.querySelectorAll('[data-stella-builtin="'+p.site+'"]').forEach(e=>e.remove());
+const style=document.createElement('style');style.dataset.stellaBuiltin=p.site;style.dataset.version=p.version;style.textContent=p.base_css+'\n'+p.css;(document.head||document.documentElement).append(style);
+function run(code){if(!code)return;const script=document.createElement('script');script.dataset.stellaBuiltin=p.site;script.textContent=code;(document.head||document.documentElement).append(script);}
+run(p.base_js);
+const custom=()=>run(p.js);
+if(p.timing==='document_start'||document.readyState!=='loading')custom();else document.addEventListener('DOMContentLoaded',custom,{once:true});
+})();""".replace('PAYLOAD', payload)
 
 
 def gallery_origins():
@@ -157,8 +188,10 @@ def gallery_origins():
 
 def gallery_asset(db, *, custom_allowed=False):
     active = read(db, 'gallery')['active'] if custom_allowed else default_active('gallery')
-    code = '(()=>{if(!'+safe_json(gallery_origins())+'.includes(window.location.origin))return;'+client_code('gallery', active)+'})();'
-    return code, active['version']
+    from app.services.service_appearance import read as read_appearance
+    visual = read_appearance(db, 'gallery')
+    code = '(()=>{if(!'+safe_json(gallery_origins())+'.includes(window.location.origin))return;'+client_code('gallery', active, visual)+'})();'
+    return code, client_version('gallery', active, visual)
 
 
 def gallery_head_loader(stella_origin='https://stella.xiya.live'):
@@ -171,7 +204,7 @@ def gallery_head_loader(stella_origin='https://stella.xiya.live'):
     _ = p.port
     # No crossorigin=anonymous: same-site cross-origin classic scripts send the
     # Stella host-only cookie back to Stella (NOT to Immich). No CORS expansion.
-    return '<style data-stella-gallery-base="v1">'+GALLERY_LOGO_CSS+'</style><script src="'+stella_origin+'/integration-assets/gallery.js"></script>'
+    return '<script src="'+stella_origin+'/integration-assets/gallery.js"></script>'
 
 
 def gallery_nginx_snippets(stella_origin='https://stella.xiya.live'):
@@ -195,14 +228,16 @@ def probe_public_html(html, site):
             'bytes_before': len(html.encode('utf-8')), 'bytes_after': len(transformed.encode('utf-8'))}
 
 
-def transform_html(html, site, db=None, *, active=None):
+def transform_html(html, site, db=None, *, active=None, appearance=None):
+    from app.services.service_appearance import read as read_appearance
     active = active or read(db, site)['active']
-    marker = f'<meta name="stella-builtin-injection" content="{site}:{active["version"]}">'
+    appearance = appearance or read_appearance(db, site)
+    marker = f'<meta name="stella-builtin-injection" content="{site}:{client_version(site, active, appearance)}">'
     if marker in html:
         return html
     html, _ = strip_legacy(html, site)
     html = re.sub(r'<!--stella-builtin:' + site + r':begin-->.*?<!--stella-builtin:' + site + r':end-->', '', html, flags=re.S)
-    fragment = f'<!--stella-builtin:{site}:begin-->'+marker+'<script>'+client_code(site, active)+f'</script><!--stella-builtin:{site}:end-->'
+    fragment = f'<!--stella-builtin:{site}:begin-->'+marker+'<script>'+client_code(site, active, appearance)+f'</script><!--stella-builtin:{site}:end-->'
     head = re.search(r'<head\b[^>]*>', html, re.I)
     offset = head.end() if head else 0
     html = html[:offset]+fragment+html[offset:]

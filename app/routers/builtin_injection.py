@@ -1,8 +1,9 @@
 """Privileged builtin control API plus session-scoped gallery client code.
 
 Register router with ordinary API routers, assets_router without /api prefix.
-Anonymous gets only the fixed preset; a real daily owner session may read its
-actively published target-site code. Neither response contains private config.
+Anonymous gets only the public appearance selection; a real daily owner session
+may read its actively published target-site code. Neither response contains
+private connection configuration.
 """
 from fastapi import APIRouter, Depends, Response, Request, HTTPException
 from app.database import get_db
@@ -44,10 +45,12 @@ def gallery_asset(request: Request, db=Depends(get_db)):
     allowed = False
     if request.cookies.get(AT_COOKIE):
         try:
+            from app.routers.website_settings import require_persisted_owner
+            require_persisted_owner(request, db)
             current_user(request, db)
             allowed = True
         except HTTPException as exc:
-            if exc.status_code not in {401, 403}: raise
+            if exc.status_code not in {401, 403, 503}: raise
     code, version = service.gallery_asset(db, custom_allowed=allowed)
     return Response(code, media_type='application/javascript', headers={
         'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',

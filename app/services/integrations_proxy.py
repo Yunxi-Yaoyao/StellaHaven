@@ -266,8 +266,10 @@ async def proxy_http(request,module,target,parent_origin='https://stella.xiya.li
         from app.services import builtin_injection as builtin
         # Snapshot through a short-lived session only for actual HTML responses.
         # No DB connection stays checked out while the upstream body is read.
-        active = (await asyncio.to_thread(builtin_reader, builtin_site)
-                  if builtin_reader is not None else builtin.read(db, builtin_site)['active'])
+        snapshot = (await asyncio.to_thread(builtin_reader, builtin_site)
+                    if builtin_reader is not None else builtin.runtime_snapshot(db, builtin_site))
+        active = snapshot['active']
+        visual = snapshot['appearance']
     if injectable_html and (builtin_site or (active and active['enabled'])):
         try:
             policies=response.headers.get_list('content-security-policy')
@@ -289,7 +291,7 @@ async def proxy_http(request,module,target,parent_origin='https://stella.xiya.li
                 raise HTTPException(409,'HTML meta CSP 需要服务端适配，不自动剥离')
             nonce=secrets.token_urlsafe(24)
             if builtin_site:
-                transformed=builtin.transform_html(html,builtin_site,db,active=active)
+                transformed=builtin.transform_html(html,builtin_site,active=active,appearance=visual)
                 html,changed=transformed,transformed!=html
             else:
                 html,changed=injection.inject_html(html,module['id'],active,nonce)

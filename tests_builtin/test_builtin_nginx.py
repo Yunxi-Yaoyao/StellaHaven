@@ -40,7 +40,8 @@ def test_nginx_candidate_only_html_keeps_native_api_csp_compressed_asset(tmp_pat
                 except httpx.ConnectError: time.sleep(.02)
             else: raise AssertionError('local nginx did not start')
             assert r.text.count('/integration-assets/gallery.js')==1
-            assert r.text.count('data-stella-gallery-base')==1
+            assert 'data-stella-gallery-base' not in r.text
+            assert '<style' not in r.text
             assert r.headers['content-security-policy']=="default-src 'self'; object-src 'none'"
             assert r.headers['x-test-encoding']==''
             with httpx.stream('GET',f'http://127.0.0.1:{port}/asset.js',headers={'Accept':'*/*','Accept-Encoding':'gzip'}) as r:

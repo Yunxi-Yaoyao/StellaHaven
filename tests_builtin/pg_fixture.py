@@ -11,6 +11,12 @@ from app.models.config import AppConfig
 
 @pytest.fixture(scope='module')
 def pg_engine():
+    if os.environ.get('STELLA_SERVICE_TEST_PG_RECEIPT'):
+        from tests_service_settings.pg_fixture import guarded_engine
+        with guarded_engine() as engine:
+            AppConfig.__table__.create(engine)
+            yield engine
+        return
     assert not any(k in os.environ for k in ('PGHOST','PGHOSTADDR','PGPORT','PGDATABASE','PGUSER','PGPASSWORD','PGSERVICE','PGSERVICEFILE','PGOPTIONS'))
     name = 'stella-builtin-test-' + uuid4().hex[:12]
     subprocess.run(['docker','run','-d','--name',name,'-p','127.0.0.1::5432','-e','POSTGRES_USER=builtin','-e','POSTGRES_PASSWORD=builtin-fixture-only','-e','POSTGRES_DB=stella_builtin_test','postgres:16-alpine','-c','stella.test_isolation=builtin-test-only'], check=True, capture_output=True)
