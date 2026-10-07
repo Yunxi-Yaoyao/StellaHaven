@@ -1,0 +1,65 @@
+{
+  "scope": "offline tooling plus real scratch nginx; not a production deployment or browser SLO verdict",
+  "base": "6d562f5c1e8d80395440dc44234b106f2e2c3200",
+  "tested_sources": {
+    "deploy/experience-static/public_assets.py": "fe6995ea3581c46c92caaab2cfa6b8e284abcbd635972c59969ef495c6f98297",
+    "deploy/experience-static/tests/test_capture.py": "2671eac831be28dc9c94d67230e5ee86cc3a7d33d1faca19587feebf821532a6",
+    "deploy/experience-static/tests/test_public_assets.py": "681a2c58119b3452da1c5750ab6da22a913b9fc59d888947171e583c77b59a3d",
+    "deploy/experience-static/tests/test_real_nginx.py": "8ae5ccedd5c2d82fbe459541fa4115dd59d151e9cfe97260d2405206484e7ad7",
+    "deploy/experience-static/tests/test_stage.py": "5bd9c4d2e2c9a0cb39b6735a8972c4da1536a1692db225f72f35b386bc8537be"
+  },
+  "tests": {
+    "new_unittest_and_real_nginx": 16,
+    "existing_usability_regression": 27,
+    "actual_bundle_nginx": 1,
+    "skipped": 0
+  },
+  "nginx": "nginx version: nginx/1.30.5",
+  "source": {
+    "transport": "http://127.0.0.1:5244",
+    "authentication": "none",
+    "discovery": "40 exact paths from prior observed audit; no crawl",
+    "files": 40,
+    "source_manifest_sha256": "e89ca0ba7609cbc081d195e12333f4c57f7a2e649e755eb0940b742441117cff",
+    "raw_bytes": 2521248,
+    "gzip_bytes": 778433,
+    "reduction_percent": 69.13
+  },
+  "bundle_version": "72b50a5e09ebf92e33b2a6a535bf6e14715b9cd9dd10b23d90eab7d914a1087b",
+  "stage_version": "9c2ec087b351d86abbc5b57b2edb095b1a3ff1abfd0b16104cd592725c78876d",
+  "locations_sha256": "8a7afd1b210fdf47a0f9f441fbe0c0d429d95d08bf7c77692a93fd5e959c42e8",
+  "archive": {
+    "path": "/opt/hermes-workstation/docs/2026-10-08-Stella-experience-fix/perf/openlist-stage.tar.gz",
+    "bytes": 1583747,
+    "sha256": "d8afc6038322cf93c0c4116e717b3c5452899b312873aeb2c0799724eaf2a85e"
+  },
+  "core_asset": {
+    "path": "/drive/openlist/assets/components--D9HLKs-.js",
+    "sha256": "8d7f73459e6367337af6f36467a3863430d504fe2cc7f50b3cf7ed05b4fda588",
+    "size": 1351465,
+    "gzip_bytes": 430788
+  },
+  "boundary_verification": [
+    "gzip all assets",
+    "ETag 304 zero body all assets",
+    "HEAD",
+    "Range",
+    "module/host/scheme/raw-path isolation",
+    "dynamic owner auth fixture",
+    "dynamic primary guard fixture",
+    "missing and symlink refusal"
+  ],
+  "static_scan": {
+    "shell_execution": false,
+    "unsafe_deserialization": false,
+    "eval_exec": false,
+    "sql_string": false
+  },
+  "evidence_directory": "/opt/hermes-workstation/docs/2026-10-08-Stella-experience-fix/perf",
+  "remaining": [
+    "independent parent review",
+    "HK nginx -V/-T and approved baseline readback",
+    "parent-only production installation/readback",
+    "normal-cache browser five-sample experience acceptance"
+  ]
+}
