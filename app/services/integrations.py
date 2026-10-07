@@ -18,8 +18,6 @@ IMMICH_HOSTS = {'immich.xiya.live', 'immich.yunxi.life'}
 BUILTINS = [
     dict(id='home', title='首页', icon='home', route='/'),
     dict(id='notes', title='笔记', icon='file-text', route='/notes'),
-    dict(id='gallery', title='图库', icon='image', route='/gallery'),
-    dict(id='drive', title='网盘', icon='hard-drive', route='/drive'),
     dict(id='status', title='服务器', icon='server', route='/status'),
     dict(id='settings', title='设置', icon='settings', route='/settings'),
 ]
@@ -111,7 +109,7 @@ def empty_state() -> dict[str, Any]:
 
 
 def state(db) -> dict[str, Any]:
-    row = db.get(AppConfig, KEY)
+    row = db.get(AppConfig, KEY, populate_existing=True)
     return json.loads(row.value) if row else empty_state()
 
 
@@ -156,10 +154,17 @@ def display_module(module, config):
 def present(module, config=None):
     result = display_module(module,config) if config is not None else copy.deepcopy(module)
     result.setdefault('keep_alive', False)
+    from app.services.website_connection import effective_connection, public_connection, RequestPolicy
+    result.setdefault('template_id',None)
+    result.setdefault('connection',public_connection(effective_connection(module),{}))
+    result['connection'] = {k:v for k,v in result['connection'].items() if k not in {'token','clear_token'}}
+    result.setdefault('background','solid')
+    result.setdefault('request_policy',RequestPolicy().model_dump())
+    result.pop('migration',None)
     result['route'] = '/apps/' + module['id']
     adapter = module.get('adapter', 'generic')
     managed = '/settings?section=navigation&module=' + ('drive' if adapter=='openlist' else 'gallery') if adapter in {'openlist','immich'} else None
-    result['capabilities'] = {'injection': module['mode']=='isolated_proxy' and adapter=='generic',
+    result['capabilities'] = {'injection': adapter=='generic' and (module['mode']=='isolated_proxy' or (module['mode']=='iframe' and result['connection']['injection_delivery']=='loader')),
                               'browser_status': 'unobservable', 'managed_settings': managed}
     return result
 
@@ -194,6 +199,8 @@ def ensure_unique_origin(config, mid, origin):
 
 def create_module(db, incoming, actor_id):
     value = incoming.model_dump()
+    if value['adapter'] != 'generic' or value['mode'] == 'openlist':
+        raise HTTPException(422,'请使用通用网站模板复制配置，不再创建专用模块')
     with edit(db) as config:
         check_module(value, config)
         if len(config['modules']) >= 128:
@@ -218,6 +225,8 @@ def patch_module(db, mid, patch, actor_id):
             merged = ModuleInput(**({k:value[k] for k in ModuleInput.model_fields if k in value} | patch)).model_dump()
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+        if merged['adapter'] != 'generic' or merged['mode'] == 'openlist':
+            raise HTTPException(422,'遗留专用模块须经显式迁移')
         check_module(merged, config)
         next_origin = derived_origin(mid, merged)
         ensure_unique_origin(config, mid, next_origin)
@@ -256,7 +265,7 @@ def navigation(db):
         if default:
             entries.append(default | {k:v for k,v in override.items() if v is not None})
     entries.extend(defaults.values())
-    return dict(entries=entries, settings_route='/settings')
+    return dict(entries=entries, settings_route='/settings',legacy_routes={key:mid for key,mid in config.get('legacy_routes',{}).items() if mid in config['modules']})
 
 
 def save_navigation(db, incoming, actor_id):

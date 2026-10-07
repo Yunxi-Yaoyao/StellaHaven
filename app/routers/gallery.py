@@ -3,11 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.routers.legacy_guard import legacy_available
 from app.routers.auth import current_user, admin_user
 from app.services import gallery as service
 from app.services import external_services as external
 
-router = APIRouter(prefix='/gallery', tags=['gallery'], dependencies=[Depends(current_user)])
+router = APIRouter(prefix='/gallery', tags=['gallery'], dependencies=[Depends(current_user),Depends(legacy_available)])
 
 @router.get('/status')
 def status(db: Session = Depends(get_db)):

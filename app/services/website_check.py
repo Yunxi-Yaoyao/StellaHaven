@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 from app.services import integrations_proxy as proxy
+from app.services.website_connection import ConnectionInput
 
 MAX_BODY = 512 * 1024
 
@@ -42,6 +43,8 @@ class CheckInput(BaseModel):
     address: str = Field(min_length=1, max_length=2048)
     open_behavior: Literal['embedded', 'external'] = 'embedded'
     custom_enabled: bool = False
+    connection: ConnectionInput | None = None
+    module_id: str | None = Field(default=None, pattern=r'^[0-9a-f]{32}$')
 
 class Document(HTMLParser):
     def __init__(self):
@@ -154,7 +157,7 @@ def failure_result(url, incoming, code, reason, blocked=False):
                 help=frame_help(url) if urlsplit(url).hostname == 'quota.xiya.live' else None, can_save=not blocked and incoming.open_behavior == 'external' and not incoming.custom_enabled,
                 recommended_behavior='external', issues=[reason])
 
-async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=None) -> dict:
+async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=None, credential_headers=None) -> dict:
     import httpx
     import socket
     from urllib.parse import urljoin
@@ -174,13 +177,14 @@ async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=Non
                 addresses = [safe_address(a) for a in await bounded_dns(proxy._preview_addresses,root)]
             except socket.gaierror as exc: raise ProbeFailure('dns_failed', '域名解析失败，浏览器状态未知') from exc
             except ValueError as exc: raise ProbeFailure('unsafe_address', '域名解析含禁止目的地', True) from exc
-            target = dict(upstream_url=root, allowed_ips=addresses, headers={}, controlled=False)
+            target = dict(upstream_url=root, allowed_ips=addresses, headers=credential_headers or {}, controlled=False)
             client = response = None
             try:
                 path = p.path or '/'
                 if p.query: path += '?' + p.query
                 client, response = await proxy.open_response(target, path, headers={'Accept-Encoding':'identity'},resolve_async=resolve_probe)
                 if response.status_code in {301,302,303,307,308}:
+                    if credential_headers: raise ProbeFailure('credential_redirect', '凭据检测不跟随跳转，请在浏览器确认登录')
                     location = response.headers.get('location')
                     if not location: raise ProbeFailure('redirect_unknown', '跳转响应缺少目标，浏览器状态未知')
                     if redirects == 3: raise ProbeFailure('redirect_limit', '超过三次跳转，检测已停止')
@@ -206,7 +210,7 @@ async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=Non
                 html = response.headers.get('content-type','').split(';')[0].lower() == 'text/html'
                 supported = html and text_valid and http_status == 200 and access == 'reachable' and origin(url) == origin(normalized) and not (response.headers.get_list('content-security-policy') or response.headers.get_list('x-frame-options') or document.meta_csp)
                 if urlsplit(parent_origin).scheme == 'https' and p.scheme == 'http' and embedding['status'] == 'allowed':
-                    if incoming.custom_enabled and incoming.open_behavior == 'embedded' and supported:
+                    if (incoming.custom_enabled or (incoming.connection and incoming.connection.transport == 'proxy')) and incoming.open_behavior == 'embedded' and supported:
                         # The save constructs an HTTPS isolated origin with a freshly
                         # DNS-pinned, uncontrolled, header-free target. Browser delivery
                         # is not a direct HTTP frame; upstream policies are never stripped.
@@ -215,13 +219,15 @@ async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=Non
                         embedding = dict(status='blocked',reason_code='mixed_content',reason='HTTPS Stella 不能直接嵌入 HTTP 混合内容')
                 if not html and embedding['status'] == 'allowed': embedding = dict(status='unknown', reason_code='not_html', reason='非 HTML 响应，浏览器呈现尚未确认')
                 can_save = incoming.open_behavior == 'external' or (embedding['status'] == 'allowed' and access == 'reachable')
-                if incoming.custom_enabled and (not supported or incoming.open_behavior == 'external'): can_save = False
+                loader = bool(incoming.connection and incoming.connection.injection_delivery == 'loader' and incoming.connection.transport != 'proxy')
+                if incoming.custom_enabled and ((not supported and not loader) or incoming.open_behavior == 'external'): can_save = False
+                loader_seen = bool(incoming.module_id and '/website-assets/'+incoming.module_id+'.js' in decoded)
                 issues = [] if access == 'reachable' else ['服务器返回认证/拒绝或错误响应；不能确认原站登录与浏览器内容']
                 if embedding['status'] != 'allowed': issues.append(embedding['reason'])
                 if evidence is not None: evidence.update(allowed_ips=addresses,upstream_url=root)
                 return dict(normalized_url=normalized, name_suggestion=' '.join(document.title.split())[:100] or urlsplit(normalized).hostname,
                             access=dict(status=access, http_status=http_status), embedding=embedding,
-                            injection=dict(status='supported' if supported else 'unsupported', reason='匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证' if supported else '原站策略、认证、响应类型或跨站跳转不支持安全注入；不自动清除 CSP'),
+                            injection=dict(status=('supported' if loader_seen else 'loader_required') if loader else ('supported' if supported else 'unsupported'), reason=('已观察到模块加载器，浏览器状态仍未验证' if loader_seen else '需在原站安装此模块的经典脚本加载器；可先保存代码') if loader else '匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证' if supported else '原站策略、认证、响应类型或跨站跳转不支持安全注入；不自动清除 CSP'),
                             help=frame_help(normalized) if embedding['status'] != 'allowed' else None,
                             can_save=can_save, recommended_behavior='external' if embedding['status'] != 'allowed' else incoming.open_behavior, issues=issues)
             finally:
@@ -236,10 +242,34 @@ async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=Non
         return failure_result(normalized, incoming, 'certificate_failed' if certificate else 'connection_failed', '证书验证失败；不会关闭 TLS 验证' if certificate else '上游连接失败，浏览器状态未知')
     except OSError: return failure_result(normalized, incoming, 'connection_failed', '上游连接失败，浏览器状态未知')
 
-async def check_draft(incoming: CheckInput, *, parent_origin: str, evidence=None) -> dict:
+async def check_draft(incoming: CheckInput, *, parent_origin: str, evidence=None, credential_headers=None) -> dict:
     from fastapi import HTTPException
     try: normalized = normalize_url(incoming.address)
     except (ValueError,HTTPException): return failure_result('',incoming,'unsafe_address','地址不合法或属于禁止目的地',True)
     if not PROBE_SLOTS.acquire(blocking=False): return failure_result(normalized,incoming,'busy','网站检测繁忙，请稍后重试')
-    try: return await _check_draft(incoming,parent_origin=parent_origin,evidence=evidence)
+    try: return await _check_draft(incoming,parent_origin=parent_origin,evidence=evidence,credential_headers=credential_headers)
     finally: PROBE_SLOTS.release()
+
+
+async def check_saved_draft(db, incoming, *, parent_origin):
+    import copy
+    from fastapi import HTTPException
+    from app.services import integrations as store
+    from app.services.website_connection import effective_connection, credential_headers
+    config=store.state(db)
+    before=copy.deepcopy(config['modules'].get(incoming.module_id)) if incoming.module_id else None
+    if incoming.module_id and before is None: raise HTTPException(404,'模块不存在')
+    target=copy.deepcopy(config['targets'].get(before.get('target_id'))) if before else None
+    connection=incoming.connection or effective_connection(before)
+    if connection.auth_mode == 'header' and incoming.open_behavior == 'external':
+        raise HTTPException(422,'凭据头认证需要隔离代理嵌入；外部打开请使用原站登录')
+    headers=credential_headers(connection,incoming.address,before,target)
+    db.rollback()
+    result=await check_draft(incoming.model_copy(update={'connection':connection}),parent_origin=parent_origin,credential_headers=headers)
+    if before:
+        after=store.state(db)
+        if after['modules'].get(incoming.module_id)!=before or (target and after['targets'].get(target['id'])!=target):
+            db.rollback()
+            raise HTTPException(409,'检测期间网站或凭据已变更，请重新读取')
+    db.rollback()
+    return result

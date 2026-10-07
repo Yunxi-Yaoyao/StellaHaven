@@ -89,15 +89,16 @@ class IntegrationsHostMiddleware:
                 module=store.get_module(db,mid)
                 if module['mode']!='isolated_proxy' or not module['enabled'] or module['origin']!=origin:
                     raise HTTPException(404,'集成 Host 未启用')
+                if module.get('adapter','generic') != 'generic':
+                    raise HTTPException(410,'遗留专用模块须先显式迁移为通用网站')
                 target=store.state(db)['targets'].get(module['target_id'])
                 if target is None: raise HTTPException(404,'上游目标不存在')
                 if scope['type']=='websocket':
                     from starlette.websockets import WebSocket
                     ws=WebSocket(scope,receive,send)
                     grant=sessions.authorize(db,mid,origin,ws.cookies.get(sessions.COOKIE))
-                    if module['adapter']=='openlist':
-                        from app.services.openlist_access import require_grant
-                        require_grant(db,grant,'WEBSOCKET',ws.url.path.removeprefix('/'))
+                    from app.services.website_policy import require_grant
+                    require_grant(db,grant,module,'WEBSOCKET',ws.scope.get('raw_path',ws.url.path.encode()).decode('ascii'))
                     db.close()  # no DB connection held for lifetime of stream/socket
                     return await proxy.proxy_websocket(ws,module,target,self.db_factory,grant)
                 request=Request(scope,receive)
@@ -122,16 +123,10 @@ class IntegrationsHostMiddleware:
                     if request.url.path.startswith('/__stella/'):
                         raise HTTPException(404,'保留集成路径')
                     grant=sessions.authorize(db,mid,origin,request.cookies.get(sessions.COOKIE))
-                    if module['adapter']=='openlist':
-                        from app.services.openlist_access import require_grant
-                        require_grant(db,grant,request.method,request.url.path.removeprefix('/'))
+                    from app.services.website_policy import require_grant
+                    require_grant(db,grant,module,request.method,request.scope.get('raw_path',request.url.path.encode()).decode('ascii'))
                     db.close()
-                    def read_builtin_snapshot(site):
-                        from app.services import builtin_injection
-                        with self.db_factory() as snapshot_db:
-                            return builtin_injection.runtime_snapshot(snapshot_db, site)
-                    response=await proxy.proxy_http(request,module,target,self.main_origin,
-                                                    builtin_reader=read_builtin_snapshot)
+                    response=await proxy.proxy_http(request,module,target,self.main_origin)
             return await response(scope,receive,send)
         except HTTPException as exc:
             return await self.error(scope,receive,send,exc.status_code,exc.detail)

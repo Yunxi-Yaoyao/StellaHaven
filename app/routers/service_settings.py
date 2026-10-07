@@ -1,12 +1,13 @@
 """Daily reads/checks and elevated atomic writes; no secrets in projections."""
 from fastapi import APIRouter, Depends, Response, Body
 from app.database import get_db
+from app.routers.legacy_guard import legacy_available
 from app.routers.auth import current_user, admin_user
 from app.routers.website_settings import require_persisted_owner
 from app.services import service_settings as service
 
 router = APIRouter(prefix='/service-settings', tags=['service-settings'],
-                   dependencies=[Depends(require_persisted_owner)])
+                   dependencies=[Depends(require_persisted_owner),Depends(legacy_available)])
 
 
 @router.get('/{site}')

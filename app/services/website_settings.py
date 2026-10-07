@@ -13,6 +13,8 @@ from app.services import integrations_proxy as proxy, integrations_injection as 
 import asyncio
 from urllib.parse import urlsplit
 
+from app.services.website_connection import ConnectionInput, RequestPolicy, effective_connection, credential_headers, public_connection
+
 NAVIGATION_ICONS = {'home','note','image','drive','server','settings','globe','link','book','folder','terminal','star','activity','box'}
 
 class CustomInput(BaseModel):
@@ -38,6 +40,10 @@ class WebsiteInput(BaseModel):
     keep_alive: bool = False
     open_behavior: Literal['embedded','external'] = 'embedded'
     custom: CustomInput | None = None
+    template_id: Literal['openlist','immich'] | None = None
+    connection: ConnectionInput | None = None
+    background: Literal['solid','home'] = 'solid'
+    request_policy: RequestPolicy | None = None
     idempotency_key: str | None = Field(default=None,min_length=8,max_length=128,pattern=r'^[A-Za-z0-9_.:-]+$')
 
     @field_validator('icon')
@@ -144,28 +150,41 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
     if result is not None: return result
     if mid and before is None: raise HTTPException(404,'模块不存在')
     if before and before.get('adapter') in {'openlist','immich'}:
-        raise HTTPException(409,'内置服务请使用原有唯一连接设置')
+        raise HTTPException(409,'遗留专用模块须由管理员显式迁移为通用网站')
     if incoming.icon not in store.ICONS:
         raise HTTPException(422,'不支持的图标')
     if incoming.icon not in NAVIGATION_ICONS and (not display_before or incoming.icon != display_before['icon']):
         raise HTTPException(422,'不支持的新图标；已有旧图标仅可原样保留')
+    try: normalize_url(incoming.address)
+    except (ValueError,HTTPException):
+        checked = await check_draft(CheckInput(address=incoming.address),parent_origin=parent_origin)
+        raise HTTPException(422,dict(code='website_check_failed',check=checked))
+    connection = incoming.connection or effective_connection(before)
+    if connection.auth_mode == 'header' and incoming.open_behavior == 'external':
+        raise HTTPException(422,'凭据头认证需要隔离代理嵌入；外部打开请使用原站登录')
+    legacy_target = bool(before and old_target and not before.get('connection') and incoming.connection is None and normalize_url(before['browser_url']) == normalize_url(incoming.address))
+    headers = copy.deepcopy(old_target['headers']) if legacy_target else credential_headers(connection,incoming.address,before,old_target)
+    same_identity = bool(before and origin(before['browser_url']) == origin(normalize_url(incoming.address)))
+    wants_proxy = incoming.open_behavior == 'embedded' and connection.transport != 'direct' and connection.injection_delivery != 'loader' and (
+        connection.transport == 'proxy' or connection.auth_mode == 'header' or bool(incoming.custom and incoming.custom.enabled) or
+        (same_identity and before['mode'] == 'isolated_proxy'))
     evidence = {}
-    checked = await check_draft(CheckInput(address=incoming.address,open_behavior=incoming.open_behavior,custom_enabled=bool(incoming.custom and incoming.custom.enabled)),parent_origin=parent_origin,evidence=evidence)
+    checked = await check_draft(CheckInput(address=incoming.address,open_behavior=incoming.open_behavior,custom_enabled=bool(incoming.custom and incoming.custom.enabled),connection=connection),parent_origin=parent_origin,evidence=evidence,credential_headers=headers)
     if not checked['can_save']: raise HTTPException(422,dict(code='website_check_failed',check=checked))
     prepared = None
-    if incoming.custom and incoming.custom.enabled:
+    if wants_proxy:
         parsed = urlsplit(checked['normalized_url'])
         root = parsed.scheme + '://' + parsed.netloc + '/'
         try:
             addresses = [safe_address(a) for a in await bounded_dns(proxy._preview_addresses,root)]
             if set(addresses) != set(evidence.get('allowed_ips',[])): raise ValueError('检测之后 DNS 发生变化')
-            prepared = proxy.TargetInput(name=incoming.name or checked['name_suggestion'],upstream_url=root,allowed_ips=addresses,headers={},controlled=False).model_dump()
+            prepared = proxy.TargetInput(name=incoming.name or checked['name_suggestion'],upstream_url=root,allowed_ips=addresses,headers=headers,controlled=old_target['controlled'] if legacy_target else False).model_dump()
         except (OSError,ValueError,TimeoutError,ProbeFailure):
             checked.update(can_save=False,issues=checked['issues']+['提交前目标解析失败或已变更'])
             raise HTTPException(422,dict(code='website_check_failed',check=checked))
     custom = incoming.custom.model_dump() | {'csp_policy':'reject'} if incoming.custom else None
     if custom:
-        problems = await asyncio.to_thread(injection.errors,custom,{'mode':'isolated_proxy' if prepared else 'iframe'},prepared)
+        problems = await asyncio.to_thread(injection.errors,custom,{'mode':'isolated_proxy' if prepared else 'iframe','connection':connection.model_dump(exclude={'token'})},prepared)
         problems += css_errors(custom['css'])
         if problems:
             checked.update(can_save=False,issues=checked['issues']+problems)
@@ -173,6 +192,7 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
     with store.edit(db) as config:
         result = retry_result(config,slot,digest) if incoming.idempotency_key else None
         if result is not None: return result
+        if old_target and config['targets'].get(old_target['id']) != old_target: raise HTTPException(409,'检测期间目标已变更，请重新读取')
         if mid and config['modules'].get(mid) != before: raise HTTPException(409,'检测期间网站已变更，请重新读取')
         if before and store.display_module(before,config) != display_before:
             raise HTTPException(409,'检测期间网站导航显示已变更，请重新读取')
@@ -182,6 +202,11 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
         data = store.ModuleInput(name=incoming.name or (display_before and display_before['name']) or checked['name_suggestion'] or '网站', icon=incoming.icon,
                                  browser_url=checked['normalized_url'], mode='link' if incoming.open_behavior=='external' else 'iframe',
                                  enabled=before['enabled'] if before else True,keep_alive=incoming.keep_alive).model_dump()
+        data.update(template_id=incoming.template_id if 'template_id' in incoming.model_fields_set else (before or {}).get('template_id'),
+                    connection=public_connection(connection,headers),
+                    background=incoming.background if 'background' in incoming.model_fields_set else (before or {}).get('background','solid'),
+                    request_policy=incoming.request_policy.model_dump() if incoming.request_policy else copy.deepcopy((before or {}).get('request_policy',RequestPolicy().model_dump())))
+        if before and before.get('migration'): data['migration'] = copy.deepcopy(before['migration'])
         data.update(id=mid,origin=store.derived_origin(mid,data),injection=copy.deepcopy(before['injection']) if before else dict(draft=None,active=None,previous=None))
         old_url = (before.get('browser_url') or (old_target and old_target['upstream_url'])) if before else None
         identity_changed = bool(old_url and origin(old_url) != origin(data['browser_url']))
@@ -197,8 +222,8 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
             if versions['draft'] or versions['previous']:
                 versions['draft'] = {k:v for k,v in (versions['draft'] or versions['previous']).items() if k not in {'version','source_origin'}} | {'enabled':False,'csp_policy':'reject'}
         if prepared:
-            # Never reuse a credential-bearing or controlled target implicitly.
-            safe_reuse = old_target and not old_target['headers'] and not old_target['controlled'] and old_target['upstream_url'] == prepared['upstream_url'] and set(old_target['allowed_ips']) == set(prepared['allowed_ips'])
+            # Reuse only the exact checked snapshot, including credential and CSP authority.
+            safe_reuse = old_target and old_target['headers'] == prepared['headers'] and old_target['controlled'] == prepared['controlled'] and old_target['upstream_url'] == prepared['upstream_url'] and set(old_target['allowed_ips']) == set(prepared['allowed_ips'])
             tid = old_target['id'] if safe_reuse else uuid4().hex
             if not safe_reuse:
                 if len(config['targets']) >= 128: raise HTTPException(422,'目标数量超过限制')
@@ -209,10 +234,6 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
         if incoming.open_behavior == 'external' and versions['active']:
             versions['previous'] = versions['active']
             versions['active'] = None
-        if custom and not custom['enabled'] and not identity_changed and before and before['mode']=='isolated_proxy' and incoming.open_behavior=='embedded':
-            parsed = urlsplit(data['browser_url'])
-            initial = (parsed.path or '/') + ('?' + parsed.query if parsed.query else '') + ('#' + parsed.fragment if parsed.fragment else '')
-            data.update(mode='isolated_proxy',target_id=before['target_id'],initial_path=initial)
         if custom:
             versions['draft'] = custom
             if custom['enabled']:
@@ -223,11 +244,10 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
                 versions['previous'] = versions['active']
                 versions['active'] = custom | {'version':uuid4().hex}
                 bindings[versions['active']['version']] = data['browser_url']
-        elif incoming.open_behavior == 'embedded' and not identity_changed and before and before['mode'] == 'isolated_proxy' and versions['active']:
+        elif wants_proxy and incoming.open_behavior == 'embedded' and not identity_changed and before and before['mode'] == 'isolated_proxy' and versions['active']:
             # Omitted custom means preserve a same-identity active version, not silently disable it.
             if checked['injection']['status'] != 'supported': raise HTTPException(422,dict(code='website_check_failed',check=checked | {'can_save':False}))
-            data.update(mode=before['mode'],target_id=before['target_id'],initial_path=(urlsplit(data['browser_url']).path or '/') + ('?' + urlsplit(data['browser_url']).query if urlsplit(data['browser_url']).query else '') + ('#' + urlsplit(data['browser_url']).fragment if urlsplit(data['browser_url']).fragment else ''))
-        if before and any(data[k] != before.get(k) for k in ('browser_url','mode','target_id','initial_path','origin')):
+        if before and any(data[k] != before.get(k) for k in ('browser_url','mode','target_id','initial_path','origin','connection','request_policy')):
             for key in ('tickets','grants'):
                 config[key] = {k:v for k,v in config[key].items() if v['id'] != mid}
         keep_versions = {v['version'] for v in (versions['active'],versions['previous']) if v} | {v['version'] for v in config.get('website_retired_versions',{}).get(mid,[])}

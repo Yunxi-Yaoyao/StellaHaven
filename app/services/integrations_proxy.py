@@ -239,7 +239,7 @@ async def response_headers(response,target,origin,module=None,parent_origin='htt
             except (ValueError,OSError,TimeoutError) as exc: raise HTTPException(502,'重定向目标解析已变更') from exc
             out.append((b'location',(origin+urlunsplit(('','',p.path or '/',p.query,p.fragment))).encode('latin1')))
         else:
-            out.append((key,value))
+            out.append((name.encode('ascii'),value))
     return out
 
 
@@ -260,21 +260,14 @@ async def proxy_http(request,module,target,parent_origin='https://stella.xiya.li
         await response.aclose(); await client.aclose()
         raise
     active=module['injection']['active']
-    builtin_site={'openlist':'drive','immich':'gallery'}.get(module.get('adapter'))
-    injectable_html=request.method!='HEAD' and response.status_code==200 and response.headers.get('content-type','').split(';')[0].lower()=='text/html'
-    if builtin_site and injectable_html:
-        from app.services import builtin_injection as builtin
-        # Snapshot through a short-lived session only for actual HTML responses.
-        # No DB connection stays checked out while the upstream body is read.
-        snapshot = (await asyncio.to_thread(builtin_reader, builtin_site)
-                    if builtin_reader is not None else builtin.runtime_snapshot(db, builtin_site))
-        active = snapshot['active']
-        visual = snapshot['appearance']
-    if injectable_html and (builtin_site or (active and active['enabled'])):
+    injectable_html=request.method!='HEAD' and response.status_code==200 and response.headers.get('content-type','').split(';')[0].lower()=='text/html' and response.headers.get('content-disposition','').split(';')[0].strip().lower() not in {'attachment'}
+    dedup=bool(module.get('migration',{}).get('exact_legacy_sha256'))
+    if injectable_html and (dedup or (active and active['enabled'])):
         try:
             policies=response.headers.get_list('content-security-policy')
-            controlled=active['csp_policy']=='controlled' and target['controlled']
-            if (policies or response.headers.get('x-frame-options')) and not controlled:
+            injecting=bool(active and active['enabled'])
+            controlled=bool(active and active['csp_policy']=='controlled' and target['controlled'])
+            if injecting and (policies or response.headers.get('x-frame-options')) and not controlled:
                 raise HTTPException(409,'上游 CSP/XFO 阻止注入；仅受控服务可明确配置策略')
             encoding=response.headers.get('content-encoding','').lower()
             if encoding not in {'','identity','gzip','deflate'}:
@@ -289,12 +282,9 @@ async def proxy_http(request,module,target,parent_origin='https://stella.xiya.li
             html=body.decode('utf-8')
             if __import__('re').search(r'<meta\b[^>]*http-equiv\s*=\s*[\"\']?content-security-policy',html,__import__('re').I):
                 raise HTTPException(409,'HTML meta CSP 需要服务端适配，不自动剥离')
+            if dedup: html=injection.strip_migrated_html(html,module)
             nonce=secrets.token_urlsafe(24)
-            if builtin_site:
-                transformed=builtin.transform_html(html,builtin_site,active=active,appearance=visual)
-                html,changed=transformed,transformed!=html
-            else:
-                html,changed=injection.inject_html(html,module['id'],active,nonce)
+            html,changed=injection.inject_html(html,module['id'],active,nonce)
             blocked=hop_headers(response.headers)|{'content-length','content-encoding','etag','content-md5','digest','last-modified'}
             if controlled: blocked|={'content-security-policy','x-frame-options'}
             output=Response(html,status_code=response.status_code)
@@ -363,9 +353,8 @@ async def proxy_websocket(ws,module,target,db_factory,grant):
                     with db_factory() as db:
                         try:
                             fresh_grant=sessions.authorize(db,module['id'],module['origin'],ws.cookies.get(sessions.COOKIE))
-                            if module['adapter']=='openlist':
-                                from app.services.openlist_access import require_grant
-                                require_grant(db,fresh_grant,'WEBSOCKET',ws.url.path.removeprefix('/'))
+                            from app.services.website_policy import require_grant
+                            require_grant(db,fresh_grant,module,'WEBSOCKET',ws.scope.get('raw_path',ws.url.path.encode()).decode('ascii'))
                         except HTTPException:
                             return
             tasks=[asyncio.create_task(fn()) for fn in (to_upstream,to_browser,watch_session)]

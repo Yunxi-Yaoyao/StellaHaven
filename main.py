@@ -21,13 +21,11 @@ from app.routers.drive import router as drive_router
 from app.routers.gallery import router as gallery_router
 from app.routers.oidc import router as oidc_router
 from app.routers.integrations import router as integrations_router
-from app.routers.website_settings import router as website_settings_router
-from app.routers.service_settings import router as service_settings_router
+from app.routers.website_settings import router as website_settings_router, assets_router as website_assets_router
 from app.routers.integrations_host import IntegrationsHostMiddleware
 from app.routers.notes_tools import router as notes_tools_router
 from app.routers.unified_search import router as unified_search_router
 from app.routers.timeline import router as timeline_router
-from app.routers.builtin_injection import router as builtin_injection_router, assets_router as integration_assets_router
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -45,7 +43,7 @@ API_PREFIXES = (
     "/.well-known", "/oauth", "/users", "/alerts", "/notifications",
     "/component-installs", "/external-modules", "/navigation", "/audit", "/backup-health",
     "/operations", "/admin", "/integration-targets", "/integration-presets",
-    "/notes-tools", "/search", "/timeline", "/builtin-injections", "/integration-assets", "/website-settings", "/service-settings",
+    "/website-templates", "/website-assets", "/notes-tools", "/search", "/timeline", "/builtin-injections", "/integration-assets", "/website-settings", "/service-settings",
 )
 
 app = FastAPI(title="StellaHaven")
@@ -108,12 +106,10 @@ app.include_router(gallery_router)
 app.include_router(oidc_router)
 app.include_router(integrations_router)
 app.include_router(website_settings_router)
-app.include_router(service_settings_router)
+app.include_router(website_assets_router)
 app.include_router(notes_tools_router)
 app.include_router(unified_search_router)
 app.include_router(timeline_router)
-app.include_router(builtin_injection_router)
-app.include_router(integration_assets_router)
 # Exact media routes must precede StaticFiles; other packaged assets still fall through.
 from app.routers.dynamic_assets import router as dynamic_assets_router
 app.include_router(dynamic_assets_router)

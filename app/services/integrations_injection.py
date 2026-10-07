@@ -42,7 +42,7 @@ class InjectionInput(BaseModel):
 
 def errors(value,module,target):
     problems=[]
-    if value['enabled'] and module['mode']!='isolated_proxy':
+    if value['enabled'] and module['mode']!='isolated_proxy' and not (module['mode']=='iframe' and module.get('connection',{}).get('injection_delivery')=='loader'):
         problems.append('此接法不能由 Stella 注入；请选择隔离 origin 代理')
     if value['csp_policy']=='controlled' and not (target and target['controlled']):
         problems.append('CSP 修改仅允许已批准的受控上游')
@@ -94,7 +94,8 @@ def rollback(db,mid,actor_id):
         if binding:
             from app.services.website_check import origin
             target = config['targets'].get(module.get('target_id'))
-            if not target or origin(binding) != origin(target['upstream_url']):
+            current_url = module.get('browser_url') if module.get('connection',{}).get('injection_delivery') == 'loader' else (target or {}).get('upstream_url')
+            if not current_url or origin(binding) != origin(current_url):
                 raise HTTPException(409,'上一版本属于旧网站身份，不能在新站自动回退执行')
         injection['active'],injection['previous']=injection['previous'],injection['active']
         record_change(db,action='injection.rollback',actor_id=actor_id,resource_id=mid,changed_fields=['injection'])
@@ -122,6 +123,16 @@ def inject_html(html,mid,active,nonce=''):
         opening=re.search(r'<html\b[^>]*>',html,re.I) or re.search(r'<!doctype\b[^>]*>',html,re.I)
         offset=opening.end() if opening else 0
     return html[:offset]+fragment+html[offset:],True
+
+
+def strip_migrated_html(html,module):
+    from hashlib import sha256
+    signatures=module.get('migration',{}).get('exact_legacy_sha256',{})
+    def remove(match):
+        kind=match.group(1).lower()
+        digest=sha256(match.group(3).strip().encode('utf-8')).hexdigest()
+        return '' if digest in signatures.get(kind,[]) else match.group(0)
+    return re.sub(r'<(style|script)(\s[^>]*)?>(.*?)</\1\s*>',remove,html,flags=re.I|re.S)
 
 
 def controlled_csp(policy,nonce,parent_origin):

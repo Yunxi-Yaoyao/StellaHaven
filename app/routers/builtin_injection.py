@@ -7,12 +7,13 @@ private connection configuration.
 """
 from fastapi import APIRouter, Depends, Response, Request, HTTPException
 from app.database import get_db
+from app.routers.legacy_guard import legacy_available
 from app.routers.auth import admin_user, current_user, AT_COOKIE
 from app.services import builtin_injection as service
 from app.services.integrations_injection import InjectionInput
 
-router = APIRouter(prefix='/builtin-injections', tags=['builtin-injections'])
-assets_router = APIRouter(tags=['integration-assets'])
+router = APIRouter(prefix='/builtin-injections', tags=['builtin-injections'],dependencies=[Depends(legacy_available)])
+assets_router = APIRouter(tags=['integration-assets'],dependencies=[Depends(legacy_available)])
 
 
 @router.get('/{site}')
