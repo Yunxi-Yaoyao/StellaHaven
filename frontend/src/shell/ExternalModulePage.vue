@@ -2,10 +2,21 @@
 import {ref,watch,onBeforeUnmount,nextTick,computed} from 'vue';
 import {getWebsite,launchWebsite,websiteError,type Website} from '../api/integrations';
 import {checkWebsiteDraft} from '../api/websiteSettings';
-import {auth} from '../modules/home/auth';
+import {auth,displayBg} from '../modules/home/auth';
 const props=withDefaults(defineProps<{id:string;active?:boolean}>(),{active:true});
 // A retained page owns an immutable module ID, not global useRoute().params.
 const website=ref<Website|null>(null),url=ref(''),error=ref(''),loading=ref(false),frameKey=ref(0);
+const frameEl=ref<HTMLIFrameElement|null>(null);
+const homeBackground=computed(()=>website.value?.background==='home');
+const videoBackground=computed(()=>/\.(mp4|webm)(?:[?#]|$)/i.test(displayBg.value));
+const backgroundStyle=computed(()=>homeBackground.value&&!videoBackground.value?{backgroundImage:`url(${JSON.stringify(displayBg.value)})`,backgroundSize:'cover',backgroundPosition:'center'}:{});
+// Optional template code owns transparency inside the frame; the shell never mutates its DOM.
+function notifyBackground(){
+ const item=website.value;if(!item||!url.value||!frameEl.value?.contentWindow)return;
+ const origin=item.mode==='isolated_proxy'?item.origin:new URL(item.browser_url,location.origin).origin;
+ if(origin)frameEl.value.contentWindow.postMessage({type:'stella-bg-mode',mode:homeBackground.value?'image':'solid',module_id:item.id},origin);
+}
+watch(homeBackground,notifyBackground);
 const blocked=ref(false),paused=ref(false),timedOut=ref(false);
 const notice=computed(()=>error.value || (blocked.value?'该网站不允许在这里打开喵~':paused.value?'连接已暂停，点击重新连接喵~':timedOut.value?'加载较慢，可以重新连接喵~':website.value?.mode==='link'?'此网站在新窗口打开喵~':''));
 const frameName='stella-external-module-frame-'+props.id;
@@ -42,7 +53,7 @@ async function load(){
  finally{if(request===controller)request=undefined;}
 }
 // Dismiss the navigation indicator; never equate cross-origin load with login/readiness.
-function loaded(){if(!url.value||blocked.value)return;clearTimeout(timer);loading.value=false;timedOut.value=false;}
+function loaded(){if(!url.value||blocked.value)return;clearTimeout(timer);loading.value=false;timedOut.value=false;notifyBackground();}
 watch(()=>props.id,load,{immediate:true});
 watch(()=>props.active,active=>{if(!active){cancel();if(!url.value)paused.value=true;}},{flush:'sync'});
 // fetchMe replaces the user object during polling; only identity/session changes invalidate a connection.
@@ -51,7 +62,8 @@ onBeforeUnmount(cancel);
 </script>
 
 <template>
- <section class="external-page">
+ <section class="external-page" :class="{'home-background':homeBackground}" :style="backgroundStyle">
+  <video v-if="homeBackground&&videoBackground&&props.active" class="bg-video" :src="displayBg" autoplay muted loop playsinline />
   <div v-if="notice" class="connection-notice">
    <p :role="error || blocked ? 'alert' : 'status'">{{notice}}</p>
    <div class="recovery-actions">
@@ -61,13 +73,15 @@ onBeforeUnmount(cancel);
    </div>
   </div>
   <span v-else-if="loading" class="loading-hint" role="status">正在加载…</span>
-  <iframe v-if="website && website.mode!=='link' && url && !blocked" :key="frameKey" :name="frameName" :title="website.name" :src="url" referrerpolicy="no-referrer" allow="fullscreen" @load="loaded" />
+  <iframe ref="frameEl" v-if="website && website.mode!=='link' && url && !blocked" :key="frameKey" :name="frameName" :title="website.name" :src="url" referrerpolicy="no-referrer" allow="fullscreen" @load="loaded" />
  </section>
 </template>
 
 <style scoped>
-.external-page{position:relative;display:flex;flex-direction:column;height:100%;min-height:300px;overflow:hidden}
-iframe{display:block;width:100%;flex:1;min-height:0;border:0;background:#14171f}
+.external-page{position:relative;display:flex;flex-direction:column;height:100%;min-height:300px;overflow:hidden;background:#14171f}
+.bg-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
+.home-background iframe{background:transparent}
+iframe{position:relative;display:block;width:100%;flex:1;min-height:0;border:0;background:#14171f}
 .loading-hint{position:absolute;top:12px;right:16px;padding:4px 8px;border-radius:6px;background:var(--bg-panel);color:var(--text-lo);font-size:12px;pointer-events:none}
 .connection-notice{padding:14px 16px;background:var(--bg-panel);color:var(--text-lo);font-size:13px}
 .connection-notice p{margin:0 0 10px;line-height:1.6}

@@ -24,7 +24,7 @@ async function setup(page:Page){
   const request=route.request(),u=new URL(request.url()),p=u.pathname,m=request.method();
   const key=m+' '+p;
   const ok=(json:unknown)=>route.fulfill({json});
-  if(u.origin===ROOT&&m==='GET'&&(p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')||['/notes','/login','/apps/c1','/apps/c2','/apps/c3','/apps/c4'].includes(p)))return route.continue();
+  if(u.origin===ROOT&&m==='GET'&&(p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')||['/drive','/gallery','/notes','/login','/apps/c1','/apps/c2','/apps/c3','/apps/c4'].includes(p)))return route.continue();
   if(u.origin==='https://cache.test'&&m==='GET'&&modules.some(item=>item.browser_url===u.href)){
    frames.push(p);
    if(holds.has('frame:'+p))await holds.get('frame:'+p)!.promise;
@@ -257,4 +257,11 @@ test('same-owner probes keep hidden iframe DOM and existing LRU order',async({pa
  await enter(page,'c3');await expect(draft(page,'c3')).toHaveValue('three');
  await enter(page);await expect(draft(page)).toHaveValue('one');
  expect(fixture.launches).toEqual(['c1','c2','c3','c4']);
+});
+
+for(const alias of ['drive','gallery'])test('legacy '+alias+' resolves only registry mapping into the common page',async({page,fixture})=>{
+ await page.route(ROOT+'/navigation',route=>route.fulfill({json:{entries:[],legacy_routes:{[alias]:'c1'}}}));
+ await page.goto('/'+alias);await expect(page).toHaveURL(ROOT+'/apps/c1');await expect(draft(page)).toBeVisible();
+ await expect(page.locator('.drive-page,.gallery-page')).toHaveCount(0);
+ expect(fixture.requests.filter(x=>x.path.startsWith('/drive/')||x.path.startsWith('/gallery/'))).toEqual([]);
 });

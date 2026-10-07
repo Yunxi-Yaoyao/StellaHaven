@@ -1,14 +1,14 @@
 import { computed, reactive } from 'vue';
 import { api } from '../api/client';
-export interface Website { id:string; name:string; icon:string; mode:'iframe'|'link'|'openlist'|'isolated_proxy'; adapter:'generic'|'openlist'|'immich'; browser_url:string; enabled:boolean; keep_alive?:boolean; target_id?:string|null; initial_path?:string; origin?:string; capabilities?:{injection:boolean}; injection?:{draft:Injection|null;active:Injection|null;previous:Injection|null} }
+export interface WebsiteConnection {transport:'auto'|'proxy'|'direct';auth_mode:'original'|'header'|'oidc';header_name:string;injection_delivery:'proxy'|'loader';has_token?:boolean}
+export interface RequestPolicy {management_prefixes:string[];read_post_paths:string[];protect_other_writes:boolean}
+export interface Website { template_id?:'openlist'|'immich'|null;connection?:WebsiteConnection;background?:'solid'|'home';request_policy?:RequestPolicy; id:string; name:string; icon:string; mode:'iframe'|'link'|'openlist'|'isolated_proxy'; adapter:'generic'|'openlist'|'immich'; browser_url:string; enabled:boolean; keep_alive?:boolean; target_id?:string|null; initial_path?:string; origin?:string; capabilities?:{injection:boolean}; injection?:{draft:Injection|null;active:Injection|null;previous:Injection|null} }
 export interface Injection { enabled:boolean; css:string; js:string; timing:'dom_ready'|'document_start'; csp_policy:'reject'|'controlled'; version?:string }
 export interface NavEntry { id:string; title?:string; icon?:string; visible?:boolean }
-export interface NavRow { id:string;label:string;icon:string;visible:boolean;to:string;builtin:boolean;kind?:'page'|'service'|'website' }
+export interface NavRow { id:string;label:string;icon:string;visible:boolean;to:string;builtin:boolean;kind?:'page'|'website' }
 export const builtinNavigation:NavRow[] = [
   {id:'home',label:'个人主页',icon:'home',to:'/',visible:true,builtin:true},
   {id:'notes',label:'笔记',icon:'note',to:'/notes',visible:true,builtin:true},
-  {id:'gallery',label:'图库',icon:'image',to:'/gallery',visible:true,builtin:true},
-  {id:'drive',label:'网盘',icon:'drive',to:'/drive',visible:true,builtin:true},
   {id:'status',label:'服务器',icon:'server',to:'/status',visible:true,builtin:true},
   {id:'settings',label:'设置',icon:'settings',to:'/settings',visible:true,builtin:true},
 ];
@@ -22,21 +22,21 @@ export function resolveNavigation(config:{entries:NavEntry[]}, modules:Website[]
     if (seen.has(entry.id)) continue;
     const original = defaults.find(row=>row.id===entry.id); if (!original) continue;
     seen.add(entry.id);
-    result.push({...original,kind:original.id==='drive'||original.id==='gallery'?'service':original.builtin?'page':'website',label:('title' in entry && entry.title) || original.label, icon:entry.icon && [...navigationIcons,...legacyNavigationIcons].includes(entry.icon) ? entry.icon : original.icon,visible:entry.visible ?? original.visible});
+    result.push({...original,kind:original.builtin?'page':'website',label:('title' in entry && entry.title) || original.label, icon:entry.icon && [...navigationIcons,...legacyNavigationIcons].includes(entry.icon) ? entry.icon : original.icon,visible:entry.visible ?? original.visible});
   }
   return result;
 }
-export const navigation = reactive({entries:[] as NavEntry[], modules:[] as Website[],loaded:false,error:''});
+export const navigation = reactive({entries:[] as NavEntry[], modules:[] as Website[],legacy_routes:{} as Record<string,string>,loaded:false,error:''});
 export const navigationRows = computed(()=>resolveNavigation({entries:navigation.entries},navigation.modules));
 export function isNavigationActive(path:string,to:string) { return path===to || to!=='/' && path.startsWith(to+'/'); }
 let generation = 0;
-export function resetNavigation() { generation++; navigation.entries=[]; navigation.modules=[]; navigation.loaded=false; navigation.error=''; }
+export function resetNavigation() { generation++; navigation.entries=[]; navigation.modules=[]; navigation.legacy_routes={}; navigation.loaded=false; navigation.error=''; }
 export async function loadNavigation() {
   const current = ++generation;
   try {
-    const [config, modules] = await Promise.all([api<{entries:NavEntry[]}>('/navigation'), api<Website[]>('/external-modules')]);
+    const [config, modules] = await Promise.all([api<{entries:NavEntry[];legacy_routes?:Record<string,string>}>('/navigation'), api<Website[]>('/external-modules')]);
     if (current !== generation) return false;
-    navigation.entries=config.entries; navigation.modules=modules; navigation.loaded=true; navigation.error=''; return true;
+    navigation.legacy_routes=config.legacy_routes||{}; navigation.entries=config.entries; navigation.modules=modules; navigation.loaded=true; navigation.error=''; return true;
   } catch { if (current===generation) navigation.error='导航配置加载失败，请重试'; return false; }
 }
 export async function saveNavigation(rows:NavRow[],reset=false) {
@@ -48,3 +48,5 @@ export async function saveNavigation(rows:NavRow[],reset=false) {
   }),reset})});
   if (!await loadNavigation()) throw new Error('Navigation readback failed');
 }
+
+export function resolveLegacyModule(alias:string){const id=navigation.legacy_routes[alias];return id&&navigation.modules.some(item=>item.id===id)?id:null;}

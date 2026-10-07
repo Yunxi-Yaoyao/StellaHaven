@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { auth, fetchMe, loggedIn } from "../modules/home/auth";
+import {loadNavigation,navigation,resolveLegacyModule} from "../stores/navigation";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -29,18 +30,9 @@ const router = createRouter({
       component: () => import("../modules/notes/NotesPage.vue"),
       meta: { title: "笔记" },
     },
-    {
-      path: "/gallery",
-      name: "gallery",
-      component: () => import("../modules/gallery/GalleryPage.vue"),
-      meta: { title: "图库" },
-    },
-    {
-      path: "/drive",
-      name: "drive",
-      component: () => import("../modules/drive/DrivePage.vue"),
-      meta: { title: "网盘" },
-    },
+    // Legacy paths only resolve stored migration aliases; never revive a deleted module.
+    {path:'/gallery',name:'gallery',component:{render:()=>null},meta:{legacyModule:'gallery'}},
+    {path:'/drive',name:'drive',component:{render:()=>null},meta:{legacyModule:'drive'}},
     {
       // 服务器模块：ServersPage 是布局（侧栏 + router-view），右侧内容全部走子路由。
       // 详情页 /status/:id 独立路由——SPA 前端路由切换不刷新页面，左侧外壳不重载。
@@ -85,6 +77,11 @@ router.beforeEach(async (to) => {
     return true;
   }
   if (!loggedIn.value) return { name: "login", query: { next: to.fullPath } };
+  if(to.meta.legacyModule){
+    if(!navigation.loaded)await loadNavigation();
+    const id=resolveLegacyModule(String(to.meta.legacyModule));
+    return id?{path:'/apps/'+id,replace:true}:{path:'/settings',query:{section:'navigation'},replace:true};
+  }
   return true;
 });
 
