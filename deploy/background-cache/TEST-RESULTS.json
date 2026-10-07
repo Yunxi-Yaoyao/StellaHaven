@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "scope": "loopback nginx + synthetic upstream; not production acceptance",
+  "result": {
+    "baseline": false,
+    "tests": 22,
+    "failures": 0,
+    "errors": 0,
+    "nginx": "nginx version: nginx/1.30.5",
+    "failed_tests": []
+  },
+  "tests_count_unit": "unittest methods (subtests are not extra tests)",
+  "baseline": {
+    "tests": 1,
+    "expected_failures": 1,
+    "statuses": [
+      200,
+      200
+    ],
+    "origin_body_bytes": 6656448
+  },
+  "revalidation": {
+    "statuses": [
+      200,
+      304
+    ],
+    "origin_body_bytes": 3328224,
+    "requests": 2
+  },
+  "source_body_bytes_avoided": 3328224,
+  "files_sha256": {
+    "http.conf": "598c8054fa7e13b86483d6bdd7f6d5f787f9492c6dc148bed2bb11a979c09131",
+    "location.conf": "87dd09437bcc3c5e9631f7f44d379c2b741132b3e6f0b8e412d1d7524f98218e",
+    "test_real_nginx.py": "5119bb90bdd45886f9dd247604555489c51da3e377b0ffb0133de106890d6e95"
+  },
+  "evidence_directory": "/opt/hermes-workstation/docs/2026-10-08-Stella-experience-fix/background-cache/final",
+  "production_origin_cache_control_from_supplied_evidence": "public, max-age=604800, immutable",
+  "ttl_semantics": "1s fallback only; origin explicit TTL wins; no instant deletion claim",
+  "limitations": [
+    "No production requests, writes, reloads, credentials, FRP or DB operations",
+    "Forwarding/security template requires comparison with actual target vhost",
+    "max_size=128m is async eviction target, not a hard quota",
+    "Native upstream stale cache extensions require separate review if introduced"
+  ]
+}
