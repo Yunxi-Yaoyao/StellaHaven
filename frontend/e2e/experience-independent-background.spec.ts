@@ -21,9 +21,11 @@ async function start(page:Page,evidence:any,options:any={}){
  return {h,child,iframe:page.locator('.external-page iframe')};
 }
 async function roots(child:Frame){return child.evaluate(()=>({mode:document.documentElement.dataset.bgMode||'solid',roots:[document.documentElement,document.body,document.getElementById('root')].map(el=>{const s=getComputedStyle(el!);return {background:s.backgroundColor,image:s.backgroundImage,scheme:s.colorScheme};}),layers:[...document.querySelectorAll('.hope-breadcrumb,.list,.list-item')].map(el=>getComputedStyle(el).backgroundColor),media:document.querySelectorAll('video,img').length}));}
-async function pixels(page:Page,info:TestInfo,name:string){
+async function pixels(page:Page,info:TestInfo,name:string,motionGrid=false){
  const box=(await page.locator('.external-page').boundingBox())!;
- const points=[[box.x+box.width*.25,box.y+box.height*.8],[box.x+box.width*.75,box.y+box.height*.8]];
+ // testsrc2 contains fixed colour bars at the two image assertion points.
+ // Motion needs a spatial grid, not those permanently static source pixels.
+ const points=motionGrid?Array.from({length:81},(_,i)=>[box.x+box.width*((i%9)+1)/10,box.y+box.height*(Math.floor(i/9)+1)/10]):[[box.x+box.width*.25,box.y+box.height*.8],[box.x+box.width*.75,box.y+box.height*.8]];
  const file=info.outputPath(name+'.png');await page.screenshot({path:file});
  const result=JSON.parse(execFileSync('python3',[path.join(tools,'sample_pixels.py'),file,JSON.stringify(points)],{encoding:'utf8'}));
  await info.attach(name+'-pixels.json',{body:JSON.stringify({points,...result}),contentType:'application/json'});return result.pixels;
@@ -129,7 +131,7 @@ test('background video plays behind the genuinely transparent child',async({page
  await expect.poll(()=>child.evaluate(()=>document.documentElement.dataset.bgMode)).toBe('image');assertTransparent(await roots(child));
  const video=page.locator('.external-page video');await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.readyState)).toBeGreaterThanOrEqual(2);
  expect(await video.evaluate((v:HTMLVideoElement)=>({muted:v.muted,paused:v.paused,width:v.videoWidth}))).toMatchObject({muted:true,paused:false,width:320});
- const t=await video.evaluate((v:HTMLVideoElement)=>v.currentTime),a=await pixels(page,info,'video-first');
+ const t=await video.evaluate((v:HTMLVideoElement)=>v.currentTime),a=await pixels(page,info,'video-first',true);
  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeGreaterThan(t+.2);
- const b=await pixels(page,info,'video-next');expect(a,'composited pixel samples must change as outer video plays').not.toEqual(b);
+ const b=await pixels(page,info,'video-next',true);expect(a,'composited pixel samples must change as outer video plays').not.toEqual(b);
 });

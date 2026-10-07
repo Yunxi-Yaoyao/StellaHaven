@@ -8,7 +8,7 @@ BACKGROUND_JS = r"""
   const key='stella_drive_bg_mode',legacy='__stella_drive_bg_mode__';
   const valid=v=>v==='image'||v==='solid';
   let mode='solid',observer=null,pending=null,scheduled=false;
-  const changed=new Map();
+  const changed=new Map(),changedMeta=new Map();
   // A style-ready ACK is not an application/content-ready claim.
   function ready(){
     if(!pending||scheduled||!document.body||!document.getElementById('root'))return;
@@ -33,6 +33,12 @@ BACKGROUND_JS = r"""
     const html=document.documentElement;
     if(html.dataset.bgMode!=='image')html.dataset.bgMode='image';
     transparent(html,'color-scheme','normal');
+    // Chromium canvas uses the document's meta scheme even when computed CSS
+    // says normal. Match the host's normal canvas only while transparency is on.
+    for(const meta of document.querySelectorAll('meta[name="color-scheme" i]')){
+      if(!changedMeta.has(meta))changedMeta.set(meta,[meta.hasAttribute('content'),meta.getAttribute('content')]);
+      if(meta.getAttribute('content')!=='normal')meta.setAttribute('content','normal');
+    }
     for(const el of [html,document.body,document.getElementById('root')])transparent(el,'background-color','transparent');
     ready();
   }
@@ -43,11 +49,13 @@ BACKGROUND_JS = r"""
     if(mode==='image'){
       paint();
       observer ||= new MutationObserver(paint);
-      observer.observe(document.documentElement,{attributes:true,subtree:true,childList:true,attributeFilter:['style','data-bg-mode']});
+      observer.observe(document.documentElement,{attributes:true,subtree:true,childList:true,attributeFilter:['style','data-bg-mode','content','name']});
     }else{
       document.documentElement.removeAttribute('data-bg-mode');
       for(const [el,props] of changed)for(const [prop,[v,priority]] of props){if(v)el.style.setProperty(prop,v,priority);else el.style.removeProperty(prop);}
       changed.clear();
+      for(const [meta,[present,value]] of changedMeta){if(present)meta.setAttribute('content',value);else meta.removeAttribute('content');}
+      changedMeta.clear();
       if(pending&&(!document.body||!document.getElementById('root'))){
         observer ||= new MutationObserver(paint);
         observer.observe(document.documentElement,{subtree:true,childList:true});

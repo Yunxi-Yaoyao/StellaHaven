@@ -22,8 +22,9 @@ const source=JSON.parse(process.argv[1]), scenario=process.argv[2];
 const events={},docEvents={},frames=[],messages=[],storage=new Map();
 function el(){const values=new Map();return {dataset:{},style:{getPropertyValue:k=>values.get(k)?.[0]||'',getPropertyPriority:k=>values.get(k)?.[1]||'',setProperty:(k,v,p)=>values.set(k,[v,p]),removeProperty:k=>values.delete(k)},removeAttribute:k=>{if(k==='data-bg-mode')delete html.dataset.bgMode}}}
 const html=el();let body=el(),root=el();
+const metaValues=new Map([['content','dark']]);const meta={hasAttribute:k=>metaValues.has(k),getAttribute:k=>metaValues.get(k)||null,setAttribute:(k,v)=>metaValues.set(k,v),removeAttribute:k=>metaValues.delete(k)};
 if(scenario==='late')root=null;
-const document={documentElement:html,get body(){return body},getElementById:()=>root,readyState:'complete',addEventListener:(k,f)=>docEvents[k]=f};
+const document={documentElement:html,get body(){return body},getElementById:()=>root,querySelectorAll:s=>s.startsWith('meta')?[meta]:[],readyState:'complete',addEventListener:(k,f)=>docEvents[k]=f};
 const parent={postMessage:(data,origin)=>messages.push({data,origin})};
 const window={parent,addEventListener:(k,f)=>events[k]=f};
 const observers=[];class MutationObserver{constructor(cb){this.cb=cb;observers.push(this)}observe(){}disconnect(){}}
@@ -38,6 +39,8 @@ if(scenario==='late'){send(data);flush();assert.equal(messages.filter(m=>m.data.
 if(scenario==='untrusted'){send(data,'https://evil.example');send(data,'https://main.example',{});flush();assert.equal(messages.filter(m=>m.data.type==='stella-bg-ready').length,0);assert.equal(html.dataset.bgMode,undefined);}
 if(scenario==='superseded'){send(data);send({...data,mode:'solid',request_id:'generation-2'});flush();const a=messages.filter(m=>m.data.type==='stella-bg-ready');assert.equal(a.length,1);assert.equal(a[0].data.request_id,'generation-2');assert.equal(a[0].data.mode,'solid');assert.equal(html.dataset.bgMode,undefined);assert.equal(html.style.getPropertyValue('background-color'),'');}
 if(scenario==='invalid'){send({...data,request_id:{evil:true}});flush();assert.equal(messages.filter(m=>m.data.type==='stella-bg-ready').length,0);}
+if(scenario==='meta'){send(data);flush();assert.equal(meta.getAttribute('content'),'normal');send({...data,mode:'solid',request_id:'generation-2'});flush();assert.equal(meta.getAttribute('content'),'dark');}
+if(scenario==='late-meta'){send(data);flush();meta.setAttribute('content','dark');for(const o of observers)o.cb();flush();assert.equal(meta.getAttribute('content'),'normal');}
 console.log('PASS '+scenario);
 '''
 
@@ -56,6 +59,8 @@ class BackgroundBridge(unittest.TestCase):
     def test_untrusted_origin_and_window_never_apply_or_ack(self): self.run_case('untrusted')
     def test_superseded_ack_cannot_reveal_old_mode(self): self.run_case('superseded')
     def test_invalid_ack_envelope_ignored(self): self.run_case('invalid')
+    def test_canvas_metadata_override_is_reversible(self): self.run_case('meta')
+    def test_dynamic_canvas_metadata_remains_transparent(self): self.run_case('late-meta')
 
 
 if __name__ == '__main__':
