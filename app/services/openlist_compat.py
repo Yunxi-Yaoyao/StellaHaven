@@ -13,7 +13,9 @@ BACKGROUND_JS = r"""
   function ready(){
     if(!pending||scheduled||!document.body||!document.getElementById('root'))return;
     scheduled=true;
-    requestAnimationFrame(()=>{
+    // Hidden cross-site frames may suspend rAF. Styles are already applied;
+    // ACK on the microtask queue before the parent reveals the frame.
+    queueMicrotask(()=>{
       scheduled=false;
       if(!pending||!document.body||!document.getElementById('root'))return;
       const reply=pending;pending=null;

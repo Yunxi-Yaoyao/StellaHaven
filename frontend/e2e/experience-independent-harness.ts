@@ -18,8 +18,9 @@ export class Gate {
  release(status=200){this.status=status;this.released=true;this.resolve();}
  async wait(){this.requests++;await this.promise;}
 }
-export type HarnessOptions={held?:GateName[];module?:any;storage?:Record<string,string>;background?:string;childHTML?:()=>string;childScript?:string;holdChildScript?:boolean};
+export type HarnessOptions={held?:GateName[];module?:any;storage?:Record<string,string>;background?:string;childHTML?:()=>string;childScript?:string;holdChildScript?:boolean;childOrigin?:string};
 export async function setup(page:Page,options:HarnessOptions={}){
+ const childOrigin=options.childOrigin||CHILD;
  const gates={auth:new Gate(),navigation:new Gate(),modules:new Gate(),script:new Gate()};
  for(const name of ['auth','navigation','modules'] as GateName[])if(!options.held?.includes(name))gates[name].release();
  if(!options.holdChildScript)gates.script.release();
@@ -54,8 +55,8 @@ export async function setup(page:Page,options:HarnessOptions={}){
  await page.context().route('**/*',async route=>{
   const req=route.request(),u=new URL(req.url()),p=u.pathname,m=req.method();
   const json=(data:any,status=200)=>route.fulfill({json:data,status});
-  if(u.origin===CHILD&&m==='GET'&&p==='/frame')return route.fulfill({contentType:'text/html',body:options.childHTML?.()||'<!doctype html><html><body><main>受控跨域网站</main></body></html>'});
-  if(u.origin===CHILD&&m==='GET'&&p==='/template.js'){await gates.script.wait();return route.fulfill({contentType:'application/javascript',body:options.childScript||''});}
+  if(u.origin===childOrigin&&m==='GET'&&p==='/frame')return route.fulfill({contentType:'text/html',body:options.childHTML?.()||'<!doctype html><html><body><main>受控跨域网站</main></body></html>'});
+  if(u.origin===childOrigin&&m==='GET'&&p==='/template.js'){await gates.script.wait();return route.fulfill({contentType:'application/javascript',body:options.childScript||''});}
   if(u.origin!==MAIN){unknown.push(m+' '+req.url());return route.abort('blockedbyclient');}
   if(m==='GET'&&(p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')||['/avatar.png','/favicon.svg'].includes(p)))return route.continue();
   if(m==='GET'&&req.isNavigationRequest()&&req.frame()===page.mainFrame()&&(p==='/'||p==='/drive'||p==='/settings'||p==='/notes'||p.startsWith('/apps/')||p==='/login'))return route.continue();
@@ -68,20 +69,20 @@ export async function setup(page:Page,options:HarnessOptions={}){
   if(p==='/notifications/unread-count'&&m==='GET')return json({count:0});
   if(p==='/auth/activity'&&m==='POST')return json({ok:true});
   if(p==='/external-modules/'+ID&&m==='GET')return json(modules[0]);
-  if(p==='/external-modules/'+ID+'/launch'&&m==='POST')return json({mode:'isolated_proxy',method:'GET',url:CHILD+'/frame'});
+  if(p==='/external-modules/'+ID+'/launch'&&m==='POST')return json({mode:'isolated_proxy',method:'GET',url:childOrigin+'/frame'});
   if(m==='GET'&&['/auth/avatars','/auth/sessions','/homebg/','/website-templates'].includes(p))return json([]);
   if(p==='/auth/email-service'&&m==='GET')return json({ready:false});
   if(p==='/config/public-host'&&m==='GET')return json({value:''});
   unknown.push(m+' '+req.url());return route.abort('blockedbyclient');
  });
- return {gates,requests,unknown,errors,consoleErrors,modules,user};
+ return {gates,requests,unknown,errors,consoleErrors,modules,user,childOrigin};
 }
 export async function frames(page:Page,count=3){await page.evaluate(n=>new Promise<void>(resolve=>{function run(){if(--n<=0)resolve();else requestAnimationFrame(run);}requestAnimationFrame(run);}),count);}
 export async function rows(page:Page){return page.locator('.sidebar nav a.nav-item').evaluateAll(els=>els.map(el=>{const href=el.getAttribute('href')||'';return{id:href.startsWith('/apps/')?href.split('/')[2]:href==='/'?'home':href.slice(1),label:el.querySelector('.label')?.textContent?.trim(),href};}));}
 export const test=base.extend<{evidence: {h?:Awaited<ReturnType<typeof setup>>}}>({evidence:async({page},use,info)=>{
  const evidence:{h?:Awaited<ReturnType<typeof setup>>}={};await use(evidence);
  const data=await page.evaluate(()=> (window as any).__experience).catch(()=>null);
- const childStates=await Promise.all(page.frames().filter(f=>f!==page.mainFrame()&&f.url().startsWith(CHILD)).map(f=>f.evaluate(()=>({url:location.href,timeline:(window as any).__experience,roots:[document.documentElement,document.body,document.getElementById('root')].filter(Boolean).map(e=>({tag:e!.tagName,background:getComputedStyle(e!).backgroundColor,scheme:getComputedStyle(e!).colorScheme,image:getComputedStyle(e!).backgroundImage}))})).catch(()=>null)));
+ const childStates=await Promise.all(page.frames().filter(f=>f!==page.mainFrame()&&f.url().startsWith(evidence.h?.childOrigin||CHILD)).map(f=>f.evaluate(()=>({url:location.href,timeline:(window as any).__experience,roots:[document.documentElement,document.body,document.getElementById('root')].filter(Boolean).map(e=>({tag:e!.tagName,background:getComputedStyle(e!).backgroundColor,scheme:getComputedStyle(e!).colorScheme,image:getComputedStyle(e!).backgroundImage}))})).catch(()=>null)));
  const parent=await page.locator('.external-page').evaluateAll(els=>els.map(el=>({background:getComputedStyle(el).backgroundImage,scheme:getComputedStyle(el).colorScheme,frameScheme:el.querySelector('iframe')&&getComputedStyle(el.querySelector('iframe')!).colorScheme}))).catch(()=>[]);
  const timeline=JSON.stringify({browser:data,children:childStates,parent,requests:evidence.h?.requests,unknown:evidence.h?.unknown,pageErrors:evidence.h?.errors,consoleErrors:evidence.h?.consoleErrors},null,2);
  fs.writeFileSync(info.outputPath('experience-timeline.json'),timeline);

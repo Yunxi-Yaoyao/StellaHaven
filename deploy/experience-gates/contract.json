@@ -18,7 +18,8 @@
     "background injection disabled preserves native child and is not readiness-gated",
     "background retained page follows real navigation readback and solid is reversible",
     "background rejects wrong origin, wrong source, module and stale ACK",
-    "background video plays behind the genuinely transparent child"
+    "background video plays behind the genuinely transparent child",
+    "background cross-site hidden iframe acknowledges without animation clock"
   ],
   "production-readback": [
     "spec-review",

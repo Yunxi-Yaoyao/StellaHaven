@@ -122,6 +122,17 @@ test('background rejects wrong origin, wrong source, module and stale ACK',async
  await frames(page);expect((await roots(child)).mode).toBe('image');
 });
 
+test('background cross-site hidden iframe acknowledges without animation clock',async({page,evidence},info)=>{
+ const cross='http://child.localhost:15488';
+ const module={...moduleFor(),origin:cross,browser_url:cross+'/frame'};
+ evidence.h=await setup(page,{module,childOrigin:cross,childHTML:()=>childHTML(),childScript:code.js});
+ await page.goto('/apps/'+ID,{waitUntil:'domcontentloaded'});
+ const iframe=page.locator('.external-page iframe');await expect(iframe).toBeVisible({timeout:5000});
+ const child=page.frames().find(f=>f.url().startsWith(cross+'/frame'))!;
+ assertTransparent(await roots(child));
+ expect(await pixels(page,info,'cross-site-composite')).toEqual([[228,60,80],[40,184,202]]);
+});
+
 test('background video plays behind the genuinely transparent child',async({page,evidence},info)=>{
  const file=info.outputPath('controlled-video.webm');
  execFileSync('ffmpeg',['-loglevel','error','-y','-f','lavfi','-i','testsrc2=size=320x240:rate=12','-t','4','-c:v','libvpx','-an',file]);
