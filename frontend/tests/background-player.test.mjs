@@ -16,7 +16,7 @@ test('background player uses one real video, poster, quality swap and visibility
       createApp({render:()=>h(BgLayer,{url:url.value,crop:{cx:.5,cy:.5,w:1,h:1}})}).mount('#app');
       </script>`);res.setHeader('Content-Type','text/html');res.end(html);}catch(e){next(e)}
   });await server.listen();t.after(()=>server.close());
-  const browser=await chromium.launch({executablePath:'/usr/sbin/google-chrome-stable',args:['--no-sandbox'],headless:true});t.after(()=>browser.close());
+  const browser=await chromium.launch({args:['--no-sandbox'],headless:true});t.after(()=>browser.close());
   const page=await browser.newPage();
   await page.route('**/homebg/media**',route=>route.fulfill({json:{url:'/assets/homebg/test.mp4',status:'ready',poster:'/assets/poster.webp',thumbnail:'/assets/thumb.webp',variants:{original:'/assets/homebg/test.mp4',compressed1:'/assets/homebg/test-q1.mp4',compressed2:'/assets/homebg/test-q2.mp4'}}}));
   await page.route('**/homebg/',route=>route.fulfill({json:[]}));

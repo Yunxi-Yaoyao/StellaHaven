@@ -1,0 +1,4 @@
+import {defineConfig} from '@playwright/test';
+import {resolve} from 'node:path';
+const artifacts=resolve(process.env.STELLA_SERVICE_ARTIFACTS||'test-results/services');
+export default defineConfig({testDir:'./e2e',testMatch:['unified-services.spec.ts','central-settings.spec.ts','service-settings.spec.ts'],workers:1,timeout:45000,outputDir:artifacts+'/browser-artifacts',reporter:[['list'],['json',{outputFile:artifacts+'/browser-results.json'}]],use:{baseURL:'http://127.0.0.1:15173',serviceWorkers:'block',launchOptions:{args:['--no-sandbox']},viewport:{width:1440,height:1000},screenshot:'only-on-failure',trace:'retain-on-failure'},webServer:{cwd:new URL('.',import.meta.url).pathname,command:'node node_modules/vite/bin/vite.js --config vite.services-mock.config.ts',env:{NODE_ENV:'development',TMPDIR:artifacts},port:15173,reuseExistingServer:false}});

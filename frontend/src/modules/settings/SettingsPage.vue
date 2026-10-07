@@ -8,8 +8,6 @@ import SecuritySettings from "./SecuritySettings.vue";
 import NavigationSettings from "./NavigationSettings.vue";
 import SettingsPanel from "../../shell/SettingsPanel.vue";
 import PerformanceSettings from "./PerformanceSettings.vue";
-import ConnectionPanel from "../drive/ConnectionPanel.vue";
-import BuiltinInjectionSettings from "./BuiltinInjectionSettings.vue";
 import { api } from "../../api/client";
 import { getPublicHost, setPublicHost } from "../../api/servers";
 
@@ -438,10 +436,6 @@ onMounted(() => {
       <template v-else-if="tab === 'navigation'">
         <NavigationSettings><template #builtin="{id}">
           <SettingsPanel v-if="id==='home'" embedded />
-          <template v-if="id==='drive'||id==='gallery'">
-            <ConnectionPanel :key="id" :kind="id==='drive'?'drive':'gallery'" />
-            <BuiltinInjectionSettings :key="'injection-'+id" :site="id==='drive'?'drive':'gallery'" />
-          </template>
         </template></NavigationSettings>
       </template>
       <template v-else-if="tab === 'services'">

@@ -1,14 +1,19 @@
 import type {Page} from '@playwright/test';
-export async function mock(page:Page, configured=true) {
+import {serviceFixture} from '../tests/fixtures/serviceSettings';
+export async function mock(page:Page, configured=true,root='http://127.0.0.1:15173') {
  const state={enabled:true,configured,elevated:false,expires_at:null,single_user:true,setup_required:!configured};
  const requests:{path:string;method:string;body:any}[]=[];
  const me={id:'mock-owner',username:'demo',display_name:'Mock Owner',is_admin:true,avatar_url:'/avatar.png',home_bg:'',email:'',email_verified:false};
  const unknown:string[]=[];
  let entries:any[]=[];
+ const services:Record<string,any>={drive:serviceFixture('drive'),gallery:serviceFixture('gallery')};
+ const setEntry=(entry:any)=>{const old=entries.find(x=>x.id===entry.id);if(old)Object.assign(old,entry);else entries.push(entry);};
+ const checked=(address:string)=>({normalized_url:new URL(address).href,name_suggestion:'演示网站',access:{status:'reachable',http_status:200},embedding:{status:'allowed',reason_code:'no_observed_restriction',reason:'未发现响应头限制'},injection:address.startsWith('https://demo.example/')?{status:'supported',reason:'隔离测试上游支持注入'}:{status:'unsupported',reason:'跨域直连不能修改 DOM'},can_save:true,recommended_behavior:'embedded',issues:[],help:null});
  let modules:any[]=[];let sequence=0;
  await page.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url()),p=url.pathname,method=req.method();
-  if(url.origin==='http://127.0.0.1:15173' && (p==='/settings'||p==='/missing-stella-page'||p==='/login'||p==='/'||p.startsWith('/apps/')||p==='/drive'||p==='/gallery'||p.startsWith('/status/')||p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')||p.endsWith('.svg')||p.endsWith('.png')||p.endsWith('.woff2'))) return route.continue();
+  if(url.origin===root && (p==='/settings'||p==='/missing-stella-page'||p==='/login'||p==='/'||p.startsWith('/apps/')||p==='/drive'||p==='/gallery'||p.startsWith('/status/')||p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')||p.endsWith('.svg')||p.endsWith('.png')||p.endsWith('.woff2'))) return route.continue();
+  if(url.origin!==root&&!(url.origin==='https://mock-embed.test'&&p==='/__stella/bootstrap')){unknown.push(method+' '+url.href);return route.abort('blockedbyclient');}
   const body=req.postDataJSON(); requests.push({path:p,method,body});
   const ok=(json:any)=>route.fulfill({json});
   if(p==='/auth/me'||p==='/auth/refresh')return ok(me);
@@ -21,13 +26,21 @@ export async function mock(page:Page, configured=true) {
    if(!state.elevated&&state.enabled)return route.fulfill({status:403,json:{detail:{code:'admin_elevation_required'}}});
    return ok({site:p.split('/').at(-1),source:'preset',base_required:true,active:{enabled:false,css:'',js:'',timing:'dom_ready',csp_policy:'reject',version:'preset-v1',status:'active'},draft:null,previous:null,preset:{css:'/* Mock builtin theme */',js:'/* Mock compatibility */'}});
   }
+  if(p==='/service-settings/drive'||p==='/service-settings/gallery'){const item=services[p.split('/')[2]!];if(method!=='GET'){unknown.push(method+' '+p);return route.abort('blockedbyclient');}return ok(item);}
+  if(p==='/website-settings/check'&&method==='POST')return ok(checked(body.address));
+  if((p==='/website-settings'||/^\/website-settings\/[^/]+$/.test(p))&&['POST','PATCH'].includes(method)){
+   const id=p.split('/')[2]||'demo'+(++sequence);let item=modules.find(x=>x.id===id);if(!item){item={id,adapter:'generic',enabled:true,injection:{active:null,draft:null,previous:null}};modules.push(item);}
+   Object.assign(item,{name:body.name,icon:body.icon,browser_url:body.address,keep_alive:body.keep_alive,mode:body.open_behavior==='external'?'link':body.address.startsWith('https://demo.example/')?'isolated_proxy':'iframe',origin:'https://mock-embed.test'});
+   if(body.custom){item.injection.draft={...body.custom};if(body.custom.enabled){item.injection.previous=item.injection.active;item.injection.active={...body.custom,version:'saved-'+(++sequence)};}}
+   setEntry({id,title:item.name,icon:item.icon,visible:body.visible});return ok(item);
+  }
   if(p==='/integration-presets')return ok({generic:{css:'body { color-scheme: dark; }',js:'/* Mock preset */',readonly:true,status:'injection_loaded_is_not_app_ready'},openlist:{css:'/* Mock OpenList theme */',js:'/* Mock cache repair */',readonly:true,status:'existing_upstream_migration_pending'}});
   if(p==='/integration-targets')return ok([{id:'target1',name:'Mock approved upstream',controlled:true,upstream_url:'http://10.0.0.1:8080/'}]);
   if(p==='/external-modules'){if(method==='POST'){modules.push({...body,id:'demo'+(++sequence),origin:'https://mock-embed.test',injection:{draft:null,active:null,previous:null},capabilities:{injection:body.mode==='isolated_proxy'}});return ok(modules.at(-1));}return ok(modules);}
   if(p.startsWith('/external-modules/')){
    const id=p.split('/')[2];const item=modules.find(x=>x.id===id);
    if(!item)return route.fulfill({status:404,json:{detail:'Module not found'}});
-   if(p.endsWith('/launch'))return ok(item.mode==='isolated_proxy'?{mode:item.mode,url:'https://mock-embed.test/__stella/bootstrap',method:'POST',fields:{ticket:'MOCK_SINGLE_USE_TICKET'},expires_in:30}:{mode:item.mode,url:'http://127.0.0.1:15173/mock-site',method:'GET'});
+   if(p.endsWith('/launch'))return ok(item.mode==='isolated_proxy'?{mode:item.mode,url:'https://mock-embed.test/__stella/bootstrap',method:'POST',fields:{ticket:'MOCK_SINGLE_USE_TICKET'},expires_in:30}:{mode:item.mode,url:root+'/mock-site',method:'GET'});
    if(p.endsWith('/check'))return ok({configuration_valid:true,browser_status:'unobservable',reason:'内部状态不可读',ready:false});
    if(p.endsWith('/validate')){item.injection.draft=body;return ok({valid:true,errors:[],draft:body});}
    if(p.endsWith('/apply')){item.injection.previous=item.injection.active;item.injection.active={...item.injection.draft,version:'opaque-'+Date.now()};return ok(item.injection);}
@@ -58,5 +71,5 @@ export async function mock(page:Page, configured=true) {
   if(p==='/drive/openlist/'||p==='/gallery/connect')return route.fulfill({contentType:'text/html',body:'<h1>Mock service content</h1>'});
   unknown.push(p);return route.fulfill({status:501,json:{detail:'Unmocked endpoint blocked'}});
  });
- return {state,requests,unknown,addModule:(item:any)=>modules.push(item)};
+ return {state,requests,unknown,services,setEntry,addModule:(item:any)=>modules.push(item)};
 }

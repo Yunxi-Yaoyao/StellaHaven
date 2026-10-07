@@ -1,18 +1,22 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test as base,expect,type Page} from '@playwright/test';
 const ROOT='http://127.0.0.1:15286';
+const test=base.extend<{network:{unknown:string[];errors:string[]}}>({network:[async({page},use)=>{const network={unknown:[] as string[],errors:[] as string[]};page.on('pageerror',e=>network.errors.push(e.message));await page.route('**/*',r=>{network.unknown.push(r.request().method()+' '+r.request().url());return r.abort('blockedbyclient');});await page.routeWebSocket('**/*',socket=>{const u=new URL(socket.url());if(u.origin===ROOT.replace('http:','ws:')&&(u.pathname==='/'||u.pathname==='/ws/notifications'||u.pathname==='/ws/list/11111111-1111-4111-8111-111111111111'))return;network.unknown.push(socket.url());socket.close();});try{await use(network);}finally{expect(network.unknown).toEqual([]);expect(network.errors).toEqual([]);}},{auto:true}]});
 async function setup(page:Page,proxy=false){
  const me={id:'cache-owner',username:'owner',display_name:'Cache owner',is_admin:true,avatar_url:'',home_bg:'',email:'',email_verified:false};
  const modules=Array.from({length:5},(_,i)=>({id:'c'+(i+1),name:'Cache '+(i+1),icon:'globe',adapter:'generic',origin:'https://c'+(i+1)+'.cache.test',mode:proxy?'isolated_proxy':'iframe',browser_url:'https://cache.test/site/c'+(i+1),enabled:true,keep_alive:i<4,initial_path:'/',injection:{draft:null,active:null,previous:null},capabilities:{injection:false}}));
  const launches:string[]=[];let delayGet=0;
  await page.route('**/*',async r=>{
   const u=new URL(r.request().url()),p=u.pathname,m=r.request().method();
-  if(u.origin===ROOT&&(p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')||['/','/settings','/login','/notes'].includes(p)||p.startsWith('/apps/')))return r.continue();
+  if(u.origin===ROOT&&(p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')||['/','/settings','/login','/notes'].includes(p)||p.startsWith('/apps/')||p==='/avatar.png'))return r.continue();
   const ok=(json:any)=>r.fulfill({json});
   if(u.hostname==='cache.test'||u.hostname.endsWith('.cache.test'))return r.fulfill({contentType:'text/html',body:'<!doctype html><h1>'+p+'</h1><label>Draft<input aria-label="Draft"></label>'});
+  if(u.origin!==ROOT)return r.fallback();
   if(p==='/auth/me'||p==='/auth/refresh')return ok(me);
   if(p==='/auth/logout')return ok({ok:true});
   if(p==='/auth/security')return ok({enabled:true,configured:true,elevated:false,expires_at:null,single_user:true,setup_required:false});
   if(p==='/navigation')return ok({entries:[],settings_route:'/settings'});
+  if(p==='/website-settings/check'&&m==='POST')return ok({normalized_url:r.request().postDataJSON().address,name_suggestion:'Cache',access:{status:'reachable',http_status:200},embedding:{status:'allowed',reason_code:'no_observed_restriction',reason:'Fixture allowed'},injection:{status:'unsupported',reason:'Fixture direct'},can_save:true,recommended_behavior:'embedded',issues:[],help:null});
+  if(/^\/website-settings\/c[1-5]$/.test(p)&&m==='PATCH'){const item=modules.find(x=>x.id===p.split('/')[2])!;const body=r.request().postDataJSON();Object.assign(item,{name:body.name,icon:body.icon,browser_url:body.address,keep_alive:body.keep_alive});if(body.custom)item.injection.draft=body.custom;return ok(item);}
   if(p==='/external-modules'){
    if(m==='POST'){const body=r.request().postDataJSON();const item={...modules[0],...body,id:'copy'+modules.length};modules.push(item);return ok(item);}
    return ok(modules);
@@ -34,7 +38,10 @@ async function setup(page:Page,proxy=false){
   if(p.endsWith('/stats'))return ok({});
   if(p.endsWith('/sessions/history'))return ok({items:[],total:0,page:1,page_size:20});
   if(p.endsWith('.webp')||p.endsWith('.png')||p.endsWith('.svg'))return r.fulfill({status:404,body:''});
-  return ok([]);
+  if(['/auth/sessions','/auth/avatars','/homebg/','/documents/','/documents/recent','/doc-tags/','/tags/'].includes(p)&&m==='GET')return ok([]);
+  if(p==='/auth/email-service'&&m==='GET')return ok({ready:false});
+  if(p==='/auth/activity'&&m==='POST')return ok({ok:true});
+  return r.fallback();
  });
  await page.goto('/apps/c1');await expect(page.locator('iframe[title="Cache 1"]')).toBeVisible();
  return {modules,launches,setDelay:(ms:number)=>delayGet=ms};
@@ -43,15 +50,15 @@ async function go(page:Page,id:string){await page.locator(`.sidebar a[href="/app
 const draft=(page:Page,n:number)=>page.frameLocator(`iframe[title="Cache ${n}"]`).getByLabel('Draft');
 async function update(page:Page,id:string,fields:any){await page.evaluate(async({id,fields})=>{const {navigation}=await import('/src/stores/navigation.ts');Object.assign(navigation.modules.find((x:any)=>x.id===id)!,fields);},{id,fields});}
 
-test('settings edits and copies persist opt-in; fresh form defaults off',async({page})=>{
+test('atomic settings saves retain opt-in after reopen; fresh form defaults off',async({page})=>{
  const {modules}=await setup(page);await page.locator('.sidebar .nav-item[href="/settings"]').click();
  await page.getByRole('button',{name:'导航与网站',exact:true}).click();
  await page.getByRole('button',{name:'编辑 Cache 1',exact:true}).click();
  const toggle=page.getByRole('checkbox',{name:'切页保留现场（最多 3 个网站）'});await expect(toggle).toBeChecked();
- await toggle.uncheck();await page.getByRole('button',{name:'应用接入变更',exact:true}).click();expect(modules[0].keep_alive).toBe(false);
- await page.getByRole('button',{name:'编辑 Cache 1',exact:true}).click();await toggle.check();await page.getByRole('button',{name:'应用接入变更',exact:true}).click();
- await page.getByRole('button',{name:'复制 Cache 1',exact:true}).click();await expect(page.getByRole('main').getByText('Cache 1 副本',{exact:true})).toBeVisible();expect(modules.at(-1)?.keep_alive).toBe(true);
- await page.getByRole('button',{name:'新增网站',exact:true}).click();await expect(toggle).not.toBeChecked();
+ await toggle.uncheck();await page.locator('.inline-editor').getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('.inline-editor')).toHaveCount(0);expect(modules[0].keep_alive).toBe(false);
+ await page.getByRole('button',{name:'编辑 Cache 1',exact:true}).click();await toggle.check();await page.locator('.inline-editor').getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('.inline-editor')).toHaveCount(0);
+ expect(modules[0].keep_alive).toBe(true);await page.getByRole('button',{name:'编辑 Cache 1',exact:true}).click();await expect(toggle).toBeChecked();await page.locator('.inline-editor').getByRole('button',{name:'取消',exact:true}).click();
+ await page.getByRole('button',{name:'＋ 添加网站',exact:true}).click();await expect(toggle).not.toBeChecked();
 });
 
 test('same-owner logout/login in one tick cannot revive old cached grants or input',async({page})=>{
@@ -86,7 +93,7 @@ test('POST boot tickets target distinct module iframes and preserve earlier site
  const {launches}=await setup(page,true);await draft(page,1).fill('proxy-one');await go(page,'c2');await draft(page,2).fill('proxy-two');await go(page,'c1');await expect(draft(page,1)).toHaveValue('proxy-one');
  const names=await page.locator('iframe').evaluateAll(frames=>frames.map(f=>f.getAttribute('name')));expect(new Set(names).size).toBe(2);expect(launches).toEqual(['c1','c2']);
  expect(page.frames().some(f=>f.url()==='https://c1.cache.test/__stella/bootstrap')).toBe(true);expect(page.frames().some(f=>f.url()==='https://c2.cache.test/__stella/bootstrap')).toBe(true);
- await page.screenshot({path:'/opt/hermes-workstation/docs/2026-10-06-Stella-upgrade/iframe-cache/post-ticket-retained.png'});
+ await page.screenshot({path:(process.env.STELLA_SERVICE_ARTIFACTS||'test-results/service-regression')+'/post-ticket-retained.png'});
 });
 
 test('15 minute hidden period cannot silently launch or renew or add persistent controls',async({page})=>{
@@ -97,7 +104,7 @@ test('15 minute hidden period cannot silently launch or renew or add persistent 
 });
 
 test('notes cache stays independent while all four external LRU entries churn',async({page})=>{
- await setup(page);await page.locator('.sidebar a[href="/notes"]').click();await expect(page.locator('.notes-page')).toBeVisible();
+ await setup(page);await page.locator('.sidebar a[href="/notes"]').click();await expect(page.locator('.notes-page')).toHaveAttribute('aria-busy','false');
  await page.locator('.notes-page').evaluate(el=>{(window as any).__noteElement=el;el.setAttribute('data-cache-proof','same-notes-instance');});
  for(const id of ['c2','c3','c4','c1'])await go(page,id);
  await page.locator('.sidebar a[href="/notes"]').click();await expect(page.locator('.notes-page')).toHaveAttribute('data-cache-proof','same-notes-instance');
@@ -117,6 +124,6 @@ test('three LRU iframes keep DOM input state and launches; fourth evicts only ol
  await go(page,'c1');await expect(draft(page,1)).toHaveValue('draft-one');expect(launches).toEqual(['c1','c2','c3']);
  await go(page,'c4');expect(await page.locator('iframe').count()).toBe(3);await expect(page.locator('iframe[title="Cache 2"]')).toHaveCount(0);
  await go(page,'c3');await expect(draft(page,3)).toHaveValue('draft-three');await go(page,'c1');await expect(draft(page,1)).toHaveValue('draft-one');
- await page.screenshot({path:'/opt/hermes-workstation/docs/2026-10-06-Stella-upgrade/iframe-cache/retained-draft.png'});
+ await page.screenshot({path:(process.env.STELLA_SERVICE_ARTIFACTS||'test-results/service-regression')+'/retained-draft.png'});
  await go(page,'c2');await expect(draft(page,2)).toHaveValue('');expect(launches.filter(x=>x==='c2')).toHaveLength(2);
 });

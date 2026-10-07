@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest';
 import * as navigation from './navigation';
+it('separates service category from builtin routing without sending services to website APIs',()=>{
+ const rows=navigation.resolveNavigation({entries:[]},[]);
+ for(const site of ['drive','gallery'])expect(rows.find(x=>x.id===site)).toMatchObject({kind:'service',builtin:true,to:'/'+site});
+ expect(rows.find(x=>x.id==='notes')).toMatchObject({kind:'page',builtin:true});
+});
 it('merges stable navigation IDs without allowing a builtin route override', () => {
   expect((navigation as any).resolveNavigation).toBeTypeOf('function');
   const rows = (navigation as any).resolveNavigation({entries:[{id:'status',title:'节点',icon:'server',visible:true,route:'https://evil.test'},{id:'settings',visible:false}]}, [{id:'demo',name:'演示',icon:'globe',mode:'iframe',url:'https://demo.test',visible:true}]);

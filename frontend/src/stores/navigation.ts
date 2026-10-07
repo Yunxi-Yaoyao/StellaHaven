@@ -3,7 +3,7 @@ import { api } from '../api/client';
 export interface Website { id:string; name:string; icon:string; mode:'iframe'|'link'|'openlist'|'isolated_proxy'; adapter:'generic'|'openlist'|'immich'; browser_url:string; enabled:boolean; keep_alive?:boolean; target_id?:string|null; initial_path?:string; origin?:string; capabilities?:{injection:boolean}; injection?:{draft:Injection|null;active:Injection|null;previous:Injection|null} }
 export interface Injection { enabled:boolean; css:string; js:string; timing:'dom_ready'|'document_start'; csp_policy:'reject'|'controlled'; version?:string }
 export interface NavEntry { id:string; title?:string; icon?:string; visible?:boolean }
-export interface NavRow { id:string;label:string;icon:string;visible:boolean;to:string;builtin:boolean }
+export interface NavRow { id:string;label:string;icon:string;visible:boolean;to:string;builtin:boolean;kind?:'page'|'service'|'website' }
 export const builtinNavigation:NavRow[] = [
   {id:'home',label:'个人主页',icon:'home',to:'/',visible:true,builtin:true},
   {id:'notes',label:'笔记',icon:'note',to:'/notes',visible:true,builtin:true},
@@ -22,7 +22,7 @@ export function resolveNavigation(config:{entries:NavEntry[]}, modules:Website[]
     if (seen.has(entry.id)) continue;
     const original = defaults.find(row=>row.id===entry.id); if (!original) continue;
     seen.add(entry.id);
-    result.push({...original,label:('title' in entry && entry.title) || original.label, icon:entry.icon && [...navigationIcons,...legacyNavigationIcons].includes(entry.icon) ? entry.icon : original.icon,visible:entry.visible ?? original.visible});
+    result.push({...original,kind:original.id==='drive'||original.id==='gallery'?'service':original.builtin?'page':'website',label:('title' in entry && entry.title) || original.label, icon:entry.icon && [...navigationIcons,...legacyNavigationIcons].includes(entry.icon) ? entry.icon : original.icon,visible:entry.visible ?? original.visible});
   }
   return result;
 }

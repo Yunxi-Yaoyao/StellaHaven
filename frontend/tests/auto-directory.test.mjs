@@ -23,7 +23,7 @@ test('auto directory: hierarchy, responsive defaults, scoped persistence and saf
     } catch (e) { next(e); }
   });
   await server.listen(); t.after(() => server.close());
-  const browser = await chromium.launch({ executablePath: '/usr/sbin/google-chrome-stable', args: ['--no-sandbox'], headless: true });
+  const browser = await chromium.launch({ args: ['--no-sandbox'], headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
   page.setDefaultTimeout(2500);

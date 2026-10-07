@@ -1,10 +1,11 @@
 import {test,expect} from '@playwright/test';
 import {mock} from './settings-mocks';
-import {writeFileSync} from 'node:fs';
+import {writeFileSync,mkdirSync} from 'node:fs';
+import {resolve} from 'node:path';
 const runtimeErrors=new WeakMap<object,string[]>();
 test.beforeEach(async({page})=>{const errors:string[]=[];runtimeErrors.set(page,errors);page.on('pageerror',error=>errors.push(error.message));});
-test.afterEach(async({page},info)=>{expect(runtimeErrors.get(page)||[]).toEqual([]);const id=info.title.replace(/[^a-zA-Z0-9]+/g,'-');writeFileSync('/opt/hermes-workstation/docs/2026-10-06-Stella-upgrade/frontend/DOM-'+id+'.txt',await page.locator('body').innerText());});
-const out='/opt/hermes-workstation/docs/2026-10-06-Stella-upgrade/frontend';
+test.afterEach(async({page},info)=>{expect(runtimeErrors.get(page)||[]).toEqual([]);const id=info.title.replace(/[^a-zA-Z0-9]+/g,'-');writeFileSync(out+'/DOM-'+id+'.txt',await page.locator('body').innerText());});
+const out=resolve(process.env.STELLA_SERVICE_ARTIFACTS||'test-results/services');mkdirSync(out,{recursive:true});
 test('central settings exposes distinct passwords without a normal-login admin badge',async({page})=>{
  const m=await mock(page);
  await page.goto('/settings');
@@ -21,8 +22,9 @@ test('central settings exposes distinct passwords without a normal-login admin b
 test('navigation rename requires unlock and explicit retry then survives reload; settings remains recoverable',async({page})=>{
  const m=await mock(page);
  await page.goto('/settings?section=navigation');
- await page.getByLabel('导航名称 服务器',{exact:true}).fill('我的节点');
- await page.getByLabel('导航名称 服务器',{exact:true}).press('Tab');
+ await page.getByRole('button',{name:'编辑 服务器',exact:true}).click();
+ await page.getByLabel('显示名称',{exact:true}).fill('我的节点');
+ await page.locator('.inline-editor').getByRole('button',{name:'保存',exact:true}).click();
  await expect(page.getByRole('dialog')).toBeVisible();
  expect(m.requests.filter(r=>r.path==='/navigation'&&r.method==='PUT')).toHaveLength(1);
  await page.getByRole('dialog').getByLabel('管理密码',{exact:true}).fill('MOCK_ADMIN_NOT_A_SECRET');
@@ -33,7 +35,7 @@ test('navigation rename requires unlock and explicit retry then survives reload;
  await expect(page.locator('.sidebar .nav-item').filter({hasText:'我的节点'})).toBeVisible();
  expect(m.requests.filter(r=>r.path==='/navigation'&&r.method==='PUT')).toHaveLength(2);
  await page.reload();
- await expect(page.getByLabel('导航名称 我的节点',{exact:true})).toHaveValue('我的节点');
+ await expect(page.getByRole('button',{name:'编辑 我的节点',exact:true})).toBeVisible();
  await page.getByLabel('显示导航 设置',{exact:true}).uncheck();
  await expect(page.locator('.sidebar .nav-item').filter({hasText:'设置'})).toHaveCount(0);
  await expect(page.locator('.sidebar .account')).toHaveAttribute('href','/settings');
@@ -42,20 +44,14 @@ test('navigation rename requires unlock and explicit retry then survives reload;
  expect(await page.evaluate(()=>JSON.stringify(localStorage))).not.toContain('MOCK_ADMIN_NOT_A_SECRET');
  expect(m.unknown).toEqual([]);
 });
-test('legacy drive and gallery controls navigate to a single inline settings section',async({page})=>{
- const m=await mock(page);m.state.elevated=true;
- await page.goto('/drive');await expect(page.frameLocator('iframe').getByText('Mock service content')).toBeVisible();
- await expect(page.getByRole('button',{name:'背景图',exact:true})).toHaveCount(0);
- await page.getByRole('button',{name:'连接设置',exact:true}).click();
- await expect(page).toHaveURL(/settings\?section=navigation&module=drive/);
- await expect(page.getByLabel('OpenList 服务地址',{exact:true})).toBeVisible();
- await expect(page.getByRole('dialog')).toHaveCount(0);
- await page.goto('/gallery');await expect(page.frameLocator('iframe').getByText('Mock service content')).toBeVisible();
- await page.getByRole('button',{name:'连接设置',exact:true}).click();
- await expect(page).toHaveURL(/settings\?section=navigation&module=gallery/);
- await expect(page.getByLabel('Immich 访问地址',{exact:true})).toBeVisible();
- await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(m.unknown).toEqual([]);
+test('clean service pages use sidebar settings as their single editor entry',async({page})=>{
+ const m=await mock(page);
+ for(const [site,label] of [['drive','网盘'],['gallery','图库']]){
+  await page.goto('/'+site);await expect(page.frameLocator('iframe').getByText('Mock service content')).toBeVisible();await expect(page.getByRole('button',{name:'连接设置',exact:true})).toHaveCount(0);
+  await page.locator('.sidebar a.nav-item[href="/settings"]').click();await page.getByRole('button',{name:'导航与网站',exact:true}).click();await page.getByRole('button',{name:'编辑 '+label,exact:true}).click();
+  await expect(page.locator('.service-editor')).toBeVisible();await expect(page.getByLabel(site==='drive'?'OpenList 服务地址':'Immich 浏览器地址',{exact:true})).toBeVisible();await expect(page.getByRole('dialog')).toHaveCount(0);
+ }
+ expect(m.requests.filter(x=>x.path.startsWith('/auth/admin/'))).toEqual([]);expect(m.unknown).toEqual([]);
 });
 test('first management password setup confirms twice and protection disable requires password',async({page})=>{
  const m=await mock(page,false);await page.goto('/settings');
@@ -98,6 +94,7 @@ test('mobile central appearance and section tabs stay inside viewport',async({pa
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.screenshot({path:out+'/settings-mobile-appearance.png',fullPage:true,animations:'disabled'});
  await page.getByRole('button',{name:'资料与安全',exact:true}).click();
+ const guard=page.getByRole('dialog',{name:'未保存的修改'});if(await guard.isVisible())await guard.getByRole('button',{name:'放弃修改'}).click();
  await expect(page.getByText('管理保护已开启',{exact:true})).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.screenshot({path:out+'/settings-mobile-security.png',fullPage:true,animations:'disabled'});
@@ -154,7 +151,7 @@ test('isolated proxy launch POSTs single-use ticket without URL or persistent st
  await page.route('https://mock-embed.test/**',async route=>{bootstrap={url:route.request().url(),method:route.request().method(),body:route.request().postData()};await route.fulfill({contentType:'text/html',body:'<h1>Mock isolated content</h1>'});});
  await page.goto('/apps/proxy');
  await expect(page.frameLocator('iframe').getByText('Mock isolated content')).toBeVisible();
- await expect(page.getByText('已导航，内部状态不可读',{exact:true})).toBeVisible();
+ await expect(page.locator('.external-page')).toHaveText('');
  expect(bootstrap.method).toBe('POST');expect(bootstrap.url).not.toContain('MOCK_SINGLE_USE_TICKET');expect(bootstrap.body).toContain('MOCK_SINGLE_USE_TICKET');
  expect(await page.evaluate(()=>JSON.stringify(localStorage))).not.toContain('MOCK_SINGLE_USE_TICKET');
  expect(await page.locator('body').innerText()).not.toContain('MOCK_SINGLE_USE_TICKET');
@@ -169,56 +166,17 @@ test('long sidebar scrolls independently and keeps the bottom account entry visi
  expect(await page.locator('.sidebar .bottom-row').evaluate(el=>{const r=el.getBoundingClientRect();return r.bottom<=innerHeight&&r.top>=0;})).toBe(true);
  await page.screenshot({path:out+'/sidebar-scroll-desktop.png',fullPage:true,animations:'disabled'});expect(m.unknown).toEqual([]);
 });
-test('link mode does not auto-open a popup, and cross-origin direct iframe cannot publish injection',async({page})=>{
+test('link mode stays manual and unsupported direct custom cannot be applied',async({page})=>{
  const m=await mock(page);m.addModule({id:'link',name:'Manual link',icon:'link',mode:'link',adapter:'generic',browser_url:'https://mock.example',enabled:true});
  m.addModule({id:'direct',name:'Direct iframe',icon:'globe',mode:'iframe',adapter:'generic',browser_url:'https://mock.example',enabled:true,capabilities:{injection:false},injection:{draft:null,active:null,previous:null}});
- const popups:any[]=[];page.on('popup',p=>popups.push(p));await page.goto('/apps/link');
- await expect(page.getByText('外链模式：请点击新窗口打开',{exact:true})).toBeVisible();await expect(page.locator('iframe')).toHaveCount(0);expect(popups).toHaveLength(0);
- await page.goto('/settings?section=navigation&module=direct');await page.getByText('注入与外观',{exact:true}).click();
- await expect(page.getByText('此接法不支持注入，不能应用代码。请显式选择受控代理模式。',{exact:true})).toBeVisible();
- await expect(page.getByRole('button',{name:'应用注入版本',exact:true})).toBeDisabled();expect(m.unknown).toEqual([]);
+ const popups:any[]=[];page.on('popup',p=>popups.push(p));await page.goto('/apps/link');await expect(page.getByRole('link',{name:'新窗口打开',exact:true})).toBeVisible();await expect(page.locator('iframe')).toHaveCount(0);expect(popups).toHaveLength(0);
+ await page.goto('/settings?section=navigation&module=direct');await page.getByText('自定义外观与脚本（可选）',{exact:true}).click();await page.getByRole('button',{name:'检测',exact:true}).click();await expect(page.getByText('跨域直连不能修改 DOM',{exact:false}).first()).toBeVisible();await expect(page.getByRole('button',{name:'应用保存的版本',exact:true})).toBeDisabled();expect(m.unknown).toEqual([]);
 });
-test('website create injection preview apply rollback and delete entry',async({page})=>{
- const m=await mock(page);m.state.elevated=true;
- await page.goto('/settings?section=navigation');
- await page.getByRole('button',{name:'新增网站',exact:true}).click();
- await page.getByLabel('网站名称',{exact:true}).fill('Demo website');
- await page.getByLabel('网站 URL',{exact:true}).fill('https://demo.example/?q=1#start');
- await page.getByText('高级接入',{exact:true}).click();
- await page.getByText('iframe 直连',{exact:true}).click();
- await page.getByText('独立域名代理',{exact:true}).click();
- await page.getByRole('button',{name:'选择已批准上游',exact:true}).click();
- await page.getByRole('button',{name:'—',exact:true}).click();
- await page.getByRole('button',{name:'Mock approved upstream',exact:true}).click();
- await page.getByRole('button',{name:'创建网站',exact:true}).click();
- await page.getByRole('button',{name:'编辑 Demo website',exact:true}).click();
- await page.getByText('注入与外观',{exact:true}).click();
- await page.getByRole('button',{name:'读取内置预设',exact:true}).click();
- await expect(page.getByLabel('内置 CSS（只读）',{exact:true})).toHaveValue('body { color-scheme: dark; }');
- await page.getByRole('button',{name:'复制预设到草稿',exact:true}).click();
- await expect(page.getByLabel('CSS 代码',{exact:true})).toHaveValue('body { color-scheme: dark; }');
- await page.getByLabel('启用注入',{exact:true}).check();
- await page.getByLabel('CSS 代码',{exact:true}).fill('h1 { color: pink; }');
- await page.getByLabel('JavaScript 代码',{exact:true}).fill('window.MAIN_ORIGIN_MUST_NOT_RUN = true');
- await page.getByRole('button',{name:'校验并保存草稿',exact:true}).click();
- await expect(page.getByText('草稿校验通过，尚未应用',{exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Mock 预览',exact:true}).click();
- expect(await page.evaluate(()=> (window as any).MAIN_ORIGIN_MUST_NOT_RUN)).toBeUndefined();
- await page.getByRole('button',{name:'应用注入版本',exact:true}).click();
- await page.getByLabel('CSS 代码',{exact:true}).fill('h1 { color: blue; }');
- await page.getByRole('button',{name:'校验并保存草稿',exact:true}).click();
- await page.getByRole('button',{name:'应用注入版本',exact:true}).click();
- await page.getByRole('button',{name:'回退上一版本',exact:true}).click();
- await expect(page.getByText('已回退上一版本，重载模块后生效',{exact:true})).toBeVisible();
- await page.screenshot({path:out+'/website-settings-desktop.png',fullPage:true,animations:'disabled'});
- await page.goto('/apps/demo1');
- await expect(page.frameLocator('iframe').getByText('Mock website')).toBeVisible();
- await expect(page.getByText('已导航，内部状态不可读',{exact:true})).toBeVisible();
- await page.getByRole('link',{name:'连接设置',exact:true}).click();
- await expect(page).toHaveURL(/section=navigation.*module=demo1/);
- await page.getByRole('button',{name:'删除 Demo website',exact:true}).click();
- await expect(page.getByRole('dialog',{name:'删除网站入口'})).toBeVisible();
- await page.getByRole('button',{name:'确认删除入口',exact:true}).click();
- await expect(page.locator('.sidebar .nav-item').filter({hasText:'Demo website'})).toHaveCount(0);
- expect(m.unknown).toEqual([]);
+test('website create, custom apply, rollback and deletion use the current unified API',async({page})=>{
+ const m=await mock(page);m.state.elevated=true;await page.goto('/settings?section=navigation');await page.getByRole('button',{name:'＋ 添加网站',exact:true}).click();await page.getByLabel('显示名称',{exact:true}).fill('Demo website');await page.getByLabel('网站地址',{exact:true}).fill('https://demo.example/?q=1#start');
+ await page.getByText('自定义外观与脚本（可选）',{exact:true}).click();await page.getByLabel('保存时启用自定义（会在目标网站执行，需检测支持）',{exact:true}).check();await page.getByLabel('自定义 CSS',{exact:true}).fill('h1 { color: pink; }');await page.getByLabel('自定义 JavaScript',{exact:true}).fill('window.MAIN_ORIGIN_MUST_NOT_RUN = true');await page.locator('.inline-editor').getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('.inline-editor')).toHaveCount(0);
+ await page.getByRole('button',{name:'编辑 Demo website',exact:true}).click();await page.getByText('自定义外观与脚本（可选）',{exact:true}).click();await page.getByLabel('自定义 CSS',{exact:true}).fill('h1 { color: blue; }');await page.locator('.inline-editor').getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('.inline-editor')).toHaveCount(0);
+ await page.getByRole('button',{name:'编辑 Demo website',exact:true}).click();await page.getByText('自定义外观与脚本（可选）',{exact:true}).click();await page.getByRole('button',{name:'回退上一版本',exact:true}).click();await expect(page.getByLabel('活动版本 CSS',{exact:true})).toHaveValue('h1 { color: pink; }');await expect(page.getByLabel('自定义 CSS',{exact:true})).toHaveValue('h1 { color: blue; }');expect(await page.evaluate(()=> (window as any).MAIN_ORIGIN_MUST_NOT_RUN)).toBeUndefined();
+ await page.screenshot({path:out+'/website-settings-desktop.png',animations:'disabled'});await page.locator('.inline-editor').getByRole('button',{name:'取消',exact:true}).click();await page.locator('.sidebar a[href="/apps/demo1"]').click();await expect(page.frameLocator('iframe').getByText('Mock website')).toBeVisible();await expect(page.locator('.external-page')).toHaveText('');
+ await page.locator('.sidebar a.nav-item[href="/settings"]').click();await page.getByRole('button',{name:'导航与网站',exact:true}).click();await page.getByRole('button',{name:'编辑 Demo website',exact:true}).click();await page.getByRole('button',{name:'删除网站入口',exact:true}).click();await page.getByRole('dialog',{name:'删除网站入口'}).getByRole('button',{name:'确认删除入口',exact:true}).click();await expect(page.locator('.sidebar .nav-item').filter({hasText:'Demo website'})).toHaveCount(0);expect(m.unknown).toEqual([]);
 });

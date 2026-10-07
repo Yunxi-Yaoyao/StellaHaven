@@ -1,5 +1,7 @@
-import {test,expect,type Page} from '@playwright/test';
-const out='/opt/hermes-workstation/docs/2026-10-06-Stella-upgrade/notes-features';
+import {test as base,expect,type Page} from '@playwright/test';
+const out=process.env.STELLA_SERVICE_ARTIFACTS||'test-results/service-regression';
+const ROOT='http://127.0.0.1:15174';
+const test=base.extend<{network:{unknown:string[];errors:string[]}}>({network:[async({page},use)=>{const network={unknown:[] as string[],errors:[] as string[]};page.on('pageerror',e=>network.errors.push(e.message));await page.route('**/*',r=>{network.unknown.push(r.request().method()+' '+r.request().url());return r.abort('blockedbyclient');});await page.routeWebSocket('**/*',socket=>{const u=new URL(socket.url());if(u.origin===ROOT.replace('http:','ws:')&&(u.pathname==='/'||u.pathname==='/ws/notifications'||u.pathname==='/ws/list/11111111-1111-4111-8111-111111111111'||['/ws/22222222-2222-4222-8222-222222222222','/ws/33333333-3333-4333-8333-333333333333'].includes(u.pathname)))return;network.unknown.push(socket.url());socket.close();});try{await use(network);}finally{expect(network.unknown).toEqual([]);expect(network.errors).toEqual([]);}},{auto:true}]});
 const ws='11111111-1111-4111-8111-111111111111', id='22222222-2222-4222-8222-222222222222';
 async function mock(page:Page) {
  const calls:{path:string,method:string,body:any}[]=[];
@@ -10,6 +12,9 @@ async function mock(page:Page) {
  await page.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url()),p=url.pathname;
   if(url.origin==='http://127.0.0.1:15174' && (p==='/notes'||p==='/'||p.startsWith('/e2e/')||p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')||/\.(svg|png|woff2)$/.test(p)))return route.continue();
+  // Collaboration metadata uses documentation-only fixture values; never contact IP providers.
+  if(req.method()==='GET'&&['https://ipinfo.io/json','https://api.ip.sb/geoip'].includes(url.href))return route.fulfill({json:{ip:'192.0.2.44',city:'Synthetic fixture',region:'Fixture',country:'ZZ'}});
+  if(url.origin!==ROOT)return route.fallback();
   const body=req.postDataJSON();calls.push({path:p,method:req.method(),body});
   const ok=(json:any)=>route.fulfill({json});
   if(p==='/auth/me'||p==='/auth/refresh')return ok(me);
@@ -36,9 +41,13 @@ async function mock(page:Page) {
   if(p==='/search')return ok({items:[{kind:'note',id,label:doc.title,path:'/notes?doc='+id},{kind:'node_status',id:'1',label:'心跳超时',path:'/status/1'}]});
   if(p==='/notifications/unread-count')return ok({count:0});
   if(p==='/config/public-host'||p==='/config/site-background')return ok({value:''});
-  if(p.startsWith('/tags/')||p.startsWith('/doc-tags/')||p.startsWith('/attachments/')||p.startsWith('/document-links/')||p.startsWith('/documents/'))return ok([]);
-  if(p.startsWith('/auth/')||p.startsWith('/api/'))return ok({});
-  return route.fulfill({status:501,json:{detail:'Unmocked blocked: '+p}});
+  if(['/tags/','/doc-tags/','/attachments/','/document-links/','/documents/recent','/auth/sessions','/auth/avatars','/homebg/'].includes(p)&&req.method()==='GET')return ok([]);
+  if(p==='/auth/activity'&&req.method()==='POST')return ok({ok:true});
+  if(p==='/auth/email-service'&&req.method()==='GET')return ok({ready:false});
+  if(p==='/auth/sessions/history'&&req.method()==='GET')return ok({items:[],total:0,page:1,page_size:20});
+  if(p==='/notes/preferences')return ok({});
+  if(docs.some(d=>p===`/documents/${d.id}/backlinks`)&&req.method()==='GET')return ok([]);
+  return route.fallback();
  });
  await page.addInitScript(({ws})=>{localStorage.clear();localStorage.setItem('stella_bootstrap',JSON.stringify({userId:'mock-owner',workspaceId:ws}));},{ws});
  return {calls,state,doc};

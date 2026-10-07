@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '@playwright/test';
+import {serviceFixture} from './fixtures/serviceSettings';
 const checked=(address:string,blocked=false)=>({normalized_url:new URL(address.includes('://')?address:'https://'+address).href,name_suggestion:'建议网站名',access:{status:'reachable',http_status:200},embedding:{status:blocked?'blocked':'allowed',reason_code:blocked?'csp_none':'no_observed_restriction',reason:blocked?"CSP frame-ancestors 'none' 禁止嵌入":'未发现响应头限制'},injection:{status:'unsupported',reason:'跨域直连不能修改 DOM'},help:blocked?{title:'额度 Nginx 配置',location:'/etc/nginx/conf.d/quota.conf',instructions:['在额度服务允许 Stella 精确 origin，保留其他 CSP 和 LAN ACL'],external_url:null}:null,can_save:!blocked,recommended_behavior:blocked?'external':'embedded',issues:[]});
 async function fixture(page:Page,options:{failNavigation?:boolean;loseCreateResponse?:boolean;full?:boolean;module?:string;external?:boolean;blockedCheck?:boolean;supported?:boolean;previous?:boolean;savedDraft?:boolean;legacyNavigation?:boolean;legacyNavigationIcon?:string;legacyIcon?:boolean;corruptReadback?:boolean}={}){
  const unknown:string[]=[],errors:string[]=[],consoleErrors:string[]=[],requests:any[]=[];
@@ -13,13 +14,14 @@ async function fixture(page:Page,options:{failNavigation?:boolean;loseCreateResp
  await page.route('**/*',async route=>{
   const req=route.request(),u=new URL(req.url()),p=u.pathname;
   // Only real Vite files on this isolated loopback origin can pass. No API forwarding.
-  if(u.origin==='http://127.0.0.1:15179'&&(p==='/tests/website-settings.html'||p.startsWith('/tests/')||p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')))return route.continue();
+  if(u.origin==='http://127.0.0.1:15179'&&(p==='/tests/website-settings.html'||p==='/avatar.png'||p.startsWith('/tests/')||p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')))return route.continue();
   const body=req.postData()?req.postDataJSON():null; requests.push({path:p,method:req.method(),body});
   if(p==='/navigation'){if(options.failNavigation&&writes){options.failNavigation=false;return route.fulfill({status:503,json:{detail:'fixture refresh failed'}});}if(body)entries=body.entries;return route.fulfill({json:{entries}});}
   if(['/auth/avatars','/auth/sessions','/homebg/'].includes(p))return route.fulfill({json:[]});
   if(p==='/config/public-host')return route.fulfill({json:{value:''}});
   if(p==='/auth/email-service')return route.fulfill({json:{ready:false}});
   if(p==='/auth/security')return route.fulfill({json:{enabled:true,configured:true,elevated:true,setup_required:false,single_user:true}});
+  if(p==='/service-settings/drive'&&req.method()==='GET')return route.fulfill({json:serviceFixture('drive')});
   if(p==='/drive/connection')return route.fulfill({json:{service_url:'https://openlist.example.test/',auth_mode:'manual',has_token:false}});
   if(p==='/drive/status')return route.fulfill({json:{configured:true}});
   if(p==='/builtin-injections/drive')return route.fulfill({json:{site:'drive',source:'preset',active:{enabled:false,css:'',js:'',timing:'dom_ready',version:'fixture-v1',status:'active'},draft:null,previous:null,preset:{css:'',js:''}}});
@@ -263,8 +265,8 @@ test('真实SettingsPage只保留一个列表，内置深链唯一设置源位�
  const f=await fixture(page,{full:true,module:'drive'});
  await expect(page.locator('.nav-row')).toHaveCount(8);
  await expect(page.locator('[data-row-id="drive"] .inline-editor')).toBeVisible();
- await expect(page.locator('[data-row-id="drive"] .builtin-settings')).toHaveCount(1);
- await expect(page.locator('.builtin-settings')).toHaveCount(1);
+ await expect(page.locator('[data-row-id="drive"] .service-editor')).toHaveCount(1);
+ await expect(page.locator('.builtin-settings,.connection-inline')).toHaveCount(0);
  await expect(page.locator('.website-row')).toHaveCount(0);
  expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);
 });
@@ -340,6 +342,7 @@ test('回退保留既有API并核对活动版本，不把本地代码执行作�
 test('内置深链加载后名称正确，唯一服务代码草稿切行也提示保留',async({page})=>{
  const f=await fixture(page,{full:true,module:'drive'});
  await expect(page.getByLabel('显示名称',{exact:true})).toHaveValue('网盘');
+ await page.locator('.service-editor .advanced > summary').click();
  await page.getByLabel('自定义 CSS',{exact:true}).fill('unsaved builtin CSS');
  await page.getByRole('button',{name:'编辑 额度',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'未保存的修改'})).toBeVisible();

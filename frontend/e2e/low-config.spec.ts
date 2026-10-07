@@ -1,177 +1,61 @@
-import {test,expect,type Page} from '@playwright/test';
+// Legacy approval-flow scenarios expressed through the current atomic website contract.
+import {test as base,expect,type Page} from '@playwright/test';
 import {mock} from './low-config-mocks';
-const out='/opt/hermes-workstation/docs/2026-10-06-Stella-upgrade/low-config-fix';
-async function setup(page:Page,{failResolve=false,failTarget=false}={}){
- const m=await mock(page);m.state.elevated=true;
- const flow:{path:string;body:any}[]=[];let target:any;
- await page.route(/\/integration-targets(?:\/resolve)?$/,async route=>{
-  const req=route.request(),path=new URL(req.url()).pathname,body=req.postDataJSON();
-  if(req.method()==='GET')return route.fulfill({json:target?[target]:[]});
-  flow.push({path,body});
+const ROOT='http://127.0.0.1:15274';
+const ADDRESS='http://owned-private.test:12020/photos?q=1#grid';
+async function setup(page:Page){
+ const m=await mock(page);m.state.elevated=true;const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const writes:any[]=[],checks:any[]=[];const options={rejectCheck:false,rejectSave:false,failRead:false,uncertain:false};
+ let item:any=null;const keys=new Map<string,any>();
+ const checked=(address:string)=>({normalized_url:address,name_suggestion:'照片',access:{status:options.rejectCheck?'blocked':'reachable',http_status:200},embedding:{status:options.rejectCheck?'blocked':'allowed',reason_code:options.rejectCheck?'invalid_target':'no_observed_restriction',reason:options.rejectCheck?'禁止元数据或非法目标':'未发现响应头限制'},injection:{status:'unsupported',reason:'未启用自定义'},can_save:!options.rejectCheck,recommended_behavior:'embedded',issues:[],help:null});
+ await page.route(ROOT+'/website-settings/check',route=>{checks.push(route.request().postDataJSON());return route.fulfill({json:checked(checks.at(-1).address)});});
+ await page.route(ROOT+'/website-settings',async route=>{
+  const body=route.request().postDataJSON();writes.push(body);
   if(!m.state.elevated)return route.fulfill({status:403,json:{detail:{code:'admin_elevation_required'}}});
-  if(path.endsWith('/resolve'))return route.fulfill(failResolve?{status:422,json:{detail:'禁止元数据或非法目标'}}:{json:{normalized_origin:new URL(body.upstream_url).origin,resolved_ips:['10.66.0.2'],status:'resolved',private_addresses:true}});
-  if(failTarget)return route.fulfill({status:422,json:{detail:'目标解析/批准列表无效'}});
-  target={...body,id:'frozen1'};return route.fulfill({status:201,json:target});
+  if(options.rejectSave)return route.fulfill({status:422,json:{detail:'目标校验失败，未创建网站'}});
+  if(!keys.has(body.idempotency_key)){
+   item={id:'demo1',name:body.name,icon:body.icon,adapter:'generic',mode:body.open_behavior==='external'?'link':body.address.includes('owned-private')?'isolated_proxy':'iframe',browser_url:body.address,origin:'https://mock-embed.test',target_id:'server-managed-target',initial_path:new URL(body.address).pathname+new URL(body.address).search+new URL(body.address).hash,keep_alive:body.keep_alive,enabled:true,injection:{active:null,draft:body.custom,previous:null},capabilities:{injection:false}};
+   m.addModule(item);m.setEntry({id:item.id,title:item.name,icon:item.icon,visible:body.visible});keys.set(body.idempotency_key,item);
+  }
+  if(options.uncertain){options.uncertain=false;return route.abort('connectionreset');}return route.fulfill({json:item});
  });
- const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
- return {...m,flow,errors};
+ await page.route(ROOT+'/external-modules/demo1',route=>options.failRead?route.fulfill({status:503,json:{detail:'读取暂不可用'}}):route.fallback());
+ return {...m,errors,writes,checks,options,keys,get item(){return item;}};
 }
-async function form(page:Page,url='http://10.66.0.2:12020/photos?q=1#grid'){
- await page.goto('/settings?section=navigation');
- await page.getByRole('button',{name:'新增网站',exact:true}).click();
- await page.getByLabel('网站名称',{exact:true}).fill('私网照片');
- await page.getByLabel('网站 URL',{exact:true}).fill(url);
- await page.getByText('高级接入',{exact:true}).click();
- await page.getByText('iframe 直连',{exact:true}).click();
- await page.getByText('独立域名代理',{exact:true}).click();
-}
-test('one URL approves frozen target and creates proxy without IP entry or background detection',async({page})=>{
- const m=await setup(page);await form(page);
- expect(m.flow).toEqual([]);
- await expect(page.getByLabel('此上游为我自有或明确受控的服务',{exact:true})).not.toBeChecked();
- await page.getByLabel('允许此固定目标访问私网或本机地址',{exact:true}).check();
- await page.getByLabel('为此网址批准固定目标',{exact:true}).check();
- await page.screenshot({path:out+'/approval-desktop.png',fullPage:true,animations:'disabled'});
- await page.getByRole('button',{name:'批准固定上游并创建网站',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('网站入口已更新');
- expect(m.flow.map(x=>x.path)).toEqual(['/integration-targets/resolve','/integration-targets']);
- expect(m.flow[0]!.body).toEqual({upstream_url:'http://10.66.0.2:12020',allow_private:true});
- expect(m.flow[1]!.body).toEqual({name:'私网照片',upstream_url:'http://10.66.0.2:12020',allowed_ips:['10.66.0.2'],controlled:false,headers:{}});
- const creates=m.requests.filter(x=>x.path==='/external-modules'&&x.method==='POST');expect(creates).toHaveLength(1);
- expect(creates[0]!.body).toMatchObject({target_id:'frozen1',mode:'isolated_proxy',initial_path:'/photos?q=1#grid',browser_url:'http://10.66.0.2:12020/photos?q=1#grid'});
- await page.screenshot({path:out+'/created-desktop.png',fullPage:true,animations:'disabled'});
- await page.goto('/apps/demo1');
- await expect(page.frameLocator('iframe').getByText('Mock website',{exact:true})).toBeVisible();
- await expect(page.getByText('已导航，内部状态不可读',{exact:true})).toBeVisible();
- expect(m.requests.find(x=>x.path==='/__stella/bootstrap')?.method).toBe('POST');
- expect(m.requests.some(x=>x.path==='/photos')).toBe(false);
- await page.screenshot({path:out+'/proxy-launch.png',fullPage:true,animations:'disabled'});
- expect(m.errors).toEqual([]);expect(m.unknown).toEqual([]);
+const test=base.extend<{fixture:Awaited<ReturnType<typeof setup>>}>({fixture:async({page},use)=>{const f=await setup(page);try{await use(f);}finally{expect(f.errors).toEqual([]);expect(f.unknown).toEqual([]);expect(f.requests.filter(x=>x.path.startsWith('/integration-targets'))).toEqual([]);}}});
+async function form(page:Page,url=ADDRESS){await page.goto('/settings?section=navigation');await page.getByRole('button',{name:'＋ 添加网站',exact:true}).click();await page.getByLabel('显示名称',{exact:true}).fill('私网照片');await page.getByLabel('网站地址',{exact:true}).fill(url);}
+const save=(page:Page)=>page.locator('.inline-editor').getByRole('button',{name:'保存',exact:true}).click();
+test('one URL retains path and server-managed isolated launch without client target approval',async({page,fixture})=>{
+ await form(page);expect(fixture.checks).toEqual([]);expect(fixture.writes).toEqual([]);await expect(page.getByText('批准固定目标',{exact:false})).toHaveCount(0);await save(page);await expect(page.locator('.inline-editor')).toHaveCount(0);expect(fixture.writes).toHaveLength(1);expect(fixture.writes[0].address).toBe(ADDRESS);expect(fixture.item.initial_path).toBe('/photos?q=1#grid');
+ await page.locator('.sidebar a[href="/apps/demo1"]').click();await expect(page.frameLocator('iframe').getByText('Mock website')).toBeVisible();await expect(page.locator('.external-page')).toHaveText('');expect(fixture.requests.find(x=>x.path==='/__stella/bootstrap')?.method).toBe('POST');
 });
-
-test('target readback failure retains URL path and re-verifies before retry without recreating target',async({page})=>{
- const m=await setup(page);let reads=0;
- await page.route('**/integration-targets',async route=>{
-  if(route.request().method()!=='GET')return route.fallback();
-  reads++;
-  if(reads===1)return route.fulfill({status:503,json:{detail:'暂时无法回读目标'}});
-  return route.fulfill({json:[{id:'frozen1',name:'私网照片',upstream_url:'http://10.66.0.2:12020/',controlled:false,allowed_ips:['10.66.0.2']}]});
- });
- await form(page);
- await page.getByLabel('允许此固定目标访问私网或本机地址',{exact:true}).check();
- await page.getByLabel('为此网址批准固定目标',{exact:true}).check();
- await page.getByRole('button',{name:'批准固定上游并创建网站',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('暂时无法回读目标');
- expect(m.requests.filter(x=>x.path==='/external-modules'&&x.method==='POST')).toHaveLength(0);
- await page.getByRole('button',{name:'创建网站',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('网站入口已更新');
- expect(reads).toBe(2);
- expect(m.flow.filter(x=>x.path==='/integration-targets')).toHaveLength(1);
- expect(m.requests.find(x=>x.path==='/external-modules'&&x.method==='POST')!.body.initial_path).toBe('/photos?q=1#grid');
- expect(m.errors).toEqual([]);
+test('readback failure retains address and only retries the exact module GET',async({page,fixture})=>{
+ await form(page);fixture.options.failRead=true;await save(page);await expect(page.getByRole('button',{name:'重试回读',exact:true})).toBeEnabled();await expect(page.getByLabel('网站地址')).toHaveValue(ADDRESS);expect(fixture.writes).toHaveLength(1);fixture.options.failRead=false;await page.getByRole('button',{name:'重试回读',exact:true}).click();await expect(page.locator('.inline-editor')).toHaveCount(0);expect(fixture.writes).toHaveLength(1);
 });
-
-async function consent(page:Page){
- await page.getByLabel('允许此固定目标访问私网或本机地址',{exact:true}).check();
- await page.getByLabel('为此网址批准固定目标',{exact:true}).check();
-}
-for(const failure of ['resolve','target'] as const)test(failure+' rejection never creates a module',async({page})=>{
- const m=await setup(page,{failResolve:failure==='resolve',failTarget:failure==='target'});await form(page,'http://169.254.169.254/');await consent(page);
- await page.getByRole('button',{name:'批准固定上游并创建网站',exact:true}).click();
- await expect(page.getByRole('status')).toContainText(failure==='resolve'?'禁止元数据或非法目标':'目标解析/批准列表无效');
- expect(m.requests.filter(x=>x.path==='/external-modules'&&x.method==='POST')).toHaveLength(0);
- expect(m.flow.filter(x=>x.path==='/integration-targets')).toHaveLength(failure==='resolve'?0:1);
- expect(m.errors).toEqual([]);
+for(const phase of ['check','save'] as const)test(phase+' rejection retains all inputs and never creates a module',async({page,fixture})=>{
+ await form(page,'http://169.254.169.254/');fixture.options.rejectCheck=phase==='check';fixture.options.rejectSave=phase==='save';await save(page);await expect(page.getByRole('alert')).toContainText(phase==='check'?'当前设置不能保存':'目标校验失败');expect(fixture.item).toBeNull();expect(fixture.writes).toHaveLength(phase==='check'?0:1);await expect(page.getByLabel('网站地址')).toHaveValue('http://169.254.169.254/');
 });
-test('global elevation modal requires unlock and explicit one retry before approving a target',async({page})=>{
- const m=await setup(page);m.state.elevated=false;await form(page);await consent(page);
- await page.getByRole('button',{name:'批准固定上游并创建网站',exact:true}).click();
- await expect(page.getByRole('dialog')).toBeVisible();expect(m.flow).toHaveLength(1);
- await page.screenshot({path:out+'/approval-admin-modal.png',fullPage:true,animations:'disabled'});
- await page.getByRole('dialog').getByLabel('管理密码',{exact:true}).fill('MOCK_ADMIN_NOT_SECRET');
- await page.getByRole('button',{name:'验证管理权限',exact:true}).click();
- await expect(page.getByRole('button',{name:'确认重试一次',exact:true})).toBeVisible();expect(m.flow).toHaveLength(1);
- await page.getByRole('button',{name:'确认重试一次',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('网站入口已更新');
- expect(m.flow.map(x=>x.path)).toEqual(['/integration-targets/resolve','/integration-targets/resolve','/integration-targets']);
- expect(await page.evaluate(()=>JSON.stringify(localStorage))).not.toContain('MOCK_ADMIN_NOT_SECRET');
- expect(m.requests.filter(x=>x.path==='/external-modules'&&x.method==='POST')).toHaveLength(1);
- expect(m.errors).toEqual([]);expect(m.unknown).toEqual([]);
+test('global elevation unlock requires separate confirmation and one retry of website save',async({page,fixture})=>{
+ fixture.state.elevated=false;await form(page);await save(page);await expect(page.getByRole('dialog',{name:'解锁管理权限'})).toBeVisible();expect(fixture.writes).toHaveLength(1);await page.getByRole('dialog').getByLabel('管理密码',{exact:true}).fill('synthetic-fixture');await page.getByRole('button',{name:'验证管理权限',exact:true}).click();await expect(page.getByRole('button',{name:'确认重试一次',exact:true})).toBeVisible();expect(fixture.writes).toHaveLength(1);await page.getByRole('button',{name:'确认重试一次',exact:true}).click();await expect(page.locator('.inline-editor')).toHaveCount(0);expect(fixture.writes).toHaveLength(2);expect(fixture.keys.size).toBe(1);
 });
-test('failed module readback retries update rather than creating another module',async({page})=>{
- const m=await setup(page);let reads=0;
- await page.route(/\/external-modules\/demo1$/,async route=>{
-  if(route.request().method()==='GET'&&++reads===1)return route.fulfill({status:503,json:{detail:'模块回读暂不可用'}});
-  return route.fallback();
- });
- await form(page);await consent(page);
- await page.getByRole('button',{name:'批准固定上游并创建网站',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('模块回读暂不可用');
- await page.getByRole('button',{name:'应用接入变更',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('网站入口已更新');
- expect(m.requests.filter(x=>x.path==='/external-modules'&&x.method==='POST')).toHaveLength(1);
- expect(m.requests.filter(x=>x.path==='/external-modules/demo1'&&x.method==='PATCH')).toHaveLength(1);
- expect(m.flow.filter(x=>x.path==='/integration-targets')).toHaveLength(1);expect(m.errors).toEqual([]);
+test('cancelled elevation leaves form and never issues a hidden retry',async({page,fixture})=>{
+ fixture.state.elevated=false;await form(page);await save(page);await page.getByRole('dialog',{name:'解锁管理权限'}).getByRole('button',{name:'取消',exact:true}).click();await expect(page.getByLabel('网站地址')).toHaveValue(ADDRESS);expect(fixture.writes).toHaveLength(1);expect(fixture.item).toBeNull();
 });
-test('Immich retains original browser origin while approving explicit private upstream and ownership',async({page})=>{
- const m=await setup(page);await form(page,'https://immich.xiya.live/');
- await page.getByText('通用网站',{exact:true}).click();await page.getByText('Immich（保留原域名 / OIDC）',{exact:true}).click();
- await page.getByLabel('独立上游根地址',{exact:true}).fill('http://10.66.0.2:12020/');
- await page.getByLabel('此上游为我自有或明确受控的服务',{exact:true}).check();await consent(page);
- await page.screenshot({path:out+'/immich-private-upstream.png',fullPage:true,animations:'disabled'});
- await page.getByRole('button',{name:'批准固定上游并创建网站',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('网站入口已更新');
- expect(m.flow[0]!.body).toEqual({upstream_url:'http://10.66.0.2:12020/',allow_private:true});
- expect(m.flow[1]!.body.controlled).toBe(true);
- expect(m.requests.find(x=>x.path==='/external-modules'&&x.method==='POST')!.body).toMatchObject({browser_url:'https://immich.xiya.live/',adapter:'immich',initial_path:'/',target_id:'frozen1'});
- expect(m.errors).toEqual([]);
+test('existing Immich retains dedicated original-domain and OIDC settings, not website API',async({page,fixture})=>{
+ await page.goto('/settings?section=navigation');await page.getByRole('button',{name:'编辑 图库',exact:true}).click();await expect(page.getByLabel('Immich 浏览器地址')).toHaveValue('https://owned-gallery.test');await expect(page.getByRole('button',{name:'登录方式',exact:true})).toHaveText('OIDC 单点登录');expect(fixture.writes).toHaveLength(0);expect(fixture.checks).toHaveLength(0);
 });
-test('default iframe never auto-switches mode or resolves a URL',async({page})=>{
- const m=await setup(page);await page.goto('/settings?section=navigation');await page.getByRole('button',{name:'新增网站',exact:true}).click();
- await page.getByLabel('网站名称',{exact:true}).fill('直连');await page.getByLabel('网站 URL',{exact:true}).fill('https://third-party.example/');
- await expect(page.getByLabel('为此网址批准固定目标',{exact:true})).toHaveCount(0);
- await page.getByRole('button',{name:'创建网站',exact:true}).click();await expect(page.getByRole('status')).toContainText('网站入口已更新');
- expect(m.flow).toEqual([]);expect(m.requests.find(x=>x.path==='/external-modules'&&x.method==='POST')!.body.mode).toBe('iframe');expect(m.errors).toEqual([]);
+test('ordinary direct website saves embedded behavior without automatic client proxy migration',async({page,fixture})=>{
+ await form(page,'https://third-party.example/');await save(page);await expect(page.locator('.inline-editor')).toHaveCount(0);expect(fixture.item.mode).toBe('iframe');expect(fixture.writes[0].open_behavior).toBe('embedded');expect(fixture.writes[0]).not.toHaveProperty('target_id');
 });
-test('advanced existing approved target bypasses new approval flow',async({page})=>{
- const m=await setup(page);
- await page.route('**/integration-targets',async route=>route.request().method()==='GET'?route.fulfill({json:[{id:'existing',name:'已批准服务',upstream_url:'http://10.66.0.2:12020/',controlled:true}]}):route.fallback());
- await form(page);await page.getByRole('button',{name:'选择已批准上游',exact:true}).click();
- await page.getByRole('button',{name:'—',exact:true}).click();await page.getByText('已批准服务',{exact:true}).click();
- await expect(page.getByLabel('为此网址批准固定目标',{exact:true})).toHaveCount(0);
- await page.getByRole('button',{name:'创建网站',exact:true}).click();await expect(page.getByRole('status')).toContainText('网站入口已更新');
- expect(m.flow).toEqual([]);expect(m.requests.find(x=>x.path==='/external-modules'&&x.method==='POST')!.body.target_id).toBe('existing');expect(m.errors).toEqual([]);
+test('explicit new-window behavior is preserved instead of silently switching back',async({page,fixture})=>{
+ await form(page);await page.getByLabel('打开方式').selectOption('external');await save(page);await expect(page.locator('.inline-editor')).toHaveCount(0);expect(fixture.item.mode).toBe('link');
 });
-test('mobile fixed approval form stays inside viewport and readable',async({page})=>{
- const m=await setup(page);await page.setViewportSize({width:390,height:844});await form(page);await consent(page);
- const button=page.getByRole('button',{name:'批准固定上游并创建网站',exact:true});await button.scrollIntoViewIfNeeded();
- expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- expect(await page.locator('.approval').evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;})).toBe(true);
- await page.screenshot({path:out+'/approval-mobile.png',fullPage:true,animations:'disabled'});
- expect(m.flow).toEqual([]);expect(m.errors).toEqual([]);
+test('mobile URL form is compact and stays in viewport without approval controls',async({page,fixture},info)=>{
+ await page.setViewportSize({width:390,height:844});await form(page);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await expect(page.getByText('批准固定上游并创建网站',{exact:true})).toHaveCount(0);await page.screenshot({path:info.outputPath('url-only-mobile.png'),animations:'disabled'});expect(fixture.writes).toHaveLength(0);
 });
-
-test('editing a refreshed existing proxy never drops its previously approved target',async({page})=>{
- const m=await setup(page);await form(page);await consent(page);
- await page.getByRole('button',{name:'批准固定上游并创建网站',exact:true}).click();await expect(page.getByRole('status')).toContainText('网站入口已更新');
- await page.route(/\/external-modules\/demo1$/,async route=>route.request().method()==='GET'?route.fulfill({json:{id:'demo1',name:'私网照片',icon:'globe',mode:'isolated_proxy',adapter:'generic',browser_url:'http://10.66.0.2:12020/new-path',target_id:'frozen1',initial_path:'/new-path',enabled:true,injection:{draft:null,active:null,previous:null},capabilities:{injection:true}}}):route.fallback());
- await page.getByRole('button',{name:'编辑 私网照片',exact:true}).click();
- await expect(page.getByLabel('网站 URL',{exact:true})).toHaveValue('http://10.66.0.2:12020/new-path');
- await expect(page.getByLabel('为此网址批准固定目标',{exact:true})).toHaveCount(0);
- await expect(page.getByRole('button',{name:'应用接入变更',exact:true})).toBeVisible();expect(m.errors).toEqual([]);
+test('reopening existing server-managed proxy retains path and never posts a replacement',async({page,fixture})=>{
+ await form(page);await save(page);await expect(page.locator('.inline-editor')).toHaveCount(0);await page.getByRole('button',{name:'编辑 私网照片',exact:true}).click();await expect(page.getByLabel('网站地址')).toHaveValue(ADDRESS);expect(fixture.item.target_id).toBe('server-managed-target');expect(fixture.writes).toHaveLength(1);
 });
-
-test('ambiguous create response cannot be retried into a duplicate module',async({page})=>{
- const m=await setup(page);let writes=0;
- await page.route('**/external-modules',async route=>{
-  if(route.request().method()!=='POST')return route.fallback();
-  writes++;
-  // Model a committed write whose successful response did not reach this client.
-  m.addModule({...route.request().postDataJSON(),id:'committed',origin:'https://mock-embed.test',capabilities:{injection:true},injection:{draft:null,active:null,previous:null}});
-  return route.fulfill({status:503,json:{detail:'响应丢失'}});
- });
- await form(page);await consent(page);await page.getByRole('button',{name:'批准固定上游并创建网站',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('创建结果未确认');
- await expect(page.getByRole('button',{name:'创建网站',exact:true})).toBeDisabled();
- expect(writes).toBe(1);expect(m.errors).toEqual([]);
+test('uncertain create retries frozen payload and idempotency key, never creates duplicate',async({page,fixture})=>{
+ await form(page);fixture.options.uncertain=true;await save(page);await expect(page.getByRole('button',{name:'确认保存结果',exact:true})).toBeEnabled();await expect(page.getByLabel('网站地址')).toBeDisabled();expect(fixture.keys.size).toBe(1);await page.getByRole('button',{name:'确认保存结果',exact:true}).click();await expect(page.locator('.inline-editor')).toHaveCount(0);expect(fixture.writes).toHaveLength(2);expect(fixture.writes[0]).toEqual(fixture.writes[1]);expect(fixture.keys.size).toBe(1);
 });

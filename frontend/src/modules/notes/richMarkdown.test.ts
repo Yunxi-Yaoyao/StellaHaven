@@ -27,7 +27,7 @@ async function browserHarness(t: import('node:test').TestContext) {
   });
   await server.listen();
   const address = server.httpServer!.address() as { port: number };
-  const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || '/usr/sbin/google-chrome-stable', args: ['--no-sandbox'] });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN, args: ['--no-sandbox'] });
   t.after(() => browser.close());
   const page = await browser.newPage();
   const errors: string[] = [];
