@@ -40,14 +40,14 @@ def integration_env(monkeypatch,upstream):
 def test_builtin_snapshot_releases_db_before_slow_html_body(integration_env,upstream,monkeypatch):
     c,factory,app,uid,sid,mid,origin,cookie,seen=integration_env
     with factory() as db:
-        row=db.get(AppConfig,store.KEY);cfg=json.loads(row.value);cfg['modules'][mid]['adapter']='openlist';row.value=json.dumps(cfg)
-        state=builtin.empty_state();state['drive']['active']=builtin.default_active('drive')|{'enabled':True,'css':'body{--snapshot-proof:1}','js':'','version':'snapshot-test-active'}
-        db.add(AppConfig(key=builtin.KEY,value=json.dumps(state)))
-        db.add(AppConfig(key='service_appearance_v1',value=json.dumps({'drive':{'theme':'original','simplified':False}})));db.commit()
-    read=threading.Event();captured=[];original=builtin.read
+        row=db.get(AppConfig,store.KEY);cfg=json.loads(row.value)
+        cfg['modules'][mid]['adapter']='generic'
+        cfg['modules'][mid]['injection']['active']={'enabled':True,'css':'body{--snapshot-proof:1}','js':'','timing':'document_start','csp_policy':'reject','version':'snapshot-test-active'}
+        row.value=json.dumps(cfg);db.commit()
+    read=threading.Event();captured=[];original=store.get_module
     def observe(db,site):
         result=original(db,site);captured.append(db);read.set();return result
-    monkeypatch.setattr(builtin,'read',observe)
+    monkeypatch.setattr(store,'get_module',observe)
     pool=ThreadPoolExecutor(max_workers=1);future=pool.submit(c.get,origin+'/',headers={'Cookie':cookie})
     try:
         assert read.wait(5),'no published injection read'
@@ -58,6 +58,6 @@ def test_builtin_snapshot_releases_db_before_slow_html_body(integration_env,upst
     finally:upstream[2].set()
     try:
         response=future.result(timeout=10);assert response.status_code==200,response.text;assert 'snapshot-test-active' in response.text and 'snapshot-proof' in response.text
-        assert 'clearPathCache' in response.text and 'mergeSwitchLayout' not in response.text
+        assert 'clearPathCache' not in response.text and 'mergeSwitchLayout' not in response.text
         assert 'background-color: #14171f !important' not in response.text
     finally:pool.shutdown(wait=True)

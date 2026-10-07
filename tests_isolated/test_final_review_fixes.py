@@ -13,7 +13,10 @@ from app.services import integrations as store, admin_security
 def adapter(factory, mid, name):
     with factory() as db:
         row=db.get(AppConfig,store.KEY);value=json.loads(row.value)
-        value['modules'][mid]['adapter']=name;row.value=json.dumps(value);db.commit()
+        from app.services.website_templates import catalog
+        value['modules'][mid]['adapter']='generic'
+        value['modules'][mid]['request_policy']=catalog()[0]['draft']['request_policy'] if name=='openlist' else {}
+        row.value=json.dumps(value);db.commit()
 
 
 @pytest.mark.parametrize('state',['locked','expired','other_sid'])
@@ -69,7 +72,7 @@ def test_openlist_existing_ws_loses_access_on_lock_or_reconfiguration(integratio
         assert closed.value.code==1008
 
 
-@pytest.mark.parametrize('change',[{'adapter':'immich','browser_url':'https://immich.xiya.live'},{'initial_path':'/changed'},{'target_id':'target2'},{'enabled':False}])
+@pytest.mark.parametrize('change',[{'browser_url':'https://different-website.test/'},{'initial_path':'/changed'},{'target_id':'target2'},{'enabled':False}])
 def test_identity_patch_recomputes_origin_and_revokes_prior_authorization(integration_env,change):
     c,f,app,uid,sid,mid,origin,cookie,seen=integration_env
     with f() as db:
@@ -90,37 +93,19 @@ def test_identity_patch_recomputes_origin_and_revokes_prior_authorization(integr
 
 
 @pytest.mark.parametrize('url',['https://IMMICH.xiya.live','HTTPS://immich.xiya.live','HTTPS://IMMICH.XIYA.LIVE/'])
-def test_immich_case_equivalence_canonical_host_and_unique_origin(integration_env,url):
+def test_special_domain_adapter_cannot_be_recreated(integration_env,url):
     c,f,app,uid,sid,mid,origin,cookie,seen=integration_env
-    response=c.patch('/external-modules/'+mid,json={'adapter':'immich','browser_url':url})
-    assert response.status_code==200,response.text
-    assert response.json()['browser_url']==url
-    assert response.json()['origin']=='https://immich.xiya.live'
-    launch=c.post('/external-modules/'+mid+'/launch').json()
-    assert launch['url'].startswith('https://immich.xiya.live/')
-    boot=c.post(launch['url'],data=launch['fields'],headers={'Origin':'https://stella.xiya.live'},follow_redirects=False)
-    assert boot.status_code==303,boot.text
-    new_cookie=boot.headers['set-cookie'].split(';')[0]
-    assert c.get('https://immich.xiya.live/echo',headers={'Cookie':new_cookie}).status_code==200
-    body={'name':'duplicate','icon':'globe','mode':'isolated_proxy','adapter':'immich','browser_url':'https://immich.xiya.live','target_id':'target','initial_path':'/','enabled':True}
-    assert c.post('/external-modules',json=body).status_code==409
-    with f() as db:
-        row=db.get(AppConfig,store.KEY);value=json.loads(row.value)
-        value['modules'][mid]['origin']='HTTPS://IMMICH.XIYA.LIVE'
-        value['modules']['b'*32]=dict(value['modules'][mid],id='b'*32,adapter='generic',origin='https://app-'+('b'*32)+'.xiya.live')
-        row.value=json.dumps(value);db.commit()
-    assert c.post('/external-modules',json=body).status_code==409
-    assert c.patch('/external-modules/'+('b'*32),json={'adapter':'immich','browser_url':'https://immich.xiya.live'}).status_code==409
-    assert c.patch('/external-modules/'+mid,json={'browser_url':url}).json()['origin']=='https://immich.xiya.live'
+    with f() as db: before=store.state(db)
+    assert c.patch('/external-modules/'+mid,json={'adapter':'immich','browser_url':url}).status_code==422
+    assert c.post('/external-modules',json={'name':'Retired adapter','adapter':'immich','mode':'iframe','browser_url':url}).status_code==422
+    with f() as db: assert store.state(db)==before
+    assert not seen
 
 
-def test_immich_domain_change_reset_and_duplicate_rejection(integration_env):
+def test_generic_domain_change_retains_own_isolated_origin(integration_env):
     c,f,app,uid,sid,mid,origin,cookie,seen=integration_env
-    assert c.patch('/external-modules/'+mid,json={'adapter':'immich','browser_url':'https://immich.xiya.live'}).json()['origin']=='https://immich.xiya.live'
-    assert c.patch('/external-modules/'+mid,json={'browser_url':'https://immich.yunxi.life'}).json()['origin']=='https://immich.yunxi.life'
-    with f() as db:
-        row=db.get(AppConfig,store.KEY);v=json.loads(row.value)
-        v['modules']['b'*32]=dict(v['modules'][mid],id='b'*32,adapter='generic',origin='https://app-'+('b'*32)+'.xiya.live')
-        row.value=json.dumps(v);db.commit()
-    assert c.patch('/external-modules/'+('b'*32),json={'adapter':'immich','browser_url':'https://immich.yunxi.life'}).status_code==409
-    assert c.patch('/external-modules/'+mid,json={'adapter':'generic'}).json()['origin']==origin
+    r=c.patch('/external-modules/'+mid,json={'browser_url':'https://immich.xiya.live'})
+    assert r.status_code==200 and r.json()['origin']==origin and r.json()['adapter']=='generic'
+    r=c.patch('/external-modules/'+mid,json={'browser_url':'https://immich.yunxi.life'})
+    assert r.status_code==200 and r.json()['origin']==origin
+    with f() as db: assert not any(g['id']==mid for g in store.state(db)['grants'].values())

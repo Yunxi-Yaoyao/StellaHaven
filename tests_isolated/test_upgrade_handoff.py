@@ -154,7 +154,7 @@ def test_runtime_openapi_registers_all_new_modules_and_query_budgets(monkeypatch
     monkeypatch.setenv('STELLA_TRUSTED_ORIGINS','http://testserver')
     from main import app
     paths=app.openapi()['paths']
-    for p in ['/navigation','/external-modules','/search','/timeline','/notes-tools/quick-record','/auth/security','/builtin-injections/{site}','/integration-assets/gallery.js']:
+    for p in ['/navigation','/external-modules','/search','/timeline','/notes-tools/quick-record','/auth/security','/website-templates','/website-assets/{mid}.js']:
         assert p in paths,p
     params=paths['/nodes/{node_id}/metrics']['get']['parameters']
     limit=next(p for p in params if p['name']=='limit')['schema']

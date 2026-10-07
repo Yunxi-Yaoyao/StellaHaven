@@ -156,7 +156,8 @@ def present(module, config=None):
     result.setdefault('keep_alive', False)
     from app.services.website_connection import effective_connection, public_connection, RequestPolicy
     result.setdefault('template_id',None)
-    result.setdefault('connection',public_connection(effective_connection(module),{}))
+    target = config.get('targets',{}).get(module.get('target_id')) if config else None
+    result.setdefault('connection',public_connection(effective_connection(module,target),target.get('headers',{}) if target else {}))
     result['connection'] = {k:v for k,v in result['connection'].items() if k not in {'token','clear_token'}}
     result.setdefault('background','solid')
     result.setdefault('request_policy',RequestPolicy().model_dump())

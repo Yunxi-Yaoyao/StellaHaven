@@ -63,7 +63,7 @@ backend-test:
     - for file in tests_isolated/test_*.py; do .venv/bin/python -m pytest -q "$file" --noconftest || exit $?; done
     - .venv/bin/python -m pytest -q tests_notes_upgrade --confcutdir=tests_notes_upgrade
     - .venv/bin/python -m pytest -q tests_website_settings --confcutdir=tests_website_settings
-    - .venv/bin/python -m pytest -q tests_service_settings/test_api.py tests_service_settings/test_review_boundaries.py --noconftest
+    - .venv/bin/python -m pytest -q tests_generic_templates --noconftest
 
 frontend-build:
   extends: .branch-validation

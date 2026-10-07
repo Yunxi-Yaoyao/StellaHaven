@@ -91,7 +91,7 @@ def test_proxy_preserves_range_and_bytes(monkeypatch, method):
         return httpx.Response(206, headers={'Content-Range':'bytes 0-5/20', 'Content-Length':'6'}, stream=Raw())
     monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(upstream), **kw))
     app = FastAPI(); app.include_router(drive.router)
-    app.dependency_overrides[get_db] = lambda: None
+    app.dependency_overrides[get_db] = lambda: SimpleNamespace(get=lambda *a, **kw: None)
     app.dependency_overrides[current_user] = lambda: SimpleNamespace(is_admin=False)
     with TestClient(app) as client:
         r = client.request(method, '/drive/openlist/file.bin', headers={'Range':'bytes=0-5', 'Cookie':'stella_at=SECRET'})

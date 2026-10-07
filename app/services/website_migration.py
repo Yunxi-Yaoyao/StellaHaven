@@ -27,9 +27,11 @@ def digest(value):
     return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=True).encode()).hexdigest()
 
 
-def exact_legacy_signatures():
+def exact_legacy_signatures(*, active=None, appearance=None):
     from app.services.drive import OPENLIST_THEME_CSS, OPENLIST_THEME_JS
-    return {'style':[digest_text(OPENLIST_THEME_CSS)], 'script':[digest_text(OPENLIST_THEME_JS)]}
+    scripts=[digest_text(OPENLIST_THEME_JS)]
+    if active is not None: scripts.append(digest_text(builtin.client_code('drive',active,appearance)))
+    return {'style':[digest_text(OPENLIST_THEME_CSS)], 'script':scripts}
 
 
 def digest_text(value):
@@ -92,7 +94,7 @@ def migrate_legacy(db, *, approved_ips, actor_id, main_origin='https://stella.xi
                 target = TargetInput(name=entry['title'],upstream_url=parsed.scheme+'://'+parsed.netloc+'/',allowed_ips=approved_ips,headers=headers,controlled=False).model_dump() | {'id':tid}
                 registry['targets'][tid]=target
                 module.update(target_id=tid,initial_path=parsed.path or '/')
-                module['migration']['exact_legacy_sha256']=exact_legacy_signatures()
+                module['migration']['exact_legacy_sha256']=exact_legacy_signatures(active=active,appearance=visual)
             registry['modules'][mid]=module
             registry.setdefault('website_version_origins',{})[mid]={version['version']:address}
             entry['id']=mid

@@ -55,10 +55,22 @@ class RequestPolicy(BaseModel):
         return list(dict.fromkeys(v.rstrip('/') or '/' for v in values))
 
 
-def effective_connection(before=None):
+def effective_connection(before=None, target=None):
     if before and before.get('connection'):
         return ConnectionInput(**{k:v for k,v in before['connection'].items() if k in ConnectionInput.model_fields})
-    return ConnectionInput(transport='proxy' if before and before.get('mode')=='isolated_proxy' else 'auto')
+    connection = ConnectionInput(transport='proxy' if before and before.get('mode')=='isolated_proxy' else 'auto')
+    if target and target.get('headers'):
+        for name in target['headers']:
+            if name.lower() in {'authorization','x-api-key','x-auth-token'}:
+                connection.auth_mode='header'; connection.header_name=ConnectionInput.header(name); break
+    return connection
+
+
+def preserve_legacy_target(before, target, address, connection):
+    from app.services.website_check import normalize_url
+    if not before or not target or before.get('connection') or before.get('mode')!='isolated_proxy': return False
+    if normalize_url(before['browser_url']) != normalize_url(address) or connection.token is not None or connection.clear_token: return False
+    return connection.model_dump(exclude={'token','clear_token'}) == effective_connection(before,target).model_dump(exclude={'token','clear_token'})
 
 
 def credential_headers(connection, address, before=None, old_target=None):

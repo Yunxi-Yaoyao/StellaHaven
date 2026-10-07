@@ -159,22 +159,26 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
     except (ValueError,HTTPException):
         checked = await check_draft(CheckInput(address=incoming.address),parent_origin=parent_origin)
         raise HTTPException(422,dict(code='website_check_failed',check=checked))
-    connection = incoming.connection or effective_connection(before)
+    connection = incoming.connection or effective_connection(before,old_target)
     if connection.auth_mode == 'header' and incoming.open_behavior == 'external':
         raise HTTPException(422,'凭据头认证需要隔离代理嵌入；外部打开请使用原站登录')
-    legacy_target = bool(before and old_target and not before.get('connection') and incoming.connection is None and normalize_url(before['browser_url']) == normalize_url(incoming.address))
+    from app.services.website_connection import preserve_legacy_target
+    legacy_target = preserve_legacy_target(before,old_target,incoming.address,connection)
     headers = copy.deepcopy(old_target['headers']) if legacy_target else credential_headers(connection,incoming.address,before,old_target)
     same_identity = bool(before and origin(before['browser_url']) == origin(normalize_url(incoming.address)))
     wants_proxy = incoming.open_behavior == 'embedded' and connection.transport != 'direct' and connection.injection_delivery != 'loader' and (
         connection.transport == 'proxy' or connection.auth_mode == 'header' or bool(incoming.custom and incoming.custom.enabled) or
         (same_identity and before['mode'] == 'isolated_proxy'))
     evidence = {}
-    checked = await check_draft(CheckInput(address=incoming.address,open_behavior=incoming.open_behavior,custom_enabled=bool(incoming.custom and incoming.custom.enabled),connection=connection),parent_origin=parent_origin,evidence=evidence,credential_headers=headers)
+    pin=old_target if old_target and (legacy_target or (headers and connection.token is None and not connection.clear_token)) else None
+    probe_address=old_target['upstream_url'].rstrip('/')+before.get('initial_path','/') if legacy_target else incoming.address
+    checked = await check_draft(CheckInput(address=probe_address,open_behavior=incoming.open_behavior,custom_enabled=bool(incoming.custom and incoming.custom.enabled),connection=connection),parent_origin=parent_origin,evidence=evidence,credential_headers=headers,approved_target=pin)
+    if legacy_target: checked['normalized_url']=normalize_url(incoming.address)
     if not checked['can_save']: raise HTTPException(422,dict(code='website_check_failed',check=checked))
     prepared = None
     if wants_proxy:
         parsed = urlsplit(checked['normalized_url'])
-        root = parsed.scheme + '://' + parsed.netloc + '/'
+        root = old_target['upstream_url'] if legacy_target else parsed.scheme + '://' + parsed.netloc + '/'
         try:
             addresses = [safe_address(a) for a in await bounded_dns(proxy._preview_addresses,root)]
             if set(addresses) != set(evidence.get('allowed_ips',[])): raise ValueError('检测之后 DNS 发生变化')
@@ -230,7 +234,7 @@ async def save_website(db, incoming, actor_id, *, parent_origin, mid=None):
                 config['targets'][tid] = prepared | {'id':tid}
             parsed = urlsplit(data['browser_url'])
             initial = (parsed.path or '/') + ('?' + parsed.query if parsed.query else '') + ('#' + parsed.fragment if parsed.fragment else '')
-            data.update(mode='isolated_proxy',target_id=tid,initial_path=initial)
+            data.update(mode='isolated_proxy',target_id=tid,initial_path=before.get('initial_path','/') if legacy_target else initial)
         if incoming.open_behavior == 'external' and versions['active']:
             versions['previous'] = versions['active']
             versions['active'] = None

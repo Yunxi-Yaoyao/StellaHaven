@@ -157,7 +157,7 @@ def failure_result(url, incoming, code, reason, blocked=False):
                 help=frame_help(url) if urlsplit(url).hostname == 'quota.xiya.live' else None, can_save=not blocked and incoming.open_behavior == 'external' and not incoming.custom_enabled,
                 recommended_behavior='external', issues=[reason])
 
-async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=None, credential_headers=None) -> dict:
+async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=None, credential_headers=None, approved_target=None) -> dict:
     import httpx
     import socket
     from urllib.parse import urljoin
@@ -177,6 +177,8 @@ async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=Non
                 addresses = [safe_address(a) for a in await bounded_dns(proxy._preview_addresses,root)]
             except socket.gaierror as exc: raise ProbeFailure('dns_failed', '域名解析失败，浏览器状态未知') from exc
             except ValueError as exc: raise ProbeFailure('unsafe_address', '域名解析含禁止目的地', True) from exc
+            if approved_target and (origin(root)!=origin(approved_target['upstream_url']) or set(addresses)!=set(approved_target['allowed_ips'])):
+                raise ProbeFailure('dns_pin_failed','解析地址已变更，未发送保存的凭据；请核对目标后重新配置',True)
             target = dict(upstream_url=root, allowed_ips=addresses, headers=credential_headers or {}, controlled=False)
             client = response = None
             try:
@@ -210,7 +212,7 @@ async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=Non
                 html = response.headers.get('content-type','').split(';')[0].lower() == 'text/html'
                 supported = html and text_valid and http_status == 200 and access == 'reachable' and origin(url) == origin(normalized) and not (response.headers.get_list('content-security-policy') or response.headers.get_list('x-frame-options') or document.meta_csp)
                 if urlsplit(parent_origin).scheme == 'https' and p.scheme == 'http' and embedding['status'] == 'allowed':
-                    if (incoming.custom_enabled or (incoming.connection and incoming.connection.transport == 'proxy')) and incoming.open_behavior == 'embedded' and supported:
+                    if (not incoming.connection or (incoming.connection.transport != 'direct' and incoming.connection.injection_delivery != 'loader')) and (incoming.custom_enabled or (incoming.connection and incoming.connection.transport == 'proxy')) and incoming.open_behavior == 'embedded' and supported:
                         # The save constructs an HTTPS isolated origin with a freshly
                         # DNS-pinned, uncontrolled, header-free target. Browser delivery
                         # is not a direct HTTP frame; upstream policies are never stripped.
@@ -242,12 +244,12 @@ async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=Non
         return failure_result(normalized, incoming, 'certificate_failed' if certificate else 'connection_failed', '证书验证失败；不会关闭 TLS 验证' if certificate else '上游连接失败，浏览器状态未知')
     except OSError: return failure_result(normalized, incoming, 'connection_failed', '上游连接失败，浏览器状态未知')
 
-async def check_draft(incoming: CheckInput, *, parent_origin: str, evidence=None, credential_headers=None) -> dict:
+async def check_draft(incoming: CheckInput, *, parent_origin: str, evidence=None, credential_headers=None, approved_target=None) -> dict:
     from fastapi import HTTPException
     try: normalized = normalize_url(incoming.address)
     except (ValueError,HTTPException): return failure_result('',incoming,'unsafe_address','地址不合法或属于禁止目的地',True)
     if not PROBE_SLOTS.acquire(blocking=False): return failure_result(normalized,incoming,'busy','网站检测繁忙，请稍后重试')
-    try: return await _check_draft(incoming,parent_origin=parent_origin,evidence=evidence,credential_headers=credential_headers)
+    try: return await _check_draft(incoming,parent_origin=parent_origin,evidence=evidence,credential_headers=credential_headers,approved_target=approved_target)
     finally: PROBE_SLOTS.release()
 
 
@@ -255,17 +257,21 @@ async def check_saved_draft(db, incoming, *, parent_origin):
     import copy
     from fastapi import HTTPException
     from app.services import integrations as store
-    from app.services.website_connection import effective_connection, credential_headers
+    from app.services.website_connection import effective_connection, credential_headers, preserve_legacy_target
     config=store.state(db)
     before=copy.deepcopy(config['modules'].get(incoming.module_id)) if incoming.module_id else None
     if incoming.module_id and before is None: raise HTTPException(404,'模块不存在')
     target=copy.deepcopy(config['targets'].get(before.get('target_id'))) if before else None
-    connection=incoming.connection or effective_connection(before)
+    connection=incoming.connection or effective_connection(before,target)
     if connection.auth_mode == 'header' and incoming.open_behavior == 'external':
         raise HTTPException(422,'凭据头认证需要隔离代理嵌入；外部打开请使用原站登录')
-    headers=credential_headers(connection,incoming.address,before,target)
+    preserve=preserve_legacy_target(before,target,incoming.address,connection)
+    headers=copy.deepcopy(target['headers']) if preserve else credential_headers(connection,incoming.address,before,target)
+    pin=target if target and (preserve or (headers and connection.token is None and not connection.clear_token)) else None
+    address=target['upstream_url'].rstrip('/')+before.get('initial_path','/') if preserve else incoming.address
     db.rollback()
-    result=await check_draft(incoming.model_copy(update={'connection':connection}),parent_origin=parent_origin,credential_headers=headers)
+    result=await check_draft(incoming.model_copy(update={'connection':connection,'address':address}),parent_origin=parent_origin,credential_headers=headers,approved_target=pin)
+    if preserve: result['normalized_url']=normalize_url(incoming.address)
     if before:
         after=store.state(db)
         if after['modules'].get(incoming.module_id)!=before or (target and after['targets'].get(target['id'])!=target):
