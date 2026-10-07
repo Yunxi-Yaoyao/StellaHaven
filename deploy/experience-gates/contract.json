@@ -21,7 +21,9 @@
     "background video plays behind the genuinely transparent child",
     "background cross-site hidden iframe acknowledges without animation clock",
     "review: real App rejects late fetchMe after logout",
-    "review: real App rejects late refreshAccess after logout"
+    "review: real App rejects late refreshAccess after logout",
+    "background shared quality waits for selected compressed media",
+    "background shared quality preserves explicit original"
   ],
   "production-readback": [
     "spec-review",

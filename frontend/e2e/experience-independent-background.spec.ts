@@ -146,3 +146,25 @@ test('background video plays behind the genuinely transparent child',async({page
  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeGreaterThan(t+.2);
  const b=await pixels(page,info,'video-next',true);expect(a,'composited pixel samples must change as outer video plays').not.toEqual(b);
 });
+
+for(const original of [false,true])test('background shared quality '+(original?'preserves explicit original':'waits for selected compressed media'),async({page,evidence},info)=>{
+ const file=info.outputPath('selected-media.webm');execFileSync('ffmpeg',['-loglevel','error','-y','-f','lavfi','-i','testsrc2=size=320x240:rate=12','-t','2','-c:v','libvpx','-an',file]);
+ const raw='/assets/homebg/qa-original.webm',small='/assets/homebg/qa-compressed1.webm',tiny='/assets/homebg/qa-compressed2.webm';
+ const requested:string[]=[];let metadata=0,release!:()=>void;const gate=new Promise<void>(r=>release=r);
+ evidence.h=await setup(page,{module:moduleFor(),background:raw,storage:original?{stella_home_bg_quality:'original'}:{},childHTML:()=>childHTML(),childScript:code.js});
+ await page.route(MAIN+'/homebg/media?*',async r=>{metadata++;await gate;await r.fulfill({json:{url:raw,status:'ready',variants:{original:raw,compressed1:small,compressed2:tiny},poster:null,thumbnail:null}});});
+ for(const url of [raw,small,tiny])await page.route(MAIN+url,async r=>{requested.push(url);await r.fulfill({contentType:'video/webm',body:fs.readFileSync(file)});});
+ await page.goto('/apps/'+ID,{waitUntil:'domcontentloaded'});
+ try{
+  await expect.poll(()=>metadata,'use the existing local background metadata service').toBe(1);
+  if(original)await expect(page.locator('.bg-video')).toHaveAttribute('src',raw);
+  else expect(requested,'do not download the full original before quality metadata arrives').toEqual([]);
+ }finally{release();}
+ await expect(page.locator('.bg-video')).toHaveAttribute('src',original?raw:small);
+ if(original){expect(requested).toContain(raw);expect(requested).not.toContain(small);}
+ else{
+  expect(requested).not.toContain(raw);
+  await page.evaluate(async()=>{const p='/src/modules/home/backgroundMedia.ts';(await import(p)).setBackgroundQuality('compressed2');});
+  await expect(page.locator('.bg-video')).toHaveAttribute('src',tiny);expect(requested).not.toContain(raw);
+ }
+});

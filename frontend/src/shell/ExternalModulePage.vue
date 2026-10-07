@@ -5,6 +5,7 @@ import {checkWebsiteDraft} from '../api/websiteSettings';
 import {auth,displayBg} from '../modules/home/auth';
 import {effectiveWebsiteBackground} from '../stores/websiteBackground';
 import {navigation} from '../stores/navigation';
+import {useBackgroundMedia} from '../modules/home/backgroundMedia';
 const props=withDefaults(defineProps<{id:string;active?:boolean}>(),{active:true});
 // A retained page owns an immutable module ID, not global useRoute().params.
 const fetchedWebsite=ref<Website|null>(null),url=ref(''),error=ref(''),loading=ref(false),frameKey=ref(0);
@@ -12,7 +13,11 @@ const website=computed(()=>navigation.loaded?navigation.modules.find(item=>item.
 const frameEl=ref<HTMLIFrameElement|null>(null);
 const homeBackground=computed(()=>effectiveWebsiteBackground(website.value).mode==='home');
 const videoBackground=computed(()=>/\.(mp4|webm)(?:[?#]|$)/i.test(displayBg.value));
-const backgroundStyle=computed(()=>homeBackground.value&&!videoBackground.value?{backgroundImage:`url(${JSON.stringify(displayBg.value)})`,backgroundSize:'cover',backgroundPosition:'center'}:{});
+// Resolve the existing quality/poster selection, never fetch the original first.
+// A background consumer starts after launch; large media must not delay its ticket.
+const mediaUrl=computed(()=>homeBackground.value&&props.active&&url.value?displayBg.value:'');
+const {source:mediaSource,poster:mediaPoster}=useBackgroundMedia(mediaUrl);
+const backgroundStyle=computed(()=>{const image=videoBackground.value?mediaPoster.value:mediaSource.value;return homeBackground.value&&image?{backgroundImage:`url(${JSON.stringify(image)})`,backgroundSize:'cover',backgroundPosition:'center'}:{};});
 // The visible, enabled code opts into style readiness; no adapter/template ID special cases.
 const presentationEnabled=computed(()=>!!website.value?.injection?.active?.enabled&&website.value.injection.active.js.includes('/* stella:background-ready:v1 */'));
 const backgroundReady=ref(false),presentationError=ref('');
@@ -89,7 +94,7 @@ onBeforeUnmount(()=>{cancel();clearTimeout(presentationTimer);presentationReques
 
 <template>
  <section class="external-page" :class="{'home-background':homeBackground}" :style="backgroundStyle">
-  <video v-if="homeBackground&&videoBackground&&props.active" class="bg-video" :src="displayBg" autoplay muted loop playsinline />
+  <video v-if="homeBackground&&videoBackground&&props.active&&mediaSource" class="bg-video" :src="mediaSource" :poster="mediaPoster||undefined" autoplay muted loop playsinline />
   <div v-if="notice" class="connection-notice">
    <p :role="error || blocked || presentationError ? 'alert' : 'status'">{{notice}}</p>
    <div class="recovery-actions">
