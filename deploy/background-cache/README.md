@@ -15,7 +15,7 @@
 
 ## 本机隔离验收
 
-仅 Python 标准库 + 已安装 nginx；不 import Stella、不读 DB、不访问生产、不发 nginx reload。随机 loopback 端口和合成上游、scratch 缓存；root 启动时 worker 使用本机 `http` 非特权账户，缓存目录 0700。用 `/proc/self/cwd/` 避免为了 worker 遍历 `/root` 而修改宿主权限。脚本停止自己启动的 nginx 后归档配置/安全访问日志/合成源请求记录并移除 scratch。
+仅 Python 标准库 + 已安装 nginx；不 import Stella、不读 DB、不访问生产、不发 nginx reload。随机 loopback 端口和合成上游、scratch 缓存；root 启动时 worker 选择已存在的 `http` 或 `www-data` 非特权账户，缓存目录 0700。用 `/proc/self/cwd/` 避免为了 worker 遍历 `/root` 而修改宿主权限。脚本停止自己启动的 nginx 后归档配置/安全访问日志/合成源请求记录并移除 scratch。
 
 ```sh
 python3 deploy/background-cache/test_real_nginx.py --baseline --evidence /root/.hermes/cache/scratch/bg-red

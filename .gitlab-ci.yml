@@ -108,6 +108,7 @@ experience-gate:
     - node node_modules/@playwright/test/cli.js install ffmpeg
     - npm run test:experience
     - cd .. && python3 -m unittest discover -s deploy/experience-static/tests -v
+    - python3 deploy/background-cache/test_real_nginx.py --evidence frontend/node_modules/.cache/experience/background-cache
   artifacts:
     when: always
     expire_in: 30 days

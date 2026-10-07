@@ -55,7 +55,9 @@ class Origin(BaseHTTPRequestHandler):
 class CacheTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.TemporaryDirectory(prefix='stella-bg-', dir='/root/.hermes/cache/scratch')
+        cls.tmp = tempfile.TemporaryDirectory(prefix='stella-bg-', dir=os.environ.get('TMPDIR', '/root/.hermes/cache/scratch'))
+        cls.worker_name = next((name for name in ('http','www-data') if any(u.pw_name==name for u in pwd.getpwall())), '')
+        if os.getuid()==0 and not cls.worker_name: raise RuntimeError('a nonprivileged nginx worker account is required')
         cls.root = Path(cls.tmp.name)
         cls.root.chmod(0o755)
         cls.origin = ThreadingHTTPServer(('127.0.0.1', 0), Origin)
@@ -68,7 +70,7 @@ class CacheTests(unittest.TestCase):
             p = cls.root / directory
             p.mkdir(mode=0o700)
             if os.getuid() == 0:
-                worker = pwd.getpwnam('http')
+                worker = pwd.getpwnam(cls.worker_name)
                 os.chown(p, worker.pw_uid, worker.pw_gid)
         plain = f'location / {{ proxy_pass {origin}; }}'
         http_config = ''
@@ -76,7 +78,7 @@ class CacheTests(unittest.TestCase):
         if not ARGS.baseline:
             http_config = (HERE / 'http.conf').read_text().replace('/var/cache/nginx/stella-homebg', '/proc/self/cwd/cache')
             location = (HERE / 'location.conf').read_text().replace('http://127.0.0.1:12031', origin) + plain
-        user = 'user http;' if os.getuid() == 0 else ''
+        user = f'user {cls.worker_name};' if os.getuid() == 0 else ''
         config = f'''{user}
 worker_processes 1;
 pid /proc/self/cwd/nginx.pid;
@@ -279,7 +281,7 @@ http {{
     def test_worker_only_cache_directory(self):
         stat = (self.root / 'cache').stat()
         self.assertEqual(stat.st_mode & 0o777, 0o700)
-        self.assertEqual(stat.st_uid, pwd.getpwnam('http').pw_uid if os.getuid() == 0 else os.getuid())
+        self.assertEqual(stat.st_uid, pwd.getpwnam(self.worker_name).pw_uid if os.getuid() == 0 else os.getuid())
         self.assertNotIn('Permission denied', (self.root / 'error.log').read_text())
 
     def test_revalidation_respects_explicit_ttl(self):
