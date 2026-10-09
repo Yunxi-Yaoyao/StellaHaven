@@ -30,7 +30,12 @@ const nodeId = computed(() => props.nodeId);
 const router = useRouter();
 
 const detail = ref<NodeDetail | null>(null);
+const detailPending = ref(true);
+const detailError = ref(false);
 const monitors = ref<Monitor[]>([]);
+const monitorsPending = ref(true);
+const monitorsReady = ref(false);
+const monitorsError = ref(false);
 
 // ── 监控项详情浮窗（与总览页共用组件：图表 / MTR / 编辑）──
 const monModal = ref<Monitor | null>(null);
@@ -306,6 +311,11 @@ const liveMode = ref(false);
 const liveWindow = ref(300);
 const liveOpen = ref(false);   // 窗长下拉
 const chartLane = createRequestLane();
+const historyPending = ref(false);
+const historyError = ref(false);
+const historyRetries = ref(0);
+const MAX_HISTORY_RETRIES = 3;
+let historyRetry: ReturnType<typeof setTimeout> | undefined;
 const livePoll = createPoller(async () => { await chartLane.run(signal => liveTick(signal)); }, 3000);
 
 // ── 时区（分钟偏移，默认 UTC+8，两图共享）──
@@ -319,14 +329,14 @@ const TZ_OPTIONS = [
 ];
 const tzOffset = ref(480);
 const tzOpen = ref(false);
-function nowInTz(off: number = tzOffset.value) { return new Date(Date.now() + off * 60000); }
+function nowInTz(off: number, now: number) { return new Date(now + off * 60000); }
 // 目标时区「本月第一天 00:00:00」对应的 UTC 时间戳
-function monthStart(off: number = tzOffset.value): number {
-  const t = nowInTz(off);
+function monthStart(off: number, now: number): number {
+  const t = nowInTz(off, now);
   return Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), 1) - off * 60000;
 }
-function prevMonthStart(off: number = tzOffset.value): number {
-  const t = nowInTz(off);
+function prevMonthStart(off: number, now: number): number {
+  const t = nowInTz(off, now);
   return Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 1, 1) - off * 60000;
 }
 
@@ -350,6 +360,23 @@ const selectedIfaces = ref<string[]>([]);
 const ifaceDropdownOpen = ref(false);
 
 const trafficStats = ref<TrafficStats | null>(null);
+const samplingNow = ref(Date.now());
+// 心跳在线不代表采样健康；流量容忍 60s，系统指标容忍 3 个 60s 周期。
+function sampleHint(label: string, timestamps: (string | undefined)[], maxAge: number): string {
+  const times = timestamps.map(ts => ts ? new Date(ts).getTime() : NaN);
+  const valid = times.filter(Number.isFinite);
+  const unknown = valid.length !== times.length || !times.length;
+  const oldest = valid.length ? Math.min(...valid) : NaN;
+  const stale = samplingNow.value - oldest > maxAge;
+  return [stale ? `${label}采样已过期（最后采样 ${fmtAxisTime(oldest)}）` : '',
+    unknown ? `${label}采样状态未知` : ''].filter(Boolean).join(' · ');
+}
+const samplingHint = computed(() => {
+  if (!detail.value) return '';
+  const ifaces = selectedIfaces.value.length ? selectedIfaces.value : monitoredIfaces(detail.value);
+  return [sampleHint('流量', ifaces.map(iface => detail.value!.latest_metrics?.find(pt => pt.iface === iface)?.ts), 60000),
+    sampleHint('系统', [detail.value.latest_sys_metric?.ts], 180000)].filter(Boolean).join(' · ');
+});
 
 const trafficEl = ref<HTMLElement | null>(null);
 const sysEl = ref<HTMLElement | null>(null);
@@ -367,28 +394,28 @@ function monitoredIfaces(d: NodeDetail): string[] {
 }
 
 // 通用：算某个时间范围的起止（毫秒时间戳），off 为时区分钟偏移（影响自然月边界）
-function computeSpan(tr: RangeKey, cStart: string, cEnd: string, off: number = tzOffset.value): { startMs: number; endMs: number } {
-  const now = Date.now();
+function computeSpan(tr: RangeKey, cStart: string, cEnd: string, off: number, now: number): { startMs: number; endMs: number } {
   if (tr === "custom") {
     return { startMs: new Date(cStart).getTime(), endMs: new Date(cEnd).getTime() };
   }
-  if (tr === "thismonth") return { startMs: monthStart(off), endMs: now };
-  if (tr === "lastmonth") return { startMs: prevMonthStart(off), endMs: monthStart(off) };
+  if (tr === "thismonth") return { startMs: monthStart(off, now), endMs: now };
+  if (tr === "lastmonth") return { startMs: prevMonthStart(off, now), endMs: monthStart(off, now) };
   const r = PRESETS.find((p) => p.key === tr) || PRESETS[0];
   return { startMs: now - (r.seconds || 3600) * 1000, endMs: now };
 }
 // 实时模式下 span = [now - 窗长, now]，跟随当前时间滚动
+const queryNow = ref(Date.now());
 const span = computed(() => {
   if (liveMode.value) {
-    const now = Date.now();
+    const now = queryNow.value;
     return { startMs: now - liveWindow.value * 1000, endMs: now };
   }
-  return computeSpan(timeRange.value, customStart.value, customEnd.value, tzOffset.value);
+  return computeSpan(timeRange.value, customStart.value, customEnd.value, tzOffset.value, queryNow.value);
 });
 
 // 查询参数：start/end（ISO）+ limit/step（按跨度自动降采样）
-function getRange(): { start: string; end: string; limit: number; step?: number } {
-  const s = span.value;
+type ChartRange = { start: string; end: string; limit: number; step?: number };
+function getRange(s = span.value): ChartRange {
   const seconds = (s.endMs - s.startMs) / 1000;
   let limit = 720, step: number | undefined;
   if (seconds > 86400 * 60) { step = 7200; limit = 2200; }       // >60d
@@ -401,8 +428,7 @@ function getRange(): { start: string; end: string; limit: number; step?: number 
   return { start: new Date(s.startMs).toISOString(), end: new Date(s.endMs).toISOString(), limit, step };
 }
 // 系统指标查询参数（60s 颗粒，与流量图共享时间范围，降采样阈值不同）
-function getSysRange(): { start: string; end: string; limit: number; step?: number } {
-  const s = span.value;
+function getSysRange(s = span.value): ChartRange {
   const seconds = (s.endMs - s.startMs) / 1000;
   let limit = 1440, step: number | undefined;
   if (seconds > 86400 * 60) { step = 7200; limit = 2200; }
@@ -414,7 +440,6 @@ function getSysRange(): { start: string; end: string; limit: number; step?: numb
   else { step = undefined; limit = 70; }                          // 1h
   return { start: new Date(s.startMs).toISOString(), end: new Date(s.endMs).toISOString(), limit, step };
 }
-function windowSeconds() { return getRange().step || 5; }
 
 // 按钮文本：选预设显示预设名，手动改过就变「自定义」
 const rangeLabel = computed(() => {
@@ -505,8 +530,8 @@ function chartUnit(): string {
 }
 // 图表数据专用：固定量级缩放（auto 固定 Mbps，手动跟随所选单位），
 // 与 y 轴标签一致。统计卡文字用 rateValue（auto 自适应），图表不能自适应，否则数值和轴单位错位。
-function chartRate(delta: number): number {
-  const bytesPerSec = delta / windowSeconds();
+function chartRate(delta: number, interval: number): number {
+  const bytesPerSec = delta / interval;
   const bitsPerSec = bytesPerSec * 8;
   const map: Record<string, number> = {
     bps: bitsPerSec,
@@ -530,28 +555,82 @@ function fmtVal(v: number): string {
   return v.toFixed(5);
 }
 
-// 状态类加载（节点详情 + 监控项）：5s 轮询只走这里，不碰图表
+let chartsStarted = false;
+// 详情与监控项各自轮询，慢监控列表不能挡住首屏图表。
 async function load(signal: AbortSignal) {
+  detailPending.value = true;
+  samplingNow.value = Date.now();
   try {
     const id = nodeId.value;
     const d = await getNodeDetail(id, signal);
     if (signal.aborted) return;
     detail.value = d;
+    detailError.value = false;
     netType.value = detail.value.net_type === "public" ? "public" : "internal";
     publicIpInput.value = detail.value.public_ip || "";
-    const rows = await listMonitors(signal);
-    if (signal.aborted) return;
-    monitors.value = rows.filter((m) => m.node_id === id);
     const ifaces = monitoredIfaces(detail.value);
     if (!selectedIfaces.value.length) selectedIfaces.value = ifaces;
-  } catch { /* 静默 */ }
+    if (!chartsStarted) {
+      chartsStarted = true;
+      void loadCharts().then(startLive);
+      // 可选扫描在详情就绪后独立执行，不阻塞图表。
+      void viewFirewall(false);
+      void loadPbr(false);
+    }
+  } catch {
+    if (!signal.aborted) detailError.value = true;
+  } finally {
+    if (!signal.aborted) detailPending.value = false;
+  }
+}
+
+async function loadMonitors(signal: AbortSignal) {
+  const id = nodeId.value;
+  monitorsPending.value = true;
+  try {
+    const rows = await listMonitors(signal);
+    if (!signal.aborted) {
+      monitors.value = rows.filter(m => m.node_id === id);
+      monitorsReady.value = true;
+      monitorsError.value = false;
+    }
+  } catch {
+    if (!signal.aborted) monitorsError.value = true;
+  } finally {
+    if (!signal.aborted) monitorsPending.value = false;
+  }
 }
 
 // 图表全量加载：进入页面 / 切范围 / 开实时 时整段重取一次
-async function loadCharts() {
-  chartLane.reset();
-  if (document.hidden || taskLifecycle.signal.aborted) return;
-  await chartLane.run(signal => Promise.all([fetchTraffic(true, signal), fetchSys(true, signal), loadStats(signal)]).then(() => {}));
+function clearHistoryRetry() {
+  if (historyRetry) clearTimeout(historyRetry);
+  historyRetry = undefined;
+}
+async function loadCharts(replace = true) {
+  clearHistoryRetry();
+  if (replace) { chartLane.reset(); historyRetries.value = 0; }
+  if (disposed || !detail.value || document.hidden || taskLifecycle.signal.aborted) return;
+  await chartLane.run(signal => fetchChartGroup(true, signal));
+}
+function retryHistory() {
+  if (historyPending.value) return;
+  historyRetries.value = 0;
+  void loadCharts(false).then(startLive);
+}
+async function fetchChartGroup(full: boolean, signal: AbortSignal) {
+  historyPending.value = true;
+  // 每轮只读一次时钟；所有网卡、系统指标及精确统计使用同一窗口。
+  queryNow.value = Date.now();
+  const window = span.value;
+  const trafficRange = getRange(window), sysRange = getSysRange(window);
+  const results = await Promise.all([fetchTraffic(full, signal, trafficRange), fetchSys(full, signal, sysRange), loadStats(signal, trafficRange)]);
+  if (signal.aborted || disposed) return;
+  historyPending.value = false;
+  historyError.value = results.some(ok => !ok);
+  if (!historyError.value) historyRetries.value = 0;
+  if (historyError.value && historyRetries.value < MAX_HISTORY_RETRIES && !liveMode.value && !document.hidden) {
+    historyRetry = setTimeout(() => { historyRetries.value++; void loadCharts(false); }, 5000 * 2 ** historyRetries.value);
+  }
 }
 
 const COLORS = ["#ff9ec7", "#7be39a", "#7bd0e3", "#f0c060", "#bf7aff", "#ff8f8f"];
@@ -590,42 +669,47 @@ let trafficRenderSeq = 0;  // 请求序号：丢弃乱序返回的旧渲染
 
 // ── 图表数据层：full=整段重取，delta=只取上次之后的新点（实时模式用）──
 const trafficPoints = ref<Record<string, MetricPoint[]>>({});  // 每网卡时序（时间正序）
+let trafficIntervals: Record<string, number> = {};
 const sysPoints = ref<SysMetricPoint[]>([]);
 
-async function fetchTraffic(full: boolean, signal: AbortSignal) {
+async function fetchTraffic(full: boolean, signal: AbortSignal, base: ChartRange) {
   const seq = ++trafficRenderSeq;
   // 首屏 detail 还没回来时 monitoredIfaces 会炸，直接跳过等下一轮
   const ifaces = selectedIfaces.value.length ? selectedIfaces.value : (detail.value ? monitoredIfaces(detail.value) : []);
-  if (!ifaces.length) return;
-  const base = getRange();
+  if (!ifaces.length) return true;
+
   const next: Record<string, MetricPoint[]> = { ...trafficPoints.value };
+  const intervals = { ...trafficIntervals };
+  let ok = true;
   await mapBounded(ifaces, 3, async iface => {
     let start = base.start, end = base.end, limit = base.limit, step = base.step;
     const existing = next[iface] || [];
     if (!full && existing.length) {
       // 增量：只拉最后一点之后的新数据
       start = new Date(new Date(existing[existing.length - 1].ts).getTime() + 1000).toISOString();
-      end = new Date().toISOString();
       limit = 300; step = undefined;
     }
     try {
       const data = await getNodeMetrics(nodeId.value, { iface, start, end, limit, step, signal });
       if (signal.aborted || seq !== trafficRenderSeq) return;  // 已有更新请求，丢弃
       const points = [...data].reverse();
+      intervals[iface] = step || 5;
       if (full) {
         next[iface] = points;
       } else {
         const lastTs = existing.length ? new Date(existing[existing.length - 1].ts).getTime() : 0;
         let merged = [...existing, ...points.filter((pt) => new Date(pt.ts).getTime() > lastTs)];
-        if (liveMode.value) merged = merged.filter((pt) => new Date(pt.ts).getTime() >= Date.now() - liveWindow.value * 1000);
+        if (liveMode.value) merged = merged.filter((pt) => new Date(pt.ts).getTime() >= new Date(base.start).getTime());
         next[iface] = merged;
       }
-    } catch { /* 单网卡失败保留其他及旧图 */ }
+    } catch { ok = false; /* 单网卡失败保留其他及旧图 */ }
   }, signal);
   if (signal.aborted || seq !== trafficRenderSeq) return;
   // 丢掉不再选中的网卡
   trafficPoints.value = Object.fromEntries(Object.entries(next).filter(([k]) => ifaces.includes(k)));
+  trafficIntervals = Object.fromEntries(Object.entries(intervals).filter(([k]) => ifaces.includes(k)));
   paintTraffic();
+  return ok;
 }
 
 function paintTraffic() {
@@ -640,12 +724,12 @@ function paintTraffic() {
     const color = COLORS[i % COLORS.length];
     series.push({
       name: `${iface} ↓`, type: "line", smooth: true, showSymbol: false, animation: false,
-      data: points.map((pt) => chartRate(pt.rx_delta)),
+      data: points.map((pt) => chartRate(pt.rx_delta, trafficIntervals[iface] || 5)),
       lineStyle: { width: 1.5 }, itemStyle: { color }, areaStyle: { opacity: 0.08 },
     });
     series.push({
       name: `${iface} ↑`, type: "line", smooth: true, showSymbol: false, animation: false,
-      data: points.map((pt) => chartRate(pt.tx_delta)),
+      data: points.map((pt) => chartRate(pt.tx_delta, trafficIntervals[iface] || 5)),
       lineStyle: { width: 1.5, type: "dashed" }, itemStyle: { color },
     });
   });
@@ -670,16 +754,16 @@ function paintTraffic() {
 }
 
 let statsSeq = 0;  // 请求序号：丢弃乱序返回的旧统计
-async function loadStats(signal: AbortSignal) {
+async function loadStats(signal: AbortSignal, range: ChartRange) {
   const seq = ++statsSeq;
-  const range = getRange();
   const ifaces = selectedIfaces.value.length ? selectedIfaces.value : (detail.value ? monitoredIfaces(detail.value) : []);
-  if (!ifaces.length) { trafficStats.value = null; return; }
+  if (!ifaces.length) { trafficStats.value = null; return true; }
   try {
     const s = await getTrafficStats(nodeId.value, { ifaces, start: range.start, end: range.end, signal });
     if (signal.aborted || seq !== statsSeq) return;  // 已有更新请求，丢弃本次旧结果
     trafficStats.value = s;
-  } catch { /* Retain last valid statistics on timeout/offline. */ }
+    return true;
+  } catch { return false; /* Retain last valid statistics on timeout/offline. */ }
 }
 
 function applyCustom() {
@@ -705,11 +789,18 @@ function selectPreset(key: RangeKey) {
 
 // ── 实时模式控制 ──
 async function liveTick(signal: AbortSignal) {
-  await Promise.all([fetchTraffic(false, signal), fetchSys(false, signal), loadStats(signal)]);
+  if (historyError.value) {
+    if (historyRetries.value >= MAX_HISTORY_RETRIES) { livePoll.stop(); return; }
+    historyRetries.value++;
+  }
+  await fetchChartGroup(historyError.value, signal);
+  if (!signal.aborted && historyError.value && historyRetries.value >= MAX_HISTORY_RETRIES) livePoll.stop();
 }
 let disposed = false;
-function startLive() { if (!disposed && liveMode.value && !document.hidden) livePoll.start(); }
-function stopLive() { livePoll.stop(); chartLane.reset(); }
+function startLive() {
+  if (!disposed && liveMode.value && !document.hidden && !(historyError.value && historyRetries.value >= MAX_HISTORY_RETRIES)) livePoll.start();
+}
+function stopLive() { livePoll.stop(); chartLane.reset(); clearHistoryRetry(); historyPending.value = false; }
 function toggleLive() {
   liveMode.value = !liveMode.value;
 }
@@ -725,14 +816,12 @@ watch(liveWindow, () => { if (liveMode.value) { stopLive(); void loadCharts().th
 
 
 let sysRenderSeq = 0;  // 防乱序：只认最后一次请求的结果
-async function fetchSys(full: boolean, signal: AbortSignal) {
+async function fetchSys(full: boolean, signal: AbortSignal, base: ChartRange) {
   const seq = ++sysRenderSeq;
-  const base = getSysRange();
   let start = base.start, end = base.end, limit = base.limit, step = base.step;
   const existing = sysPoints.value;
   if (!full && existing.length) {
     start = new Date(new Date(existing[existing.length - 1].ts).getTime() + 1000).toISOString();
-    end = new Date().toISOString();
     limit = 100; step = undefined;
   }
   try {
@@ -744,11 +833,12 @@ async function fetchSys(full: boolean, signal: AbortSignal) {
     } else {
       const lastTs = existing.length ? new Date(existing[existing.length - 1].ts).getTime() : 0;
       let merged = [...existing, ...points.filter((pt) => new Date(pt.ts).getTime() > lastTs)];
-      if (liveMode.value) merged = merged.filter((pt) => new Date(pt.ts).getTime() >= Date.now() - liveWindow.value * 1000);
+      if (liveMode.value) merged = merged.filter((pt) => new Date(pt.ts).getTime() >= new Date(base.start).getTime());
       sysPoints.value = merged;
     }
     paintSys();
-  } catch { /* 静默 */ }
+    return true;
+  } catch { return false; /* 保留最后有效图表 */ }
 }
 
 function paintSys() {
@@ -796,9 +886,12 @@ async function saveIfaces() {
   } catch { /* 静默 */ }
 }
 // 切换时间/单位/时区/网卡时刷新
-watch(timeRange, () => { loadCharts(); });
+watch(timeRange, key => { if (key !== "custom") void loadCharts(); });
 watch(unitMode, () => { paintTraffic(); });  // 单位只影响格式化，不重拉数据
-watch(tzOffset, () => { paintTraffic(); paintSys(); });  // 时区只影响轴标签，不重拉数据
+watch(tzOffset, () => {
+  if (!liveMode.value && (timeRange.value === "thismonth" || timeRange.value === "lastmonth")) void loadCharts();
+  else { paintTraffic(); paintSys(); }
+});  // 自然月时区决定查询边界；滚动/自定义范围只重绘标签
 
 // ── 监控项（只读：列表 + 状态 + 延迟曲线；增删在总览页）──
 const expandedMonId = ref<number | null>(null);
@@ -874,9 +967,18 @@ function paintMonChart(id: number) {
 }
 
 const statusPoll = createPoller(load, 5000);
+const monitorPoll = createPoller(loadMonitors, 5000);
+let historyInterrupted = false;
 function onVisibility() {
-  if (document.hidden) { statusPoll.stop(); stopLive(); }
-  else { statusPoll.start(); if (liveMode.value) void loadCharts().then(startLive); }
+  if (disposed) return;
+  if (document.hidden) {
+    historyInterrupted = historyPending.value || !!historyRetry;
+    statusPoll.stop(); monitorPoll.stop(); stopLive();
+  } else {
+    statusPoll.start(); monitorPoll.start();
+    if ((liveMode.value || historyInterrupted) && !(historyError.value && historyRetries.value >= MAX_HISTORY_RETRIES)) void loadCharts(false).then(startLive);
+    historyInterrupted = false;
+  }
 }
 function onResize() { trafficChart?.resize(); sysChart?.resize(); }
 function onDocClick() { ifaceDropdownOpen.value = false; presetOpen.value = false; unitOpen.value = false; tzOpen.value = false; liveOpen.value = false; opsOpen.value = false; }
@@ -884,26 +986,32 @@ function onDocClick() { ifaceDropdownOpen.value = false; presetOpen.value = fals
 // 切换节点（props.nodeId 变化，组件复用 setup 不重跑）：重置状态并重新加载
 watch(() => props.nodeId, (newId, oldId) => {
   if (!newId || newId === oldId) return;
+  trafficChart?.dispose(); trafficChart = null;
+  sysChart?.dispose(); sysChart = null;
+  monChart?.dispose(); monChart = null;
   selectedIfaces.value = [];
+  chartsStarted = false;
+  historyError.value = false;
+  monitors.value = [];
+  monitorsPending.value = true;
+  monitorsReady.value = false;
+  monitorsError.value = false;
   trafficStats.value = null;
   detail.value = null;
+  detailPending.value = true;
+  detailError.value = false;
   trafficPoints.value = {};
+  trafficIntervals = {};
   sysPoints.value = [];
   expandedMonId.value = null;
   monAvail.value = null;
-  statusPoll.reset();
   stopLive();
-  void statusPoll.run().then(() => loadCharts()).then(() => { if (liveMode.value) startLive(); });
+  statusPoll.reset();
+  monitorPoll.reset();
 });
 
-onMounted(async () => {
-  await statusPoll.run();
-  if (taskLifecycle.signal.aborted) return;        // 先拿节点详情（网卡清单），再画图表
-  loadCharts();
-  // 惰性扫描缓存：面板打开即有数据（10 分钟内快照直接用，过期后台重扫）
-  viewFirewall(false);
-  loadPbr(false);
-  statusPoll.start();  // 5s 只刷状态类，图表不动
+onMounted(() => {
+  if (!document.hidden) { statusPoll.start(); monitorPoll.start(); }
   uptimeTimer = setInterval(() => { uptimeTick.value++; }, 30000);
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("resize", onResize);
@@ -912,6 +1020,7 @@ onMounted(async () => {
 onUnmounted(() => {
   disposed = true;
   statusPoll.stop();
+  monitorPoll.stop();
   chartLane.reset();
   document.removeEventListener("visibilitychange", onVisibility);
   if (uptimeTimer) clearInterval(uptimeTimer);
@@ -962,15 +1071,22 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
       </div>
     </header>
 
+    <div v-if="!detail && detailPending" class="empty" role="status">正在加载服务器详情…</div>
+    <div v-if="detailError" class="empty" role="alert">
+      服务器详情加载失败{{ detail ? '，保留上次结果' : '' }}
+      <button class="ghost-btn" :disabled="detailPending" @click="statusPoll.run()">重试详情</button>
+    </div>
+
     <!-- 标签页导航 -->
-    <nav class="d-tabs">
+    <div v-if="samplingHint" class="sampling-hint" role="status">{{ samplingHint }}</div>
+    <nav v-if="detail" class="d-tabs">
       <button class="d-tab" :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">概览</button>
       <button class="d-tab" :class="{ active: activeTab === 'network' }" @click="activeTab = 'network'">网络</button>
       <button class="d-tab" :class="{ active: activeTab === 'services' }" @click="activeTab = 'services'">服务监控</button>
     </nav>
 
     <!-- Tab 1 概览：基本信息 + 存储 + 流量 + 系统指标 -->
-    <div v-show="activeTab === 'overview'" class="tab-body">
+    <div v-if="detail" v-show="activeTab === 'overview'" class="tab-body">
 
     <!-- 基本信息 + 存储 并排双栏 -->
     <div class="duo-grid">
@@ -1074,6 +1190,11 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
     </div>
 
     <!-- 自定义时间编辑（深色主题弹层） -->
+    <div v-if="historyPending && !historyError" class="empty" role="status">正在加载历史数据…</div>
+    <div v-if="historyError" class="empty" role="alert">
+      历史数据加载失败，保留上次有效结果。{{ historyRetries >= MAX_HISTORY_RETRIES ? '自动重试已暂停，请手动重试' : '将自动重试' }}
+      <button class="ghost-btn" :disabled="historyPending" @click="retryHistory">重试历史</button>
+    </div>
     <div v-if="customEditOpen" class="custom-range">
       <input type="datetime-local" v-model="customStart" @change="onCustomEdit" />
       <span class="cr-sep">~</span>
@@ -1148,7 +1269,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
     </div>
 
     <!-- Tab 2 网络：标记 + IP 网卡 + 防火墙 -->
-    <div v-show="activeTab === 'network'" class="tab-body">
+    <div v-if="detail" v-show="activeTab === 'network'" class="tab-body">
       <!-- 标记面板：内网/公网 -->
       <section class="panel">
         <div class="panel-head"><span class="ph-title">网络标记</span></div>
@@ -1423,7 +1544,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
     </div>
 
     <!-- Tab 3 服务监控 -->
-    <div v-show="activeTab === 'services'" class="tab-body">
+    <div v-if="detail" v-show="activeTab === 'services'" class="tab-body">
     <!-- 监控项面板 -->
     <section class="panel">
       <div class="panel-head">
@@ -1431,7 +1552,12 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
         <span class="ph-hint">增删在总览页 · 点击展开延迟曲线</span>
       </div>
       <div class="mon-list">
-        <div v-if="!monitors.length" class="empty">该节点还没有监控项</div>
+        <div v-if="!monitorsReady && monitorsPending" class="empty" role="status">正在加载监控项…</div>
+        <div v-if="monitorsError" class="empty" role="alert">
+          监控项加载失败{{ monitorsReady ? '，保留上次结果' : '' }}
+          <button class="ghost-btn" :disabled="monitorsPending" @click="monitorPoll.run()">重试监控项</button>
+        </div>
+        <div v-if="monitorsReady && !monitorsError && !monitors.length" class="empty">该节点还没有监控项</div>
         <template v-for="m in monitors" :key="m.id">
           <div class="mon-row clickable" :class="{ open: expandedMonId === m.id }" @click="toggleMon(m.id)">
             <span class="mon-type">{{ typeLabel[m.type] }}</span>
@@ -1482,6 +1608,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
   gap: 14px;
 }
 .d-head { display: flex; align-items: center; gap: 12px; }
+.sampling-hint { color: var(--text-faint); font-size: 12px; }
 /* 共享时间工具条 */
 .chart-toolbar { display: flex; align-items: center; gap: 10px; margin: 0 0 12px 2px; flex-wrap: wrap; }
 /* 实时开关 */

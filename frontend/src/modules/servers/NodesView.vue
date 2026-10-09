@@ -9,6 +9,9 @@ import Icon from "../../shell/Icon.vue";
 import NodeComponents from "./NodeComponents.vue";
 
 const nodes = ref<Node[]>([]);
+const listPending = ref(true);
+const listReady = ref(false);
+const listError = ref(false);
 const loading = ref(false);
 const showAdd = ref(false);
 
@@ -20,11 +23,14 @@ function refresh() { return statusPoll.run(); }
 function onVisibility() { if (document.hidden) statusPoll.stop(); else statusPoll.start(); }
 
 async function refreshStatus(signal: AbortSignal) {
+  listPending.value = true;
   try {
     const rows = await listNodes(signal);
-    if (!signal.aborted) nodes.value = rows;
+    if (!signal.aborted) { nodes.value = rows; listReady.value = true; listError.value = false; }
   } catch {
-    /* 后端未就绪时静默 */
+    if (!signal.aborted) listError.value = true;
+  } finally {
+    if (!signal.aborted) listPending.value = false;
   }
 }
 
@@ -204,12 +210,16 @@ const uninstallLabel: Record<string, string> = {
     <div class="head">
       <div>
         <h2>服务器</h2>
-        <span class="sub">{{ nodes.length }} 台纳管 · {{ onlineCount }} 在线</span>
+        <span v-if="listReady" class="sub">{{ nodes.length }} 台纳管 · {{ onlineCount }} 在线</span>
       </div>
       <button v-if="nodes.length" class="add-btn" @click="showAdd = true"><Icon name="plus" :size="14" /> 添加节点</button>
     </div>
 
     <!-- 节点卡片网格 -->
+    <div v-if="listError" class="empty" role="alert">
+      服务器加载失败{{ listReady ? '，保留上次结果' : '' }}
+      <button class="add-btn" :disabled="listPending" @click="refresh">重试</button>
+    </div>
     <div class="grid">
       <!-- 宿主机「本机」：未装 agent 时显示安装入口 -->
       <div v-if="host && host.local_install_supported !== false && !host.installed && !host.node_id" class="host-card">
@@ -256,7 +266,8 @@ const uninstallLabel: Record<string, string> = {
           </div>
         </div>
       </div>
-      <div v-if="!nodes.length" class="empty">
+      <div v-if="!listReady && listPending" class="empty" role="status">正在加载服务器…</div>
+      <div v-if="listReady && !listError && !nodes.length" class="empty">
         <p>还没有纳管其他服务器</p>
         <button class="add-btn" @click="showAdd = true"><Icon name="plus" :size="14" /> 添加第一台</button>
       </div>
