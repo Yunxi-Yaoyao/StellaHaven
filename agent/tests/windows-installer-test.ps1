@@ -4,7 +4,7 @@
 param([string]$AgentDir = (Split-Path $PSScriptRoot -Parent), [string]$LibraryZip = 'C:\stella-agent\LibreHardwareMonitor.zip', [switch]$DependencySmoke)
 $ErrorActionPreference = 'Stop'
 # Import BEFORE defining mocks: lazy module import overwrites same-name functions.
-Import-Module ScheduledTasks, Microsoft.PowerShell.Security, Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility, Microsoft.PowerShell.Archive -ErrorAction Stop
+Import-Module ScheduledTasks, CimCmdlets, Microsoft.PowerShell.Security, Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility, Microsoft.PowerShell.Archive -ErrorAction Stop
 $PSModuleAutoLoadingPreference = 'None'
 $beforeTasks = @(ScheduledTasks\Get-ScheduledTask -ErrorAction Stop | Where-Object TaskName -in @('StellaAgent','StellaHardwareSensors') | ForEach-Object { ScheduledTasks\Export-ScheduledTask -TaskName $_.TaskName }) -join "`n"
 $installer = Join-Path $AgentDir 'install.ps1'
@@ -38,12 +38,23 @@ function Invoke-WebRequest {
     }
     return [pscustomobject]@{ StatusCode = $script:HttpStatus; Content = '{"node_id":1}' }
 }
-function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Settings, $Principal, [switch]$Force)
-    $script:Registered += [pscustomobject]@{ TaskName=$TaskName; Actions=@($Action); Triggers=@($Trigger); Settings=$Settings; Principal=$Principal; State='Ready' }
+function Register-ScheduledTask { param($TaskName, $TaskPath, $Action, $Trigger, $Settings, $Principal, [switch]$Force)
+    Assert ($TaskPath -eq '\') 'register must use exact root task path'
+    $script:Registered += [pscustomobject]@{ TaskName=$TaskName; TaskPath=$TaskPath; Actions=@($Action); Triggers=@($Trigger); Settings=$Settings; Principal=$Principal; State='Ready' }
 }
-function Get-ScheduledTask { param($TaskName, $ErrorAction) return (@($script:ExistingTasks + $script:Registered) | Where-Object TaskName -eq $TaskName | Select-Object -Last 1) }
-function Stop-ScheduledTask { param($TaskName, $ErrorAction) $script:Stopped += $TaskName }
-function Start-ScheduledTask { param($TaskName) $script:Started += $TaskName }
+function Get-ScheduledTask { param($TaskName, $TaskPath, $ErrorAction)
+    Assert ($TaskPath -eq '\') 'lookup must use exact root task path'
+    return (@($script:ExistingTasks + $script:Registered) | Where-Object TaskName -eq $TaskName | Select-Object -Last 1)
+}
+function Stop-ScheduledTask { param($TaskName, $TaskPath, $ErrorAction)
+    Assert ($TaskPath -eq '\') 'stop must use exact root task path'
+    $script:Stopped += $TaskName
+    (Get-ScheduledTask -TaskName $TaskName -TaskPath $TaskPath).State = 'Ready'
+}
+function Start-ScheduledTask { param($TaskName, $TaskPath, $ErrorAction) $script:Started += $TaskName }
+function Export-ScheduledTask { param($TaskName, $TaskPath, $ErrorAction) return '<fixture-task/>' }
+function Unregister-ScheduledTask { param($TaskName, $TaskPath, $Confirm, $ErrorAction) throw 'Unexpected task unregister in installer happy-path test' }
+function Get-CimInstance { param($ClassName, $ErrorAction) return @() }
 function Assert($Condition, [string]$Message) { if (-not $Condition) { throw "FAIL: $Message" } }
 function Invoke-TestWrapper([string]$Wrapper) {
     $info = New-Object Diagnostics.ProcessStartInfo
@@ -59,7 +70,7 @@ function Invoke-TestWrapper([string]$Wrapper) {
     $process.WaitForExit()
     return [pscustomobject]@{ Code=$process.ExitCode; Stdout=$stdout; Stderr=$stderr }
 }
-foreach ($name in @('Register-ScheduledTask','Start-ScheduledTask','Stop-ScheduledTask','Get-ScheduledTask','Invoke-WebRequest')) {
+foreach ($name in @('Register-ScheduledTask','Start-ScheduledTask','Stop-ScheduledTask','Get-ScheduledTask','Export-ScheduledTask','Unregister-ScheduledTask','Get-CimInstance','Invoke-WebRequest')) {
     Assert ((Get-Command $name).CommandType -eq 'Function') "side-effect mock was overwritten: $name"
 }
 try {
@@ -95,7 +106,7 @@ try {
     New-Item -ItemType Directory $fixture | Out-Null
     [IO.File]::WriteAllText((Join-Path $fixture 'stella_agent.py'), 'def invalid syntax:')
     [IO.File]::WriteAllText((Join-Path $fixture 'run-agent.ps1'), 'Write-Output fixture')
-    $python = (Get-Command python).Source
+    $python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
     $failed = $false
     try { Invoke-StellaInstall -Url 'https://stella.invalid' -Token 'fixture-secret' -NoDeps -SourceDir $fixture -InstallDir $target -PythonPath $python }
     catch { $failed = $true }
