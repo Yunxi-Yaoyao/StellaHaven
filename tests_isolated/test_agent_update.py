@@ -266,7 +266,7 @@ class DownloadTests(unittest.TestCase):
 
     def test_optimized_interpreter_still_checks_loaded_version(self):
         import os
-        self.publish(type(self).body + b'globals()["AGENT_VERSION"] = "0.6.12"\n')
+        self.publish(type(self).body + b'globals()["AGENT_VERSION"] = "0.6.13"\n')
         with patch.dict(os.environ, {'PYTHONOPTIMIZE': '1'}):
             self.instance.check_update()
         self.unchanged()
