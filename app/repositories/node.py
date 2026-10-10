@@ -235,7 +235,7 @@ def get_metrics(db: Session, node_id: int, iface: str | None = None,
                 select(func.sum(NodeMetric.rx_delta).label("rx_delta"),
                        func.sum(NodeMetric.tx_delta).label("tx_delta"))
                 .where(*filters, NodeMetric.ts >= buckets.c.ts,
-                       NodeMetric.ts < buckets.c.ts + timedelta(seconds=step))
+                       NodeMetric.ts < buckets.c.ts + func.make_interval(0, 0, 0, 0, 0, 0, step))
                 .correlate(buckets).lateral("bucket_totals")
             )
             rows = db.execute(

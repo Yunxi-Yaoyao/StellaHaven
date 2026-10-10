@@ -185,6 +185,29 @@ def test_long_window_all_buckets_and_exact_interface_statistics(repo, pg):
         db.rollback()
 
 
+@pytest.mark.parametrize('switch_day', [datetime(2026, 3, 8, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc)])
+@pytest.mark.parametrize('step', [86400, 172800])
+def test_fixed_seconds_boundaries_across_dst_use_actual_driver_bindings(repo, pg, switch_day, step):
+    start = switch_day - timedelta(days=3)
+    end = switch_day + timedelta(days=4)
+    with Session(pg) as db:
+        n = repo.Node(name='dst', host='127.0.0.1', platform='linux'); db.add(n); db.flush()
+        # Samples around every fixed UTC boundary, including the last hour.
+        for i in range(7 * 24 + 1):
+            for microsecond in (-1, 0, 1):
+                ts = start + timedelta(hours=i, microseconds=microsecond)
+                db.add(repo.NodeMetric(node_id=n.id, iface='dst', ts=ts, rx_delta=i + 1, tx_delta=(i + 1)*2))
+        db.commit()
+        db.execute(text('SET TRANSACTION READ ONLY'))
+        db.execute(text("SET LOCAL statement_timeout='5000ms'"))
+        db.execute(text("SET LOCAL TIME ZONE 'America/New_York'"))
+        for limit in (1, 3, 100):
+            expected = normalized(old_query(db, repo, n.id, 'dst', start, end, limit, step).all())
+            actual = normalized(repo.get_metrics(db, n.id, 'dst', start, end, limit, step))
+            assert actual == expected
+        db.rollback()
+
+
 def test_raw_path_unchanged(repo):
     for step in (None, 1, 5):
         sql = str(capture_query(repo, step=step).compile(dialect=postgresql.dialect()))
