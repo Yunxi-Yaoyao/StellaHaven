@@ -22,13 +22,13 @@ const sampleStatus = computed(() => {
   const hw = props.hardware;
   if (!hw) return '';
   const states = [hw.availability.cpu_temperature, hw.availability.gpu];
-  if (props.refreshFailed || hw.gpus.some(gpu => gpu.telemetry_status === 'query_failed' || gpu.telemetry_status === 'driver_missing')
+  if (props.refreshFailed || hw.availability.gpu_query === 'query_failed' || hw.gpus.some(gpu => gpu.telemetry_status === 'query_failed' || gpu.telemetry_status === 'driver_missing')
     || states.some(s => failureLabels[s] && s !== 'sensors_file_stale')) return '刷新失败';
   if (states.includes('collecting')) return '采集中';
   const timestamps: [string | null | undefined, number][] = [[hw.sampled_at, 180000], [hw.cpu.sampled_at, 120000]];
   for (const gpu of hw.gpus) {
     // New agents report source time; absent legacy fields use overall time.
-    if ('sampled_at' in gpu) {
+    if ('sampled_at' in gpu && (gpu.sampled_at != null || !gpu.telemetry_status || gpu.telemetry_status === 'available')) {
       timestamps.push([typeof gpu.sampled_at === 'string' ? gpu.sampled_at : null, 120000]);
     }
   }

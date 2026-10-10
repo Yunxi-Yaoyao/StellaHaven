@@ -14,6 +14,22 @@ import capturedNAS from './fixtures/node-55.captured.json';
 import nasContract from './fixtures/node-55.contract-fixture.json';
 import windowsContract from './fixtures/node-57.contract-fixture.json';
 
+test('global GPU query failure stays visible beside a healthy integrated GPU', async () => {
+  const hw = structuredClone(hardware) as any;
+  hw.availability.gpu = 'inventory_only'; hw.availability.gpu_query = 'query_failed';
+  hw.gpus = [{ ...hw.gpus[0], kind: 'integrated', telemetry_status: 'available', sampled_at: hw.sampled_at }];
+  await mount(HardwarePanel, { hardware: hw, status: 'online', now: Date.parse('2026-10-10T08:00:00Z') });
+  expect(host.querySelector('.sample-status')?.textContent).toContain('刷新失败');
+});
+test('inventory-only GPU without a measurement time does not taint healthy CPU freshness', async () => {
+  const hw = structuredClone(hardware) as any;
+  hw.availability.gpu = 'inventory_only';
+  hw.gpus = [{ ...hw.gpus[0], name: 'AMD integrated', kind: 'integrated', telemetry_status: 'unsupported', sampled_at: null }];
+  await mount(HardwarePanel, { hardware: hw, status: 'online', now: Date.parse('2026-10-10T08:00:00Z') });
+  expect(host.querySelector('.sample-status')).toBeNull();
+  expect(host.textContent).toContain('AMD integrated');
+});
+
 const charts = vi.hoisted(() => [] as ReturnType<typeof vi.fn>[]);
 vi.mock('./chartRuntime', () => ({
   init: () => { const setOption = vi.fn(); charts.push(setOption); return { setOption, dispose: vi.fn(), resize: vi.fn() }; },

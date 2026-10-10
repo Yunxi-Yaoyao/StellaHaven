@@ -103,7 +103,7 @@ export interface HardwareInfo {
   cpu: HardwareCpu;
   gpus: HardwareGpu[];
   sensors: HardwareSensor[];
-  availability: { cpu_temperature: string; gpu: string };
+  availability: { cpu_temperature: string; gpu: string; gpu_presence?: 'unknown' | 'none' | 'present'; gpu_query?: 'available' | 'query_failed' };
 }
 
 export interface Node {
