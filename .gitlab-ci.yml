@@ -86,6 +86,9 @@ frontend-build:
     - node node_modules/vitest/vitest.mjs run --config vitest.website-key.config.mjs
     - node node_modules/vitest/vitest.mjs run --config vitest.settings.config.mjs
     - node node_modules/vitest/vitest.mjs run --config vitest.shell.config.mjs
+    - node node_modules/vitest/vitest.mjs run --config vitest.hardware.config.mjs
+    - npm run test:monitor-loading
+    - HARDWARE_TEST_OUTPUT="$CI_PROJECT_DIR/frontend/node_modules/.cache/hardware" CHROME_PATH="$CHROME_BIN" node src/modules/servers/hardware.visual.test.mjs
     - npm run build
 
 # Controlled process/visual QA is mandatory, not production performance evidence.
