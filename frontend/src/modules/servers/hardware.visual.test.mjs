@@ -98,7 +98,8 @@ try {
     assert.equal(await page.locator('.d-head .machine-badge').textContent(), '物理机');
     assert.equal(await page.locator('[aria-label="物理机清单"]').count(), 1);
     assert.match(await page.locator('.sample-status').textContent(), /最近采样/);
-    const nameLayout = await page.locator('.d-head .name').evaluate(el => ({ width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height }));
+    const nameLayout = await page.locator('.d-head .name').evaluate(el => ({ width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(el).lineHeight) }));
+    assert.equal(Number.isFinite(nameLayout.lineHeight) && nameLayout.lineHeight <= 25, true, 'node name line-height must not depend on OS fallback font leading');
     assert.equal((width > 768 || nameLayout.width >= 120) && nameLayout.height <= 60, true, `machine badge squeezes node name at ${width}: ${JSON.stringify(nameLayout)}`);
     await page.screenshot({ path: resolve(out, `hardware-${width}.png`), fullPage: true });
     const layout = await page.evaluate(() => {

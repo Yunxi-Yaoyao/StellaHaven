@@ -1671,7 +1671,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
   background: transparent; border: 1px solid var(--accent-dim); color: var(--accent);
   border-radius: var(--radius-sm); padding: 6px 12px; cursor: pointer; font-size: 13px;
 }
-.name { font-size: 20px; font-weight: 600; color: var(--text-hi); }
+.name { font-size: 20px; line-height: 1.25; font-weight: 600; color: var(--text-hi); }
 .badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; letter-spacing: 1px; }
 .badge.online { color: var(--pink); background: rgba(255, 158, 199, 0.12); }
 .badge.offline { color: var(--text-faint); background: var(--bg-raised); }
