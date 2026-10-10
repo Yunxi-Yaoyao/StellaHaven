@@ -12,17 +12,17 @@ FROM python:3.13-slim
 WORKDIR /app
 
 # ffmpeg/ffprobe generate bounded background derivatives; originals remain unchanged.
-RUN python -c "from pathlib import Path; p=Path('/etc/apt/sources.list.d/debian.sources'); p.write_text(p.read_text().replace('http://deb.debian.org/debian-security','https://mirrors.tuna.tsinghua.edu.cn/debian-security').replace('http://deb.debian.org/debian','https://mirrors.tuna.tsinghua.edu.cn/debian'))" \
+RUN python -c "from pathlib import Path; p=Path('/etc/apt/sources.list.d/debian.sources'); p.write_text(p.read_text().replace('http://deb.debian.org/debian-security','https://mirrors.ustc.edu.cn/debian-security').replace('http://deb.debian.org/debian','https://mirrors.ustc.edu.cn/debian'))" \
     && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update \
     && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends ffmpeg nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # uv 装依赖（只装生产依赖，不装 test 组）
 COPY pyproject.toml uv.lock ./
-RUN pip install --no-cache-dir --index-url https://pypi.tuna.tsinghua.edu.cn/simple --timeout 30 --retries 2 uv -q \
+RUN pip install --no-cache-dir --index-url https://pypi.org/simple --timeout 30 --retries 2 uv -q \
     && uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt \
     && uv venv \
-    && UV_HTTP_TIMEOUT=30 UV_HTTP_RETRIES=2 uv pip sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple --require-hashes /tmp/requirements.txt
+    && UV_HTTP_TIMEOUT=30 UV_HTTP_RETRIES=2 uv pip sync --index-url https://pypi.org/simple --require-hashes /tmp/requirements.txt
 
 # 后端代码 + 烤好的前端
 COPY . .
