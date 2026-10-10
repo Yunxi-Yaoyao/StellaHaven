@@ -101,6 +101,7 @@ class HardwareAgentTests(unittest.TestCase):
         self.assertIn('-EncodedCommand', args[0])
         script = base64.b64decode(args[0][-1]).decode('utf-16-le')
         self.assertIn('Win32_Processor', script)
+        self.assertIn("$ProgressPreference='SilentlyContinue'", script)
         self.assertEqual(kwargs['timeout'], 3)
 
 

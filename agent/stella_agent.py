@@ -927,7 +927,8 @@ class Agent:
         if platform.system() == 'Windows':
             try:
                 powershell = shutil.which('powershell') or 'powershell.exe'
-                script = ('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
+                script = ("$ProgressPreference='SilentlyContinue'; "
+                          '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
                           'Get-CimInstance Win32_Processor | Select-Object Name,CurrentClockSpeed,'
                           'MaxClockSpeed,NumberOfCores,NumberOfLogicalProcessors | ConvertTo-Json -Compress')
                 encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
