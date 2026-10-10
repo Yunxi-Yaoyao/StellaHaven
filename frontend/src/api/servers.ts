@@ -14,11 +14,14 @@ export interface StorageItem {
 
 // 硬件快照复用 sys_info 随详情轮询返回；旧 Agent 可不提供 hardware。
 export interface HardwareCpu {
+  sampled_at?: string | null;
   model: string | null;
   physical_cores: number | null;
   logical_cores: number | null;
   frequency_mhz: number | null;
   max_frequency_mhz: number | null;
+  base_frequency_mhz?: number | null;
+  base_frequency_source?: string | null;
   temperature_c: number | null;
   temperature_source: string | null;
   frequency_source: string | null;
@@ -43,8 +46,45 @@ export interface HardwareSensor {
   unit: "°C" | "RPM";
   source: string;
 }
+export interface HardwareMachine {
+  kind: "physical" | "virtual" | "container" | "unknown";
+  vendor: string | null;
+  model: string | null;
+  virtualization: string | null;
+  evidence: string[];
+  detected_at: string | null;
+}
+// Classification belongs to the Agent; names, OS and VBS flags are not evidence here.
+export function machineTypeLabel(machine?: HardwareMachine | null): string {
+  switch (machine?.kind) {
+    case "physical": return "物理机";
+    case "virtual": return "虚拟机";
+    case "container": return "容器";
+    default: return "未确定";
+  }
+}
+export function machineTypeTitle(machine?: HardwareMachine | null): string {
+  if (!machine) return "Agent 尚未上报机器类型";
+  return [
+    `判断依据：${machine.evidence?.length ? machine.evidence.join("；") : "未提供"}`,
+    machine.vendor, machine.model,
+    machine.virtualization ? `虚拟化：${machine.virtualization}` : null,
+    machine.detected_at ? `检测时间：${machine.detected_at}` : "检测时间未知",
+  ].filter(Boolean).join(" · ");
+}
+export interface PhysicalInventory {
+  board: { vendor: string | null; model: string | null } | null;
+  bios: { vendor: string | null; version: string | null } | null;
+  memory_modules: { slot: string | null; capacity_bytes: number | null; speed_mts: number | null;
+    configured_speed_mts: number | null; vendor: string | null; part_number: string | null }[];
+  disks: { name: string | null; model: string | null; size_bytes: number | null;
+    bus: string | null; rotational: boolean | null }[];
+}
 export interface HardwareInfo {
-  sampled_at: string;
+  physical_inventory?: PhysicalInventory | null;
+  machine?: HardwareMachine | null;
+  sampled_at: string | null;
+  sensors_sampled_at?: string | null;
   cpu: HardwareCpu;
   gpus: HardwareGpu[];
   sensors: HardwareSensor[];

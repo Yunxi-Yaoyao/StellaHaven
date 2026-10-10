@@ -3,7 +3,7 @@ import { createPoller } from "./polling";
 // 服务器页：节点清单 + 添加节点（纳管）+ 移除
 import { ref, onMounted, onUnmounted, computed } from "vue";
 import { useRouter } from "vue-router";
-import { listNodes, createNode, removeNode, getHost, installHost, getPublicHost, requestUninstall, type Node, type HostInfo } from "../../api/servers";
+import { machineTypeLabel, machineTypeTitle, listNodes, createNode, removeNode, getHost, installHost, getPublicHost, requestUninstall, type Node, type HostInfo } from "../../api/servers";
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
 import NodeComponents from "./NodeComponents.vue";
@@ -238,6 +238,7 @@ const uninstallLabel: Record<string, string> = {
         <div class="card-top">
           <span class="dot" :style="{ background: statusColor[n.status] }" />
           <span class="name">{{ n.name }}</span>
+          <span class="machine-badge" :title="machineTypeTitle(n.sys_info?.hardware?.machine)">{{ machineTypeLabel(n.sys_info?.hardware?.machine) }}</span>
           <span class="plat">{{ n.os_name || n.platform }}</span>
           <span v-if="n.net_type === 'public'" class="pub-badge" title="公网节点：可作为打流服务端">公网</span>
           <span class="actions">
@@ -366,6 +367,7 @@ const uninstallLabel: Record<string, string> = {
 </template>
 
 <style scoped>
+.machine-badge { flex-shrink: 0; font-size: 10.5px; color: var(--accent); border: 1px solid var(--accent-dim); padding: 1px 7px; border-radius: 999px; }
 .nodes-view {
   height: 100%;
   overflow-y: auto;
@@ -392,7 +394,7 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
   cursor: pointer;
 }
 .card:hover { border-color: var(--accent-dim); transform: translateY(-2px); }
-.card-top { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+.card-top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; margin-bottom: 10px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .name { font-size: 15px; font-weight: 600; }
 .plat { font-size: 10.5px; color: var(--text-faint); border: 1px solid var(--text-faint); padding: 1px 7px; border-radius: 999px; }

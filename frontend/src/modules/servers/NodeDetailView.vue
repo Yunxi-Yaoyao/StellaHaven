@@ -9,7 +9,7 @@ import * as echarts from "./chartRuntime";
 import Icon from "../../shell/Icon.vue";
 import HardwareInfoPanel from "./HardwareInfoPanel.vue";
 import {
-  getNodeDetail, getNodeMetrics, getNodeSysMetrics, getTrafficStats, updateNodeIfaces, updateNetType, changeIp,
+  machineTypeLabel, machineTypeTitle, getNodeDetail, getNodeMetrics, getNodeSysMetrics, getTrafficStats, updateNodeIfaces, updateNetType, changeIp,
   listMonitors, getMonitorSeries, createCommand, scanFirewall, getNetTask,
   latestNetTask, scanPbr,
   type NodeDetail, type Monitor, type MonitorCheckPoint, type TrafficStats, type FirewallData,
@@ -1058,6 +1058,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
       <button class="back" @click="goBack"><Icon name="chevron-left" :size="16" /> 返回</button>
       <span class="name">{{ detail?.name || "…" }}</span>
       <span v-if="detail" class="badge" :class="detail.status">{{ statusLabel[detail.status] }}</span>
+      <span v-if="detail" class="machine-badge" :title="machineTypeTitle(detail.sys_info?.hardware?.machine)">{{ machineTypeLabel(detail.sys_info?.hardware?.machine) }}</span>
       <span class="meta">
         <span v-if="detail?.platform">{{ detail.platform }}</span>
         <span v-if="detail?.arch">{{ detail.arch }}</span>
@@ -1607,6 +1608,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 </template>
 
 <style scoped>
+.machine-badge { flex-shrink: 0; font-size: 10.5px; color: var(--accent); border: 1px solid var(--accent-dim); padding: 1px 7px; border-radius: 999px; }
 /* 详情内容区（作为根元素，在 ServersPage 的 view-body 里撑满） */
 .detail-body {
   height: 100%;
@@ -1973,7 +1975,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 @media (max-width: 768px) {
   .d-head { flex-wrap: wrap; gap: 8px; }
   .d-head .back, .d-head .badge, .d-head .ops { flex-shrink: 0; white-space: nowrap; }
-  .d-head .name { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+  .d-head .name { min-width: 120px; flex: 1 1 120px; overflow-wrap: anywhere; }
   .d-head .meta { order: 1; flex-basis: 100%; min-width: 0; margin-left: 0; flex-wrap: wrap; gap: 4px 10px; overflow-wrap: anywhere; }
   .fw-table, .fw-table thead, .fw-table tbody, .fw-table tr, .fw-table td { display: block; }
   .fw-table thead { display: none; }

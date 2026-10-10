@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { createApp, h, nextTick, ref } from 'vue';
+import { createApp, h, nextTick, ref, type Component } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import Detail from './NodeDetailView.vue';
+import Nodes from './NodesView.vue';
+import HardwarePanel from './HardwareInfoPanel.vue';
+vi.mock('./NodeComponents.vue', () => ({ default: { render: () => null } }));
 import * as api from '../../api/servers';
 import { hardware, node } from './hardware.testFixtures';
 import type { HardwareInfo } from '../../api/servers';
@@ -15,23 +18,26 @@ vi.mock('../../api/servers', async original => ({
   ...await original<typeof import('../../api/servers')>(),
   getNodeDetail: vi.fn(), listMonitors: vi.fn(),
   getNodeMetrics: vi.fn(), getNodeSysMetrics: vi.fn(), getTrafficStats: vi.fn(),
-  latestNetTask: vi.fn(),
+  latestNetTask: vi.fn(), listNodes: vi.fn(), getHost: vi.fn(), getPublicHost: vi.fn(),
 }));
 let app: ReturnType<typeof createApp> | undefined;
 let host: HTMLElement;
 const id = ref(7);
 async function settle() { for (let i = 0; i < 50; i++) await Promise.resolve(); await nextTick(); }
-async function mount() {
+async function mount(component: Component = Detail, props: Record<string, unknown> = {}) {
   host = document.createElement('div'); document.body.append(host);
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { render: () => null } }] });
   await router.push('/'); await router.isReady();
-  app = createApp({ render: () => h(Detail, { nodeId: id.value }) }); app.use(router); app.mount(host); await settle();
+  app = createApp({ render: () => h(component, { nodeId: id.value, ...props }) }); app.use(router); app.mount(host); await settle();
 }
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-10T08:00:00Z')); vi.resetAllMocks(); charts.length = 0; id.value = 7;
   Object.defineProperty(document, 'hidden', { configurable: true, value: false });
   vi.mocked(api.getNodeDetail).mockResolvedValue(node as any);
   vi.mocked(api.listMonitors).mockResolvedValue([]);
+  vi.mocked(api.getHost).mockResolvedValue({ installed: true } as any);
+  vi.mocked(api.getPublicHost).mockResolvedValue({ value: '' });
+  vi.mocked(api.listNodes).mockResolvedValue([]);
   vi.mocked(api.getNodeMetrics).mockResolvedValue([]);
   vi.mocked(api.getNodeSysMetrics).mockResolvedValue([]);
   vi.mocked(api.getTrafficStats).mockResolvedValue(null as any);
@@ -72,7 +78,7 @@ test.each([
   ['nvidia_smi_failed', 'GPU 查询失败'],
   ['nvidia_smi_missing', 'GPU 不可用 · 未安装 nvidia-smi'],
   ['unavailable', 'GPU 不可用'],
-  ['driver_not_ready', 'GPU 未读取 · driver_not_ready'],
+  ['driver_not_ready', 'GPU 不可用 · 驱动尚未就绪'],
 ])('empty GPU list preserves availability meaning: %s', async (status, message) => {
   vi.mocked(api.getNodeDetail).mockResolvedValue({ ...node, sys_info: { hardware: {
     ...hardware, gpus: [], sensors: [], cpu: { ...hardware.cpu, temperature_c: null },
@@ -113,7 +119,8 @@ test('clock aging and failed detail polls retain the previous sample as non-live
   vi.mocked(api.getNodeDetail).mockResolvedValue(node as any);
   await vi.advanceTimersByTimeAsync(120000); await settle();
   expect(host.querySelector('.sample-status')?.textContent).toContain('采样已过期');
-  const updated = { ...hardware, sampled_at: new Date().toISOString(), cpu: { ...hardware.cpu, temperature_c: 49 } };
+  const updated = { ...hardware, sampled_at: new Date().toISOString(), sensors_sampled_at: new Date().toISOString(),
+    cpu: { ...hardware.cpu, sampled_at: new Date().toISOString(), temperature_c: 49 } };
   vi.mocked(api.getNodeDetail).mockResolvedValue({ ...node, sys_info: { hardware: updated } } as any);
   await vi.advanceTimersByTimeAsync(5000); await settle();
   expect(host.querySelector('.sample-status')?.textContent).toContain('最近采样');
@@ -131,6 +138,178 @@ test('hardware aging continues while an existing detail request is stuck without
   expect(host.querySelector('.sample-status')?.textContent).toContain('非实时');
   expect(api.getNodeDetail).toHaveBeenCalledTimes(2);
   expect(api.getNodeMetrics).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  ['physical', '物理机'], ['virtual', '虚拟机'], ['container', '容器'], ['unknown', '未确定'],
+  [undefined, '未确定'], ['invalid', '未确定'],
+])('node detail and real list cards use reported machine kind %s, never node names or VBS', async (kind, label) => {
+  const machine = kind === undefined ? undefined : { kind, vendor: 'ACME', model: 'Node model',
+    virtualization: 'Hyper-V / VBS enabled', evidence: ['SMBIOS chassis evidence'], detected_at: hardware.sampled_at };
+  const fixture = { ...node, name: 'Generic node', sys_info: { hardware: { ...hardware, machine } } } as any;
+  vi.mocked(api.getNodeDetail).mockResolvedValue(fixture);
+  await mount();
+  const detailBadge = host.querySelector('.d-head .machine-badge');
+  expect(detailBadge?.textContent).toBe(label);
+  if (machine) {
+    expect(detailBadge?.getAttribute('title')).toContain('SMBIOS chassis evidence');
+    expect(detailBadge?.getAttribute('title')).toContain('Hyper-V / VBS enabled');
+    expect(detailBadge?.getAttribute('title')).toContain('ACME');
+  } else expect(detailBadge?.getAttribute('title')).toContain('尚未上报');
+  app!.unmount(); host.remove();
+  vi.mocked(api.listNodes).mockResolvedValue([fixture, { ...node, id: 8, name: 'Windows 5060', sys_info: null }] as any);
+  await mount(Nodes);
+  const cards = [...host.querySelectorAll('.grid > .card')];
+  expect(cards).toHaveLength(2);
+  expect(cards[0]!.querySelector('.machine-badge')?.textContent).toBe(label);
+  expect(cards[1]!.querySelector('.machine-badge')?.textContent).toBe('未确定');
+});
+
+test.each(['physical', 'virtual', 'container', 'unknown', undefined])(
+  'physical inventory and board sensors are visible only for explicit physical machines: %s', async kind => {
+    vi.mocked(api.getNodeDetail).mockResolvedValue({ ...node, sys_info: { hardware: { ...hardware,
+      machine: kind === undefined ? undefined : { ...hardware.machine, kind },
+    } } } as any);
+    await mount();
+    const inventory = host.querySelector('[aria-label="物理机清单"]');
+    if (kind === 'physical') {
+      expect(inventory).not.toBeNull();
+      for (const value of ['Custom', 'Desktop', 'ASUS', 'TUF B650', 'AMI', '3210', 'DIMM_A1',
+        '16 GiB', '6000 MT/s', '5200 MT/s', 'Kingston', 'KF560', 'disk0', 'Samsung 990', '1 TiB', 'NVMe', '固态']) {
+        expect(inventory!.textContent).toContain(value);
+      }
+      expect(host.querySelector('.sensors-card')?.textContent).toContain('0 RPM');
+    } else {
+      expect(inventory).toBeNull();
+      expect(host.querySelector('.sensors-card')).toBeNull();
+      expect(host.textContent).not.toContain('TUF B650');
+    }
+    // CPU/GPU remain useful on every machine kind, including old agents.
+    expect(host.querySelector('.cpu-card')?.textContent).toContain('52.5 °C');
+    expect(host.querySelector('.gpu-card')?.textContent).toContain('0 %');
+  });
+
+test('physical machine with unavailable inventory is explicit and nullable modules never invent readings', async () => {
+  vi.mocked(api.getNodeDetail).mockResolvedValue({ ...node, sys_info: { hardware: { ...hardware,
+    physical_inventory: null,
+  } } } as any);
+  await mount();
+  expect(host.querySelector('[aria-label="物理机清单"]')?.textContent).toContain('物理机清单尚未读取');
+  app!.unmount(); host.remove();
+  vi.mocked(api.getNodeDetail).mockResolvedValue({ ...node, sys_info: { hardware: { ...hardware,
+    physical_inventory: { board: null, bios: null, memory_modules: [{ slot: 'DIMM0', capacity_bytes: 0,
+      speed_mts: null, configured_speed_mts: 0, vendor: null, part_number: null }],
+      disks: [{ name: 'disk0', model: null, size_bytes: null, bus: null, rotational: null }] },
+  } } } as any);
+  await mount();
+  const text = host.querySelector('[aria-label="物理机清单"]')!.textContent!;
+  expect(text).toContain('0 B'); expect(text).toContain('0 MT/s'); expect(text).toContain('未读取');
+  expect(text).not.toContain('null'); expect(text).not.toContain('undefined');
+});
+
+test.each([
+  ['CPU', { cpu: { ...hardware.cpu, sampled_at: '2026-10-10T07:57:59Z' } }, 'CPU 源采样已过期'],
+  ['sensors', { sensors_sampled_at: '2026-10-10T07:57:59Z' }, '传感器源采样已过期'],
+  ['CPU null', { cpu: { ...hardware.cpu, sampled_at: null } }, 'CPU 源采样时间未知'],
+  ['sensors null', { sensors_sampled_at: null }, '传感器源采样时间未知'],
+  ['CPU future', { cpu: { ...hardware.cpu, sampled_at: '2026-10-10T08:00:06Z' } }, 'CPU 源采样时间异常'],
+  ['sensors future', { sensors_sampled_at: '2026-10-10T08:00:06Z' }, '传感器源采样时间异常'],
+  ['overall future', { sampled_at: '2026-10-10T08:00:06Z' }, '采样时间异常'],
+  ['overall null', { sampled_at: null }, '采样时间未知'],
+])('fresh overall snapshot does not disguise missing, stale or future source time: %s', async (_, change, reason) => {
+  await mount(HardwarePanel, { hardware: { ...hardware, ...change }, status: 'online', now: Date.now() });
+  const status = host.querySelector('.sample-status')!.textContent!;
+  expect(status).toContain('非实时'); expect(status).toContain(reason); expect(status).not.toContain('最近采样');
+  expect(host.textContent).not.toContain('Invalid Date');
+});
+
+test.each(['cpu_temperature', 'gpu'])(
+  'availability %s reports stale, failed and collecting in visible Chinese, not a recent sample', async field => {
+    for (const [state, label] of [['stale', '过期'], ['collection_failed', '采集失败'], ['collecting', '采集中']]) {
+      await mount(HardwarePanel, { hardware: { ...hardware, gpus: [],
+        cpu: { ...hardware.cpu, temperature_c: null }, availability: { ...hardware.availability, [field]: state } },
+        status: 'online', now: Date.now() });
+      expect(host.querySelector('.sample-status')?.textContent).toContain('非实时');
+      expect(host.querySelector('.sample-status')?.textContent).toContain(label);
+      expect(host.querySelector('.sample-status')?.textContent).not.toContain('最近采样');
+      expect(host.querySelector(field === 'gpu' ? '.gpu-card' : '.cpu-card')?.textContent).toContain(label);
+      expect(host.textContent).not.toContain(state);
+      app!.unmount(); host.remove();
+    }
+  });
+
+test('CPU sensor-file failures have visible Chinese meaning and an empty sample never claims recent readings', async () => {
+  await mount(HardwarePanel, { hardware: { ...hardware, cpu: { ...hardware.cpu, temperature_c: null },
+    availability: { ...hardware.availability, cpu_temperature: 'sensors_file_unavailable' } }, status: 'online', now: Date.now() });
+  expect(host.querySelector('.cpu-card')?.textContent).toContain('传感器文件不可用');
+  expect(host.textContent).not.toContain('sensors_file_unavailable');
+  app!.unmount(); host.remove();
+  await mount(HardwarePanel, { hardware: { ...hardware, sampled_at: null, gpus: [], sensors: [],
+    cpu: { model: null, physical_cores: null, logical_cores: null, temperature_c: null,
+      frequency_mhz: null, max_frequency_mhz: null, frequency_source: null, temperature_source: null, sampled_at: null },
+    availability: { cpu_temperature: 'collecting', gpu: 'collecting' } }, status: 'online', now: Date.now() });
+  expect(host.querySelector('.sample-status')?.textContent).toContain('非实时');
+  expect(host.querySelector('.sample-status')?.textContent).toContain('采集中');
+  expect(host.querySelector('.sample-status')?.textContent).not.toContain('最近采样');
+  expect(host.querySelector('.sample-status time')).toBeNull();
+});
+
+test('source timestamps are visible and tolerate exact age and future skew limits', async () => {
+  await mount(HardwarePanel, { hardware: { ...hardware, sampled_at: '2026-10-10T07:57:00Z',
+    cpu: { ...hardware.cpu, sampled_at: '2026-10-10T07:58:00Z' }, sensors_sampled_at: '2026-10-10T08:00:05Z' },
+    status: 'online', now: Date.now() });
+  expect(host.querySelector('.sample-status')?.textContent).toContain('最近采样');
+  expect(host.querySelector('.cpu-card time')?.getAttribute('datetime')).toBe('2026-10-10T07:58:00Z');
+  expect(host.querySelector('.sensors-card time')?.getAttribute('datetime')).toBe('2026-10-10T08:00:05Z');
+});
+
+test('WMI frequency metadata is visible on mobile and never called measured current, base or maximum boost', async () => {
+  await mount(HardwarePanel, { hardware: { ...hardware, cpu: { ...hardware.cpu,
+    frequency_mhz: 3600, max_frequency_mhz: 9999, base_frequency_mhz: 3800,
+    frequency_source: 'Win32_Processor.CurrentClockSpeed (WMI; not measured boost)',
+    base_frequency_source: 'Win32_Processor.MaxClockSpeed (WMI nominal metadata; not measured base/boost)',
+  } }, status: 'online', now: Date.now() });
+  const cpu = host.querySelector('.cpu-card')!;
+  expect(cpu.textContent).toContain('WMI 报告频率');
+  expect(cpu.textContent).toContain('WMI 标称频率');
+  expect(cpu.textContent).toContain('3800 MHz');
+  expect(cpu.textContent).toContain('标称元数据');
+  expect(cpu.textContent).toContain('非实测最高');
+  expect(cpu.textContent).toContain('Win32_Processor.CurrentClockSpeed');
+  expect(cpu.textContent).toContain('Win32_Processor.MaxClockSpeed');
+  expect(cpu.textContent).not.toContain('当前频率');
+  expect(cpu.textContent).not.toContain('基准频率');
+  expect(cpu.textContent).not.toContain('最高频率');
+  expect(cpu.textContent).not.toContain('9999 MHz');
+});
+
+test('dynamic CPU frequency and temperature source are visible with zero readings retained', async () => {
+  await mount(HardwarePanel, { hardware: { ...hardware, cpu: { ...hardware.cpu, frequency_mhz: 0,
+    frequency_source: 'LibreHardwareMonitor:Cores (Average)', base_frequency_mhz: 0,
+    base_frequency_source: 'Win32_Processor.MaxClockSpeed',
+  } }, status: 'online', now: Date.now() });
+  const cpu = host.querySelector('.cpu-card')!;
+  expect(cpu.textContent).toContain('当前频率');
+  expect(cpu.textContent).toContain('频率来源 LibreHardwareMonitor:Cores (Average)');
+  expect(cpu.textContent).toContain('动态传感器读数');
+  expect(cpu.textContent).toContain('温度来源 LibreHardwareMonitor');
+  expect(cpu.textContent).toContain('0 MHz');
+  expect(cpu.textContent).toContain('报告上限频率');
+  expect(cpu.textContent).not.toContain('最高频率');
+});
+
+test.each([
+  ['sensors_file_missing', '传感器文件尚未生成'],
+  ['sensors_file_stale', '传感器文件过期'],
+  ['sensors_file_invalid', '传感器文件格式异常'],
+  ['sensors_file_permission_denied', '无权读取传感器文件'],
+])('CPU bridge error %s keeps its specific reason in visible Chinese', async (state, label) => {
+  await mount(HardwarePanel, { hardware: { ...hardware, cpu: { ...hardware.cpu, temperature_c: null },
+    availability: { ...hardware.availability, cpu_temperature: state } }, status: 'online', now: Date.now() });
+  expect(host.querySelector('.cpu-card')?.textContent).toContain(label);
+  expect(host.querySelector('.sample-status')?.textContent).toContain(label);
+  expect(host.querySelector('.sample-status')?.textContent).not.toContain('最近采样');
+  expect(host.textContent).not.toContain(state);
 });
 
 // Regression coverage of the already-tested nullable formatter and GPU loop.
