@@ -27,6 +27,11 @@ def instance():
     obj = agent.Agent('http://offline.invalid', 'offline')
     obj._os_static_cache = {'cpu_model': 'AMD test CPU', 'cpu_cores': 16,
                             'os_name': 'Test Linux', 'kernel': 'test', 'arch': 'x86_64'}
+    if agent.platform.system() != 'Windows':
+        # This suite owns dynamic CPU/GPU/sensor behavior; machine probes are
+        # fixture-tested separately, never read the test runner's host DMI.
+        obj._machine_static_cache = (float('inf'), {'machine': agent._classify_machine(),
+                                    'physical_inventory': None, 'processors': []})
     return obj
 
 
@@ -43,7 +48,9 @@ class HardwareAgentTests(unittest.TestCase):
             'model': 'AMD test CPU', 'physical_cores': 8, 'logical_cores': 16,
             'frequency_mhz': 4250.0, 'max_frequency_mhz': 5100.0,
             'temperature_c': 64.0, 'temperature_source': 'psutil:k10temp',
-            'frequency_source': 'psutil.cpu_freq'})
+            'frequency_source': 'psutil.cpu_freq', 'base_frequency_mhz': None,
+            'base_frequency_source': None, 'sampled_at': hardware['cpu']['sampled_at']})
+        self.assertTrue(hardware['cpu']['sampled_at'].endswith('+00:00'))
         self.assertEqual(len(hardware['sensors']), 5)
         self.assertEqual(hardware['gpus'], [])
         self.assertEqual(hardware['availability']['cpu_temperature'], 'available')
@@ -329,7 +336,8 @@ class HardwareAgentTests(unittest.TestCase):
             hardware = instance()._collect_hardware()
         self.assertEqual(set(hardware['cpu']), {'model', 'physical_cores', 'logical_cores',
                          'frequency_mhz', 'max_frequency_mhz', 'temperature_c',
-                         'temperature_source', 'frequency_source'})
+                         'temperature_source', 'frequency_source', 'base_frequency_mhz',
+                         'base_frequency_source', 'sampled_at'})
         self.assertIsNone(hardware['cpu']['physical_cores'])
         self.assertEqual(hardware['sensors'], [])
         self.assertEqual(hardware['availability']['cpu_temperature'], 'unavailable')

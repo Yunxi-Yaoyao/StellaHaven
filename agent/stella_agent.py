@@ -426,6 +426,95 @@ def _hardware_number(value):
         return None
 
 
+def _hardware_read(path, limit=8192):
+    """Read fixed local public metadata paths, with a cap and no privilege escalation."""
+    try:
+        with open(path, 'rb') as stream:
+            raw = stream.read(limit + 1)
+        return raw.decode('utf-8', errors='replace') if len(raw) <= limit else None
+    except (OSError, ValueError):
+        return None
+
+
+def _hardware_positive_int(value):
+    number = _hardware_number(value)
+    return int(number) if number is not None and number > 0 and number.is_integer() else None
+
+
+def _memory_devices(text):
+    modules = []
+    for block in (text or '').split('Memory Device')[1:]:
+        fields = dict(re.findall(r'^\s*([^:\n]+):\s*([^\n]*)$', block, re.M))
+        size = fields.get('Size', '')
+        if 'No Module Installed' in size:
+            continue
+        match = re.fullmatch(r'(\d+) (kB|KB|MB|GB|TB)', size)
+        capacity = int(match[1]) * (1024 ** {'kB': 1, 'KB': 1, 'MB': 2, 'GB': 3, 'TB': 4}[match[2]]) if match else None
+        def speed(key):
+            match = re.fullmatch(r'(\d+) (?:MT/s|MHz)', fields.get(key, ''))
+            return _hardware_positive_int(match[1]) if match else None
+        modules.append({'slot': _hardware_text(fields.get('Locator')),
+                        'capacity_bytes': capacity, 'speed_mts': speed('Speed'),
+                        'configured_speed_mts': speed('Configured Memory Speed') or speed('Configured Clock Speed'),
+                        'vendor': _hardware_text(fields.get('Manufacturer')),
+                        'part_number': _hardware_text(fields.get('Part Number'))})
+    return modules[:256] or None
+
+
+def _hardware_text(value):
+    """Small public product metadata only; never stringify arbitrary CIM objects."""
+    if not isinstance(value, str):
+        return None
+    value = re.sub(r'[\x00-\x1f\x7f]', '', value).strip()[:128]
+    if value.lower() in ('', 'none', 'unknown', 'not specified', 'default string',
+                         'to be filled by o.e.m.', 'system product name', 'system manufacturer'):
+        return None
+    return value
+
+
+def _classify_machine(vendor=None, model=None, container=None, vm=None, virt_none=False,
+                      windows=False, hypervisor_present=False):
+    """Conservative evidence hierarchy; GPU/sensors never imply bare metal."""
+    vendor, model = _hardware_text(vendor), _hardware_text(model)
+    kind, virtualization, evidence = 'unknown', None, []
+    product = ((vendor or '') + ' ' + (model or '')).lower()
+    vm_products = (('vmware', 'vmware'), ('virtualbox', 'oracle'), ('innotek', 'oracle'),
+                   ('qemu', 'qemu'), ('kvm', 'kvm'), ('xen', 'xen'), ('hvm domu', 'xen'),
+                   ('virtual machine', 'hyperv'), ('parallels', 'parallels'),
+                   ('bhyve', 'bhyve'), ('bochs', 'bochs'), ('amazon ec2', 'amazon'),
+                   ('google compute engine', 'google'), ('openstack', 'kvm'))
+    if container:
+        kind, virtualization = 'container', _hardware_text(container)
+        evidence = ['container marker:' + (virtualization or 'present')]
+    elif vm:
+        kind, virtualization = 'virtual', _hardware_text(vm)
+        evidence = ['systemd-detect-virt:vm:' + (virtualization or 'present')]
+    else:
+        for marker, engine in vm_products:
+            if marker in product:
+                kind, virtualization = 'virtual', engine
+                evidence = ['DMI/CIM virtual product:' + marker]
+                break
+        if kind == 'unknown':
+            real_vendors = ('asus', 'asustek', 'lenovo', 'dell', 'hewlett-packard', 'hp',
+                            'hpe', 'supermicro', 'gigabyte', 'micro-star', 'msi', 'asrock',
+                            'acer', 'apple', 'fujitsu', 'intel', 'samsung', 'huawei',
+                            'maxsun', 'biostar', 'framework', 'raspberry pi', 'microsoft')
+            real_vendor = vendor and any(re.search(r'\b' + re.escape(v) + r'\b', vendor.lower())
+                                         for v in real_vendors)
+            if vendor and model and real_vendor and (windows or virt_none):
+                kind = 'physical'
+                evidence = ['CIM physical product' if windows else 'systemd-detect-virt:none',
+                            'recognized hardware vendor/product']
+                if windows and hypervisor_present:
+                    evidence.append('HypervisorPresent:true (host/VBS is not VM evidence)')
+            else:
+                evidence = ['insufficient machine evidence']
+    return {'kind': kind, 'vendor': vendor, 'model': model, 'virtualization': virtualization,
+            'evidence': [e[:128] for e in evidence],
+            'detected_at': datetime.now(timezone.utc).isoformat()}
+
+
 class Agent:
     def __init__(self, url: str, token: str):
         if "://" not in url:
@@ -841,13 +930,173 @@ class Agent:
             info["cpu_model"] = info["hardware"]["cpu"]["model"]
         return info
 
+    def _machine_static_info(self) -> dict:
+        """Worker-only static inventory, including failures, cached for five minutes."""
+        now = time.monotonic()
+        cached = getattr(self, '_machine_static_cache', None)
+        if cached is not None and now < cached[0]:
+            return cached[1]
+        result = {'machine': _classify_machine(), 'physical_inventory': None, 'processors': []}
+        try:
+            if platform.system() == 'Linux':
+                result = self._linux_machine_static()
+            elif platform.system() == 'Windows':
+                result = self._windows_machine_static()
+        except Exception:
+            # Never return exception strings / raw command output to the server.
+            pass
+        self._machine_static_cache = (time.monotonic() + 300, result)
+        return result
+
+    def _linux_machine_static(self) -> dict:
+        dmi = {key: _hardware_text(_hardware_read('/sys/class/dmi/id/' + key))
+               for key in ('sys_vendor', 'product_name')}
+        container, vm, virt_none, container_none = None, None, False, False
+        binary = shutil.which('systemd-detect-virt')
+        if binary:
+            try:
+                value = _map_command([binary, '--container'], timeout=3, allowed_returncodes=(0, 1)).strip()
+                container_none = value == 'none'
+                if re.fullmatch(r'[a-z0-9-]{1,32}', value) and value != 'none':
+                    container = value
+            except Exception:
+                pass
+            try:
+                value = _map_command([binary, '--vm'], timeout=3, allowed_returncodes=(0, 1)).strip()
+                if value == 'none':
+                    virt_none = True
+                elif re.fullmatch(r'[a-z0-9-]{1,32}', value):
+                    vm = value
+            except Exception:
+                pass
+        if os.path.exists('/.dockerenv'):
+            container = container or 'docker'
+        if os.path.exists('/run/.containerenv'):
+            container = container or 'podman'
+        cgroup = _hardware_read('/proc/1/cgroup', limit=32768) or ''
+        for marker, engine in (('docker', 'docker'), ('kubepods', 'kubernetes'),
+                               ('libpod', 'podman'), ('lxc', 'lxc'), ('containerd', 'containerd')):
+            if marker in cgroup.lower():
+                container = container or engine
+        machine = _classify_machine(vendor=dmi['sys_vendor'], model=dmi['product_name'],
+                                    container=container, vm=vm, virt_none=virt_none and container_none)
+        physical = None
+        if machine['kind'] == 'physical':
+            dmi.update({key: _hardware_text(_hardware_read('/sys/class/dmi/id/' + key))
+                        for key in ('board_vendor', 'board_name', 'bios_vendor', 'bios_version')})
+            physical = {'board': {'vendor': dmi['board_vendor'], 'model': dmi['board_name']},
+                        'bios': {'vendor': dmi['bios_vendor'], 'version': dmi['bios_version']},
+                        'memory_modules': None, 'disks': None}
+            # Run only with existing process permissions. dmidecode returns failure
+            # for unreadable DMI; no sudo, capabilities or permission changes.
+            decoder = shutil.which('dmidecode')
+            if decoder:
+                try:
+                    physical['memory_modules'] = _memory_devices(_map_command(
+                        [decoder, '--type', '17'], timeout=3))
+                except Exception:
+                    pass
+            lsblk = shutil.which('lsblk')
+            if lsblk:
+                try:
+                    data = json.loads(_map_command([lsblk, '-d', '-b', '-J', '-o',
+                                                   'NAME,MODEL,SIZE,TRAN,ROTA'], timeout=3))
+                    disks = []
+                    for row in data.get('blockdevices', [])[:256]:
+                        if not isinstance(row, dict):
+                            continue
+                        disks.append({'name': _hardware_text(row.get('name')),
+                                      'model': _hardware_text(row.get('model')),
+                                      'size_bytes': _hardware_positive_int(row.get('size')),
+                                      'bus': _hardware_text(row.get('tran')),
+                                      'rotational': (bool(row['rota']) if isinstance(row.get('rota'), (bool, int))
+                                                     and row['rota'] in (0, 1) else None)})
+                    physical['disks'] = disks
+                except Exception:
+                    pass
+        return {'machine': machine, 'physical_inventory': physical, 'processors': []}
+
+    def _windows_machine_static(self) -> dict:
+        # One process, one three-second wall-clock budget for all CIM branches.
+        # Both preference forms suppress progress on Windows PowerShell versions.
+        script = ("$ProgressPreference='SilentlyContinue'; $ProgressPreference=0; "
+                  '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; '
+                  '$ErrorActionPreference="Stop"; '
+                  '$cs=Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer,Model,HypervisorPresent; '
+                  '$cpu=@(Get-CimInstance Win32_Processor | Select-Object Name,CurrentClockSpeed,'
+                  'MaxClockSpeed,NumberOfCores,NumberOfLogicalProcessors); '
+                  '$container=($env:DOTNET_RUNNING_IN_CONTAINER -eq "true" -or '
+                  '[bool]$env:CONTAINER_SANDBOX_MOUNT_POINT -or '
+                  '@(Get-CimInstance Win32_Container -ErrorAction SilentlyContinue | '
+                  'Select-Object -First 1 -Property State).Count -gt 0); '
+                  '$physical=(!$container -and $cs.Manufacturer -match '
+                  '"(?i)\\b(asus|asustek|lenovo|dell|hewlett-packard|hp|hpe|supermicro|gigabyte|micro-star|msi|asrock|'
+                  'acer|apple|fujitsu|intel|samsung|huawei|maxsun|biostar|framework|raspberry pi|microsoft)\\b" '
+                  '-and $cs.Model -and ($cs.Manufacturer+" "+$cs.Model) -notmatch '
+                  '"(?i)vmware|virtualbox|innotek|qemu|kvm|xen|hvm domu|virtual machine|parallels|bhyve|bochs|amazon ec2|google compute engine|openstack"); '
+                  '$board=$null; $bios=$null; $memory=$null; $disks=$null; '
+                  'if($physical){ '
+                  '$board=Get-CimInstance Win32_BaseBoard -ErrorAction SilentlyContinue | Select-Object -First 1 Manufacturer,Product; '
+                  '$bios=Get-CimInstance Win32_BIOS -ErrorAction SilentlyContinue | Select-Object -First 1 Manufacturer,SMBIOSBIOSVersion; '
+                  '$memory=@(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue | '
+                  'Select-Object DeviceLocator,Capacity,Speed,ConfiguredClockSpeed,Manufacturer,PartNumber); '
+                  '$disks=@(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue | Select-Object Index,Model,Size,InterfaceType); }; '
+                  '@{computer_system=$cs; processors=$cpu; board=$board; bios=$bios; memory=$memory; '
+                  'disks=$disks; container=$container} | ConvertTo-Json -Depth 5 -Compress')
+        encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+        powershell = shutil.which('powershell') or 'powershell.exe'
+        data = json.loads(_map_command([powershell, '-NoProfile', '-NonInteractive',
+                                       '-EncodedCommand', encoded], timeout=3).lstrip('\ufeff'))
+        if not isinstance(data, (dict, list)):
+            raise ValueError('invalid CIM inventory')
+        # Accept historical CPU-only fixtures/output, never infer a machine from CPU.
+        if isinstance(data, list) or 'computer_system' not in data:
+            processors = data if isinstance(data, list) else [data]
+            return {'machine': _classify_machine(), 'physical_inventory': None,
+                    'processors': [p for p in processors if isinstance(p, dict)]}
+        system = data.get('computer_system')
+        system = system if isinstance(system, dict) else {}
+        machine = _classify_machine(vendor=system.get('Manufacturer'), model=system.get('Model'),
+                                    windows=True, hypervisor_present=system.get('HypervisorPresent') is True,
+                                    container='windows' if data.get('container') is True else None)
+        def rows(key):
+            value = data.get(key)
+            return [v for v in (value if isinstance(value, list) else [value]) if isinstance(v, dict)][:256]
+        physical = None
+        if machine['kind'] == 'physical':
+            board = (rows('board') or [{}])[0]
+            bios = (rows('bios') or [{}])[0]
+            physical = {'board': {'vendor': _hardware_text(board.get('Manufacturer')),
+                                  'model': _hardware_text(board.get('Product'))},
+                        'bios': {'vendor': _hardware_text(bios.get('Manufacturer')),
+                                 'version': _hardware_text(bios.get('SMBIOSBIOSVersion'))},
+                        'memory_modules': [{'slot': _hardware_text(m.get('DeviceLocator')),
+                            'capacity_bytes': _hardware_positive_int(m.get('Capacity')),
+                            'speed_mts': _hardware_positive_int(m.get('Speed')),
+                            'configured_speed_mts': _hardware_positive_int(m.get('ConfiguredClockSpeed')),
+                            'vendor': _hardware_text(m.get('Manufacturer')),
+                            'part_number': _hardware_text(m.get('PartNumber'))} for m in rows('memory')] or None,
+                        'disks': [{'name': ('disk' + str(d['Index']) if isinstance(d.get('Index'), int)
+                                           and not isinstance(d['Index'], bool) else _hardware_text(d.get('Name'))),
+                            'model': _hardware_text(d.get('Model')),
+                            'size_bytes': _hardware_positive_int(d.get('Size')),
+                            'bus': _hardware_text(d.get('InterfaceType')), 'rotational': None}
+                            for d in rows('disks')] or None}
+        return {'machine': machine, 'physical_inventory': physical, 'processors': rows('processors')}
+
     def _empty_hardware(self, reason) -> dict:
         """Complete null-valued contract for pending/failed collection."""
         cpu: dict = {key: None for key in (
             'model', 'physical_cores', 'logical_cores', 'frequency_mhz',
-            'max_frequency_mhz', 'temperature_c', 'temperature_source', 'frequency_source')}
+            'max_frequency_mhz', 'base_frequency_mhz', 'base_frequency_source',
+            'temperature_c', 'temperature_source', 'frequency_source', 'sampled_at')}
         cpu['model'] = (self._os_static_cache or {}).get('cpu_model')
-        hardware = {'sampled_at': datetime.now(timezone.utc).isoformat(),
+        static = getattr(self, '_machine_static_cache', (0, None))[1]
+        machine = static['machine'] if static else {
+            'kind': 'unknown', 'vendor': None, 'model': None, 'virtualization': None,
+            'evidence': ['machine detection pending'], 'detected_at': None}
+        hardware = {'sampled_at': None, 'sensors_sampled_at': None,
+                    'machine': machine, 'physical_inventory': static['physical_inventory'] if static else None,
                     'cpu': cpu, 'gpus': [], 'sensors': [],
                     'availability': {'cpu_temperature': reason, 'gpu': reason}}
         return hardware
@@ -875,12 +1124,49 @@ class Agent:
                 self._hardware_cached_at = now
         if now - self._hardware_cached_at > 120:
             return self._empty_hardware('stale')
-        return self._hardware_cache
+        return self._expire_hardware_readings(self._hardware_cache)
+
+    def _expire_hardware_readings(self, sample) -> dict:
+        """Source-age checks also run on cache hits, without I/O or cache mutation."""
+        import copy
+        def stale(value):
+            if not isinstance(value, str):
+                return False
+            try:
+                timestamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                age = (datetime.now(timezone.utc) - timestamp).total_seconds()
+                return not -30 <= age <= 120
+            except (ValueError, TypeError):
+                return True
+        cpu_stale = stale(sample['cpu'].get('sampled_at'))
+        sensors_stale = stale(sample.get('sensors_sampled_at'))
+        wmi_stale = (sample['cpu'].get('frequency_source') ==
+                     'Win32_Processor.CurrentClockSpeed (WMI; not measured boost)'
+                     and stale((sample.get('machine') or {}).get('detected_at')))
+        if not cpu_stale and not sensors_stale and not wmi_stale:
+            return sample
+        result = copy.deepcopy(sample)
+        if wmi_stale:
+            result['cpu']['frequency_mhz'] = None
+            result['cpu']['frequency_source'] = None
+        if cpu_stale:
+            for key in ('temperature_c', 'frequency_mhz', 'temperature_source', 'frequency_source'):
+                result['cpu'][key] = None
+            result['availability']['cpu_temperature'] = ('sensors_file_stale'
+                if platform.system() == 'Windows' else 'stale')
+        if sensors_stale:
+            result['sensors'] = []
+        return result
 
     def _collect_hardware(self) -> dict:
         """Latest hardware sample; executed only by the hardware worker."""
         hardware = self._empty_hardware('unavailable')
+        collection_time = datetime.now(timezone.utc).isoformat()
+        hardware['sampled_at'] = collection_time
         hardware['availability']['gpu'] = 'nvidia_smi_missing'
+        static = self._machine_static_info()
+        hardware['machine'] = static['machine']
+        hardware['physical_inventory'] = static['physical_inventory']
         cpu = hardware['cpu']
         if psutil:
             for logical, key in ((False, 'physical_cores'), (True, 'logical_cores')):
@@ -924,18 +1210,14 @@ class Agent:
                 if cpu_temperatures:
                     cpu['temperature_c'], cpu['temperature_source'] = max(cpu_temperatures)
                     hardware['availability']['cpu_temperature'] = 'available'
+        if platform.system() == 'Linux':
+            if cpu['temperature_c'] is not None or cpu['frequency_mhz'] is not None:
+                cpu['sampled_at'] = collection_time
+            if hardware['sensors']:
+                hardware['sensors_sampled_at'] = collection_time
         if platform.system() == 'Windows':
             try:
-                powershell = shutil.which('powershell') or 'powershell.exe'
-                script = ("$ProgressPreference='SilentlyContinue'; "
-                          '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
-                          'Get-CimInstance Win32_Processor | Select-Object Name,CurrentClockSpeed,'
-                          'MaxClockSpeed,NumberOfCores,NumberOfLogicalProcessors | ConvertTo-Json -Compress')
-                encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
-                inventory = json.loads(_map_command([powershell, '-NoProfile', '-NonInteractive',
-                                                     '-EncodedCommand', encoded], timeout=3).lstrip('\ufeff'))
-                processors = inventory if isinstance(inventory, list) else [inventory]
-                processors = [p for p in processors if isinstance(p, dict)]
+                processors = static['processors']
                 if processors:
                     names = list(dict.fromkeys(p['Name'].strip() for p in processors
                                               if isinstance(p.get('Name'), str) and p['Name'].strip()))
@@ -946,12 +1228,17 @@ class Agent:
                         values = [_hardware_number(p.get(field)) for p in processors]
                         if all(v is not None and v > 0 and v.is_integer() for v in values):
                             cpu[key] = int(sum(v for v in values if v is not None))
-                    cpu['frequency_mhz'] = _hardware_number(processors[0].get('CurrentClockSpeed'))
-                    cpu['max_frequency_mhz'] = _hardware_number(processors[0].get('MaxClockSpeed'))
+                    cpu['frequency_mhz'] = _hardware_positive_int(processors[0].get('CurrentClockSpeed'))
+                    cpu['base_frequency_mhz'] = _hardware_positive_int(processors[0].get('MaxClockSpeed'))
+                    if cpu['base_frequency_mhz'] is not None:
+                        cpu['base_frequency_source'] = 'Win32_Processor.MaxClockSpeed (WMI nominal metadata; not measured base/boost)'
                     if cpu['frequency_mhz'] is not None:
                         cpu['frequency_source'] = 'Win32_Processor.CurrentClockSpeed (WMI; not measured boost)'
+                        cpu['sampled_at'] = static['machine']['detected_at']
+                        cpu.update(self._expire_hardware_readings(hardware)['cpu'])
             except Exception:
                 pass
+            sensor_failure = 'sensors_file_invalid'
             try:
                 path = os.environ.get('STELLA_HARDWARE_SENSORS_FILE', 'C:/stella-agent/hardware-sensors.json')
                 import stat
@@ -970,7 +1257,9 @@ class Agent:
                 age = (now - sampled_at).total_seconds()
                 mtime_age = now.timestamp() - metadata.st_mtime
                 if not -30 <= age <= 120 or not -30 <= mtime_age <= 120:
+                    sensor_failure = 'sensors_file_stale'
                     raise ValueError('stale sensor file')
+                source_timestamp = sampled_at.astimezone(timezone.utc).isoformat()
                 for field, key, source_key in (
                         ('cpu_temperature_c', 'temperature_c', 'temperature_source'),
                         ('cpu_frequency_mhz', 'frequency_mhz', 'frequency_source')):
@@ -978,6 +1267,7 @@ class Agent:
                     value = _hardware_number(raw_value) if isinstance(raw_value, (int, float)) else None
                     if value is not None:
                         cpu[key] = value
+                        cpu['sampled_at'] = source_timestamp
                         source = data.get('cpu_' + source_key)
                         cpu[source_key] = source[:256] if isinstance(source, str) and source else 'LibreHardwareMonitor'
                 entries = data.get('sensors', [])
@@ -996,8 +1286,15 @@ class Agent:
                     source = entry.get('source')
                     hardware['sensors'].append({'name': name[:128], 'kind': kind, 'value': value,
                                                 'unit': unit, 'source': source[:256] if isinstance(source, str) and source else 'LibreHardwareMonitor'})
+                hardware['sensors_sampled_at'] = source_timestamp
                 if cpu['temperature_c'] is not None:
                     hardware['availability']['cpu_temperature'] = 'available'
+            except FileNotFoundError:
+                hardware['availability']['cpu_temperature'] = 'sensors_file_missing'
+            except PermissionError:
+                hardware['availability']['cpu_temperature'] = 'sensors_file_permission_denied'
+            except (ValueError, TypeError, KeyError, AttributeError):
+                hardware['availability']['cpu_temperature'] = sensor_failure
             except Exception:
                 hardware['availability']['cpu_temperature'] = 'sensors_file_unavailable'
         nvidia = shutil.which('nvidia-smi')
