@@ -32,6 +32,7 @@ try{
  for(const width of [1280,390]){
   const context=await browser.newContext({viewport:{width,height:900},deviceScaleFactor:1});
   const page=await context.newPage();const errors=[];const expectedHttpFailures=[];const requests=[];let mode='normal';
+  let releaseNodes;const initialNodesGate=new Promise(resolve=>releaseNodes=resolve);
   page.on('pageerror',e=>errors.push(e.stack||String(e)));
   page.on('console',m=>{if(m.type()==='error'){if(mode==='error'&&m.text()==='Failed to load resource: the server responded with a status of 503 (Service Unavailable)')expectedHttpFailures.push(m.text());else errors.push(m.text());}});
   const nodes=[{id:54,name:'Stella',status:'online',platform:'Linux'},{id:57,name:'5060',status:'online',platform:'Windows'},{id:60,name:'NAS',status:'online',platform:'Linux'}];
@@ -41,7 +42,7 @@ try{
    if(u.origin!==origin){await route.abort();throw Error('External origin forbidden: '+u.origin);}
    if(route.request().method()!=='GET'){await route.abort();throw Error('Write forbidden');}
    let body;
-   if(u.pathname==='/nodes/'){await new Promise(r=>setTimeout(r,200));body=nodes;}
+   if(u.pathname==='/nodes/'){await initialNodesGate;body=nodes;}
    else if(u.pathname==='/monitors/')body=[];
    else if(u.pathname==='/nodes/map-topology')body={generated_at:new Date().toISOString(),nodes:[],links:[],stats:{located:0,unknown:0,links:0}};
    else if(/^\/nodes\/\d+$/.test(u.pathname)){
@@ -58,6 +59,7 @@ try{
   });
   await page.goto(origin+'/overview-fixture');
   await page.waitForFunction(()=>document.querySelector('.traffic-hint')?.textContent.includes('节点加载中'));
+  releaseNodes();
   await page.waitForFunction(()=>document.querySelector('.ov-chart'));
   await page.waitForFunction(()=>document.querySelector('.srv-card')?.textContent.includes('CPU'));
   // Let the first full response land while an ancestor is display:none.
