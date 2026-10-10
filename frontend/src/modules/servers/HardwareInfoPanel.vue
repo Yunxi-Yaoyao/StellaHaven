@@ -82,7 +82,6 @@ const emptyGpuLabel = computed(() => {
           <div v-else-if="hasValue(gpu.memory_total_mib)"><dt>显存容量</dt><dd>{{ metric(gpu.memory_total_mib, 'MiB') }}</dd></div>
           <div v-else-if="hasValue(gpu.memory_used_mib)"><dt>显存已用</dt><dd>{{ metric(gpu.memory_used_mib, 'MiB') }}</dd></div>
           <div v-if="hasValue(gpu.power_w)"><dt>功耗</dt><dd>{{ metric(gpu.power_w, 'W') }}</dd></div>
-          <div v-if="hasValue(gpu.fan_pct)"><dt>转速比例</dt><dd>{{ metric(gpu.fan_pct, '%') }}</dd></div>
         </dl>
       </article>
     </div>
@@ -93,7 +92,6 @@ const emptyGpuLabel = computed(() => {
         <span class="inventory-name">{{ gpu.name }}</span>
         <span v-if="gpuTelemetryValid(gpu) && hasValue(gpu.graphics_clock_mhz)" class="inventory-reading">核心频率 <strong>{{ metric(gpu.graphics_clock_mhz, 'MHz') }}</strong></span>
         <span v-if="gpuTelemetryValid(gpu) && hasValue(gpu.memory_clock_mhz)" class="inventory-reading">显存频率 <strong>{{ metric(gpu.memory_clock_mhz, 'MHz') }}</strong></span>
-        <span v-if="gpuTelemetryValid(gpu) && hasValue(gpu.fan_pct)" class="inventory-reading">转速比例 <strong>{{ metric(gpu.fan_pct, '%') }}</strong></span>
       </div>
     </div>
     <section v-if="sensors.length" class="sensors-card" aria-label="主板温度 / 风扇">

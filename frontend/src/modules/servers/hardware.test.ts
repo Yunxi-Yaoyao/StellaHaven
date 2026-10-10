@@ -30,6 +30,15 @@ test('inventory-only GPU without a measurement time does not taint healthy CPU f
   expect(host.textContent).toContain('AMD integrated');
 });
 
+test.each([0, 53])('GPU fan percentage %s is not a user-facing tachometer', async (fan_pct) => {
+  const hw = structuredClone(hardware);
+  hw.gpus[0]!.fan_pct = fan_pct;
+  await mount(HardwarePanel, { hardware: hw, status: 'online', now: Date.now() });
+  expect(host.textContent).not.toContain('转速比例');
+  expect(host.querySelector('.gpu-card')?.textContent).not.toContain('风扇');
+  expect(host.textContent).toContain('0 RPM'); // Real board tachometer zero remains.
+});
+
 const charts = vi.hoisted(() => [] as ReturnType<typeof vi.fn>[]);
 vi.mock('./chartRuntime', () => ({
   init: () => { const setOption = vi.fn(); charts.push(setOption); return { setOption, dispose: vi.fn(), resize: vi.fn() }; },
@@ -73,7 +82,7 @@ test('detail renders CPU, every GPU metric and board sensors from the existing d
   const text = panel!.textContent!;
   for (const value of ['AMD Ryzen 7 9700X', '8 核 / 16 线程', '52.5 °C', '4.2 GHz',
     'NVIDIA GeForce RTX 5060', '43 °C', '2500 MHz', '14001 MHz', '0 %', '0 / 8192 MiB', '12.5 W',
-    '系统温度 · System', '35 °C', '机箱风扇 · Chassis', '0 RPM', '转速比例']) expect(text).toContain(value);
+    '系统温度 · System', '35 °C', '机箱风扇 · Chassis', '0 RPM']) expect(text).toContain(value);
   for (const diagnostic of ['5500 MHz', '来源', 'nvidia-smi', '最近采样', '未读取']) expect(text).not.toContain(diagnostic);
   expect(panel!.querySelector('time')).toBeNull();
   expect(panel!.querySelectorAll('.metric-primary')).toHaveLength(3);
@@ -438,7 +447,8 @@ test('clock-only Intel DRM GPU stays in a compact inventory row and retains meas
   const row = host.querySelector('.gpu-inventory-row')!;
   expect(row?.textContent).toContain('集成显卡');
   expect(row?.textContent).toContain('Intel UHD Graphics 600');
-  for (const value of ['核心频率', '100 MHz', '显存频率', '0 MHz', '转速比例', '0 %']) expect(row?.textContent).toContain(value);
+  for (const value of ['核心频率', '100 MHz', '显存频率', '0 MHz']) expect(row?.textContent).toContain(value);
+  expect(row?.textContent).not.toContain('转速比例');
   expect(host.querySelector('.hardware-grid .gpu-inventory-row')).toBeNull();
 });
 
