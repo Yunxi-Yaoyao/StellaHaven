@@ -8,7 +8,7 @@ const isPhysical = computed(() => props.hardware?.machine?.kind === 'physical');
 const inventory = computed(() => isPhysical.value ? props.hardware?.physical_inventory : null);
 const sensors = computed(() => isPhysical.value ? (props.hardware?.sensors || []).filter(s => hasValue(s.value)
   && !(hasValue(props.hardware?.cpu.temperature_c) && s.kind === 'temperature'
-    && /Core \(Tctl\/Tdie\)|Package id/i.test(s.name))) : []);
+    && /Tctl|Package id|(?:^| \/ )Tdie$/i.test(s.name))) : []);
 const coreSpec = computed(() => joinSpec(metric(props.hardware?.cpu.physical_cores, '核'), metric(props.hardware?.cpu.logical_cores, '线程')).replace(' · ', ' / '));
 const failureLabels: Record<string, string> = {
   sensors_file_missing: '传感器文件尚未生成', sensors_file_stale: '传感器文件过期',

@@ -348,6 +348,12 @@ test('compact raw probe labels receive Chinese and normalized English while miss
   for (const label of ['温度探头 1 · Temperature #1', '风扇 2 · Fan #2', 'CPU 温度 · Core (Tctl/Tdie)', '0 °C', '0 RPM']) expect(text).toContain(label);
 });
 
+test('CPU Tctl and Tdie aliases do not duplicate the main temperature while CCD temperatures remain separate', async () => {
+  await mount(HardwarePanel, { hardware: { ...hardware, sensors: ['Tctl', 'Tdie', 'CPU / Tctl/Tdie', 'CPU / CCD1 (Tdie)'].map(name => ({ name, kind: 'temperature', value: 42, unit: '°C', source: 'test' })) }, status: 'online', now: Date.now() });
+  expect(host.querySelectorAll('.sensor-row')).toHaveLength(1);
+  expect(host.querySelector('.sensors-card')?.textContent).toContain('核心簇 1 温度 · CCD1 (Tdie)');
+});
+
 test('captured detail promotes latest CPU utilization and keeps OS runtime compact without duplicate metadata', async () => {
   vi.setSystemTime(new Date('2026-10-10T12:22:50Z'));
   vi.mocked(api.getNodeDetail).mockResolvedValue(captured5060 as any);
