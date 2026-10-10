@@ -1,16 +1,28 @@
-import type { HardwareCpu, HardwareSensor } from '../../api/servers';
+import type { HardwareCpu, HardwareGpu, HardwareSensor } from '../../api/servers';
 
 export function hasValue(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
+export function hasGpuMetrics(gpu: HardwareGpu): boolean {
+  return gpuTelemetryValid(gpu) && [gpu.temperature_c, gpu.utilization_pct, gpu.memory_used_mib, gpu.memory_total_mib,
+    gpu.power_w].some(hasValue);
+}
+export function gpuTelemetryValid(gpu: HardwareGpu): boolean {
+  return gpu.telemetry_status === undefined || gpu.telemetry_status === 'available';
+}
 export function metric(value: number | null | undefined, unit = ''): string {
-  return hasValue(value) ? `${Number(value.toFixed(2))}${unit ? ` ${unit}` : ''}` : '';
+  const precision = ['MHz', 'RPM'].includes(unit) ? 0 : ['°C', 'W', '%'].includes(unit) ? 1 : 2;
+  return hasValue(value) ? `${Number(value.toFixed(precision))}${unit ? ` ${unit}` : ''}` : '';
+}
+export function cpuFrequency(value: number | null | undefined): string {
+  if (!hasValue(value)) return '';
+  return value >= 1000 ? metric(Math.round(value / 10) / 100, 'GHz') : metric(value, 'MHz');
 }
 export function bytes(value: number | null | undefined): string {
   if (!hasValue(value)) return '';
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
   const index = value === 0 ? 0 : Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
-  return `${Number((value / 1024 ** index).toFixed(2))} ${units[index]}`;
+  return `${Number((value / 1024 ** index).toFixed(index === 0 ? 0 : 1))} ${units[index]}`;
 }
 export function joinSpec(...fields: (string | null | undefined)[]): string {
   return fields.filter(field => field?.trim()).join(' · ');

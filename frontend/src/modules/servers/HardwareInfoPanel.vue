@@ -2,10 +2,12 @@
 import { computed } from 'vue';
 import type { HardwareInfo, SysMetricPoint } from '../../api/servers';
 import Icon from '../../shell/Icon.vue';
-import { hasValue, metric, bytes, joinSpec, measuredFrequency, sensorLabel } from './hardwareDisplay';
+import { hasValue, hasGpuMetrics, gpuTelemetryValid, metric, bytes, cpuFrequency, joinSpec, measuredFrequency, sensorLabel } from './hardwareDisplay';
 const props = defineProps<{ hardware?: HardwareInfo | null; status: string; now: number; refreshFailed?: boolean; latestSysMetric?: SysMetricPoint | null }>();
 const isPhysical = computed(() => props.hardware?.machine?.kind === 'physical');
 const inventory = computed(() => isPhysical.value ? props.hardware?.physical_inventory : null);
+const metricGpus = computed(() => (props.hardware?.gpus || []).filter(hasGpuMetrics));
+const inventoryGpus = computed(() => (props.hardware?.gpus || []).filter(gpu => !hasGpuMetrics(gpu)));
 const sensors = computed(() => isPhysical.value ? (props.hardware?.sensors || []).filter(s => hasValue(s.value)
   && !(hasValue(props.hardware?.cpu.temperature_c) && s.kind === 'temperature'
     && /Tctl|Package id|(?:^| \/ )Tdie$/i.test(s.name))) : []);
@@ -24,6 +26,12 @@ const sampleStatus = computed(() => {
     || states.some(s => failureLabels[s] && s !== 'sensors_file_stale')) return '刷新失败';
   if (states.includes('collecting')) return '采集中';
   const timestamps: [string | null | undefined, number][] = [[hw.sampled_at, 180000], [hw.cpu.sampled_at, 120000]];
+  for (const gpu of hw.gpus) {
+    // New agents report source time; absent legacy fields use overall time.
+    if ('sampled_at' in gpu) {
+      timestamps.push([typeof gpu.sampled_at === 'string' ? gpu.sampled_at : null, 120000]);
+    }
+  }
   if (sensors.value.length) timestamps.push([hw.sensors_sampled_at, 120000]);
   if (hasValue(props.latestSysMetric?.cpu_pct)) timestamps.push([props.latestSysMetric?.ts, 180000]);
   const times = timestamps.map(([stamp, maxAge]) => ({ time: stamp ? Date.parse(stamp) : NaN, maxAge }));
@@ -47,7 +55,7 @@ const emptyGpuLabel = computed(() => {
   <section class="hardware-panel" aria-label="硬件信息">
     <header class="hardware-head"><span class="hardware-title"><Icon name="server" :size="14" />硬件信息</span><span v-if="sampleStatus" class="sample-status" role="status" :title="statusTitle">{{ sampleStatus }}</span></header>
     <p v-if="!hardware" class="hardware-note">硬件尚未采集</p>
-    <div v-if="hardware" class="hardware-grid">
+    <div v-if="hardware" class="hardware-grid" :class="{ 'cpu-only': !metricGpus.length }">
       <article class="hardware-card cpu-card" aria-label="CPU 硬件">
         <header class="device-card-head"><span class="device-kind">CPU</span><span v-if="coreSpec" class="device-spec">{{ coreSpec }}</span></header>
         <h3 v-if="hardware.cpu.model">{{ hardware.cpu.model }}</h3>
@@ -56,10 +64,10 @@ const emptyGpuLabel = computed(() => {
           <div v-if="hasValue(latestSysMetric?.cpu_pct)" class="metric-primary"><dt>利用率</dt><dd>{{ metric(latestSysMetric?.cpu_pct, '%') }}</dd></div>
         </dl>
         <div v-if="hasValue(latestSysMetric?.cpu_pct)" class="metric-track" aria-label="CPU 利用率"><span :style="{ width: `${Math.min(latestSysMetric!.cpu_pct!, 100)}%` }" /></div>
-        <dl class="hardware-metrics"><div v-if="measuredFrequency(hardware.cpu)"><dt>当前频率</dt><dd>{{ metric(hardware.cpu.frequency_mhz, 'MHz') }}</dd></div></dl>
+        <dl class="hardware-metrics"><div v-if="measuredFrequency(hardware.cpu)"><dt>当前频率</dt><dd>{{ cpuFrequency(hardware.cpu.frequency_mhz) }}</dd></div></dl>
       </article>
-      <article v-if="!hardware.gpus.length && emptyGpuLabel" class="hardware-card gpu-card" aria-label="GPU 采集状态"><span class="device-kind">GPU</span><p class="hardware-note">{{ emptyGpuLabel }}</p></article>
-      <article v-for="gpu in hardware.gpus" :key="gpu.id" class="hardware-card gpu-card" :aria-label="`GPU ${gpu.name}`">
+
+      <article v-for="gpu in metricGpus" :key="gpu.id" class="hardware-card gpu-card" :aria-label="`GPU ${gpu.name}`">
         <header class="device-card-head"><span class="device-kind">GPU</span><span v-if="gpu.kind && gpu.kind !== 'unknown'" class="device-spec">{{ gpu.kind === 'integrated' ? '集成显卡' : '独立显卡' }}</span></header>
         <h3>{{ gpu.name }}</h3>
         <dl class="primary-metrics">
@@ -77,13 +85,28 @@ const emptyGpuLabel = computed(() => {
           <div v-if="hasValue(gpu.fan_pct)"><dt>转速比例</dt><dd>{{ metric(gpu.fan_pct, '%') }}</dd></div>
         </dl>
       </article>
-      <article v-if="sensors.length" class="hardware-card sensors-card" aria-label="主板温度 / 风扇">
-        <header class="device-card-head"><span class="device-kind">传感器</span></header>
-        <dl class="sensor-list">
-          <div v-for="(sensor, index) in sensors" :key="`${sensor.name}:${index}`" class="sensor-row" :title="joinSpec(sensorLabel(sensor).chip, sensor.source)"><dt>{{ sensorLabel(sensor).label }}</dt><dd>{{ metric(sensor.value, sensor.unit) }}</dd></div>
-        </dl>
-      </article>
     </div>
+    <p v-if="hardware && !hardware.gpus.length && emptyGpuLabel" class="gpu-state hardware-note" aria-label="GPU 采集状态">{{ emptyGpuLabel }}</p>
+    <div v-if="inventoryGpus.length" class="gpu-inventory-list" :class="{ 'cpu-only': !metricGpus.length }" aria-label="显卡清单">
+      <div v-for="gpu in inventoryGpus" :key="gpu.id" class="gpu-inventory-row" :aria-label="`GPU ${gpu.name}`">
+        <span class="inventory-kind">{{ gpu.kind === 'integrated' ? '集成显卡' : gpu.kind === 'discrete' ? '独立显卡' : '显卡' }}</span>
+        <span class="inventory-name">{{ gpu.name }}</span>
+        <span v-if="gpuTelemetryValid(gpu) && hasValue(gpu.graphics_clock_mhz)" class="inventory-reading">核心频率 <strong>{{ metric(gpu.graphics_clock_mhz, 'MHz') }}</strong></span>
+        <span v-if="gpuTelemetryValid(gpu) && hasValue(gpu.memory_clock_mhz)" class="inventory-reading">显存频率 <strong>{{ metric(gpu.memory_clock_mhz, 'MHz') }}</strong></span>
+        <span v-if="gpuTelemetryValid(gpu) && hasValue(gpu.fan_pct)" class="inventory-reading">转速比例 <strong>{{ metric(gpu.fan_pct, '%') }}</strong></span>
+      </div>
+    </div>
+    <section v-if="sensors.length" class="sensors-card" aria-label="主板温度 / 风扇">
+      <header class="hardware-head"><span class="hardware-title">传感器</span></header>
+      <template v-for="kind in (['temperature', 'fan'] as const)" :key="kind">
+        <section v-if="sensors.some(sensor => sensor.kind === kind)" class="sensor-group" :aria-label="kind === 'temperature' ? '温度传感器' : '风扇传感器'">
+          <h4>{{ kind === 'temperature' ? '温度 · Temperature' : '风扇 · Fan' }}</h4>
+          <dl class="sensor-list">
+            <div v-for="(sensor, index) in sensors.filter(sensor => sensor.kind === kind)" :key="`${sensor.name}:${index}`" class="sensor-row" :title="joinSpec(sensorLabel(sensor).chip, sensor.source)"><dt>{{ sensorLabel(sensor).label }}</dt><dd>{{ metric(sensor.value, sensor.unit) }}</dd></div>
+          </dl>
+        </section>
+      </template>
+    </section>
     <section v-if="inventory" class="physical-inventory" aria-label="物理机清单">
       <header class="hardware-head"><span class="hardware-title">设备规格</span><span class="hardware-note">{{ joinSpec(hardware?.machine?.vendor, hardware?.machine?.model) }}</span></header>
       <div class="spec-grid">
@@ -109,6 +132,7 @@ const emptyGpuLabel = computed(() => {
 .hardware-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 12px; }
 .hardware-title { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--text-hi); }
 .hardware-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 14px; align-items: start; }
+.cpu-only { max-width: 560px; }
 .hardware-card { min-width: 0; padding: 20px; background: linear-gradient(140deg, rgba(158,183,229,.045), transparent 75%), var(--bg-panel); border: 1px solid rgba(158,183,229,.1); border-radius: 12px; }
 .device-card-head { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin-bottom: 12px; }
 .device-kind { color: var(--accent); font-size: 11px; font-weight: 650; letter-spacing: .08em; }
@@ -121,16 +145,25 @@ dd { margin: 4px 0 0; color: var(--text-hi); font-size: 12px; font-variant-numer
 .metric-primary dd { font-size: 28px; font-weight: 550; line-height: 1.3; letter-spacing: -.04em; }
 .metric-track { height: 4px; border-radius: 6px; overflow: hidden; background: rgba(158,183,229,.1); margin: 15px 0 18px; }
 .metric-track span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
-.hardware-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px 16px; }
+.hardware-metrics { display: grid; grid-template-columns: repeat(auto-fit,minmax(125px,1fr)); gap: 12px 16px; }
 .primary-metrics:not(:empty) + .hardware-metrics { margin-top: 18px; }
 .hardware-note { margin: 0; color: var(--text-faint); font-size: 11px; overflow-wrap: anywhere; }
 .sample-status { color: #d5af80; font-size: 11px; }
-.sensor-list { display: flex; flex-direction: column; }
-.sensor-row { display: flex; gap: 16px; justify-content: space-between; align-items: baseline; padding: 10px 0; border-bottom: 1px solid rgba(158,183,229,.06); }
-.sensor-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.gpu-inventory-list { margin-top: 12px; }
+.gpu-state { margin-top: 14px; }
+.gpu-inventory-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 10px 0; min-width: 0; font-size: 12px; line-height: 1.5; }
+.inventory-kind { color: var(--text-faint); font-size: 11px; flex-shrink: 0; }
+.inventory-name { color: var(--text-lo); overflow-wrap: anywhere; min-width: 0; }
+.inventory-reading { color: var(--text-faint); font-size: 11px; }
+.inventory-reading strong { color: var(--text-lo); font-weight: 500; font-variant-numeric: tabular-nums; }
+.sensors-card { margin-top: 18px; padding: 18px 0 0; border-top: 1px solid rgba(158,183,229,.08); min-width: 0; }
+.sensor-group + .sensor-group { margin-top: 14px; }
+.sensor-group h4 { margin: 0 0 6px; font-size: 11px; font-weight: 500; color: var(--text-faint); }
+.sensor-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,240px),1fr)); gap: 0 24px; }
+.sensor-row { display: flex; gap: 12px; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid rgba(158,183,229,.045); }
 .sensor-row dt { min-width: 0; }
 .sensor-row dd { flex-shrink: 0; margin: 0; }
-.physical-inventory { margin-top: 14px; padding: 18px 20px; background: var(--bg-panel); border: 1px solid rgba(158,183,229,.08); border-radius: 12px; }
+.physical-inventory { margin-top: 20px; padding: 18px 0 0; border-top: 1px solid rgba(158,183,229,.08); }
 .spec-grid { display: grid; grid-template-columns: 1fr 1.6fr; gap: 24px; align-items: start; }
 .spec-board { display: grid; gap: 12px; }
 .memory-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,200px),1fr)); gap: 14px; }

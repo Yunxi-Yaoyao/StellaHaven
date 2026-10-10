@@ -7,6 +7,7 @@ import HardwarePanel from './HardwareInfoPanel.vue';
 vi.mock('./NodeComponents.vue', () => ({ default: { render: () => null } }));
 import * as api from '../../api/servers';
 import { hardware, node } from './hardware.testFixtures';
+import { hasGpuMetrics, metric, bytes } from './hardwareDisplay';
 import type { HardwareInfo } from '../../api/servers';
 import captured5060 from './fixtures/node-57.captured.json';
 import capturedNAS from './fixtures/node-55.captured.json';
@@ -54,7 +55,7 @@ test('detail renders CPU, every GPU metric and board sensors from the existing d
   const panel = host.querySelector('[aria-label="硬件信息"]');
   expect(panel).not.toBeNull();
   const text = panel!.textContent!;
-  for (const value of ['AMD Ryzen 7 9700X', '8 核 / 16 线程', '52.5 °C', '4200 MHz',
+  for (const value of ['AMD Ryzen 7 9700X', '8 核 / 16 线程', '52.5 °C', '4.2 GHz',
     'NVIDIA GeForce RTX 5060', '43 °C', '2500 MHz', '14001 MHz', '0 %', '0 / 8192 MiB', '12.5 W',
     '系统温度 · System', '35 °C', '机箱风扇 · Chassis', '0 RPM', '转速比例']) expect(text).toContain(value);
   for (const diagnostic of ['5500 MHz', '来源', 'nvidia-smi', '最近采样', '未读取']) expect(text).not.toContain(diagnostic);
@@ -320,7 +321,8 @@ test('GPU partial memory reading preserves measured used bytes without inventing
 
 test.each(['query_failed', 'driver_missing'])('GPU hardware inventory survives telemetry error %s with one short failure', async telemetry_status => {
   await mount(HardwarePanel, { hardware: { ...hardware, gpus: [{ ...hardware.gpus[0], telemetry_status }], availability: { cpu_temperature: 'available', gpu: 'inventory_only' } }, status: 'online', now: Date.now() });
-  expect(host.querySelector('.gpu-card')?.textContent).toContain('NVIDIA GeForce');
+  expect(host.querySelector('.gpu-inventory-row')?.textContent).toContain('NVIDIA GeForce');
+  expect(host.querySelector('.gpu-card')).toBeNull();
   expect(host.querySelector('.sample-status')?.textContent).toBe('刷新失败');
   expect(host.querySelectorAll('.sample-status')).toHaveLength(1);
   expect(host.textContent).not.toContain('未检测到');
@@ -346,6 +348,18 @@ test('compact raw probe labels receive Chinese and normalized English while miss
   ] }, status: 'online', now: Date.now() });
   const text = host.querySelector('.sensors-card')!.textContent!;
   for (const label of ['温度探头 1 · Temperature #1', '风扇 2 · Fan #2', 'CPU 温度 · Core (Tctl/Tdie)', '0 °C', '0 RPM']) expect(text).toContain(label);
+});
+
+test('board sensors form a full-width secondary section grouped by temperature and fan outside the primary grid', async () => {
+  await mount();
+  const section = host.querySelector('.sensors-card')!;
+  expect(section.closest('.hardware-grid')).toBeNull();
+  expect(section.parentElement).toBe(host.querySelector('.hardware-panel'));
+  expect(section.querySelectorAll('.sensor-group')).toHaveLength(2);
+  expect(section.querySelector('[aria-label="温度传感器"]')?.textContent).toContain('系统温度 · System');
+  expect(section.querySelector('[aria-label="风扇传感器"]')?.textContent).toContain('机箱风扇 · Chassis');
+  expect(section.querySelector('[aria-label="风扇传感器"]')?.textContent).toContain('0 RPM');
+  expect(section.querySelector('[aria-label="温度传感器"]')?.textContent).not.toContain('机箱风扇');
 });
 
 test('CPU Tctl and Tdie aliases do not duplicate the main temperature while CCD temperatures remain separate', async () => {
@@ -390,11 +404,89 @@ test.each([nasContract, windowsContract])('inventory-only GPU is model and kind,
   vi.setSystemTime(new Date('2026-10-10T12:22:50Z'));
   vi.mocked(api.getNodeDetail).mockResolvedValue(fixture as any);
   await mount();
-  const card = [...host.querySelectorAll('.gpu-card')].find(el => el.textContent?.includes('Graphics'))!;
+  const card = [...host.querySelectorAll('.gpu-inventory-row')].find(el => el.textContent?.includes('Graphics'))!;
+  expect(host.querySelector('.hardware-grid .gpu-card')?.textContent || '').not.toContain('Graphics');
+  expect(host.querySelector('.hardware-grid .gpu-inventory-row')).toBeNull();
+  expect(card).toBeDefined();
   expect(card.textContent).toContain('集成显卡');
   expect(card.querySelectorAll('dd')).toHaveLength(0);
   expect(card.textContent).not.toContain('未读取');
   expect(card.textContent).not.toContain('不可用');
+});
+
+test('clock-only Intel DRM GPU stays in a compact inventory row and retains measured zero clock and fan values', async () => {
+  const gpu = { ...nasContract.sys_info.hardware.gpus[0], graphics_clock_mhz: 100,
+    memory_clock_mhz: 0, fan_pct: 0, telemetry_status: 'available', source: 'Intel DRM' };
+  await mount(HardwarePanel, { hardware: { ...hardware, gpus: [gpu] }, status: 'online', now: Date.now() });
+  expect(host.querySelector('.gpu-card')).toBeNull();
+  const row = host.querySelector('.gpu-inventory-row')!;
+  expect(row?.textContent).toContain('集成显卡');
+  expect(row?.textContent).toContain('Intel UHD Graphics 600');
+  for (const value of ['核心频率', '100 MHz', '显存频率', '0 MHz', '转速比例', '0 %']) expect(row?.textContent).toContain(value);
+  expect(host.querySelector('.hardware-grid .gpu-inventory-row')).toBeNull();
+});
+
+test.each(['unsupported', 'driver_missing', 'query_failed'] as const)('invalid GPU telemetry status %s suppresses even numeric zeros while retaining inventory and error meaning', async telemetry_status => {
+  const gpu = { ...hardware.gpus[0], temperature_c: 0, utilization_pct: 0, power_w: 0,
+    memory_used_mib: 0, memory_total_mib: 0, graphics_clock_mhz: 0, memory_clock_mhz: 0, fan_pct: 0, telemetry_status };
+  await mount(HardwarePanel, { hardware: { ...hardware, gpus: [gpu] }, status: 'online', now: Date.now() });
+  expect(hasGpuMetrics(gpu)).toBe(false);
+  expect(host.querySelector('.gpu-card')).toBeNull();
+  const row = host.querySelector('.gpu-inventory-row')!;
+  expect(row.textContent).toContain('NVIDIA GeForce RTX 5060');
+  expect(row.textContent).not.toMatch(/MHz|MiB|°C|RPM|%| W/);
+  expect(host.querySelector('.sample-status')?.textContent || '').toBe(telemetry_status === 'unsupported' ? '' : '刷新失败');
+});
+
+test.each([
+  ['2026-10-10T06:59:00Z', '数据已过期'], [null, '采样状态未知'],
+  ['invalid', '采样状态未知'], ['2026-10-10T08:00:06Z', '采样状态未知'],
+])('GPU source time %s cannot be disguised by a fresh overall snapshot', async (sampled_at, label) => {
+  await mount(HardwarePanel, { hardware: { ...hardware, sampled_at: new Date().toISOString(),
+    gpus: [{ ...hardware.gpus[0], telemetry_status: 'available', sampled_at }] }, status: 'online', now: Date.now() });
+  expect(host.querySelector('.sample-status')?.textContent).toBe(label);
+  expect(host.querySelectorAll('.sample-status')).toHaveLength(1);
+  expect(host.querySelector('.gpu-card')?.textContent).toContain('0 %');
+});
+
+test('inventory GPU source time remains explicit even when its unsupported telemetry is suppressed', async () => {
+  await mount(HardwarePanel, { hardware: { ...hardware, gpus: [{ ...hardware.gpus[0],
+    telemetry_status: 'unsupported', sampled_at: '2026-10-10T06:59:00Z' }] }, status: 'online', now: Date.now() });
+  expect(host.querySelector('.gpu-card')).toBeNull();
+  expect(host.querySelector('.sample-status')?.textContent).toBe('数据已过期');
+});
+
+test.each([undefined, 'available'] as const)('valid and legacy GPU telemetry %s preserve zero-valued primary fields', async telemetry_status => {
+  for (const field of ['temperature_c', 'utilization_pct', 'memory_used_mib', 'memory_total_mib', 'power_w'] as const) {
+    const gpu = { ...hardware.gpus[0], temperature_c: null, utilization_pct: null, power_w: null,
+      memory_used_mib: null, memory_total_mib: null, graphics_clock_mhz: null, memory_clock_mhz: null, fan_pct: null,
+      telemetry_status, [field]: 0 };
+    expect(hasGpuMetrics(gpu)).toBe(true);
+    await mount(HardwarePanel, { hardware: { ...hardware, gpus: [gpu] }, status: 'online', now: Date.now() });
+    expect(host.querySelector('.gpu-card')?.textContent).toMatch(/0 (°C|%|MiB|W)/);
+    expect(host.querySelector('.gpu-inventory-row')).toBeNull();
+    expect(host.querySelector('.sample-status')).toBeNull();
+    app!.unmount(); host.remove();
+  }
+});
+
+test('display precision is unit-specific and CPU uses readable GHz without changing zeros or missing values', async () => {
+  expect(metric(39.876, '°C')).toBe('39.9 °C');
+  expect(metric(12.567, 'W')).toBe('12.6 W');
+  expect(metric(2500.49, 'MHz')).toBe('2500 MHz');
+  expect(metric(14001.75, 'MHz')).toBe('14002 MHz');
+  expect(metric(1200.75, 'RPM')).toBe('1201 RPM');
+  expect(bytes(1000204886016)).toBe('931.5 GiB');
+  expect(bytes(1214854987776)).toBe('1.1 TiB');
+  for (const unit of ['°C', 'W', 'MHz', 'RPM']) {
+    expect(metric(0, unit)).toBe(`0 ${unit}`);
+    expect(metric(null, unit)).toBe(''); expect(metric(undefined, unit)).toBe('');
+    expect(metric(NaN, unit)).toBe(''); expect(metric(-1, unit)).toBe('');
+  }
+  expect(bytes(0)).toBe('0 B'); expect(bytes(null)).toBe('');
+  await mount(HardwarePanel, { hardware: { ...hardware, cpu: { ...hardware.cpu, frequency_mhz: 5425 } }, status: 'online', now: Date.now() });
+  expect(host.querySelector('.cpu-card')?.textContent).toContain('5.43 GHz');
+  expect(host.querySelector('.cpu-card')?.textContent).not.toContain('5425 MHz');
 });
 
 test('NAS contract renders all seven physical disks and five measured volumes with no per-member pool usage', async () => {
@@ -468,14 +560,15 @@ test('nullable readings are omitted, multiple GPUs keep identities and one unsup
   const cpu = host.querySelector('.cpu-card')!;
   expect(cpu.querySelectorAll('dd')).toHaveLength(0);
   const cards = [...host.querySelectorAll('.gpu-card')];
-  expect(cards).toHaveLength(2);
-  expect(cards[0]!.getAttribute('aria-label')).toBe('GPU Unsupported GPU');
-  expect(cards[0]!.textContent).not.toContain('0 °C');
-  expect(cards[0]!.textContent).not.toContain('0 %');
-  expect(cards[0]!.textContent).not.toContain('null');
-  expect(cards[1]!.textContent).toContain('0 °C');
-  expect(cards[1]!.textContent).toContain('2500 MHz');
-  expect(cards[1]!.textContent).not.toContain('功耗');
+  const unsupported = host.querySelector('.gpu-inventory-row')!;
+  expect(cards).toHaveLength(1);
+  expect(unsupported.getAttribute('aria-label')).toBe('GPU Unsupported GPU');
+  expect(unsupported.textContent).not.toContain('0 °C');
+  expect(unsupported.textContent).not.toContain('0 %');
+  expect(unsupported.textContent).not.toContain('null');
+  expect(cards[0]!.textContent).toContain('0 °C');
+  expect(cards[0]!.textContent).toContain('2500 MHz');
+  expect(cards[0]!.textContent).not.toContain('功耗');
   expect(host.querySelector('.sensors-card')).toBeNull();
 });
 
