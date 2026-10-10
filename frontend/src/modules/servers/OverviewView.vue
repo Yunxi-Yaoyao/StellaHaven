@@ -47,6 +47,7 @@ const chartEl = ref<HTMLElement | null>(null);
 let chart: echarts.ECharts | null = null;
 const trafficLane = createRequestLane();
 let fullTraffic = true;
+let resumeTraffic = false;
 const livePoll = createPoller(async () => { await trafficLane.run(signal => fetchTraffic(fullTraffic, signal)); }, 3000);
 let trafficSeq = 0;
 
@@ -182,7 +183,10 @@ async function paintTraffic() {
 function loadTraffic() {
   stopLive();
   fullTraffic = true;
-  if (disposed || document.hidden || !trafficNodeId.value || !trafficIface.value) return Promise.resolve();
+  if (disposed) return Promise.resolve();
+  if (document.hidden) { resumeTraffic = true; return Promise.resolve(); }
+  if (!trafficNodeId.value || !trafficIface.value) return Promise.resolve();
+  resumeTraffic = false;
   // Poller starts with this full query, then waits 3s from completion: no duplicate tick.
   if (trafficLive.value) { startLive(); return Promise.resolve(); }
   return trafficLane.run(signal => fetchTraffic(true, signal));
@@ -193,6 +197,7 @@ function stopLive() { trafficSeq++; livePoll.stop(); trafficLane.reset(); }
 // One post-flush watcher coalesces node + resolved iface + window changes into one lane.
 watch([trafficNodeId, trafficIface, trafficWindow, trafficLive], ([id, iface, windowSeconds, live], old) => {
   if (old && !live && old[3] && id === old[0] && iface === old[1] && windowSeconds === old[2]) {
+    resumeTraffic = false;
     stopLive();
     if (trafficState.value === "loading") trafficState.value = trafficPoints.value.length ? "ready" : "idle";
     return;
@@ -427,8 +432,14 @@ onUnmounted(() => {
   chart?.dispose();
 });
 function onVisibility() {
-  if (document.hidden) { statusPoll.stop(); sparkPoll.stop(); monitorLane.reset(); stopLive(); }
-  else { statusPoll.start(); sparkPoll.start(); void paintTraffic(); if (trafficLive.value) void loadTraffic(); }
+  if (disposed) return;
+  if (document.hidden) {
+    resumeTraffic ||= trafficState.value === "loading";
+    statusPoll.stop(); sparkPoll.stop(); monitorLane.reset(); stopLive();
+  } else {
+    statusPoll.start(); sparkPoll.start(); void paintTraffic();
+    if (trafficLive.value || resumeTraffic) void loadTraffic();
+  }
 }
 function onResize() { void paintTraffic(); paintSparklines(); }
 function onDocClick() { winOpen.value = false; }

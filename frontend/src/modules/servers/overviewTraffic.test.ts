@@ -126,6 +126,39 @@ test('automatic default route changes requery once and late old-interface failur
   reject(new Error('old interface failed'));await settle();expect(host.textContent).not.toContain('流量加载失败');
   expect(charts.setOption.mock.lastCall?.[0].series[0].data).toEqual([2000]);
 });
+test.each([false,true])('interrupted static query resumes once using current identity; hidden selection change=%s',async(change)=>{
+  vi.mocked(api.listNodes).mockResolvedValue([node(54),node(57),node(60)] as any);
+  await mount();(host.querySelector('.live-btn') as HTMLElement).click();await settle();
+  let resolve:any;vi.mocked(api.getNodeMetrics).mockReturnValueOnce(new Promise(r=>resolve=r));
+  await choose('select.ov-drop','57');
+  const signal=vi.mocked(api.getNodeMetrics).mock.lastCall?.[1]?.signal;
+  Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));await settle();
+  expect(signal?.aborted).toBe(true);
+  if(change) await choose('select.ov-drop','60');
+  resolve(points('eth0',999999));await settle();
+  expect(api.getNodeMetrics).toHaveBeenCalledTimes(2);
+  Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));await settle();
+  expect(api.getNodeMetrics).toHaveBeenCalledTimes(3);
+  expect(api.getNodeMetrics).toHaveBeenLastCalledWith(change?60:57,expect.objectContaining({iface:'eth0',limit:80}));
+  expect(host.textContent).not.toContain('流量加载中');
+  expect(charts.setOption.mock.lastCall?.[0].series[0].data).toEqual([1000000]);
+  await vi.advanceTimersByTimeAsync(15000);await settle();expect(api.getNodeMetrics).toHaveBeenCalledTimes(3);
+});
+test('completed or deliberately paused static history is not restarted on visibility',async()=>{
+  await mount();(host.querySelector('.live-btn') as HTMLElement).click();await settle();
+  const count=vi.mocked(api.getNodeMetrics).mock.calls.length;
+  for(const hidden of [true,false]) {Object.defineProperty(document,'hidden',{configurable:true,value:hidden});document.dispatchEvent(new Event('visibilitychange'));await settle();}
+  await vi.advanceTimersByTimeAsync(15000);await settle();expect(api.getNodeMetrics).toHaveBeenCalledTimes(count);
+});
+test('unmount cancels interrupted static recovery without committing late data',async()=>{
+  vi.mocked(api.listNodes).mockResolvedValue([node(54),node(57)] as any);
+  await mount();(host.querySelector('.live-btn') as HTMLElement).click();await settle();
+  let resolve:any;vi.mocked(api.getNodeMetrics).mockReturnValueOnce(new Promise(r=>resolve=r));await choose('select.ov-drop','57');
+  Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));await settle();
+  app!.unmount();app=undefined;resolve(points());await settle();
+  Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));await vi.advanceTimersByTimeAsync(15000);await settle();
+  expect(api.getNodeMetrics).toHaveBeenCalledTimes(2);
+});
 test('turning live off aborts its slow query without starting a replacement or late poller',async()=>{
   await mount();let resolve:any;
   vi.mocked(api.getNodeMetrics).mockReturnValue(new Promise(r=>resolve=r));
