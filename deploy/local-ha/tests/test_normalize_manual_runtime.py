@@ -14,7 +14,14 @@ PG_ID = '3' * 64
 ROLES = {'nyarch': True, 'nas': False}
 
 
-def approval() -> tuple[dict, dict]:
+SECURE_INLINE_COMMAND = [
+    '-c',
+    "import os,sys; from pathlib import Path; os.environ['POSTGRES_PASSWORD']=Path('/run/secrets/app-password').read_text().strip(); import uvicorn; uvicorn.run('main:app',host='127.0.0.1',port=int(sys.argv[1]))",
+    '25131',
+]
+
+
+def approval(secure_inline=False) -> tuple[dict, dict]:
     p = load('node_production')
     inv = inventory()
     for cfg in inv['nodes'].values():
@@ -27,6 +34,16 @@ def approval() -> tuple[dict, dict]:
     old['HostConfig'].update(Memory=0, NanoCpus=0, CapDrop=None, SecurityOpt=None,
                              ReadonlyRootfs=False, Init=False,
                              RestartPolicy={'Name': 'no', 'MaximumRetryCount': 0})
+    if secure_inline:
+        old['Config'].update(Entrypoint=['/app/.venv/bin/python'], Cmd=copy.deepcopy(SECURE_INLINE_COMMAND))
+        old['Config']['Env'] = ['STELLA_AGENT_ROLLOUT_VERSION=0.6.10' if row.startswith('STELLA_AGENT_ROLLOUT_VERSION=')
+                                else row for row in old['Config']['Env']]
+        for cfg in inv['nodes'].values():
+            cfg['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] = '0.6.10'
+        old['HostConfig'].update(Memory=1073741824, NanoCpus=2000000000,
+                                 CapDrop=['ALL'], SecurityOpt=['no-new-privileges'],
+                                 ReadonlyRootfs=True, Init=True,
+                                 RestartPolicy={'Name': 'unless-stopped', 'MaximumRetryCount': 0})
     image = dict(Id=IMAGE_ID, RootFS={'Type': 'layers', 'Layers': ['sha256:' + '4' * 64]},
                  Config={'WorkingDir': '/app'}, Architecture='amd64', Os='linux')
     return dict(scope='stella-manual-runtime-normalize-v1', node='nas', inventory=inv,
@@ -35,9 +52,9 @@ def approval() -> tuple[dict, dict]:
 
 
 class Harness:
-    def __init__(self, module, request=None):
+    def __init__(self, module, request=None, secure_inline=False):
         self.m = module
-        self.request, old = approval()
+        self.request, old = approval(secure_inline=secure_inline)
         if request is not None:
             self.request = request
         self.n = module.Normalizer(self.request)
@@ -110,6 +127,152 @@ class Harness:
 
 
 class NormalizeTests(unittest.TestCase):
+
+    def test_secure_inline_preflight_only_normalizes_command_in_validation_copy(self):
+        m = load('normalize_manual_runtime')
+        h = Harness(m, secure_inline=True)
+        original = copy.deepcopy(h.inspect(OLD_ID))
+        validate = m.contract.Node.validate
+        copies = []
+        def record(node, c, **kw):
+            copies.append(copy.deepcopy(c))
+            return validate(node, c, **kw)
+        with patch.object(m.contract.Node, 'validate', new=record):
+            result = h.run()
+        self.assertEqual(result['status'], 'validated')
+        self.assertTrue(result['read_only'])
+        self.assertEqual(h.mutations(), [])
+        self.assertEqual(h.inspect(OLD_ID), original)
+        normalized = copy.deepcopy(original)
+        normalized['Config']['Cmd'] = ['/shadow-start.py']
+        self.assertEqual(copies, [normalized])
+        with self.assertRaisesRegex(ValueError, 'startup command'):
+            m.contract.Node(h.request).validate(original)
+
+    def test_secure_inline_apply_restores_golden_before_normal_release_with_exact_env_image(self):
+        m = load('normalize_manual_runtime')
+        h = Harness(m, secure_inline=True)
+        original = copy.deepcopy(h.inspect(OLD_ID))
+        result = h.run(apply=True)
+        self.assertEqual(result['status'], 'normalized')
+        stable = h.inspect(h.n.name)
+        self.assertEqual(stable['Config']['Cmd'], ['/shadow-start.py'])
+        self.assertEqual(stable['Config']['Entrypoint'], original['Config']['Entrypoint'])
+        self.assertEqual(stable['Config']['Env'], original['Config']['Env'])
+        self.assertIn('STELLA_AGENT_ROLLOUT_VERSION=0.6.10', stable['Config']['Env'])
+        self.assertEqual(stable['Image'], original['Image'])
+        self.assertEqual(stable['Mounts'], original['Mounts'])
+        self.assertEqual(stable['HostConfig'], original['HostConfig'])
+        self.assertFalse(result['pg_mutated'])
+        self.assertFalse(result['image_changed'])
+        self.assertFalse(result['environment_changed'])
+        self.assertLess(next(i for i, e in enumerate(h.events) if e[0] == 'probe' and e[2] == 25132),
+                        h.events.index(('stop', '--time', '30', OLD_ID)))
+        with patch.object(m.contract, 'validate_receipt_bundle'), patch.object(m.contract.Path, 'read_bytes', return_value=b'fixture'):
+            m.contract.Node(h.request).validate(stable, approved_environment=True)
+        for args, stdin in h.inputs:
+            self.assertEqual(stdin.splitlines(), original['Config']['Env'])
+            self.assertIn('--pull=never', args)
+        self.assertFalse(any(e[0] in ('pull', 'login', 'rm') for e in h.events))
+        self.assertTrue(all(e[-1] != PG_ID for e in h.mutations()))
+
+    def test_secure_inline_independently_approved_unsafe_shapes_cannot_borrow_weak_shape_repairs(self):
+        m = load('normalize_manual_runtime')
+        changes = (
+            ('Config', 'Entrypoint', None),
+            ('Config', 'Entrypoint', ['/bin/sh', '-c']),
+            ('Config', 'Cmd', ['-c', SECURE_INLINE_COMMAND[1] + '; print(1)', '25131']),
+            ('Config', 'Cmd', ['-c', SECURE_INLINE_COMMAND[1], '25132']),
+            ('Config', 'Cmd', ['/app/.venv/bin/python', '/shadow-start.py']),
+            ('Config', 'WorkingDir', '/other'),
+            ('HostConfig', 'Memory', 0), ('HostConfig', 'Memory', 1073741823),
+            ('HostConfig', 'NanoCpus', 0), ('HostConfig', 'ReadonlyRootfs', False),
+            ('HostConfig', 'CapDrop', None), ('HostConfig', 'CapDrop', ['ALL', 'NET_RAW']),
+            ('HostConfig', 'SecurityOpt', None), ('HostConfig', 'SecurityOpt', ['no-new-privileges', 'seccomp=unconfined']),
+            ('HostConfig', 'RestartPolicy', {'Name': 'no', 'MaximumRetryCount': 0}),
+            ('HostConfig', 'RestartPolicy', {'Name': 'always', 'MaximumRetryCount': 0}),
+            ('HostConfig', 'RestartPolicy', {'Name': 'unless-stopped', 'MaximumRetryCount': 1}),
+            ('HostConfig', 'NetworkMode', 'bridge'), ('HostConfig', 'Privileged', True),
+            ('HostConfig', 'CapAdd', ['SYS_ADMIN']), ('HostConfig', 'Devices', [{'PathOnHost': '/dev/sda'}]),
+            ('HostConfig', 'DeviceRequests', [{'Driver': 'nvidia'}]), ('HostConfig', 'VolumesFrom', ['other']),
+            ('HostConfig', 'PortBindings', {'80/tcp': []}), ('HostConfig', 'PidMode', 'host'),
+            ('HostConfig', 'UTSMode', 'host'), ('HostConfig', 'ExtraHosts', ['evil:127.0.0.1']),
+            ('HostConfig', 'Links', ['other']), ('HostConfig', 'Tmpfs', {'/app': 'rw'}),
+            ('HostConfig', 'PublishAllPorts', True), ('HostConfig', 'AutoRemove', True),
+        )
+        for section, field, value in changes:
+            with self.subTest(section=section, field=field, value=value):
+                h = Harness(m, secure_inline=True)
+                h.inspect(OLD_ID)[section][field] = copy.deepcopy(value)
+                h.n.r['approved_old'][section][field] = copy.deepcopy(value)
+                with self.assertRaises(ValueError):
+                    h.run(apply=True)
+                self.assertEqual(h.mutations(), [])
+
+    def test_secure_inline_complete_approval_and_all_environment_mount_hash_pins_remain_required(self):
+        m = load('normalize_manual_runtime')
+        request, _ = approval(secure_inline=True)
+        for cfg in request['inventory']['nodes'].values():
+            cfg['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] = '0.6.11'
+        with self.assertRaisesRegex(ValueError, 'agent rollout approval mismatch'):
+            m.Normalizer(request)  # startup-only repair cannot apply the separate version upgrade
+        changes = ('unapproved-env', 'duplicate-env', 'PGOPTIONS', 'database-env', 'signing-env',
+                   'mount-source', 'mount-rw', 'mount-propagation', 'mount-type', 'startup-hash', 'incomplete-approval')
+        for change in changes:
+            with self.subTest(change=change):
+                h = Harness(m, secure_inline=True)
+                old = h.inspect(OLD_ID)
+                if change in ('unapproved-env', 'duplicate-env', 'PGOPTIONS', 'database-env', 'signing-env'):
+                    old['Config']['Env'].append({
+                        'unapproved-env': 'PYTHONPATH=/other',
+                        'duplicate-env': old['Config']['Env'][0],
+                        'PGOPTIONS': 'PGOPTIONS=-c default_transaction_read_only=on',
+                        'database-env': 'POSTGRES_PASSWORD=not-a-real-secret',
+                        'signing-env': 'STELLA_SECRET_KEY=not-a-real-secret',
+                    }[change])
+                elif change.startswith('mount-'):
+                    field, value = {'mount-source': ('Source', m.contract.BASE + 'unapproved'),
+                                    'mount-rw': ('RW', True), 'mount-propagation': ('Propagation', 'rshared'),
+                                    'mount-type': ('Type', 'volume')}[change]
+                    old['Mounts'][0][field] = value
+                elif change == 'startup-hash':
+                    h.n.cfg['startup_sha256'] = '0' * 64
+                elif change == 'incomplete-approval':
+                    del h.n.r['approved_old']['HostConfig']
+                if change != 'incomplete-approval':
+                    h.n.r['approved_old'] = {k: copy.deepcopy(old[k]) for k in m.OLD_FIELDS}
+                with self.assertRaises((ValueError, KeyError)):
+                    h.run(apply=True)
+                self.assertEqual(h.mutations(), [])
+
+    def test_secure_inline_rollback_requires_exact_old_startup_sandbox_image_and_mounts(self):
+        m = load('normalize_manual_runtime')
+        for change in ('Cmd', 'Entrypoint', 'Memory', 'SecurityOpt', 'Image', 'Mounts'):
+            with self.subTest(change=change):
+                h = Harness(m, secure_inline=True)
+                original_command = h.command
+                def health(name, port, expected=True):
+                    if name == h.n.name and h.inspect(name)['Id'] != OLD_ID:
+                        raise ValueError('stable unhealthy')
+                    return h.probe(name, port, expected)
+                def command(args, *a, **kw):
+                    result = original_command(args, *a, **kw)
+                    if args[1:] == ['start', OLD_ID]:
+                        old = h.inspect(OLD_ID)
+                        if change in ('Cmd', 'Entrypoint'):
+                            old['Config'][change] = ['/shadow-start.py']
+                        elif change in ('Memory', 'SecurityOpt'):
+                            old['HostConfig'][change] = 0 if change == 'Memory' else []
+                        elif change == 'Image':
+                            old['Image'] = 'sha256:' + 'a' * 64
+                        else:
+                            old['Mounts'][0]['Source'] += '-changed'
+                    return result
+                h.n.health, h.command = health, command
+                result = h.run(apply=True)
+                self.assertEqual(result['status'], 'blocked')
+                self.assertIn('manual recovery', result['reason'])
+                self.assertFalse(any(e[0] == 'rm' for e in h.events))
 
     def test_docker_mount_order_drift_does_not_change_approved_mount_identity(self):
         m = load('normalize_manual_runtime')
@@ -265,10 +428,11 @@ class NormalizeTests(unittest.TestCase):
 
     def test_action_failures_before_and_after_side_effect_restore_exact_old(self):
         m = load('normalize_manual_runtime')
-        for target in ('candidate-create', 'candidate-start', 'stop-old', 'rename-old', 'stable-create', 'stable-start', 'candidate-stop'):
+        stages = ('candidate-create', 'candidate-start', 'stop-old', 'rename-old', 'stable-create', 'stable-start', 'candidate-stop')
+        for secure_inline, target in ((secure, stage) for secure in (False, True) for stage in stages):
             for after in (False, True):
-                with self.subTest(target=target, after=after):
-                    h = Harness(m)
+                with self.subTest(secure_inline=secure_inline, target=target, after=after):
+                    h = Harness(m, secure_inline=secure_inline)
                     original = copy.deepcopy(h.inspect(OLD_ID))
                     original_command = h.command
                     fired = False
@@ -445,9 +609,10 @@ class NormalizeTests(unittest.TestCase):
 
     def test_rollback_refuses_old_env_mutation_and_failed_recovery_commands(self):
         m = load('normalize_manual_runtime')
-        for failure in ('old-env', 'old-start', 'stable-stop', 'old-health'):
-            with self.subTest(failure=failure):
-                h = Harness(m)
+        failures = ('old-env', 'old-start', 'stable-stop', 'old-health')
+        for secure_inline, failure in ((secure, failure) for secure in (False, True) for failure in failures):
+            with self.subTest(secure_inline=secure_inline, failure=failure):
+                h = Harness(m, secure_inline=secure_inline)
                 original_command = h.command
                 def health(name, port, expected=True):
                     if name == h.n.name and (h.inspect(name)['Id'] != OLD_ID or failure == 'old-health'):

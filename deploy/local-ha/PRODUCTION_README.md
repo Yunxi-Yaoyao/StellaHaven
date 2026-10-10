@@ -32,6 +32,7 @@ GitLab job **local-ha-production-app** is blocking/manual, protected master only
 | `STELLA_PRODUCTION_IMAGE` | build dotenv: `gitlab-registry.xiya.live/yaoyao/stellahaven@sha256:<64 lowercase hex>`; never a tag, commit SHA or config ID |
 | `STELLA_EXPECTED_SCHEMA` | exact approved existing Alembic revision, equals inventory |
 | `STELLA_RESOURCE_MANIFEST_SHA256` | exact full approved manifest SHA256, equals inventory |
+| `STELLA_APPROVED_AGENT_ROLLOUT_VERSION` | explicit protected approval matching both nodes' `application_env_overrides.STELLA_AGENT_ROLLOUT_VERSION`; allowed exactly `0.6.9`, `0.6.10`, `0.6.11`; unset still defaults to `0.6.9` |
 | `CI_REGISTRY_USER`, `CI_REGISTRY_PASSWORD` | GitLab registry pull credentials, password masked/protected; only needed for actual release |
 
 No SSH key or registry password belongs in the repository. SSH uses `-F /dev/null`, strict known-host checking and explicit host aliases, with no interactive credential fallback. The helper source, request and registry password travel over encrypted stdin. Docker login uses `--password-stdin` in a temporary DOCKER_CONFIG; existing docker credentials are not changed.
@@ -48,6 +49,8 @@ Shape is documented in `production_release.py` module docstring. Supply full rev
 
 Operator must supply complete trusted manifest/startup hashes, exact mount paths, signing fingerprint and schema; the current installation has these pinned in protected CI variables and root-owned dispatcher inventory. Original source `.env` is neither read nor modified by the release transport.
 
+Agent `0.6.11` adds read-only hardware collection. It does not change the existing root/docker helper authorization. Allowlisting the version does not authorize its rollout by default or establish fleet helper readiness: retain the existing whole-fleet privilege-helper approval/readback prerequisite, explicitly approve `0.6.11`, and supply identical complete application approvals on both nodes. Unknown versions (including `0.6.12`) remain rejected. Keep the old `0.6.10` environment during startup-only normalization; the subsequent ordinary app release applies the separately approved `0.6.11` environment.
+
 ## Current runtime contract
 
 - Existing app container remains `stella-app-shadow-{nyarch,nas}` despite now being production. Host networking, `/app/.venv/bin/python`, workdir `/app`, read-only root, ALL capabilities dropped, no-new-privileges, bounded memory/CPU.
@@ -57,6 +60,14 @@ Operator must supply complete trusted manifest/startup hashes, exact mount paths
 - Stable app port 25131; temporary candidate port 25132 must be free. `/live` = 200, `/ready-primary` = 200 on primary and 503 on replica.
 - Existing frpc is untouched: local `frpc@stella-ha`, `/opt/frpc/conf/stella-ha.toml`, proxy `stella-runtime-nyarch`; NAS existing unit/proxy `stella-runtime-nas`. Both remain pointed at stable port 25131 and `/ready-primary`; no assumed app systemd service.
 - Registry digest is pulled separately per daemon; each candidate/replacement is checked against that daemon's resolved image inspect ID and content. No cross-daemon ID equality assumption.
+
+## Separately approved startup-only normalization
+
+`normalize_manual_runtime.py` is an opt-in local-node repair, not a relaxed ordinary release guard. Its default/`--dry-run` performs local read-only Docker/probe checks; only `--validate-pack` is fully offline. `--apply` requires independent review of a complete stdin approval: exact `scope=stella-manual-runtime-normalize-v1`, node, golden inventory, both expected roles, full local PG ID, approved local image content, and `approved_old` containing the full `Id`, `Image`, `Config`, `HostConfig`, `Mounts` snapshot. Never generate and automatically approve that payload or log its Env.
+
+The original historical weak manual shape remains unchanged. The additional secure-inline legacy shape accepts **only** Python entrypoint `['/app/.venv/bin/python']` and command `['-c', START, '25131']`, where `START` is the exact fixed secret-file/uvicorn string in `node_production.py`, without suffixes, wrappers or alternate ports. It requires golden read-only root/resource/capability pins, exactly `['no-new-privileges']`, and restart `{'Name': 'unless-stopped', 'MaximumRetryCount': 0}`. Only `Cmd` is changed in a validation **copy** to `['/shadow-start.py']`; the entire unchanged `Node.validate` contract then checks all other security, environment, mount and startup-hash pins. Unsafe secure-inline snapshots cannot borrow the historical weak shape's sandbox repair substitutions.
+
+Before an ordinary release, serialize standby-first externally: validate the complete candidate constructor before start, verify strict candidate health at 25132, restore the golden `/shadow-start.py` command at stable port 25131, and independently read back both nodes. Image, exact Env and PG are not changed by normalization. Failure restores and verifies the original complete snapshot, including the original secure-inline command and restart policy; failed app containers are retained, never broadly removed. Unconfirmed create outcomes remain blocked even when the old app is healthy. This helper does not approve CI variables/helper hashes or provide distributed fencing.
 
 ## Deployment and recovery boundaries
 

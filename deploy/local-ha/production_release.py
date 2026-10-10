@@ -14,7 +14,7 @@ revision and resource manifest are checked only; no migration/copy is allowed.
 Actual release/dry-run also requires nodes.<node>.application_env_overrides:
 exactly STELLA_TRUSTED_ORIGINS, STELLA_MAIN_ORIGIN, STELLA_OWNER_ID (UUID),
 STELLA_COOKIE_SECURE=true, STELLA_AGENT_ROLLOUT_VERSION=0.6.9 or explicitly
-approved 0.6.10, STELLA_BACKUP_RECEIPT_DIR=/app/data/backup-receipts.
+approved 0.6.10/0.6.11, STELLA_BACKUP_RECEIPT_DIR=/app/data/backup-receipts.
 Legacy initial/rollback containers may lack these fields; candidates may not.
 Both nodes require identical application approvals. target_mounts is rejected.
 Optional previous_manifest_sha256 only permits old/rollback bundle readback;
@@ -95,7 +95,8 @@ def validate_release_approval(inv, approved_agent_version='0.6.9'):
     # Version announcement is deliberately paused at the backwards-compatible
     # agent until operators have installed/read back the root helper on ALL
     # monitored servers (not just the two HA app hosts).
-    require(approved_agent_version in {'0.6.9', '0.6.10'}, 'agent rollout approval invalid')
+    # 0.6.11 adds read-only hardware collection, not root/docker authority.
+    require(approved_agent_version in {'0.6.9', '0.6.10', '0.6.11'}, 'agent rollout approval invalid')
     require(all('application_env_overrides' in item for item in inv['nodes'].values()),
             'application upgrade approval required')
     for item in inv['nodes'].values():

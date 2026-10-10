@@ -83,6 +83,18 @@ class Normalizer(contract.Node):
         require(same_approved_snapshot(c, self.r['approved_old']), 'old approved snapshot changed')
         require(c['Name'] == '/' + (name or self.name) and c['State']['Running'], 'manual app name/state mismatch')
         cfg, host = c['Config'], c['HostConfig']
+        if (cfg.get('Entrypoint') == ['/app/.venv/bin/python']
+                and cfg.get('Cmd') == ['-c', contract.START, '25131']):
+            require(host.get('RestartPolicy') == {'Name': 'unless-stopped', 'MaximumRetryCount': 0}
+                    and host.get('SecurityOpt') == ['no-new-privileges'],
+                    'not the approved secure inline runtime shape')
+            # This separately approved shape has no lost sandbox/resource pins.
+            # Substitute ONLY Cmd in a copy; the complete unchanged Node
+            # validator must accept every other field, mount, hash and Env.
+            normalized = copy.deepcopy(c)
+            normalized['Config']['Cmd'] = self.cfg['command']
+            contract.Node.validate(self, normalized, name=name, approved_environment=True)
+            return c
         require(cfg.get('Entrypoint') is None and cfg.get('Cmd') == ['/app/.venv/bin/python', '/shadow-start.py'],
                 'not the approved manual startup shape')
         require(host.get('Memory') == 0 and host.get('NanoCpus') == 0
