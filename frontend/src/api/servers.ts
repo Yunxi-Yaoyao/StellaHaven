@@ -12,6 +12,45 @@ export interface StorageItem {
   kind: "physical" | "network" | "virtual";
 }
 
+// 硬件快照复用 sys_info 随详情轮询返回；旧 Agent 可不提供 hardware。
+export interface HardwareCpu {
+  model: string | null;
+  physical_cores: number | null;
+  logical_cores: number | null;
+  frequency_mhz: number | null;
+  max_frequency_mhz: number | null;
+  temperature_c: number | null;
+  temperature_source: string | null;
+  frequency_source: string | null;
+}
+export interface HardwareGpu {
+  id: string;
+  name: string;
+  temperature_c: number | null;
+  graphics_clock_mhz: number | null;
+  memory_clock_mhz: number | null;
+  utilization_pct: number | null;
+  memory_used_mib: number | null;
+  memory_total_mib: number | null;
+  power_w: number | null;
+  fan_pct: number | null;
+  source: string;
+}
+export interface HardwareSensor {
+  name: string;
+  kind: "temperature" | "fan";
+  value: number | null;
+  unit: "°C" | "RPM";
+  source: string;
+}
+export interface HardwareInfo {
+  sampled_at: string;
+  cpu: HardwareCpu;
+  gpus: HardwareGpu[];
+  sensors: HardwareSensor[];
+  availability: { cpu_temperature: string; gpu: string };
+}
+
 export interface Node {
   id: number;
   name: string;
@@ -35,7 +74,7 @@ export interface Node {
   uninstall_error: string | null;
   installed: boolean;
   os_name: string | null;
-  sys_info: { kernel: string | null; cpu_model: string | null; cpu_cores: number | null; load1: number | null; load5: number | null; load15: number | null; boot_time: number | null } | null;
+  sys_info: { kernel: string | null; cpu_model: string | null; cpu_cores: number | null; load1: number | null; load5: number | null; load15: number | null; boot_time: number | null; hardware?: HardwareInfo | null } | null;
   created_at: string;
 }
 

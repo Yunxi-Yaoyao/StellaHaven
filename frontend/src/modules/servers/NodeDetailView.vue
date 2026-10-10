@@ -7,6 +7,7 @@ import { createRequestLane, createPoller, mapBounded } from "./polling";
 import { useRouter, useRoute } from "vue-router";
 import * as echarts from "./chartRuntime";
 import Icon from "../../shell/Icon.vue";
+import HardwareInfoPanel from "./HardwareInfoPanel.vue";
 import {
   getNodeDetail, getNodeMetrics, getNodeSysMetrics, getTrafficStats, updateNodeIfaces, updateNetType, changeIp,
   listMonitors, getMonitorSeries, createCommand, scanFirewall, getNetTask,
@@ -649,6 +650,13 @@ const virtualDisks = computed(() => (detail.value?.storage || []).filter((s) => 
 const si = computed(() => detail.value?.sys_info || null);
 // 30s 心跳 tick：让 uptime 文本自己走（detail 5s 刷新时 sys_info 不变的话 computed 不重算）
 const uptimeTick = ref(0);
+// Reuse the existing uptime clock: slow detail requests must not freeze the
+// hardware age label. This adds no network request or timer.
+const hardwareNow = computed(() => {
+  void samplingNow.value;
+  void uptimeTick.value;
+  return Date.now();
+});
 let uptimeTimer: ReturnType<typeof setInterval> | null = null;
 const uptimeText = computed(() => {
   void uptimeTick.value;
@@ -1155,6 +1163,8 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
       </template>
     </section>
     </div><!-- /duo-grid -->
+
+    <HardwareInfoPanel :hardware="si?.hardware" :status="detail.status" :now="hardwareNow" :refresh-failed="detailError" />
 
     <!-- 共享时间工具条：流量 + 系统指标 共用一组时间控件 -->
     <div class="chart-toolbar">
@@ -1961,6 +1971,10 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 
 /* 移动端：防火墙七列宽表转竖向卡片（行=块，单元格带标签竖排） */
 @media (max-width: 768px) {
+  .d-head { flex-wrap: wrap; gap: 8px; }
+  .d-head .back, .d-head .badge, .d-head .ops { flex-shrink: 0; white-space: nowrap; }
+  .d-head .name { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+  .d-head .meta { order: 1; flex-basis: 100%; min-width: 0; margin-left: 0; flex-wrap: wrap; gap: 4px 10px; overflow-wrap: anywhere; }
   .fw-table, .fw-table thead, .fw-table tbody, .fw-table tr, .fw-table td { display: block; }
   .fw-table thead { display: none; }
   .fw-table tr { border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; margin-bottom: 8px; padding: 6px 10px; }
