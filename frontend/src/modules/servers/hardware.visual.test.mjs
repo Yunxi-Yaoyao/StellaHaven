@@ -165,7 +165,18 @@ try {
     assert.equal(Math.abs(layout.storage.width-layout.hardware.width)<1, true, 'storage is full width');
     assert.equal(layout.storage.y >= layout.hardware.bottom-1, true, 'storage does not overlap hardware');
     assert.equal(layout.requests.every(r => r.method === 'GET'), true, 'no state-changing API');
-    if (width >= 1000 && layout.cards.length > 1) assert.equal(new Set(layout.cards.map(c => Math.round(c.height))).size > 1, true, 'no equal height stretch');
+    if (width >= 1000 && layout.cards.length > 1) {
+      const sizing = await page.locator('.hardware-card').evaluateAll(cards => cards.map(card => {
+        const before = card.getBoundingClientRect();
+        const clone = card.cloneNode(true);
+        clone.style.cssText += `;position:fixed;width:${before.width}px;box-sizing:border-box;height:auto;min-height:0;max-height:none;left:-10000px;`;
+        card.parentElement.append(clone);
+        const natural = clone.getBoundingClientRect().height;
+        clone.remove();
+        return { actual: before.height, natural };
+      }));
+      assert.ok(sizing.every(c => Math.abs(c.actual-c.natural)<2), 'cards match independently measured intrinsic height, even when equal by coincidence');
+    }
     for (let i=1;i<layout.rows.length;i++) assert.equal(layout.rows[i].y>=layout.rows[i-1].bottom-1,true,'storage rows overlap');
     const headings = await page.locator('.d-head .name').evaluate(el => ({ ...(() => { const r=el.getBoundingClientRect();return { width:r.width,height:r.height }; })(), lineHeight:parseFloat(getComputedStyle(el).lineHeight) }));
     assert.equal(headings.lineHeight<=25,true,'real detail header typography');
