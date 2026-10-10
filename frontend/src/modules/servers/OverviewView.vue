@@ -4,6 +4,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, defineAsyncComponent } from "vue";
 import { useRouter } from "vue-router";
 import * as echarts from "./chartRuntime";
+import { overviewInterfaces, overviewDefaultInterface } from "./interfaceSelection";
 import { summarizeMonitorPoints } from "./monitorStats";
 import { createRequestLane, createPoller, mapBounded } from "./polling";
 import {
@@ -19,6 +20,8 @@ const ServerWorldMap = defineAsyncComponent(() => import("./ServerWorldMap.vue")
 const router = useRouter();
 const nodes = ref<Node[]>([]);
 const nodeDetails = ref<Record<number, NodeDetail>>({});
+const detailState = ref<Record<number, "loading" | "ready" | "error">>({});
+const nodesState = ref<"loading" | "ready" | "error">("loading");
 const monitors = ref<Monitor[]>([]);
 
 // ═══════════ 区1：服务器卡 ═══════════
@@ -37,38 +40,62 @@ const LIVE_WINDOWS = [
   { s: 300, label: "5分钟" }, { s: 900, label: "15分钟" }, { s: 1800, label: "30分钟" }, { s: 3600, label: "1小时" },
 ];
 const trafficPoints = ref<MetricPoint[]>([]);
+const trafficState = ref<"idle" | "loading" | "ready" | "error">("idle");
+const trafficNow = ref(Date.now());
 const trafficIface = ref<string>("");
 const chartEl = ref<HTMLElement | null>(null);
 let chart: echarts.ECharts | null = null;
 const trafficLane = createRequestLane();
-const livePoll = createPoller(async () => { await trafficLane.run(signal => fetchTraffic(false, signal)); }, 3000);
+let fullTraffic = true;
+const livePoll = createPoller(async () => { await trafficLane.run(signal => fetchTraffic(fullTraffic, signal)); }, 3000);
 let trafficSeq = 0;
 
 const onlineNodes = computed(() => nodes.value.filter((n) => n.status === "online"));
 const trafficNodeOptions = computed(() => onlineNodes.value.map((n) => ({ value: n.id, label: n.name })));
 
-// 网卡下拉：物理且 up 的接口，默认路由网卡标注
-const trafficIfaceOptions = computed(() => {
-  const n = nodeDetails.value[trafficNodeId.value ?? -1];
-  if (!n) return [];
-  return Object.entries(n.interfaces || {})
-    .filter(([, m]) => m.is_physical && m.up)
-    .map(([name, m]) => ({ value: name, label: m.is_default ? `${name}（默认）` : name }));
+const selectedTrafficDetail = computed(() => nodeDetails.value[trafficNodeId.value ?? -1]);
+const trafficHint = computed(() => {
+  if (nodesState.value === "loading") return "节点加载中";
+  if (nodesState.value === "error" && !onlineNodes.value.length) return "节点加载失败";
+  if (!onlineNodes.value.length) return "暂无在线节点";
+  const detail = selectedTrafficDetail.value;
+  if (!detail) return detailState.value[trafficNodeId.value ?? -1] === "error" ? "节点详情加载失败" : "节点详情加载中";
+  if (detail.interfaces == null) return "等待网卡上报";
+  if (!trafficIface.value) return "暂无可用网卡";
+  if (trafficState.value === "error") return "流量加载失败";
+  if (trafficState.value === "idle" && !trafficLive.value) return "流量已暂停";
+  if (trafficState.value === "idle" || trafficState.value === "loading" && !trafficPoints.value.length) return "流量加载中";
+  if (!trafficPoints.value.length) return "暂无流量数据";
+  const last = new Date(trafficPoints.value[trafficPoints.value.length - 1]!.ts).getTime();
+  return trafficNow.value - last > 60000 ? "流量采样已过期" : "";
 });
-
-function defaultIface(n: NodeDetail | undefined): string {
-  if (!n) return "";
-  const ifaces = n.interfaces || {};
-  const phys = Object.entries(ifaces).filter(([, m]) => m.is_physical && m.up);
-  const def = phys.find(([, m]) => m.is_default) || phys[0];
-  return def ? def[0] : "";
+const trafficIfaceOptions = computed(() => overviewInterfaces(selectedTrafficDetail.value)
+  .map(name => ({ value: name, label: selectedTrafficDetail.value?.interfaces?.[name]?.is_default ? `${name}（默认）` : name })));
+const manualIfaces = new Map<number, string>();
+function selectTrafficIface(name: string | number | boolean) {
+  if (typeof name !== "string" || !overviewInterfaces(selectedTrafficDetail.value).includes(name)) return;
+  if (trafficNodeId.value != null) manualIfaces.set(trafficNodeId.value, name);
+  trafficIface.value = name;
 }
+// Details may arrive after selection (or a failed detail refresh); only live inventory is eligible.
+watch([trafficNodeId, selectedTrafficDetail], () => {
+  const id = trafficNodeId.value;
+  const available = overviewInterfaces(selectedTrafficDetail.value);
+  const chosen = id == null ? undefined : manualIfaces.get(id);
+  trafficIface.value = chosen && available.includes(chosen) ? chosen : overviewDefaultInterface(selectedTrafficDetail.value);
+}, { flush: "pre" });
 
 async function fetchTraffic(full: boolean, signal: AbortSignal) {
   const id = trafficNodeId.value;
   const iface = trafficIface.value;
+  const windowSeconds = trafficWindow.value;
+  const isCurrent = () => !disposed && !document.hidden && !signal.aborted && seq === trafficSeq
+    && id === trafficNodeId.value && iface === trafficIface.value && windowSeconds === trafficWindow.value;
   if (!id || !iface) { trafficPoints.value = []; paintTraffic(); return; }
   const seq = ++trafficSeq;
+  fullTraffic = false;
+  trafficState.value = "loading";
+  trafficNow.value = Date.now();
   const now = new Date();
   // 5s 采样：点数随窗长走（1h=720 点），写死 300 会把 1h 窗截成 25 分钟
   let start: string, end = now.toISOString(), limit = Math.ceil(trafficWindow.value / 5) + 20;
@@ -81,7 +108,7 @@ async function fetchTraffic(full: boolean, signal: AbortSignal) {
   }
   try {
     const data = await getNodeMetrics(id, { iface, start, end, limit, signal });
-    if (signal.aborted || seq !== trafficSeq) return;
+    if (!isCurrent()) return;
     const pts = [...data].reverse();
     if (full || !existing.length) trafficPoints.value = pts;
     else {
@@ -90,8 +117,11 @@ async function fetchTraffic(full: boolean, signal: AbortSignal) {
       merged = merged.filter((p) => new Date(p.ts).getTime() >= Date.now() - trafficWindow.value * 1000);
       trafficPoints.value = merged;
     }
-    paintTraffic();
-  } catch { /* 静默 */ }
+    trafficState.value = "ready";
+    void paintTraffic();
+  } catch {
+    if (isCurrent()) trafficState.value = "error";
+  }
 }
 
 function fmtAxisTime(ms: number): string {
@@ -107,9 +137,16 @@ function fmtBps(v: number): string {
   return v.toFixed(0) + " bps";
 }
 
-function paintTraffic() {
-  if (!chartEl.value) return;
-  chart = echarts.getInstanceByDom(chartEl.value) || echarts.init(chartEl.value);
+let trafficObserver: ResizeObserver | undefined;
+// All paints wait for Vue's v-show update; zero-sized ancestors defer to RO.
+async function paintTraffic() {
+  await nextTick();
+  const el = chartEl.value;
+  if (disposed || document.hidden || !el || !onlineNodes.value.length) return;
+  const { width, height } = el.getBoundingClientRect();
+  if (width <= 0 || height <= 0) return;
+  chart = chart || echarts.getInstanceByDom(el) || echarts.init(el);
+  chart.resize({ width, height });
   const pts = trafficPoints.value;
   chart.setOption({
     backgroundColor: "transparent",
@@ -143,22 +180,30 @@ function paintTraffic() {
 }
 
 function loadTraffic() {
-  trafficLane.reset();
-  if (document.hidden) return Promise.resolve();
+  stopLive();
+  fullTraffic = true;
+  if (disposed || document.hidden || !trafficNodeId.value || !trafficIface.value) return Promise.resolve();
+  // Poller starts with this full query, then waits 3s from completion: no duplicate tick.
+  if (trafficLive.value) { startLive(); return Promise.resolve(); }
   return trafficLane.run(signal => fetchTraffic(true, signal));
 }
 let disposed = false;
-function startLive() { if (!disposed && trafficLive.value && !document.hidden) livePoll.start(); }
-function stopLive() { livePoll.stop(); trafficLane.reset(); }
-watch(trafficLive, (on) => { stopLive(); if (on) void loadTraffic().then(startLive); });
-watch(trafficWindow, () => { if (trafficLive.value) { stopLive(); void loadTraffic().then(startLive); } });
-watch(trafficNodeId, async () => {
-  trafficIface.value = defaultIface(nodeDetails.value[trafficNodeId.value ?? -1]);
-  trafficPoints.value = [];
-  await loadTraffic();
-});
-// 换网卡：清空重来
-watch(trafficIface, () => { trafficPoints.value = []; void loadTraffic(); });
+function startLive() { if (!disposed && trafficLive.value && !document.hidden && trafficIface.value) livePoll.start(); }
+function stopLive() { trafficSeq++; livePoll.stop(); trafficLane.reset(); }
+// One post-flush watcher coalesces node + resolved iface + window changes into one lane.
+watch([trafficNodeId, trafficIface, trafficWindow, trafficLive], ([id, iface, windowSeconds, live], old) => {
+  if (old && !live && old[3] && id === old[0] && iface === old[1] && windowSeconds === old[2]) {
+    stopLive();
+    if (trafficState.value === "loading") trafficState.value = trafficPoints.value.length ? "ready" : "idle";
+    return;
+  }
+  if (!old || id !== old[0] || iface !== old[1]) {
+    trafficPoints.value = [];
+    trafficState.value = "idle";
+    void paintTraffic();
+  }
+  void loadTraffic();
+}, { flush: "post" });
 
 // ═══════════ 区3：服务监控（双模式）═══════════
 const monMode = ref<"chart" | "simple">((localStorage.getItem("stella_mon_mode") as "chart" | "simple") || "chart");
@@ -340,21 +385,30 @@ async function refreshStatus(signal: AbortSignal) {
     const [newNodes, newMonitors] = await Promise.all([listNodes(signal), listMonitors(signal)]);
     if (signal.aborted) return;
     nodes.value = newNodes;
+    nodesState.value = "ready";
     monitors.value = [...newMonitors].sort((a, b) => a.id - b.id);
-    // 逐台拿详情（latest_sys_metric 喂迷你条）——节点数少，量级可控
-    const details = await mapBounded(nodes.value.filter((n) => n.status === "online"), 3,
-      n => getNodeDetail(n.id, signal).catch(() => null), signal);
-    if (signal.aborted) return;
-    const map: Record<number, NodeDetail> = {};
-    for (const d of details) if (d) map[d.id] = d;
-    nodeDetails.value = map;
-    // 流量速览默认选第一台在线节点
-    if (trafficNodeId.value === null && onlineNodes.value.length) {
-      trafficNodeId.value = onlineNodes.value[0].id;
+    if (!onlineNodes.value.some(n => n.id === trafficNodeId.value)) {
+      trafficNodeId.value = onlineNodes.value[0]?.id ?? null;
     }
-  } catch { /* 后端未就绪静默 */ }
+    // Keep bounded detail polling; publish each successful inventory as it arrives.
+    await mapBounded(onlineNodes.value, 3, async n => {
+      detailState.value[n.id] = "loading";
+      try {
+        const detail = await getNodeDetail(n.id, signal);
+        if (signal.aborted) return;
+        nodeDetails.value[n.id] = detail;
+        detailState.value[n.id] = "ready";
+      } catch {
+        if (!signal.aborted) detailState.value[n.id] = "error";
+      }
+    }, signal);
+  } catch { if (!signal.aborted) nodesState.value = "error"; }
 }
 onMounted(() => {
+  if (chartEl.value && typeof ResizeObserver !== "undefined") {
+    trafficObserver = new ResizeObserver(() => { void paintTraffic(); });
+    trafficObserver.observe(chartEl.value);
+  }
   if (!document.hidden) { statusPoll.start(); sparkPoll.start(); if (trafficLive.value) startLive(); }
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("resize", onResize);
@@ -362,6 +416,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   disposed = true;
+  trafficObserver?.disconnect();
   statusPoll.stop(); sparkPoll.stop(); monitorLane.reset();
   document.removeEventListener("visibilitychange", onVisibility);
   for (const el of sparkEls.values()) echarts.getInstanceByDom(el)?.dispose();
@@ -373,9 +428,9 @@ onUnmounted(() => {
 });
 function onVisibility() {
   if (document.hidden) { statusPoll.stop(); sparkPoll.stop(); monitorLane.reset(); stopLive(); }
-  else { statusPoll.start(); sparkPoll.start(); if (trafficLive.value) void loadTraffic().then(startLive); }
+  else { statusPoll.start(); sparkPoll.start(); void paintTraffic(); if (trafficLive.value) void loadTraffic(); }
 }
-function onResize() { chart?.resize(); paintSparklines(); }
+function onResize() { void paintTraffic(); paintSparklines(); }
 function onDocClick() { winOpen.value = false; }
 // 监控项列表晚于 onMounted 回来，id 集合变化时（首次加载/增删）补图表数据
 watch(() => monitors.value.map((m) => m.id).join(","), (v, old) => {
@@ -437,10 +492,13 @@ watch(() => monitors.value.map((m) => m.id).join(","), (v, old) => {
           </div>
         </div>
         <span class="flex-spacer" />
-        <Dropdown v-model="trafficIface" :options="trafficIfaceOptions" class="ov-drop iface-drop" />
+        <Dropdown :model-value="trafficIface" @update:model-value="selectTrafficIface" :options="trafficIfaceOptions" class="ov-drop iface-drop" />
       </div>
       <div class="chart-box">
-        <div v-if="!onlineNodes.length" class="hint-empty">暂无在线节点</div>
+        <div v-if="trafficHint" class="hint-empty traffic-hint" role="status">
+          {{ trafficHint }}
+          <button v-if="trafficState === 'error' || trafficHint === '流量已暂停'" class="mini-btn traffic-retry" @click="loadTraffic">重试</button>
+        </div>
         <div v-show="onlineNodes.length" ref="chartEl" class="ov-chart"></div>
       </div>
     </section>
