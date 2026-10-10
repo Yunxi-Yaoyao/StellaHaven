@@ -2,7 +2,7 @@
 import secrets
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import DateTime, func, literal, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.node import Node, NodeMetric, NodeSysMetric, NodeStatusEvent
@@ -196,9 +196,58 @@ def get_metrics(db: Session, node_id: int, iface: str | None = None,
     step>5 时按 step 秒聚合（sum delta），用于长时间窗口降采样，避免 7 天 12 万点画图卡死。
     """
     if step and step > 5:
-        ts_bucket = func.to_timestamp(
-            func.floor(func.extract("epoch", NodeMetric.ts) / step) * step
+        # Native timestamptz binning avoids per-sample numeric epoch arithmetic.
+        # Epoch origin preserves floor semantics (also before 1970), independent
+        # of session timezone; aggregate the full filtered range before LIMIT.
+        ts_bucket = func.date_bin(
+            timedelta(seconds=step), NodeMetric.ts,
+            datetime(1970, 1, 1, tzinfo=timezone.utc),
+            type_=DateTime(timezone=True),
         )
+        if iface and start is not None and end is not None and limit > 0:
+            # Seek the latest nonempty bucket using (node_id, iface, ts), then
+            # seek strictly before its boundary. By induction these are exactly
+            # the first `limit` distinct buckets of the original descending
+            # GROUP BY (gaps need no guessed lookback). Sum every filtered row
+            # in each selected half-open bucket; start/end remain inclusive.
+            # One statement retains the existing statement_timeout/rollback.
+            filters = (
+                NodeMetric.node_id == node_id, NodeMetric.iface == iface,
+                NodeMetric.ts >= start, NodeMetric.ts <= end,
+            )
+            buckets = (
+                select(ts_bucket.label("ts"), literal(1).label("n"))
+                .where(*filters).order_by(NodeMetric.ts.desc()).limit(1)
+                .cte("traffic_buckets", recursive=True)
+            )
+            latest = (
+                select(ts_bucket.label("ts"))
+                .where(*filters, NodeMetric.ts < buckets.c.ts)
+                .order_by(NodeMetric.ts.desc()).limit(1)
+                .correlate(buckets).lateral("latest_bucket")
+            )
+            buckets = buckets.union_all(
+                select(latest.c.ts, (buckets.c.n + 1).label("n"))
+                .select_from(buckets.join(latest, true()))
+                .where(buckets.c.n < limit)
+            )
+            totals = (
+                select(func.sum(NodeMetric.rx_delta).label("rx_delta"),
+                       func.sum(NodeMetric.tx_delta).label("tx_delta"))
+                .where(*filters, NodeMetric.ts >= buckets.c.ts,
+                       NodeMetric.ts < buckets.c.ts + timedelta(seconds=step))
+                .correlate(buckets).lateral("bucket_totals")
+            )
+            rows = db.execute(
+                select(buckets.c.ts, totals.c.rx_delta, totals.c.tx_delta)
+                .select_from(buckets.join(totals, true()))
+                .order_by(buckets.c.ts.desc()).limit(limit)
+            ).all()
+            return [
+                NodeMetric(node_id=node_id, iface=iface, ts=r.ts,
+                           rx_delta=int(r.rx_delta), tx_delta=int(r.tx_delta))
+                for r in rows
+            ]
         q = (
             db.query(
                 ts_bucket.label("ts"),
