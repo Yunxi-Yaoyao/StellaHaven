@@ -95,8 +95,12 @@ def test_agent_rollout_can_hold_version_until_helpers_are_seeded(auth_env, monke
     app.include_router(agent_router)
     monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.9')
     assert c.get('/agent/version').json()['version'] == '0.6.9'
+    monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.10')
+    assert c.get('/agent/version').json() == {'version': '0.6.10'}
     monkeypatch.delenv('STELLA_AGENT_ROLLOUT_VERSION')
-    assert c.get('/agent/version').json()['version'] == '0.6.10'
+    announced = c.get('/agent/version').json()
+    assert announced['version'] == '0.6.11'
+    assert len(announced['sha256']) == 64 and announced['size'] > 0
 
 
 def test_retired_invitation_routes_are_explicit_gone(auth_env):
