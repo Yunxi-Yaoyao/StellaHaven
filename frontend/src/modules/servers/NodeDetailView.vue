@@ -300,9 +300,20 @@ const PRESETS: { key: RangeKey; label: string; seconds?: number }[] = [
 ];
 const timeRange = ref<RangeKey>("1h");
 const presetOpen = ref(false);
-const customEditOpen = ref(false);
+
 const customStart = ref("");
+const customStartEl = ref<HTMLInputElement | null>(null);
 const customEnd = ref("");
+const customWindow = ref({ startMs: 0, endMs: 0 });
+let customQueryTimer: ReturnType<typeof setTimeout> | undefined;
+function clearCustomQuery() {
+  if (customQueryTimer !== undefined) clearTimeout(customQueryTimer);
+  customQueryTimer = undefined;
+}
+// 明确解析目标固定偏移时区，禁止 Date(string) 使用浏览器本地时区。
+function parseRangeInput(value: string, off = tzOffset.value): number {
+  return value ? Date.parse(`${value}Z`) - off * 60000 : NaN;
+}
 
 // ── 实时模式：窗口跟随当前时间滚动，每 3s 增量拉取新点追加 ──
 const LIVE_WINDOWS = [
@@ -384,6 +395,17 @@ const trafficEl = ref<HTMLElement | null>(null);
 const sysEl = ref<HTMLElement | null>(null);
 let trafficChart: echarts.ECharts | null = null;
 let sysChart: echarts.ECharts | null = null;
+let chartSizeObserver: ResizeObserver | undefined;
+function observeChartSize(el: HTMLElement) {
+  if (typeof ResizeObserver === "undefined") return;
+  // A ?tab=network entry mounts charts inside v-show at width zero.
+  // Observe the actual containers so opening the tab or resizing the shell
+  // repairs canvas dimensions without another history request.
+  chartSizeObserver ||= new ResizeObserver(() => {
+    if (!disposed) onResize();
+  });
+  chartSizeObserver.observe(el);
+}
 
 function monitoredIfaces(d: NodeDetail): string[] {
   if (d.monitored_ifaces && Object.keys(d.monitored_ifaces).length) return Object.keys(d.monitored_ifaces);
@@ -396,10 +418,8 @@ function monitoredIfaces(d: NodeDetail): string[] {
 }
 
 // 通用：算某个时间范围的起止（毫秒时间戳），off 为时区分钟偏移（影响自然月边界）
-function computeSpan(tr: RangeKey, cStart: string, cEnd: string, off: number, now: number): { startMs: number; endMs: number } {
-  if (tr === "custom") {
-    return { startMs: new Date(cStart).getTime(), endMs: new Date(cEnd).getTime() };
-  }
+function computeSpan(tr: RangeKey, off: number, now: number): { startMs: number; endMs: number } {
+  if (tr === "custom") return customWindow.value;
   if (tr === "thismonth") return { startMs: monthStart(off, now), endMs: now };
   if (tr === "lastmonth") return { startMs: prevMonthStart(off, now), endMs: monthStart(off, now) };
   const r = PRESETS.find((p) => p.key === tr) || PRESETS[0];
@@ -412,7 +432,7 @@ const span = computed(() => {
     const now = queryNow.value;
     return { startMs: now - liveWindow.value * 1000, endMs: now };
   }
-  return computeSpan(timeRange.value, customStart.value, customEnd.value, tzOffset.value, queryNow.value);
+  return computeSpan(timeRange.value, tzOffset.value, queryNow.value);
 });
 
 // 查询参数：start/end（ISO）+ limit/step（按跨度自动降采样）
@@ -448,26 +468,19 @@ const rangeLabel = computed(() => {
   if (timeRange.value === "custom") return "自定义";
   return PRESETS.find((p) => p.key === timeRange.value)?.label || "1小时";
 });
-// 起止按钮短格式：今天内 HH:mm，跨天 MM-DD HH:mm（目标时区）
-function fmtTimeShort(ms: number, off: number = tzOffset.value): string {
-  const d = new Date(ms + off * 60000);
-  const n = new Date(Date.now() + off * 60000);
-  const p = (x: number) => String(x).padStart(2, "0");
-  const hm = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
-  const sameDay = d.getUTCFullYear() === n.getUTCFullYear() && d.getUTCMonth() === n.getUTCMonth() && d.getUTCDate() === n.getUTCDate();
-  return sameDay ? hm : `${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${hm}`;
-}
 // 图表 x 轴短格式（目标时区）：MM/DD HH:MM
 function fmtAxisTime(ms: number, off: number = tzOffset.value): string {
   const d = new Date(ms + off * 60000);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
-// datetime-local 值（浏览器本地时区）
+// datetime-local 值与图表使用相同的目标时区，不依赖浏览器本地时区。
 function toLocalInput(ms: number): string {
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  return new Date(ms + tzOffset.value * 60000).toISOString().slice(0, 16);
+}
+function syncRangeInputs(window = span.value) {
+  customStart.value = toLocalInput(window.startMs);
+  customEnd.value = toLocalInput(window.endMs);
 }
 
 // 网卡排序：默认出口 > 物理 > 虚拟
@@ -609,6 +622,7 @@ function clearHistoryRetry() {
   historyRetry = undefined;
 }
 async function loadCharts(replace = true) {
+  if (!liveMode.value && timeRange.value === "custom" && (customError.value || customQueryTimer !== undefined)) return;
   clearHistoryRetry();
   if (replace) { chartLane.reset(); historyRetries.value = 0; }
   if (disposed || !detail.value || document.hidden || taskLifecycle.signal.aborted) return;
@@ -624,6 +638,7 @@ async function fetchChartGroup(full: boolean, signal: AbortSignal) {
   // 每轮只读一次时钟；所有网卡、系统指标及精确统计使用同一窗口。
   queryNow.value = Date.now();
   const window = span.value;
+  if (timeRange.value !== "custom" || liveMode.value) syncRangeInputs(window);
   const trafficRange = getRange(window), sysRange = getSysRange(window);
   const results = await Promise.all([fetchTraffic(full, signal, trafficRange), fetchSys(full, signal, sysRange), loadStats(signal, trafficRange)]);
   if (signal.aborted || disposed) return;
@@ -711,7 +726,7 @@ async function fetchTraffic(full: boolean, signal: AbortSignal, base: ChartRange
 
 function paintTraffic() {
   if (!trafficEl.value) return;
-  if (!trafficChart) trafficChart = echarts.init(trafficEl.value);
+  if (!trafficChart) { trafficChart = echarts.init(trafficEl.value); observeChartSize(trafficEl.value); }
   const ifaces = Object.keys(trafficPoints.value);
   const series: any[] = [];
   let times: string[] = [];
@@ -763,25 +778,35 @@ async function loadStats(signal: AbortSignal, range: ChartRange) {
   } catch { return false; /* Retain last valid statistics on timeout/offline. */ }
 }
 
-function applyCustom() {
-  if (!customStart.value || !customEnd.value) { toast("请选择起止时间喵~"); return; }
-  if (new Date(customEnd.value) <= new Date(customStart.value)) { toast("结束时间要晚于开始时间喵~"); return; }
-  customEditOpen.value = false;
-  loadCharts();
-}
-function openCustomEdit() {
-  customStart.value = toLocalInput(span.value.startMs);
-  customEnd.value = toLocalInput(span.value.endMs);
-  customEditOpen.value = !customEditOpen.value;
-}
-function onCustomEdit() {
-  timeRange.value = "custom";  // 手动改起止时间 → 按钮变「自定义」
+const customError = computed(() => {
+  if (timeRange.value !== "custom" || liveMode.value) return "";
+  const start = parseRangeInput(customStart.value), end = parseRangeInput(customEnd.value);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "请填写完整起止时间";
+  return end <= start ? "结束时间须晚于开始时间" : "";
+});
+function onCustomEdit(field: "start" | "end", event: Event) {
+  const value = (event.target as HTMLInputElement).value;
+  const draft = field === "start" ? customStart : customEnd;
+  if (value === draft.value) return;
+  // Capture the current window before leaving a preset/live range; draft edits
+  // never clear the last valid chart or replace another partially edited field.
+  if (timeRange.value !== "custom" || liveMode.value) customWindow.value = { ...span.value };
+  draft.value = value;
+  timeRange.value = "custom";
+  liveMode.value = false;
+  stopLive();
+  clearCustomQuery();
+  if (customError.value) return;
+  historyRetries.value = 0; // A valid new range starts a fresh bounded budget, including hidden/resume.
+  customWindow.value = { startMs: parseRangeInput(customStart.value), endMs: parseRangeInput(customEnd.value) };
+  customQueryTimer = setTimeout(() => { customQueryTimer = undefined; void loadCharts(); }, 250);
 }
 function selectPreset(key: RangeKey) {
   presetOpen.value = false;
-  if (key === "custom") { openCustomEdit(); return; }  // 先编辑起止时间，确定后再加载
-  if (timeRange.value === key) void loadCharts();
-  else timeRange.value = key;
+  if (key === "custom") { customStartEl.value?.focus(); return; }
+  clearCustomQuery();
+  timeRange.value = key;
+  void loadCharts();
 }
 
 // ── 实时模式控制 ──
@@ -799,6 +824,7 @@ function startLive() {
 }
 function stopLive() { livePoll.stop(); chartLane.reset(); clearHistoryRetry(); historyPending.value = false; }
 function toggleLive() {
+  clearCustomQuery();
   liveMode.value = !liveMode.value;
 }
 function pickLiveWindow(s: number) {
@@ -808,7 +834,7 @@ function pickLiveWindow(s: number) {
 watch(liveMode, (on) => {
   if (on) { void loadCharts().then(startLive); }
   else stopLive();
-});
+}, { flush: "sync" });
 watch(liveWindow, () => { if (liveMode.value) { stopLive(); void loadCharts().then(startLive); } });
 
 
@@ -840,7 +866,7 @@ async function fetchSys(full: boolean, signal: AbortSignal, base: ChartRange) {
 
 function paintSys() {
   if (!sysEl.value) return;
-  if (!sysChart) sysChart = echarts.init(sysEl.value);
+  if (!sysChart) { sysChart = echarts.init(sysEl.value); observeChartSize(sysEl.value); }
   const points = sysPoints.value;
   const times = points.map((pt) => fmtAxisTime(new Date(pt.ts).getTime()));
   sysChart.setOption({
@@ -883,9 +909,16 @@ async function saveIfaces() {
   } catch { /* 静默 */ }
 }
 // 切换时间/单位/时区/网卡时刷新
-watch(timeRange, key => { if (key !== "custom") void loadCharts(); });
+
 watch(unitMode, () => { paintTraffic(); });  // 单位只影响格式化，不重拉数据
-watch(tzOffset, () => {
+watch(tzOffset, (_off, previousOffset) => {
+  if (timeRange.value === "custom" && !liveMode.value) {
+    // Preserve each draft independently, including a missing/reversed endpoint.
+    // This is a display-zone change, not a new custom query or preset selection.
+    const start = parseRangeInput(customStart.value, previousOffset), end = parseRangeInput(customEnd.value, previousOffset);
+    if (Number.isFinite(start)) customStart.value = toLocalInput(start);
+    if (Number.isFinite(end)) customEnd.value = toLocalInput(end);
+  } else syncRangeInputs();
   if (!liveMode.value && (timeRange.value === "thismonth" || timeRange.value === "lastmonth")) void loadCharts();
   else { paintTraffic(); paintSys(); }
 });  // 自然月时区决定查询边界；滚动/自定义范围只重绘标签
@@ -969,7 +1002,8 @@ let historyInterrupted = false;
 function onVisibility() {
   if (disposed) return;
   if (document.hidden) {
-    historyInterrupted = historyPending.value || !!historyRetry;
+    historyInterrupted = historyPending.value || !!historyRetry || customQueryTimer !== undefined;
+    clearCustomQuery();
     statusPoll.stop(); monitorPoll.stop(); stopLive();
   } else {
     statusPoll.start(); monitorPoll.start();
@@ -977,12 +1011,18 @@ function onVisibility() {
     historyInterrupted = false;
   }
 }
-function onResize() { trafficChart?.resize(); sysChart?.resize(); }
+function onResize() {
+  if (trafficEl.value?.clientWidth) trafficChart?.resize();
+  if (sysEl.value?.clientWidth) sysChart?.resize();
+}
 function onDocClick() { ifaceDropdownOpen.value = false; presetOpen.value = false; unitOpen.value = false; tzOpen.value = false; liveOpen.value = false; opsOpen.value = false; }
 
 // 切换节点（props.nodeId 变化，组件复用 setup 不重跑）：重置状态并重新加载
 watch(() => props.nodeId, (newId, oldId) => {
   if (!newId || newId === oldId) return;
+  clearCustomQuery();
+  historyInterrupted = false;
+  chartSizeObserver?.disconnect();
   trafficChart?.dispose(); trafficChart = null;
   sysChart?.dispose(); sysChart = null;
   monChart?.dispose(); monChart = null;
@@ -1016,6 +1056,8 @@ onMounted(() => {
 });
 onUnmounted(() => {
   disposed = true;
+  chartSizeObserver?.disconnect();
+  clearCustomQuery();
   statusPoll.stop();
   monitorPoll.stop();
   chartLane.reset();
@@ -1096,9 +1138,9 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
     <!-- 共享时间工具条：流量 + 系统指标 共用一组时间控件 -->
     <div class="chart-toolbar">
       <span class="tl-label">时间</span>
-      <button class="range-btn" title="点击编辑起止时间" @click="openCustomEdit">
-        {{ fmtTimeShort(span.startMs) }} <span class="range-sep">~</span> {{ fmtTimeShort(span.endMs) }}
-      </button>
+      <label class="range-field"><span>开始</span><input ref="customStartEl" type="datetime-local" :value="customStart" :aria-label="`开始时间（${TZ_OPTIONS.find(t => t.offset === tzOffset)?.label}）`" @input="onCustomEdit('start', $event)" /></label>
+      <span class="range-sep">~</span>
+      <label class="range-field"><span>结束</span><input type="datetime-local" :value="customEnd" :aria-label="`结束时间（${TZ_OPTIONS.find(t => t.offset === tzOffset)?.label}）`" @input="onCustomEdit('end', $event)" /></label>
       <div class="pop-wrap">
         <button class="preset-btn" :class="{ active: timeRange !== '1h' }" :disabled="liveMode" @click.stop="presetOpen = !presetOpen">{{ rangeLabel }} ▾</button>
         <div v-if="presetOpen && !liveMode" class="pop-menu" @click.stop>
@@ -1124,20 +1166,16 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
           <button v-for="t in TZ_OPTIONS" :key="t.offset" class="pop-item" :class="{ active: tzOffset === t.offset }" @click="tzOffset = t.offset; tzOpen = false">{{ t.label }}</button>
         </div>
       </div>
+      <span v-if="customError" class="range-error" role="alert">{{ customError }}</span>
     </div>
 
-    <!-- 自定义时间编辑（深色主题弹层） -->
+    <!-- 历史数据加载状态 -->
     <div v-if="historyPending && !historyError" class="empty" role="status">正在加载历史数据…</div>
     <div v-if="historyError" class="empty" role="alert">
       历史数据加载失败，保留上次有效结果。{{ historyRetries >= MAX_HISTORY_RETRIES ? '自动重试已暂停，请手动重试' : '将自动重试' }}
       <button class="ghost-btn" :disabled="historyPending" @click="retryHistory">重试历史</button>
     </div>
-    <div v-if="customEditOpen" class="custom-range">
-      <input type="datetime-local" v-model="customStart" @change="onCustomEdit" />
-      <span class="cr-sep">~</span>
-      <input type="datetime-local" v-model="customEnd" @change="onCustomEdit" />
-      <button class="ghost-btn" @click="applyCustom">确定</button>
-    </div>
+
 
     <!-- 流量面板 -->
     <section class="panel">
@@ -1565,13 +1603,15 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 .live-hint { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--pink); font-weight: 400; }
 .live-hint .live-dot { opacity: 1; animation: livePulse 1.6s ease-in-out infinite; }
 /* 深色主题的原生日期时间控件（color-scheme 让 Chrome 用深色 picker） */
-.custom-range input[type="datetime-local"] {
-  color-scheme: dark;
-  background: var(--bg-raised); border: 1px solid rgba(255,255,255,0.12);
-  border-radius: var(--radius-sm); color: var(--text-hi);
-  padding: 6px 10px; font-size: 12.5px; outline: none;
+.range-field { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.range-field > span { color: var(--text-faint); font-size: 12px; white-space: nowrap; }
+.range-field input {
+  color-scheme: dark; background: var(--bg-raised); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius-sm); color: var(--text-hi); padding: 5px 7px;
+  font: 12px var(--font-mono); min-width: 0; outline: none;
 }
-.custom-range input[type="datetime-local"]:focus { border-color: var(--accent-dim); }
+.range-field input:focus { border-color: var(--accent-dim); }
+.range-error { color: var(--pink); font-size: 12px; }
 /* 操作下拉 */
 .ops { position: relative; }
 .ops-btn {
@@ -1627,12 +1667,6 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 
 /* ── 时间 / 网卡 / 单位 / 时区 控件 ── */
 .tl-label { font-size: 12px; color: var(--text-faint); }
-.range-btn {
-  background: transparent; border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-sm); color: var(--text-hi); padding: 4px 10px;
-  font-size: 12px; cursor: pointer; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-}
-.range-btn:hover { border-color: var(--accent-dim); }
 .range-sep { color: var(--text-faint); margin: 0 2px; }
 
 .pop-wrap { position: relative; }
@@ -1656,12 +1690,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 .iface-menu { min-width: 280px; }
 .unit-menu { min-width: 120px; }
 
-.custom-range { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.custom-range input[type="datetime-local"] {
-  background: var(--bg-base); border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-sm); color: var(--text-hi); padding: 5px 8px; font-size: 12px;
-}
-.cr-sep { color: var(--text-faint); }
+
 
 .dropdown-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
 .dropdown-item:hover { background: var(--bg-base); }
