@@ -542,6 +542,7 @@ class Agent:
         self._storage_scheduler = _BackgroundScheduler(max_workers=1)
         self._storage_cache = None
         self._storage_next_sample = 0
+        self._storage_status = {'state': 'collecting', 'sampled_at': None, 'attempted_at': None}
         self._check_deps()
 
     def collect_map_snapshot(self):
@@ -931,6 +932,7 @@ class Agent:
             info["load1"] = info["load5"] = info["load15"] = None
         info["boot_time"] = psutil.boot_time() if psutil else None
         info["hardware"] = self._hardware_info()
+        info["storage_status"] = dict(self._storage_status)
         if info["hardware"]["cpu"].get("model"):
             info["cpu_model"] = info["hardware"]["cpu"]["model"]
         for key, field in (("cpu_cores", "physical_cores"), ("cpu_logical_cores", "logical_cores")):
@@ -1243,6 +1245,7 @@ class Agent:
                     'machine': machine, 'physical_inventory': static['physical_inventory'] if static else None,
                     'cpu': cpu, 'gpus': [], 'sensors': [],
                     'availability': {'cpu_temperature': reason,
+                                     'gpu_presence': 'unknown',
                                      'gpu': 'collection_failed' if reason == 'collection_failed' else 'unknown'}}
         return hardware
 
@@ -1310,6 +1313,8 @@ class Agent:
         hardware['sampled_at'] = collection_time
         inventory = self._gpu_static_info()
         hardware['gpus'] = [dict(row) for row in inventory or []]
+        hardware['availability']['gpu_presence'] = ('present' if inventory else
+                                                    'none' if inventory == [] else 'unknown')
         if platform.system() == 'Linux':
             self._linux_gpu_readings(hardware['gpus'])
         hardware['availability']['gpu'] = ('inventory_only' if inventory else
@@ -1457,6 +1462,7 @@ class Agent:
                           'memory.total', 'power.draw', 'fan.speed', 'pci.bus_id')
                 output = _map_command([nvidia, '--query-gpu=' + ','.join(fields),
                                        '--format=csv,noheader,nounits'], timeout=3)
+                gpu_sampled_at = datetime.now(timezone.utc).isoformat()
                 keys = ('temperature_c', 'graphics_clock_mhz', 'memory_clock_mhz',
                         'utilization_pct', 'memory_used_mib', 'memory_total_mib', 'power_w', 'fan_pct')
                 telemetry, seen = [], set()
@@ -1476,10 +1482,14 @@ class Agent:
                     item = self._gpu_row(identity, row[1].strip(), 'NVIDIA',
                                          self._gpu_kind(row[1].strip(), '', ''), 'nvidia-smi', 'available', bdf)
                     item.update({key: _hardware_number(value) for key, value in zip(keys, row[2:10])})
-                    item['sampled_at'] = collection_time
+                    measured = any(item[key] is not None for key in keys)
+                    item['sampled_at'] = gpu_sampled_at if measured else None
+                    if not measured:
+                        item['telemetry_status'] = 'unsupported'
                     telemetry.append(item)
                 if not telemetry:
                     raise ValueError('empty NVIDIA telemetry')
+                hardware['availability']['gpu_query'] = 'available'
                 # UUID identifies samples; PCI bus binds them to the physical inventory.
                 matched = set()
                 for item in telemetry:
@@ -1498,9 +1508,12 @@ class Agent:
                         hardware['gpus'].append(item)
                     # Ambiguous identity: do not copy telemetry or invent extra cards.
                 for gpu in hardware['gpus']:
-                    if gpu['vendor'] == 'NVIDIA' and gpu['telemetry_status'] == 'unsupported':
+                    if (gpu['vendor'] == 'NVIDIA' and gpu['telemetry_status'] == 'unsupported'
+                            and gpu['id'] not in seen):
                         gpu['telemetry_status'] = 'query_failed'
             except Exception:
+                # A failed installed tool is a fact even without inventory rows.
+                hardware['availability']['gpu_query'] = 'query_failed'
                 for gpu in hardware['gpus']:
                     if gpu['vendor'] == 'NVIDIA' and gpu['telemetry_status'] != 'driver_missing':
                         gpu['telemetry_status'] = 'query_failed'
@@ -1508,6 +1521,10 @@ class Agent:
             hardware['availability']['gpu'] = 'available'
         elif hardware['gpus']:
             hardware['availability']['gpu'] = 'inventory_only'
+        elif hardware['availability'].get('gpu_query') == 'query_failed':
+            hardware['availability']['gpu'] = 'collection_failed'
+        if hardware['gpus']:
+            hardware['availability']['gpu_presence'] = 'present'
         return hardware
 
     def _storage_info(self):
@@ -1516,16 +1533,28 @@ class Agent:
         if now >= self._storage_next_sample:
             self._storage_next_sample = now + STORAGE_INTERVAL
             def refresh():
+                # Only an admitted worker starts an attempt; busy is not failure.
+                attempted_at = datetime.now(timezone.utc).isoformat()
+                sampled_at = self._storage_status['sampled_at']
+                self._storage_status = {'state': 'collecting', 'sampled_at': sampled_at,
+                                        'attempted_at': attempted_at}
                 try:
                     sample = self.list_storage()
-                    if isinstance(sample, list):
-                        self._storage_cache = sample
+                    if not isinstance(sample, list):
+                        raise ValueError('invalid storage snapshot')
+                    self._storage_cache = sample
+                    self._storage_status = {'state': 'available',
+                                            'sampled_at': datetime.now(timezone.utc).isoformat(),
+                                            'attempted_at': attempted_at}
                 except Exception:
-                    pass  # Retain source timestamps, including after a failed refresh.
+                    self._storage_status = {'state': 'query_failed', 'sampled_at': sampled_at,
+                                            'attempted_at': attempted_at}
             try:
                 self._storage_scheduler.submit('storage', refresh)
             except Exception:
-                pass
+                self._storage_status = {'state': 'query_failed',
+                                        'sampled_at': self._storage_status['sampled_at'],
+                                        'attempted_at': datetime.now(timezone.utc).isoformat()}
         return self._storage_cache
 
     def _windows_storage(self) -> list:

@@ -90,5 +90,55 @@ class HardwareRepositoryTests(unittest.TestCase):
             engine.dispose()
 
 
+    def test_old_agent_cpu_cores_is_not_reinterpreted_as_physical_cores(self):
+        db = Session()
+        result = heartbeat_function()(db, 1, os_info={'cpu_cores': 12})
+        self.assertEqual(result.sys_info['cpu_cores'], 12)
+        self.assertIsNone(result.sys_info['cpu_logical_cores'])
+        self.assertIsNone(result.sys_info['storage_status'])
+
+    def test_gpu_query_failure_and_presence_roundtrip_without_inventory_rows(self):
+        db = Session()
+        hardware = {'gpus': [], 'availability': {'gpu': 'collection_failed',
+                    'gpu_query': 'query_failed', 'gpu_presence': 'none'}}
+        result = heartbeat_function()(db, 1, os_info={'hardware': hardware})
+        self.assertEqual(result.sys_info['hardware'], hardware)
+
+    def test_storage_failure_and_cpu_threads_roundtrip_without_erasing_storage(self):
+        from sqlalchemy import JSON, String, Integer, create_engine, select
+        from sqlalchemy.orm import DeclarativeBase, mapped_column, Session as SqlSession
+        class Base(DeclarativeBase):
+            pass
+        class SqlNode(Base):
+            __tablename__ = 'refresh_node'
+            id = mapped_column(Integer, primary_key=True)
+            sys_info = mapped_column(JSON)
+            storage = mapped_column(JSON)
+            status = mapped_column(String)
+        engine = create_engine('sqlite://')
+        Base.metadata.create_all(engine)
+        sample = [{'device': 'disk0', 'sampled_at': 'old-source', 'used': 0}]
+        failure = {'state': 'query_failed', 'sampled_at': '2026-10-10T00:00:00+00:00',
+                   'attempted_at': '2026-10-10T00:01:00+00:00'}
+        try:
+            with SqlSession(engine) as db:
+                node = SqlNode(id=1, status='online', sys_info={}, storage=sample)
+                node.installed, node.arch, node.uninstall_status = True, None, None
+                db.add(node)
+                db.commit()
+                function = heartbeat_function()
+                function.__globals__['get_by_id'] = lambda session, node_id: session.get(SqlNode, node_id)
+                function(db, 1, storage=None, os_info={'cpu_cores': 6, 'cpu_logical_cores': 12,
+                                                     'storage_status': failure})
+            with SqlSession(engine) as readback:
+                saved = readback.scalar(select(SqlNode))
+                self.assertEqual(saved.sys_info.get('storage_status'), failure)
+                self.assertEqual(saved.sys_info['cpu_cores'], 6)
+                self.assertEqual(saved.sys_info.get('cpu_logical_cores'), 12)
+                self.assertEqual(saved.storage, sample)
+        finally:
+            engine.dispose()
+
+
 if __name__ == '__main__':
     unittest.main()
