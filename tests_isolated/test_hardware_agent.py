@@ -32,6 +32,8 @@ def instance():
         # fixture-tested separately, never read the test runner's host DMI.
         obj._machine_static_cache = (float('inf'), {'machine': agent._classify_machine(),
                                     'physical_inventory': None, 'processors': []})
+    # Fixture owns GPU inventory too; never inspect the runner's PCI/DRM.
+    obj._gpu_inventory_cache = (float('inf'), None)
     return obj
 
 
@@ -54,7 +56,7 @@ class HardwareAgentTests(unittest.TestCase):
         self.assertEqual(len(hardware['sensors']), 5)
         self.assertEqual(hardware['gpus'], [])
         self.assertEqual(hardware['availability']['cpu_temperature'], 'available')
-        self.assertEqual(hardware['availability']['gpu'], 'nvidia_smi_missing')
+        self.assertEqual(hardware['availability']['gpu'], 'unknown')
         self.assertTrue(hardware['sampled_at'].endswith('+00:00'))
 
 
@@ -219,7 +221,7 @@ class HardwareAgentTests(unittest.TestCase):
                 for _ in range(10):
                     pending = obj._os_info()
                     self.assertEqual(pending['kernel'], 'test')
-                    self.assertEqual(pending['hardware']['availability']['gpu'], 'collecting')
+                    self.assertEqual(pending['hardware']['availability']['gpu'], 'unknown')
                 self.assertEqual(len(calls), 1)
             finally:
                 release.set()
@@ -376,7 +378,7 @@ class HardwareAgentTests(unittest.TestCase):
             try:
                 self.assertTrue(started.wait(1))
                 self.assertTrue(reported.wait(1), 'heartbeats blocked behind hardware')
-                self.assertEqual(bodies[0]['os_info']['hardware']['availability']['gpu'], 'collecting')
+                self.assertEqual(bodies[0]['os_info']['hardware']['availability']['gpu'], 'unknown')
                 self.assertEqual(bodies[0]['os_info']['kernel'], 'test')
             finally:
                 stop.set()
@@ -395,13 +397,13 @@ class HardwareAgentTests(unittest.TestCase):
 
 
     def test_release_version_refuses_same_version_update_and_accepts_newer(self):
-        self.assertEqual(agent.AGENT_VERSION, '0.6.11')
+        self.assertEqual(agent.AGENT_VERSION, '0.6.12')
         obj = instance()
-        with patch.object(obj, '_get', return_value={'version': '0.6.11'}), \
+        with patch.object(obj, '_get', return_value={'version': '0.6.12'}), \
                 patch.object(obj, '_download_and_restart') as download:
             obj.check_update()
             download.assert_not_called()
-        with patch.object(obj, '_get', return_value={'version': '0.6.12'}), \
+        with patch.object(obj, '_get', return_value={'version': '0.6.13'}), \
                 patch.object(obj, '_download_and_restart') as download:
             obj.check_update()
             download.assert_called_once()
