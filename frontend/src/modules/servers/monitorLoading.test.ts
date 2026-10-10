@@ -146,16 +146,21 @@ test('fresh sample timestamps do not produce stale or unknown warnings', async (
   await mount(); expect(host.querySelector('.sampling-hint')).toBeNull();
 });
 
-test('custom edits issue no request until confirmation, then one shared group', async () => {
+test('custom edits debounce one valid shared group without another selector or confirmation', async () => {
   await mount();
-  await click('.range-btn');
-  const inputs = [...host.querySelectorAll<HTMLInputElement>('.custom-range input')];
-  inputs[0]!.value = '2026-10-09T00:00'; inputs[0]!.dispatchEvent(new Event('input', { bubbles: true })); inputs[0]!.dispatchEvent(new Event('change', { bubbles: true })); await settle();
-  inputs[1]!.value = '2026-10-10T00:00'; inputs[1]!.dispatchEvent(new Event('input', { bubbles: true })); inputs[1]!.dispatchEvent(new Event('change', { bubbles: true })); await settle();
-  expect(api.getNodeMetrics).toHaveBeenCalledTimes(1);
-  await button('确定', '.custom-range button');
-  expect(api.getNodeMetrics).toHaveBeenCalledTimes(2);
+  const inputs = [...host.querySelectorAll<HTMLInputElement>('.chart-toolbar input[type="datetime-local"]')];
+  expect(inputs).toHaveLength(2);
+  expect(host.querySelector('.custom-range')).toBeNull();
+  inputs[0]!.value = '2026-10-09T00:00'; inputs[0]!.dispatchEvent(new Event('input', { bubbles: true })); await settle();
   expect(host.querySelector('.preset-btn')?.textContent).toContain('自定义');
+  inputs[1]!.value = '2026-10-10T00:00'; inputs[1]!.dispatchEvent(new Event('input', { bubbles: true })); await settle();
+  expect(api.getNodeMetrics).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(250); await settle();
+  for (const request of [api.getNodeMetrics, api.getNodeSysMetrics, api.getTrafficStats]) {
+    expect(request).toHaveBeenCalledTimes(2);
+    const opts = vi.mocked(request).mock.calls.at(-1)![1]!;
+    expect([opts.start, opts.end]).toEqual(['2026-10-08T16:00:00.000Z', '2026-10-09T16:00:00.000Z']);
+  }
 });
 
 test('node change aborts old history and paints the new mounted chart without stale replies', async () => {
