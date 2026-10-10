@@ -52,6 +52,15 @@ class BuildMirrorContract(unittest.TestCase):
         self.assertIn("--timeout 30 --retries 2 uv", docker)
         self.assertIn("UV_HTTP_TIMEOUT=30 UV_HTTP_RETRIES=2 uv pip sync", docker)
 
+    def test_browser_jobs_use_verified_signed_https_and_no_optional_desktop_packages(self):
+        ci = (ROOT / '.gitlab-ci.yml').read_text()
+        for job, end in [('frontend-build:', '# Controlled process/visual QA'), ('experience-gate:', '# Full SHA tags')]:
+            section = ci.split(job, 1)[1].split(end, 1)[0]
+            self.assertIn('https://mirrors.ustc.edu.cn/debian-security', section)
+            self.assertIn('Acquire::https::Timeout=30', section)
+            self.assertIn('--no-install-recommends', section)
+            self.assertIn('timeout: 15m', section)
+
     def test_hardware_visual_and_isolated_gates_are_preserved(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
         frontend = ci.split("frontend-build:\n", 1)[1].split("experience-gate:\n", 1)[0]
