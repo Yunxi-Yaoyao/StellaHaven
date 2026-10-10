@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [vue()],
   test: {
     environment: 'jsdom',
-    include: ['src/modules/servers/hardware.test.ts'],
+    include: ['src/modules/servers/hardware.test.ts', 'src/modules/servers/storageStatus.test.ts'],
     pool: 'forks', maxWorkers: 1, minWorkers: 1,
   },
 });

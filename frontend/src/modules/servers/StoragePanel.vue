@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { PhysicalInventory, StorageItem } from '../../api/servers';
+import type { PhysicalInventory, StorageItem, StorageStatus } from '../../api/servers';
 import { bytes, hasValue, joinSpec, metric } from './hardwareDisplay';
-const props = defineProps<{ storage?: StorageItem[] | null; inventory?: PhysicalInventory | null; now?: number }>();
+const props = defineProps<{ storage?: StorageItem[] | null; inventory?: PhysicalInventory | null; storageStatus?: StorageStatus | null; now?: number }>();
 // Inventory is a fallback, never an extra duplicate list. Legacy physical usage
 // mixed raw capacities and shared filesystem usage; it cannot be attributed here.
 const disks = computed<StorageItem[]>(() => {
@@ -28,7 +28,7 @@ const stale = computed(() => (props.storage || []).some(item => item.sampled_at 
 
 <template>
   <section class="storage-panel" aria-label="存储">
-    <header class="storage-head"><h2>存储</h2><span v-if="stale" class="storage-status" role="status">数据已过期</span></header>
+    <header class="storage-head"><h2>存储</h2><span v-if="storageStatus?.state === 'query_failed' || stale" class="storage-status" role="status">{{ [storageStatus?.state === 'query_failed' ? '存储刷新失败' : '', stale ? '数据已过期' : ''].filter(Boolean).join(' · ') }}</span></header>
     <p v-if="!disks.length && !volumes.length" class="storage-note">存储尚未采集</p>
     <section v-if="volumes.length" class="volume-list" aria-label="存储卷 / 存储池">
       <h3>存储卷 / 存储池</h3>

@@ -18,6 +18,12 @@ export interface StorageItem {
   sampled_at?: string | null;
 }
 
+export interface StorageStatus {
+  state: "collecting" | "available" | "query_failed";
+  sampled_at: string | null;
+  attempted_at?: string | null;
+}
+
 // 硬件快照复用 sys_info 随详情轮询返回；旧 Agent 可不提供 hardware。
 export interface HardwareCpu {
   sampled_at?: string | null;
@@ -123,7 +129,7 @@ export interface Node {
   uninstall_error: string | null;
   installed: boolean;
   os_name: string | null;
-  sys_info: { kernel: string | null; cpu_model: string | null; cpu_cores: number | null; load1: number | null; load5: number | null; load15: number | null; boot_time: number | null; hardware?: HardwareInfo | null } | null;
+  sys_info: { kernel: string | null; cpu_model: string | null; cpu_cores: number | null; cpu_logical_cores?: number | null; storage_status?: StorageStatus | null; load1: number | null; load5: number | null; load15: number | null; boot_time: number | null; hardware?: HardwareInfo | null } | null;
   created_at: string;
 }
 

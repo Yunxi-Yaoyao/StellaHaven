@@ -1088,10 +1088,10 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
         <span v-if="si?.kernel" class="system-kernel">内核 {{ si.kernel }}</span>
       </div>
       <div class="system-meta"><span v-if="detail.arch">{{ detail.arch }}</span><span v-if="detail.agent_version">Agent v{{ detail.agent_version }}</span></div>
-      <span v-if="si?.cpu_model && !si.hardware?.cpu.model" class="legacy-cpu">{{ si.cpu_model }}<template v-if="si.cpu_cores != null"> · {{ si.cpu_cores }} 线程</template></span>
+      <span v-if="si?.cpu_model && !si.hardware?.cpu.model" class="legacy-cpu">{{ si.cpu_model }}<template v-if="si.cpu_logical_cores != null"> · <span v-if="si.cpu_cores != null">{{ si.cpu_cores }} 核 / </span>{{ si.cpu_logical_cores }} 线程</template><template v-else-if="si.cpu_cores != null"> · {{ si.cpu_cores }} 线程</template></span>
     </section>
     <HardwareInfoPanel :hardware="si?.hardware" :status="detail.status" :now="hardwareNow" :refresh-failed="detailError" :latest-sys-metric="detail.latest_sys_metric" />
-    <StoragePanel :storage="detail.storage" :inventory="si?.hardware?.machine?.kind === 'physical' ? si.hardware.physical_inventory : null" :now="hardwareNow" />
+    <StoragePanel :storage="detail.storage" :storage-status="si?.storage_status" :inventory="si?.hardware?.machine?.kind === 'physical' ? si.hardware.physical_inventory : null" :now="hardwareNow" />
 
     <!-- 共享时间工具条：流量 + 系统指标 共用一组时间控件 -->
     <div class="chart-toolbar">
