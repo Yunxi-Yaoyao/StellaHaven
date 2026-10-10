@@ -21,7 +21,7 @@ param(
 )
 function Resolve-StellaPython([string]$PythonPath) {
     if (-not $PythonPath) {
-        $command = Get-Command python -CommandType Application -ErrorAction SilentlyContinue
+        $command = Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $command) { throw 'Python not found; install Python or supply -PythonPath with its absolute executable path.' }
         $PythonPath = $command.Source
     }
