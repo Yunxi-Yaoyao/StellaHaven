@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from 'vitest';
 import { createApp, h } from 'vue';
 import Panel from './StoragePanel.vue';
+import type { StorageStatus } from '../../api/servers';
 let app: ReturnType<typeof createApp> | undefined;
 let root: HTMLElement;
 afterEach(() => { app?.unmount(); root?.remove(); });
 const item = { device: 'disk0', mount: 'D:/', kind: 'volume', total: 1000, used: 500, percent: 50, fstype: 'NTFS', usage_scope: 'measured', sampled_at: '2026-10-10T08:00:00Z' };
-function mount(status: Record<string,unknown>, now=Date.parse('2026-10-10T08:00:05Z')) {
+function mount(status: StorageStatus, now=Date.parse('2026-10-10T08:00:05Z')) {
  root=document.createElement('div');document.body.append(root);
  app=createApp({render:()=>h(Panel,{storage:[item] as any,storageStatus:status,now})});app.mount(root);
 }
