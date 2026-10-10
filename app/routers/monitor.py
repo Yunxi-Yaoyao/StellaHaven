@@ -359,7 +359,7 @@ def agent_version():
     available = m.group(1) if m else "0.0.0"
     import os
     rollout = os.getenv('STELLA_AGENT_ROLLOUT_VERSION', available)
-    if rollout not in {'0.6.9', available}:
+    if rollout not in {'0.6.9', '0.6.10', available}:
         raise HTTPException(503, 'Agent 滚动版本配置无效')
     if rollout == available:
         import hashlib
@@ -386,6 +386,24 @@ def agent_install_ps1():
     script = Path(__file__).resolve().parents[2] / "agent" / "install.ps1"
     return PlainTextResponse(script.read_text(encoding="utf-8"),
                              media_type="text/plain; charset=utf-8")
+
+
+@agent_router.get("/run-agent.ps1")
+def agent_run_ps1():
+    """Public credential-free Windows task entry point, matching /agent/script."""
+    from fastapi.responses import PlainTextResponse
+    from pathlib import Path
+    script = Path(__file__).resolve().parents[2] / "agent" / "run-agent.ps1"
+    return PlainTextResponse(script.read_bytes(), media_type="text/plain; charset=utf-8")
+
+
+@agent_router.get("/hardware-sensors.ps1")
+def agent_hardware_sensors_ps1():
+    """Public opt-in read-only hardware bridge; contains no credentials."""
+    from fastapi.responses import PlainTextResponse
+    from pathlib import Path
+    script = Path(__file__).resolve().parents[2] / "agent" / "hardware-sensors.ps1"
+    return PlainTextResponse(script.read_bytes(), media_type="text/plain; charset=utf-8")
 
 
 # 监控项：登录鉴权
