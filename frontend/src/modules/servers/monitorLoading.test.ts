@@ -83,15 +83,18 @@ test('late failed live request never restarts after live off or unmount', async 
   await click('.live-btn');
   const signal = vi.mocked(api.getNodeMetrics).mock.calls.at(-1)![1]!.signal!;
   await click('.live-btn'); expect(signal.aborted).toBe(true);
+  // Live-off intentionally fetches one full history group; the abandoned live
+  // failure must neither mark that replacement failed nor schedule a retry.
+  expect(api.getNodeMetrics).toHaveBeenCalledTimes(3);
   slow.reject(new Error('timeout')); await settle();
   await vi.advanceTimersByTimeAsync(30000); await settle();
-  expect(api.getNodeMetrics).toHaveBeenCalledTimes(2);
+  expect(api.getNodeMetrics).toHaveBeenCalledTimes(3);
   expect(host.textContent).not.toContain('历史数据加载失败');
   const next = deferred<any[]>(); vi.mocked(api.getNodeMetrics).mockReturnValueOnce(next.promise);
   await click('.live-btn'); app?.unmount(); app = undefined;
   next.reject(new Error('timeout')); await settle();
   await vi.advanceTimersByTimeAsync(30000); await settle();
-  expect(api.getNodeMetrics).toHaveBeenCalledTimes(3);
+  expect(api.getNodeMetrics).toHaveBeenCalledTimes(4);
 });
 
 test('cross-day tooltip keeps MM/DD HH:mm and rolling timezone redraw does not query', async () => {

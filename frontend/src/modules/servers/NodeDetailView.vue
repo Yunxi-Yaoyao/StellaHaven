@@ -826,6 +826,13 @@ function stopLive() { livePoll.stop(); chartLane.reset(); clearHistoryRetry(); h
 function toggleLive() {
   clearCustomQuery();
   liveMode.value = !liveMode.value;
+  if (!liveMode.value) {
+    // Return to the selected history range, not the last rolling live inputs.
+    // The synchronous watcher stops/aborts live before this full group starts.
+    queryNow.value = Date.now();
+    syncRangeInputs(span.value);
+    void loadCharts();
+  }
 }
 function pickLiveWindow(s: number) {
   liveWindow.value = s;

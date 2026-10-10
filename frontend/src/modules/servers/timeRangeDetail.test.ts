@@ -247,6 +247,33 @@ test('a new valid edit resumes after hiding even when the previous retry budget 
   expect(host.textContent).not.toContain('历史数据加载失败');
 });
 
+test.each(['自定义', '6小时'])('leaving live restores the %s history window in inputs and every query', async text => {
+  await mount();
+  if (text === '自定义') {
+    await edit(0, '2026-10-09T00:00'); await edit(1, '2026-10-10T00:00');
+    await vi.advanceTimersByTimeAsync(250); await settle();
+  } else await preset(text);
+  const historical = inputs().map(i => i.value);
+  await click('.live-btn');
+  expect(inputs().map(i => i.value)).not.toEqual(historical);
+  const count = vi.mocked(api.getNodeSysMetrics).mock.calls.length;
+  await click('.live-btn');
+  expect(inputs().map(i => i.value)).toEqual(historical);
+  expect(api.getNodeSysMetrics).toHaveBeenCalledTimes(count + 1);
+  expect(host.querySelector('.preset-btn')?.textContent).toContain(text);
+  for (const request of [api.getNodeMetrics, api.getNodeSysMetrics, api.getTrafficStats]) {
+    const opts = vi.mocked(request).mock.calls.at(-1)![1]!;
+    expect([opts.start, opts.end]).toEqual(historical.map(value => new Date(Date.parse(value + 'Z') - 480 * 60000).toISOString()));
+  }
+  await button('网卡（1）▾'); await click('.iface-menu input');
+  expect(inputs().map(i => i.value)).toEqual(historical);
+  expect(vi.mocked(api.getNodeSysMetrics).mock.calls.at(-1)![1]!.start)
+    .toBe(new Date(Date.parse(historical[0] + 'Z') - 480 * 60000).toISOString());
+  const finalCount = vi.mocked(api.getNodeSysMetrics).mock.calls.length;
+  await vi.advanceTimersByTimeAsync(4000); await settle();
+  expect(api.getNodeSysMetrics).toHaveBeenCalledTimes(finalCount);
+});
+
 test('one inline range remains the only date editor when clicked or custom is selected', async () => {
   await mount();
   expect(inputs()).toHaveLength(2);
