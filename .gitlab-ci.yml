@@ -88,7 +88,11 @@ frontend-build:
     - node node_modules/vitest/vitest.mjs run --config vitest.settings.config.mjs
     - node node_modules/vitest/vitest.mjs run --config vitest.shell.config.mjs
     - node node_modules/vitest/vitest.mjs run --config vitest.hardware.config.mjs
+    - node node_modules/vitest/vitest.mjs run --config vitest.overview.config.mjs
+    - node node_modules/vitest/vitest.mjs run --config vitest.time-range.config.mjs
     - npm run test:monitor-loading
+    - CHROME_PATH="$CHROME_BIN" OVERVIEW_EVIDENCE_DIR="$CI_PROJECT_DIR/frontend/node_modules/.cache/overview" node tests/overview-browser.mjs
+    - CHROME_PATH="$CHROME_BIN" TIME_RANGE_OUTPUT="$CI_PROJECT_DIR/frontend/node_modules/.cache/time-range" node tests/timeRange-browser.mjs
     - HARDWARE_TEST_OUTPUT="$CI_PROJECT_DIR/frontend/node_modules/.cache/hardware" CHROME_PATH="$CHROME_BIN" node src/modules/servers/hardware.visual.test.mjs
     - npm run build
 

@@ -26,7 +26,7 @@ const report = { mode: baseline ? 'baseline' : 'candidate', fixture: true, sourc
 try {
   await server.listen();
   const port = server.httpServer.address().port, origin = `http://127.0.0.1:${port}`;
-  browser = await chromium.launch({ executablePath: '/usr/sbin/google-chrome-stable', headless: true, args: ['--no-sandbox'] });
+  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/sbin/google-chrome-stable', headless: true, args: ['--no-sandbox'] });
   for (const [timezoneId, initialTab] of [['America/Los_Angeles', 'overview'], ['America/Los_Angeles', 'network'], ...(!baseline ? [['Asia/Tokyo', 'overview']] : [])]) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1050 }, timezoneId });
     const page = await context.newPage();

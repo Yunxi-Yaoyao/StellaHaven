@@ -26,7 +26,7 @@ createApp({render:()=>h('main',{style:{display:shown.value?'block':'none',height
 const server=await createServer({root,configFile:false,cacheDir:root+'node_modules/.tmp/overview-browser-vite',plugins:[vue(),{name:'overview-fixture',resolveId(id){if(id==='/overview-fixture-entry')return '\0overview-entry';},load(id){if(id==='\0overview-entry')return entry;},configureServer(s){s.middlewares.use((req,res,next)=>{if(req.url==='/overview-fixture'){res.setHeader('Content-Type','text/html');res.end('<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module" src="/overview-fixture-entry"></script></body></html>');}else next();});}}],server:{host:'127.0.0.1',port:0,proxy:{}}});
 await server.listen();
 const origin=`http://127.0.0.1:${server.httpServer.address().port}`;
-const browser=await chromium.launch({executablePath:'/usr/sbin/google-chrome-stable',headless:true,args:['--no-sandbox']});
+const browser=await chromium.launch({executablePath:process.env.CHROME_PATH || '/usr/sbin/google-chrome-stable',headless:true,args:['--no-sandbox']});
 const report={commit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),dirty:execFileSync('git',['status','--short'],{cwd:root,encoding:'utf8'}).trim(),sourceHashes:before,fixture:'Actual ServersHome/Overview/Dropdown/ServerWorldMap, chartRuntime and styles. GET-only fixture APIs; no production API or auth writes.',runs:[]};
 try{
  for(const width of [1280,390]){
