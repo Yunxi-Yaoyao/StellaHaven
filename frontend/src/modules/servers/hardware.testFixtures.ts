@@ -1,4 +1,4 @@
-// Isolated UI fixtures only; never query a live backend for these tests.
+// Synthetic isolated UI edge-case fixtures, not real captures; never query a live backend.
 export const hardware = {
   sampled_at: '2026-10-10T07:59:00Z',
   machine: { kind: 'physical' as const, vendor: 'Custom', model: 'Desktop', virtualization: null,

@@ -1,0 +1,434 @@
+{
+  "id": 55,
+  "name": "NAS",
+  "platform": "fnos",
+  "host": "10.66.0.3",
+  "arch": "x86_64",
+  "agent_version": "0.6.11",
+  "last_seen_at": "2026-10-10T12:22:49.910502Z",
+  "status": "online",
+  "interfaces": {
+    "lo": {
+      "ip": "127.0.0.1",
+      "up": true,
+      "docker": false,
+      "is_default": false,
+      "is_physical": false
+    },
+    "wg0": {
+      "ip": "10.66.0.3",
+      "up": true,
+      "docker": false,
+      "is_default": false,
+      "is_physical": false
+    },
+    "enp2s0": {
+      "ip": null,
+      "up": false,
+      "docker": false,
+      "is_default": false,
+      "is_physical": true
+    },
+    "enp3s0": {
+      "ip": "192.168.1.6",
+      "up": true,
+      "docker": false,
+      "is_default": true,
+      "is_physical": true
+    },
+    "docker0": {
+      "ip": "172.17.0.1",
+      "up": false,
+      "docker": true,
+      "is_default": false,
+      "is_physical": false
+    },
+    "flannel.1": {
+      "ip": "10.42.2.0",
+      "up": true,
+      "docker": false,
+      "is_default": false,
+      "is_physical": false
+    },
+    "veth567bc36": {
+      "ip": null,
+      "up": true,
+      "docker": true,
+      "is_default": false,
+      "is_physical": false
+    },
+    "veth5d040c5": {
+      "ip": null,
+      "up": true,
+      "docker": true,
+      "is_default": false,
+      "is_physical": false
+    },
+    "vetha25854f": {
+      "ip": null,
+      "up": true,
+      "docker": true,
+      "is_default": false,
+      "is_physical": false
+    },
+    "br-6513174da5a3": {
+      "ip": "172.19.0.1",
+      "up": true,
+      "docker": true,
+      "is_default": false,
+      "is_physical": false
+    },
+    "br-6ba3a86cf969": {
+      "ip": "172.18.0.1",
+      "up": false,
+      "docker": true,
+      "is_default": false,
+      "is_physical": false
+    }
+  },
+  "monitored_ifaces": null,
+  "storage": [
+    {
+      "device": "/dev/sda",
+      "mount": "/dev/sda",
+      "kind": "physical",
+      "fstype": "",
+      "model": "SSD 410GB",
+      "bus": "sata",
+      "total": 405089427456,
+      "used": null,
+      "percent": null,
+      "volume_mounts": [
+        "/vol1"
+      ],
+      "pool_mounts": [
+        "/vol1"
+      ],
+      "usage_scope": "shared_pool",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "device": "/dev/sdb",
+      "mount": "/dev/sdb",
+      "kind": "physical",
+      "fstype": "",
+      "model": "Netac SSD 512GB",
+      "bus": "sata",
+      "total": 512110190592,
+      "used": null,
+      "percent": null,
+      "volume_mounts": [
+        "/boot/efi",
+        "/",
+        "/vol2"
+      ],
+      "pool_mounts": [
+        "/vol2"
+      ],
+      "usage_scope": "unmeasured",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "device": "/dev/sdc",
+      "mount": "/dev/sdc",
+      "kind": "physical",
+      "fstype": "",
+      "model": "Netac SSD 512GB",
+      "bus": "sata",
+      "total": 512110190592,
+      "used": null,
+      "percent": null,
+      "volume_mounts": [
+        "/vol3"
+      ],
+      "pool_mounts": [
+        "/vol3"
+      ],
+      "usage_scope": "unmeasured",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "device": "/dev/sdd",
+      "mount": "/dev/sdd",
+      "kind": "physical",
+      "fstype": "",
+      "model": "YS9086BB-1",
+      "bus": "sata",
+      "total": 2147483648,
+      "used": null,
+      "percent": null,
+      "volume_mounts": [],
+      "pool_mounts": [],
+      "usage_scope": "unmeasured",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "device": "/dev/sde",
+      "mount": "/dev/sde",
+      "kind": "physical",
+      "fstype": "",
+      "model": "SSD 410GB",
+      "bus": "sata",
+      "total": 405089427456,
+      "used": null,
+      "percent": null,
+      "volume_mounts": [
+        "/vol1"
+      ],
+      "pool_mounts": [
+        "/vol1"
+      ],
+      "usage_scope": "shared_pool",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "device": "/dev/sdf",
+      "mount": "/dev/sdf",
+      "kind": "physical",
+      "fstype": "",
+      "model": "SSD 410GB",
+      "bus": "sata",
+      "total": 405089427456,
+      "used": null,
+      "percent": null,
+      "volume_mounts": [
+        "/vol1"
+      ],
+      "pool_mounts": [
+        "/vol1"
+      ],
+      "usage_scope": "shared_pool",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "device": "/dev/sdg",
+      "mount": "/dev/sdg",
+      "kind": "physical",
+      "fstype": "",
+      "model": "SSD 410GB",
+      "bus": "sata",
+      "total": 405089427456,
+      "used": null,
+      "percent": null,
+      "volume_mounts": [
+        "/vol1"
+      ],
+      "pool_mounts": [
+        "/vol1"
+      ],
+      "usage_scope": "shared_pool",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "kind": "volume",
+      "mount": "/",
+      "device": "/",
+      "fstype": "ext4",
+      "total": 67218485248,
+      "used": 42385567744,
+      "percent": 66.5,
+      "usage_scope": "measured",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "kind": "volume",
+      "mount": "/boot/efi",
+      "device": "/boot/efi",
+      "fstype": "vfat",
+      "total": 97046528,
+      "used": 8402944,
+      "percent": 8.7,
+      "usage_scope": "measured",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "kind": "volume",
+      "mount": "/vol1",
+      "device": "/dev/mapper/trim_a37e7c48_5abf_4812_83c8_33227e0ce9a4-0",
+      "fstype": "btrfs",
+      "total": 1214854987776,
+      "used": 20166037504,
+      "percent": 1.7,
+      "usage_scope": "measured",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "kind": "volume",
+      "mount": "/vol2",
+      "device": "/dev/mapper/trim_8ea6aaa9_85aa_44c5_aa88_7977ab1a0ae8-0",
+      "fstype": "btrfs",
+      "total": 443254046720,
+      "used": 19772624896,
+      "percent": 4.5,
+      "usage_scope": "measured",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    {
+      "kind": "volume",
+      "mount": "/vol3",
+      "device": "/dev/mapper/trim_2641cf14_aff7_4544_90df_9ad77d71215f-0",
+      "fstype": "btrfs",
+      "total": 511969329152,
+      "used": 16402440192,
+      "percent": 3.2,
+      "usage_scope": "measured",
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    }
+  ],
+  "components": {
+    "mtr": {
+      "version": "",
+      "installed": false
+    },
+    "docker": {
+      "running": true,
+      "version": "28.5.2",
+      "installed": true
+    },
+    "iperf3": {
+      "version": "3.12",
+      "installed": true
+    },
+    "firewall": {
+      "ufw": {
+        "active": false,
+        "version": "",
+        "installed": false
+      },
+      "iptables": {
+        "installed": true
+      }
+    },
+    "speedtest": {
+      "version": "",
+      "installed": false
+    }
+  },
+  "net_type": "internal",
+  "public_ip": "112.51.40.148",
+  "public_ip_source": "auto",
+  "ip_version": "IPv4",
+  "region": "广州市",
+  "uninstall_status": null,
+  "uninstall_error": null,
+  "installed": true,
+  "os_name": "Debian GNU/Linux 12 (bookworm)",
+  "sys_info": {
+    "load1": 0.69,
+    "load5": 0.69,
+    "kernel": "6.18.18-trim",
+    "load15": 0.71,
+    "hardware": {
+      "cpu": {
+        "model": "Intel(R) Celeron(R) J4125 CPU @ 2.00GHz",
+        "sampled_at": "2026-10-10T12:22:32.108508+00:00",
+        "frequency_mhz": 2595.855,
+        "logical_cores": 4,
+        "temperature_c": 45.0,
+        "physical_cores": 4,
+        "frequency_source": "psutil.cpu_freq",
+        "max_frequency_mhz": 2700.0,
+        "base_frequency_mhz": null,
+        "temperature_source": "psutil:coretemp",
+        "base_frequency_source": null
+      },
+      "gpus": [
+        {
+          "id": "0000:00:02.0",
+          "name": "Intel UHD Graphics 600",
+          "kind": "integrated",
+          "vendor": "Intel",
+          "telemetry_status": "unsupported",
+          "source": "PCI inventory",
+          "temperature_c": null,
+          "graphics_clock_mhz": null,
+          "memory_clock_mhz": null,
+          "utilization_pct": null,
+          "memory_used_mib": null,
+          "memory_total_mib": null,
+          "power_w": null,
+          "fan_pct": null
+        }
+      ],
+      "machine": {
+        "kind": "unknown",
+        "model": null,
+        "vendor": null,
+        "evidence": [
+          "insufficient machine evidence"
+        ],
+        "detected_at": "2026-10-10T12:18:44.531363+00:00",
+        "virtualization": null
+      },
+      "sensors": [
+        {
+          "kind": "temperature",
+          "name": "acpitz",
+          "unit": "°C",
+          "value": 44.0,
+          "source": "psutil:acpitz"
+        },
+        {
+          "kind": "temperature",
+          "name": "Package id 0",
+          "unit": "°C",
+          "value": 45.0,
+          "source": "psutil:coretemp"
+        },
+        {
+          "kind": "temperature",
+          "name": "Core 0",
+          "unit": "°C",
+          "value": 45.0,
+          "source": "psutil:coretemp"
+        },
+        {
+          "kind": "temperature",
+          "name": "Core 1",
+          "unit": "°C",
+          "value": 45.0,
+          "source": "psutil:coretemp"
+        },
+        {
+          "kind": "temperature",
+          "name": "Core 2",
+          "unit": "°C",
+          "value": 45.0,
+          "source": "psutil:coretemp"
+        },
+        {
+          "kind": "temperature",
+          "name": "Core 3",
+          "unit": "°C",
+          "value": 45.0,
+          "source": "psutil:coretemp"
+        }
+      ],
+      "sampled_at": "2026-10-10T12:22:32.108508+00:00",
+      "availability": {
+        "gpu": "inventory_only",
+        "cpu_temperature": "available"
+      },
+      "physical_inventory": null,
+      "sensors_sampled_at": "2026-10-10T12:22:32.108508+00:00"
+    },
+    "boot_time": 1789877596.0,
+    "cpu_cores": 4,
+    "cpu_model": "Intel(R) Celeron(R) J4125 CPU @ 2.00GHz"
+  },
+  "created_at": "2026-09-16T07:49:44.534131Z",
+  "latest_metrics": [
+    {
+      "iface": "enp3s0",
+      "ts": "2026-10-10T12:22:48.405028Z",
+      "rx_delta": 160128,
+      "tx_delta": 196390
+    }
+  ],
+  "latest_sys_metric": {
+    "ts": "2026-10-10T12:22:32.078066Z",
+    "cpu_pct": 15.1,
+    "mem_pct": 37.8,
+    "disk_pct": 66.5
+  }
+}

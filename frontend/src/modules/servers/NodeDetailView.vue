@@ -8,6 +8,7 @@ import { useRouter, useRoute } from "vue-router";
 import * as echarts from "./chartRuntime";
 import Icon from "../../shell/Icon.vue";
 import HardwareInfoPanel from "./HardwareInfoPanel.vue";
+import StoragePanel from "./StoragePanel.vue";
 import {
   machineTypeLabel, machineTypeTitle, getNodeDetail, getNodeMetrics, getNodeSysMetrics, getTrafficStats, updateNodeIfaces, updateNetType, changeIp,
   listMonitors, getMonitorSeries, createCommand, scanFirewall, getNetTask,
@@ -636,16 +637,6 @@ async function fetchChartGroup(full: boolean, signal: AbortSignal) {
 
 const COLORS = ["#ff9ec7", "#7be39a", "#7bd0e3", "#f0c060", "#bf7aff", "#ff8f8f"];
 
-// ── 存储视图 ──
-function fmtSize(bytes: number): string {
-  if (bytes >= 1e12) return (bytes / 1e12).toFixed(2) + " TB";
-  if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + " GB";
-  if (bytes >= 1e6) return (bytes / 1e6).toFixed(0) + " MB";
-  return (bytes / 1e3).toFixed(0) + " KB";
-}
-const physicalDisks = computed(() => (detail.value?.storage || []).filter((s) => s.kind === "physical"));
-const virtualDisks = computed(() => (detail.value?.storage || []).filter((s) => s.kind !== "physical"));
-
 // ── 基本信息面板（OS/内核/CPU/负载/运行时间，来自 agent os_info）──
 const si = computed(() => detail.value?.sys_info || null);
 // 30s 心跳 tick：让 uptime 文本自己走（detail 5s 刷新时 sys_info 不变的话 computed 不重算）
@@ -670,8 +661,6 @@ const uptimeText = computed(() => {
   if (h > 0) return `${h} 小时 ${m} 分钟`;
   return `${m} 分钟`;
 });
-const RING_R = 42;
-const RING_CIRC = 2 * Math.PI * RING_R;
 
 let trafficRenderSeq = 0;  // 请求序号：丢弃乱序返回的旧渲染
 
@@ -1057,14 +1046,8 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
       <header class="d-head">
       <button class="back" @click="goBack"><Icon name="chevron-left" :size="16" /> 返回</button>
       <span class="name">{{ detail?.name || "…" }}</span>
-      <span v-if="detail" class="badge" :class="detail.status">{{ statusLabel[detail.status] }}</span>
       <span v-if="detail" class="machine-badge" :title="machineTypeTitle(detail.sys_info?.hardware?.machine)">{{ machineTypeLabel(detail.sys_info?.hardware?.machine) }}</span>
-      <span class="meta">
-        <span v-if="detail?.platform">{{ detail.platform }}</span>
-        <span v-if="detail?.arch">{{ detail.arch }}</span>
-        <span v-if="detail?.agent_version">agent v{{ detail.agent_version }}</span>
-        <span v-if="detail?.last_seen_at">心跳 {{ new Date(detail.last_seen_at).toLocaleString("zh-CN") }}</span>
-      </span>
+      <span v-if="detail" class="badge" :class="detail.status">{{ statusLabel[detail.status] }}</span>
       <!-- 操作下拉：对本节点发起工具（跳转预填，无刷新） -->
       <div class="ops" @click.stop>
         <button class="ops-btn" @click="opsOpen = !opsOpen">
@@ -1097,75 +1080,18 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
     <!-- Tab 1 概览：基本信息 + 存储 + 流量 + 系统指标 -->
     <div v-if="detail" v-show="activeTab === 'overview'" class="tab-body">
 
-    <!-- 基本信息 + 存储 并排双栏 -->
-    <div class="duo-grid">
-    <!-- 基本信息面板 -->
-    <section class="panel">
-      <div class="panel-head"><span class="ph-title">基本信息</span></div>
-      <div v-if="!detail?.sys_info && !detail?.os_name" class="empty">等待 agent 上报系统信息…</div>
-      <div v-else class="info-grid">
-        <div class="info-row"><span class="ik">系统</span><span class="iv">{{ detail!.os_name || detail!.platform }}</span></div>
-        <div class="info-row" v-if="si?.kernel"><span class="ik">内核</span><span class="iv mono">{{ si.kernel }}</span></div>
-        <div class="info-row" v-if="si?.cpu_model"><span class="ik">CPU</span><span class="iv">{{ si.cpu_model }}<template v-if="si.cpu_cores"> · {{ si.cpu_cores }} 核</template></span></div>
-        <div class="info-row" v-if="si?.load1 != null"><span class="ik">负载</span><span class="iv mono">{{ si.load1 }} / {{ si.load5 }} / {{ si.load15 }}</span></div>
-        <div class="info-row" v-if="uptimeText"><span class="ik">运行</span><span class="iv">{{ uptimeText }}</span></div>
-        <div class="info-row" v-if="detail!.arch"><span class="ik">架构</span><span class="iv">{{ detail!.arch }}</span></div>
-        <div class="info-row" v-if="detail!.agent_version"><span class="ik">agent</span><span class="iv">v{{ detail!.agent_version }}</span></div>
+    <section class="system-strip" aria-label="系统运行信息">
+      <div class="system-main">
+        <span v-if="detail.os_name || detail.platform" class="system-os">{{ detail.os_name || detail.platform }}</span>
+        <span v-if="uptimeText"><span class="strip-label">运行</span> {{ uptimeText }}</span>
+        <span v-if="si?.load1 != null"><span class="strip-label">负载</span> {{ [si.load1, si.load5, si.load15].filter(v => v != null).join(' / ') }}</span>
+        <span v-if="si?.kernel" class="system-kernel">内核 {{ si.kernel }}</span>
       </div>
+      <div class="system-meta"><span v-if="detail.arch">{{ detail.arch }}</span><span v-if="detail.agent_version">Agent v{{ detail.agent_version }}</span></div>
+      <span v-if="si?.cpu_model && !si.hardware?.cpu.model" class="legacy-cpu">{{ si.cpu_model }}<template v-if="si.cpu_cores != null"> · {{ si.cpu_cores }} 线程</template></span>
     </section>
-
-    <!-- 存储面板 -->
-    <section class="panel">
-      <div class="panel-head"><span class="ph-title">存储</span></div>
-      <div v-if="!detail?.storage?.length" class="empty">该节点暂无存储数据</div>
-      <template v-else>
-        <div v-if="physicalDisks.length" class="disk-group">
-          <div class="disk-group-title">物理磁盘</div>
-          <div class="disk-row">
-            <div v-for="s in physicalDisks" :key="s.mount" class="disk-item">
-              <div class="disk-ring">
-                <svg viewBox="0 0 100 100" class="ring-svg">
-                  <circle cx="50" cy="50" :r="RING_R" class="ring-bg" />
-                  <circle cx="50" cy="50" :r="RING_R" class="ring-fg" :class="[s.kind, { warn: s.percent > 80 }]"
-                          :stroke-dasharray="`${RING_CIRC * s.percent / 100} ${RING_CIRC}`"
-                          transform="rotate(-90 50 50)" />
-                </svg>
-                <div class="ring-pct">{{ Math.round(s.percent) }}%</div>
-              </div>
-              <div class="disk-meta">
-                <div class="disk-mount">{{ s.mount }}</div>
-                <div class="disk-size">{{ fmtSize(s.used) }} / {{ fmtSize(s.total) }}</div>
-                <div v-if="s.fstype" class="disk-fs">{{ s.fstype }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-if="virtualDisks.length" class="disk-group">
-          <div class="disk-group-title">网络 / 虚拟磁盘</div>
-          <div class="disk-row">
-            <div v-for="s in virtualDisks" :key="s.mount" class="disk-item">
-              <div class="disk-ring">
-                <svg viewBox="0 0 100 100" class="ring-svg">
-                  <circle cx="50" cy="50" :r="RING_R" class="ring-bg" />
-                  <circle cx="50" cy="50" :r="RING_R" class="ring-fg" :class="[s.kind, { warn: s.percent > 80 }]"
-                          :stroke-dasharray="`${RING_CIRC * s.percent / 100} ${RING_CIRC}`"
-                          transform="rotate(-90 50 50)" />
-                </svg>
-                <div class="ring-pct">{{ Math.round(s.percent) }}%</div>
-              </div>
-              <div class="disk-meta">
-                <div class="disk-mount">{{ s.mount }}</div>
-                <div class="disk-size">{{ fmtSize(s.used) }} / {{ fmtSize(s.total) }}</div>
-                <div v-if="s.fstype" class="disk-fs">{{ s.fstype }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </template>
-    </section>
-    </div><!-- /duo-grid -->
-
-    <HardwareInfoPanel :hardware="si?.hardware" :status="detail.status" :now="hardwareNow" :refresh-failed="detailError" />
+    <HardwareInfoPanel :hardware="si?.hardware" :status="detail.status" :now="hardwareNow" :refresh-failed="detailError" :latest-sys-metric="detail.latest_sys_metric" />
+    <StoragePanel :storage="detail.storage" :inventory="si?.hardware?.machine?.kind === 'physical' ? si.hardware.physical_inventory : null" :now="hardwareNow" />
 
     <!-- 共享时间工具条：流量 + 系统指标 共用一组时间控件 -->
     <div class="chart-toolbar">
@@ -1620,6 +1546,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
   gap: 14px;
 }
 .d-head { display: flex; align-items: center; gap: 12px; }
+.d-head .ops { margin-left: auto; }
 .sampling-hint { color: var(--text-faint); font-size: 12px; }
 /* 共享时间工具条 */
 .chart-toolbar { display: flex; align-items: center; gap: 10px; margin: 0 0 12px 2px; flex-wrap: wrap; }
@@ -1690,35 +1617,13 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 .ph-title { font-size: 13px; font-weight: 600; color: var(--text-hi); }
 .chart { height: 250px; }
 
-/* ── 存储面板 ── */
-/* 基本信息 + 存储 并排双栏（窄屏自动单列） */
-.duo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-@media (max-width: 1100px) { .duo-grid { grid-template-columns: 1fr; } }
-.info-grid { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
-.info-row { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; }
-.ik { color: var(--text-faint); flex-shrink: 0; width: 34px; }
-.iv { color: var(--text-hi); word-break: break-all; }
-.iv.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.disk-group { margin-top: 6px; }
-.disk-group-title { font-size: 12px; color: var(--text-faint); margin-bottom: 8px; }
-.disk-row { display: flex; gap: 32px; flex-wrap: wrap; }
-.disk-item { display: flex; align-items: center; gap: 14px; }
-.disk-ring { position: relative; width: 96px; height: 96px; flex-shrink: 0; }
-.ring-svg { width: 100%; height: 100%; }
-.ring-bg { fill: none; stroke: rgba(255, 255, 255, 0.08); stroke-width: 8; }
-.ring-fg { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dasharray 0.6s ease; }
-.ring-fg.physical { stroke: #ff9ec7; }
-.ring-fg.network { stroke: #7bd0e3; }
-.ring-fg.virtual { stroke: #bf7aff; }
-.ring-fg.warn { stroke: #f0a060; }
-.ring-pct {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: 20px; font-weight: 600; color: var(--text-hi); font-variant-numeric: tabular-nums;
-}
-.disk-meta { display: flex; flex-direction: column; gap: 3px; }
-.disk-mount { font-size: 13px; color: var(--text-hi); font-family: var(--font-mono); }
-.disk-size { font-size: 12px; color: var(--text-lo); font-variant-numeric: tabular-nums; }
-.disk-fs { font-size: 11px; color: var(--text-faint); }
+/* Compact OS/runtime context, independent of hardware and disk heights. */
+.system-strip { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; padding: 14px 0 16px; border-bottom: 1px solid rgba(158,183,229,.08); }
+.system-main { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 12px; color: var(--text-lo); min-width: 0; }
+.system-os { color: var(--text-hi); }
+.strip-label, .system-kernel { color: var(--text-faint); }
+.system-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-left: auto; color: var(--text-faint); font-size: 10px; }
+.legacy-cpu { flex-basis: 100%; color: var(--text-lo); font-size: 12px; }
 
 /* ── 时间 / 网卡 / 单位 / 时区 控件 ── */
 .tl-label { font-size: 12px; color: var(--text-faint); }
@@ -1832,7 +1737,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 }
 .d-tab:hover { color: var(--text-hi); }
 .d-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
-.tab-body { padding-top: 12px; }
+.tab-body { padding-top: 0; flex-shrink: 0; }
 
 /* ── 网络标记 ── */
 .net-type-row { display: flex; align-items: center; gap: 10px; padding: 4px 0 10px; flex-wrap: wrap; }
@@ -1973,6 +1878,9 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
 
 /* 移动端：防火墙七列宽表转竖向卡片（行=块，单元格带标签竖排） */
 @media (max-width: 768px) {
+  .detail-body { padding: 16px 12px; }
+  .system-strip { gap: 10px; }
+  .system-meta { margin-left: 0; flex-basis: 100%; }
   .d-head { flex-wrap: wrap; gap: 8px; }
   .d-head .back, .d-head .badge, .d-head .ops { flex-shrink: 0; white-space: nowrap; }
   .d-head .name { min-width: 120px; flex: 1 1 120px; overflow-wrap: anywhere; }

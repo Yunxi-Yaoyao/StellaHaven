@@ -7,9 +7,15 @@ export interface StorageItem {
   mount: string;
   fstype: string;
   total: number;
-  used: number;
-  percent: number;
-  kind: "physical" | "network" | "virtual";
+  used: number | null;
+  percent: number | null;
+  kind: "physical" | "network" | "virtual" | "volume";
+  model?: string | null;
+  bus?: string | null;
+  volume_mounts?: string[];
+  pool_mounts?: string[];
+  usage_scope?: "measured" | "shared_pool" | "unmeasured";
+  sampled_at?: string | null;
 }
 
 // 硬件快照复用 sys_info 随详情轮询返回；旧 Agent 可不提供 hardware。
@@ -29,6 +35,9 @@ export interface HardwareCpu {
 export interface HardwareGpu {
   id: string;
   name: string;
+  vendor?: string | null;
+  kind?: "integrated" | "discrete" | "unknown";
+  telemetry_status?: "available" | "unsupported" | "driver_missing" | "query_failed";
   temperature_c: number | null;
   graphics_clock_mhz: number | null;
   memory_clock_mhz: number | null;
