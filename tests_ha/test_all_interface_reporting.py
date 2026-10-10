@@ -19,6 +19,9 @@ def test_collect_and_report_all_interfaces_regardless_of_display_selection(selec
     assert all(p['rx_delta']==10 and p['tx_delta']==20 for p in points)
     a.queue=deque();a.token='test-only';a.monitors_version=0
     a._check_components=lambda:{};a._os_info=lambda:{}
+    # This __new__ fixture isolates interface collection from background storage;
+    # the actual storage/report scheduler has its own executable regressions.
+    a._storage_info=lambda:None
     posted=[];a._post=lambda *args,**kw:posted.append(kw['json_body']) or {}
     a.report(points,[])
     assert posted[0]['metrics']==points
