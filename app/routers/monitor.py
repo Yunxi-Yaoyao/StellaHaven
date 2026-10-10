@@ -359,7 +359,7 @@ def agent_version():
     available = m.group(1) if m else "0.0.0"
     import os
     rollout = os.getenv('STELLA_AGENT_ROLLOUT_VERSION', available)
-    if rollout not in {'0.6.9', '0.6.10', available}:
+    if rollout not in {'0.6.9', '0.6.10', '0.6.11', available}:
         raise HTTPException(503, 'Agent 滚动版本配置无效')
     if rollout == available:
         import hashlib

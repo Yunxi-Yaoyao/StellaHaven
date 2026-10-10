@@ -97,9 +97,13 @@ def test_agent_rollout_can_hold_version_until_helpers_are_seeded(auth_env, monke
     assert c.get('/agent/version').json()['version'] == '0.6.9'
     monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.10')
     assert c.get('/agent/version').json() == {'version': '0.6.10'}
+    monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.11')
+    assert c.get('/agent/version').json() == {'version': '0.6.11'}
+    monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.13')
+    assert c.get('/agent/version').status_code == 503
     monkeypatch.delenv('STELLA_AGENT_ROLLOUT_VERSION')
     announced = c.get('/agent/version').json()
-    assert announced['version'] == '0.6.11'
+    assert announced['version'] == '0.6.12'
     assert len(announced['sha256']) == 64 and announced['size'] > 0
 
 

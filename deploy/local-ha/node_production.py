@@ -146,7 +146,7 @@ def validate_application_env_overrides(overrides):
     require(re.fullmatch('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', owner)
             and uuid.UUID(owner).int != 0, 'application owner must be an exact nonzero UUID')
     require(overrides['STELLA_COOKIE_SECURE'] == 'true', 'application secure cookies required')
-    require(overrides['STELLA_AGENT_ROLLOUT_VERSION'] in {'0.6.9', '0.6.10', '0.6.11'},
+    require(overrides['STELLA_AGENT_ROLLOUT_VERSION'] in {'0.6.9', '0.6.10', '0.6.11', '0.6.12'},
             'application agent rollout version rejected')
     require(overrides['STELLA_BACKUP_RECEIPT_DIR'] == '/app/data/backup-receipts',
             'application receipts must use the existing read-only model bundle')

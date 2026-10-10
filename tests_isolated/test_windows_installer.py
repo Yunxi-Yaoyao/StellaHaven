@@ -53,15 +53,22 @@ class WindowsInstallerRoutesTests(unittest.TestCase):
         self.assertEqual(response.json(), {'version': version, 'sha256': hashlib.sha256(body).hexdigest(), 'size': len(body)})
 
     def test_unapproved_rollout_still_returns_503(self):
-        with patch.dict(os.environ, {'STELLA_AGENT_ROLLOUT_VERSION': 'unapproved-version'}):
-            response = public_client().get('/agent/version')
-        self.assertEqual(response.status_code, 503)
+        for version in ('unapproved-version', '0.6.13', '0.6.12 ', '0.6.012'):
+            with self.subTest(version=version), patch.dict(os.environ, {'STELLA_AGENT_ROLLOUT_VERSION': version}):
+                response = public_client().get('/agent/version')
+            self.assertEqual(response.status_code, 503)
 
     def test_parked_0610_returns_version_without_manifest(self):
         with patch.dict(os.environ, {'STELLA_AGENT_ROLLOUT_VERSION': '0.6.10'}):
             response = public_client().get('/agent/version')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'version': '0.6.10'})
+
+    def test_parked_0611_returns_version_without_manifest(self):
+        with patch.dict(os.environ, {'STELLA_AGENT_ROLLOUT_VERSION': '0.6.11'}):
+            response = public_client().get('/agent/version')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'version': '0.6.11'})
 
 
 if __name__ == '__main__':

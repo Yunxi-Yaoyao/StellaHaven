@@ -105,37 +105,41 @@ def release_simulation(p, fail_stable=False, old_current=False, target_agent_ver
 
 
 class UpgradeContractTests(unittest.TestCase):
-    def test_inventory_accepts_explicit_read_only_hardware_agent_0611(self):
+    def test_inventory_accepts_explicit_read_only_hardware_agent_0612(self):
         p = load('production_release')
         inv = inventory()
-        for cfg in inv['nodes'].values():
-            cfg['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] = '0.6.11'
-        self.assertEqual(p.validate_inventory(inv), inv)
-        load('node_production').Node(dict(node='nas', inventory=inv, op='release'))
+        for version in ('0.6.9', '0.6.10', '0.6.11', '0.6.12'):
+            with self.subTest(version=version):
+                for cfg in inv['nodes'].values():
+                    cfg['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] = version
+                self.assertEqual(p.validate_inventory(inv), inv)
+                self.assertEqual(p.validate_release_approval(inv, version), inv)
+                load('node_production').Node(dict(node='nas', inventory=inv, op='release'))
 
-    def test_hardware_rollout_requires_exact_explicit_0611_two_node_approval(self):
+    def test_hardware_rollout_requires_exact_explicit_0612_two_node_approval(self):
         p = load('production_release')
         inv = inventory()
         for cfg in inv['nodes'].values():
-            cfg['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] = '0.6.11'
-        self.assertEqual(p.validate_release_approval(inv, '0.6.11'), inv)
-        for version in (None, '0.6.9', '0.6.10', '0.6.12', '0.6.11 ', '0.6.011', 'latest'):
+            cfg['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] = '0.6.12'
+        self.assertEqual(p.validate_release_approval(inv, '0.6.12'), inv)
+        for version in (None, '0.6.9', '0.6.10', '0.6.11', '0.6.13', '0.6.12 ', '0.6.012', 'latest'):
             with self.subTest(version=version), self.assertRaisesRegex(ValueError, 'agent rollout'):
                 if version is None:
                     p.validate_release_approval(inv)
                 else:
                     p.validate_release_approval(inv, version)
-        inv['nodes']['nas']['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] = '0.6.10'
+        inv['nodes']['nas']['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] = '0.6.11'
         with self.assertRaisesRegex(ValueError, 'agent rollout'):
-            p.validate_release_approval(inv, '0.6.11')
+            p.validate_release_approval(inv, '0.6.12')
 
-    def test_hardware_upgrade_0610_to_0611_same_image_redeploys_or_restores_exact_old(self):
+    def test_hardware_upgrade_0611_to_0612_same_image_redeploys_or_restores_exact_old(self):
         p = load('node_production')
-        for fail in (False, True):
-            with self.subTest(fail=fail):
-                n = release_simulation(p, fail_stable=fail, old_current=True, target_agent_version='0.6.11')
+        for fail, previous, target in ((f, old, new) for f in (False, True)
+                                      for old, new in (('0.6.10', '0.6.11'), ('0.6.11', '0.6.12'))):
+            with self.subTest(fail=fail, previous=previous, target=target):
+                n = release_simulation(p, fail_stable=fail, old_current=True, target_agent_version=target)
                 old = n.inspect(n.name)
-                old['Config']['Env'] = ['STELLA_AGENT_ROLLOUT_VERSION=0.6.10' if row.startswith('STELLA_AGENT_ROLLOUT_VERSION=')
+                old['Config']['Env'] = ['STELLA_AGENT_ROLLOUT_VERSION=' + previous if row.startswith('STELLA_AGENT_ROLLOUT_VERSION=')
                                         else row for row in old['Config']['Env']]
                 original = copy.deepcopy(old)
                 with patch.object(p, 'port_free'), patch.object(p, 'validate_receipt_bundle'), patch.object(p, 'run', side_effect=n.command), \
@@ -149,8 +153,8 @@ class UpgradeContractTests(unittest.TestCase):
                     else:
                         target_env = dict(row.split('=', 1) for row in restored['Config']['Env'])
                         old_env = dict(row.split('=', 1) for row in original['Config']['Env'])
-                        self.assertEqual(target_env['STELLA_AGENT_ROLLOUT_VERSION'], '0.6.11')
-                        old_env['STELLA_AGENT_ROLLOUT_VERSION'] = '0.6.11'
+                        self.assertEqual(target_env['STELLA_AGENT_ROLLOUT_VERSION'], target)
+                        old_env['STELLA_AGENT_ROLLOUT_VERSION'] = target
                         self.assertEqual(target_env, old_env)
                         self.assertEqual(n.release()['status'], 'unchanged')
 
@@ -175,7 +179,7 @@ class UpgradeContractTests(unittest.TestCase):
             'STELLA_MAIN_ORIGIN': ['https://evil.example', 'https://stella.xiya.live/', 'http://stella.xiya.live'],
             'STELLA_OWNER_ID': ['not-a-uuid', '00000000-0000-0000-0000-000000000000', ' 11111111-1111-4111-8111-111111111111'],
             'STELLA_COOKIE_SECURE': ['false', 'True', True],
-            'STELLA_AGENT_ROLLOUT_VERSION': ['0.6.8', '0.6.12', '0.6.11 ', '0.6.011', 'latest'],
+            'STELLA_AGENT_ROLLOUT_VERSION': ['0.6.8', '0.6.13', '0.6.11 ', '0.6.12 ', '0.6.011', '0.6.012', 'latest'],
             'STELLA_BACKUP_RECEIPT_DIR': ['/root/.credentials/stella-upgrade', '/data/backup-receipts', '/app/data/../secrets'],
         }
         for key, values in invalid.items():
