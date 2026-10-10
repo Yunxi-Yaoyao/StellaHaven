@@ -45,7 +45,8 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.11"
+AGENT_VERSION = "0.6.12"
+STORAGE_INTERVAL = 60
 HARDWARE_INTERVAL = 30    # Cached background hardware collection, never heartbeat IO
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
@@ -538,6 +539,9 @@ class Agent:
         self._hardware_cache = None
         self._hardware_cached_at = 0
         self._hardware_next_sample = 0
+        self._storage_scheduler = _BackgroundScheduler(max_workers=1)
+        self._storage_cache = None
+        self._storage_next_sample = 0
         self._check_deps()
 
     def collect_map_snapshot(self):
@@ -915,7 +919,8 @@ class Agent:
             static.setdefault("cpu_model", None)
             static["kernel"] = platform.release() or None
             static["arch"] = platform.machine() or None
-            static["cpu_cores"] = (psutil.cpu_count(logical=True) if psutil else os.cpu_count()) or None
+            static["cpu_cores"] = (psutil.cpu_count(logical=False) if psutil else None) or None
+            static["cpu_logical_cores"] = (psutil.cpu_count(logical=True) if psutil else os.cpu_count()) or None
             self._os_static_cache = static
         info = dict(self._os_static_cache)
         # 动态：负载（仅 Linux 有 getloadavg）+ 开机时间（前端算 uptime）
@@ -928,6 +933,9 @@ class Agent:
         info["hardware"] = self._hardware_info()
         if info["hardware"]["cpu"].get("model"):
             info["cpu_model"] = info["hardware"]["cpu"]["model"]
+        for key, field in (("cpu_cores", "physical_cores"), ("cpu_logical_cores", "logical_cores")):
+            if info["hardware"]["cpu"].get(field) is not None:
+                info[key] = info["hardware"]["cpu"][field]
         return info
 
     def _machine_static_info(self) -> dict:
@@ -1041,8 +1049,9 @@ class Agent:
                   '$memory=@(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue | '
                   'Select-Object DeviceLocator,Capacity,Speed,ConfiguredClockSpeed,Manufacturer,PartNumber); '
                   '$disks=@(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue | Select-Object Index,Model,Size,InterfaceType); }; '
+                  + self._windows_gpu_query() +
                   '@{computer_system=$cs; processors=$cpu; board=$board; bios=$bios; memory=$memory; '
-                  'disks=$disks; container=$container} | ConvertTo-Json -Depth 5 -Compress')
+                  'disks=$disks; container=$container; gpus=$r} | ConvertTo-Json -Depth 5 -Compress')
         encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
         powershell = shutil.which('powershell') or 'powershell.exe'
         data = json.loads(_map_command([powershell, '-NoProfile', '-NonInteractive',
@@ -1082,7 +1091,142 @@ class Agent:
                             'size_bytes': _hardware_positive_int(d.get('Size')),
                             'bus': _hardware_text(d.get('InterfaceType')), 'rotational': None}
                             for d in rows('disks')] or None}
-        return {'machine': machine, 'physical_inventory': physical, 'processors': rows('processors')}
+        return {'machine': machine, 'physical_inventory': physical, 'processors': rows('processors'),
+                'gpus': self._windows_gpu_inventory(data['gpus']) if isinstance(data.get('gpus'), list) else None}
+
+    @staticmethod
+    def _gpu_row(identity, name, vendor, kind, source, status, pci_bus=None):
+        return {'id': identity, 'name': name, 'vendor': vendor, 'kind': kind,
+                'source': source, 'telemetry_status': status, 'pci_bus': pci_bus,
+                **{key: None for key in ('temperature_c', 'graphics_clock_mhz',
+                   'memory_clock_mhz', 'utilization_pct', 'memory_used_mib',
+                   'memory_total_mib', 'power_w', 'fan_pct')}}
+
+    def _gpu_static_info(self):
+        now = time.monotonic()
+        cached = getattr(self, '_gpu_inventory_cache', None)
+        if cached is not None and now < cached[0]:
+            return cached[1]
+        try:
+            system = platform.system()
+            rows = (self._linux_gpu_inventory() if system == 'Linux' else
+                    self._machine_static_info().get('gpus') if system == 'Windows' else None)
+        except Exception:
+            rows = None  # Failure/unsupported is unknown, not proof of no GPU.
+        self._gpu_inventory_cache = (now + 300, rows)
+        return rows
+
+    @staticmethod
+    def _gpu_kind(name, vendor_id, device_id):
+        if (vendor_id, device_id) in (('8086', '3185'), ('1002', '13c0')):
+            return 'integrated'
+        if re.search(r'GeForce (?:RTX|GTX)|Radeon (?:RX|PRO)', name, re.I):
+            return 'discrete'
+        if re.search(r'Intel.*(?:UHD|HD Graphics|Iris Xe)|AMD Radeon\(TM\) Graphics', name, re.I):
+            return 'integrated'
+        return 'unknown'
+
+    @staticmethod
+    def _windows_gpu_query():
+        return ("$r=$null; try { $r=@(Get-CimInstance Win32_VideoController | ForEach-Object { "
+                "$loc=$null; try { $loc=Get-PnpDeviceProperty -InstanceId $_.PNPDeviceID "
+                "-KeyName DEVPKEY_Device_LocationInfo -ErrorAction SilentlyContinue } catch {}; "
+                "[PSCustomObject]@{Name=$_.Name; PNPDeviceID=$_.PNPDeviceID; "
+                "ConfigManagerErrorCode=$_.ConfigManagerErrorCode; Location=$loc.Data} }); "
+                "} catch { $r=$null }; ")
+
+    def _windows_gpu_inventory(self, data=None):
+        if data is None:
+            script = ("$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; "
+                      "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); "
+                      + self._windows_gpu_query() + "ConvertTo-Json -InputObject $r -Depth 4 -Compress")
+            encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+            data = json.loads(_map_command([shutil.which('powershell') or 'powershell.exe',
+                             '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], timeout=3).lstrip('\ufeff'))
+        if not isinstance(data, list) or len(data) > 64:
+            raise ValueError('invalid display inventory')
+        rows, seen = [], set()
+        for item in data:
+            name, identity = _hardware_text(item.get('Name')), item.get('PNPDeviceID') or ''
+            match = re.match(r'PCI\\VEN_([0-9A-F]{4})&DEV_([0-9A-F]{4})', identity, re.I)
+            if not match or not name or re.search(r'todesk|zako|virtual display', name, re.I):
+                continue
+            # Only publish vendor/device and slot identity, never the PNP suffix.
+            ven, dev = (part.lower() for part in match.groups())
+            if identity in seen:
+                continue
+            seen.add(identity)
+            location = re.search(r'PCI bus (\d+), device (\d+), function (\d+)',
+                                 str(item.get('Location') or ''), re.I)
+            pci_bus = ('0000:%02x:%02x.%x' % tuple(map(int, location.groups()))) if location else None
+            public_id = ('pci:' + pci_bus if pci_bus else 'display:' + str(len(rows)) + ':' + ven + ':' + dev)
+            rows.append(self._gpu_row(public_id, name,
+                {'8086': 'Intel', '10de': 'NVIDIA', '1002': 'AMD'}.get(ven, 'Unknown'),
+                self._gpu_kind(name, ven, dev), 'Win32_VideoController',
+                'unsupported' if item.get('ConfigManagerErrorCode') == 0 else 'driver_missing', pci_bus))
+        return rows
+
+    def _linux_gpu_inventory(self, pci_root='/sys/bus/pci/devices'):
+        entries = sorted(os.listdir(pci_root))
+        if len(entries) > 512:
+            raise ValueError('PCI inventory limit')
+        rows = []
+        for bdf in entries:
+            path = os.path.join(pci_root, bdf)
+            display_class = _hardware_read(path + '/class')
+            if display_class is None:
+                raise ValueError('incomplete PCI enumeration')
+            if int(display_class, 16) >> 16 != 3:
+                continue
+            vendor_id = (_hardware_read(path + '/vendor') or '').strip().lower()
+            device_id = (_hardware_read(path + '/device') or '').strip().lower()
+            if not vendor_id or not device_id:
+                raise ValueError('incomplete display identity')
+            vendor = {'0x8086': 'Intel', '0x10de': 'NVIDIA', '0x1002': 'AMD'}.get(vendor_id, 'Unknown')
+            name, kind = vendor + ' ' + device_id, 'unknown'
+            if (vendor_id, device_id) == ('0x8086', '0x3185'):
+                name, kind = 'Intel UHD Graphics 600', 'integrated'
+            rows.append(self._gpu_row('pci:' + bdf, name, vendor, kind, 'PCI/sysfs',
+                        'unsupported' if os.path.islink(path + '/driver') else 'driver_missing', bdf))
+        lspci = shutil.which('lspci')
+        if rows and lspci:
+            try:
+                output = _map_command([lspci, '-Dnn'], timeout=3)
+                names = {}
+                for line in output.splitlines():
+                    match = re.match(r'^(\S+)\s+.+?:\s+(.+)$', line)
+                    if match:
+                        names[match[1]] = match[2]
+                for row in rows:
+                    if row['pci_bus'] in names:
+                        row['name'] = names[row['pci_bus']][:256]
+                        row['kind'] = self._gpu_kind(row['name'], '', '') if row['kind'] == 'unknown' else row['kind']
+            except Exception:
+                pass  # IDs remain useful inventory when names are unavailable.
+        return rows
+
+    def _linux_gpu_readings(self, rows, drm_root='/sys/class/drm'):
+        """Optional finite public DRM readings; never privilege escalation."""
+        try:
+            cards = [name for name in os.listdir(drm_root) if re.fullmatch(r'card[0-9]+', name)][:32]
+        except OSError:
+            return
+        for card in cards:
+            path = os.path.join(drm_root, card)
+            bdf = os.path.basename(os.path.realpath(path + '/device'))
+            gpu = next((row for row in rows if row.get('pci_bus') == bdf), None)
+            if gpu is None or gpu['vendor'] == 'NVIDIA' or gpu['telemetry_status'] == 'driver_missing':
+                continue
+            measurements = {}
+            for field, filename in (('graphics_clock_mhz', 'gt_cur_freq_mhz'),
+                                    ('utilization_pct', 'device/gpu_busy_percent')):
+                value = _hardware_number(_hardware_read(path + '/' + filename))
+                if value is not None and value >= 0 and (field != 'utilization_pct' or value <= 100):
+                    measurements[field] = value
+            if measurements:
+                gpu.update(measurements)
+                gpu.update(source='DRM/sysfs', telemetry_status='available',
+                           sampled_at=datetime.now(timezone.utc).isoformat())
 
     def _empty_hardware(self, reason) -> dict:
         """Complete null-valued contract for pending/failed collection."""
@@ -1098,7 +1242,8 @@ class Agent:
         hardware = {'sampled_at': None, 'sensors_sampled_at': None,
                     'machine': machine, 'physical_inventory': static['physical_inventory'] if static else None,
                     'cpu': cpu, 'gpus': [], 'sensors': [],
-                    'availability': {'cpu_temperature': reason, 'gpu': reason}}
+                    'availability': {'cpu_temperature': reason,
+                                     'gpu': 'collection_failed' if reason == 'collection_failed' else 'unknown'}}
         return hardware
 
     def _hardware_info(self) -> dict:
@@ -1163,7 +1308,12 @@ class Agent:
         hardware = self._empty_hardware('unavailable')
         collection_time = datetime.now(timezone.utc).isoformat()
         hardware['sampled_at'] = collection_time
-        hardware['availability']['gpu'] = 'nvidia_smi_missing'
+        inventory = self._gpu_static_info()
+        hardware['gpus'] = [dict(row) for row in inventory or []]
+        if platform.system() == 'Linux':
+            self._linux_gpu_readings(hardware['gpus'])
+        hardware['availability']['gpu'] = ('inventory_only' if inventory else
+                                          'no_gpu' if inventory == [] else 'unknown')
         static = self._machine_static_info()
         hardware['machine'] = static['machine']
         hardware['physical_inventory'] = static['physical_inventory']
@@ -1304,107 +1454,218 @@ class Agent:
                 import io
                 fields = ('uuid', 'name', 'temperature.gpu', 'clocks.current.graphics',
                           'clocks.current.memory', 'utilization.gpu', 'memory.used',
-                          'memory.total', 'power.draw', 'fan.speed')
+                          'memory.total', 'power.draw', 'fan.speed', 'pci.bus_id')
                 output = _map_command([nvidia, '--query-gpu=' + ','.join(fields),
                                        '--format=csv,noheader,nounits'], timeout=3)
                 keys = ('temperature_c', 'graphics_clock_mhz', 'memory_clock_mhz',
                         'utilization_pct', 'memory_used_mib', 'memory_total_mib', 'power_w', 'fan_pct')
+                telemetry, seen = [], set()
                 for row in csv.reader(io.StringIO(output), skipinitialspace=True):
                     if not row:
                         continue
-                    if len(row) != len(fields) or not row[0].strip() or not row[1].strip():
+                    if len(row) not in (10, 11) or not row[0].strip() or not row[1].strip():
                         raise ValueError('invalid gpu row')
-                    hardware['gpus'].append({'id': row[0].strip(), 'name': row[1].strip(),
-                                            'source': 'nvidia-smi',
-                                            **{key: _hardware_number(value) for key, value in zip(keys, row[2:])}})
-                hardware['availability']['gpu'] = 'available' if hardware['gpus'] else 'no_nvidia_gpu'
+                    identity = row[0].strip()
+                    if identity in seen:
+                        raise ValueError('duplicate GPU UUID')
+                    seen.add(identity)
+                    bdf = None
+                    if len(row) == 11:
+                        match = re.search(r'([0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7])$', row[-1], re.I)
+                        bdf = match[1].lower() if match else None
+                    item = self._gpu_row(identity, row[1].strip(), 'NVIDIA',
+                                         self._gpu_kind(row[1].strip(), '', ''), 'nvidia-smi', 'available', bdf)
+                    item.update({key: _hardware_number(value) for key, value in zip(keys, row[2:10])})
+                    item['sampled_at'] = collection_time
+                    telemetry.append(item)
+                if not telemetry:
+                    raise ValueError('empty NVIDIA telemetry')
+                # UUID identifies samples; PCI bus binds them to the physical inventory.
+                matched = set()
+                for item in telemetry:
+                    candidates = [i for i, gpu in enumerate(hardware['gpus'])
+                        if i not in matched and gpu['vendor'] == 'NVIDIA' and
+                        ((item['pci_bus'] and gpu.get('pci_bus') == item['pci_bus']) or
+                         (not gpu.get('pci_bus') and gpu['name'].casefold() == item['name'].casefold()))]
+                    if len(candidates) == 1:
+                        index = candidates[0]
+                        matched.add(index)
+                        kind = hardware['gpus'][index]['kind']
+                        hardware['gpus'][index].update(item)
+                        if kind != 'unknown':
+                            hardware['gpus'][index]['kind'] = kind
+                    elif not any(gpu['vendor'] == 'NVIDIA' for gpu in inventory or []):
+                        hardware['gpus'].append(item)
+                    # Ambiguous identity: do not copy telemetry or invent extra cards.
+                for gpu in hardware['gpus']:
+                    if gpu['vendor'] == 'NVIDIA' and gpu['telemetry_status'] == 'unsupported':
+                        gpu['telemetry_status'] = 'query_failed'
             except Exception:
-                hardware['gpus'] = []
-                hardware['availability']['gpu'] = 'nvidia_smi_failed'
+                for gpu in hardware['gpus']:
+                    if gpu['vendor'] == 'NVIDIA' and gpu['telemetry_status'] != 'driver_missing':
+                        gpu['telemetry_status'] = 'query_failed'
+        if any(gpu['telemetry_status'] == 'available' for gpu in hardware['gpus']):
+            hardware['availability']['gpu'] = 'available'
+        elif hardware['gpus']:
+            hardware['availability']['gpu'] = 'inventory_only'
         return hardware
 
+    def _storage_info(self):
+        """Return last successful snapshot immediately; None never erases storage."""
+        now = time.monotonic()
+        if now >= self._storage_next_sample:
+            self._storage_next_sample = now + STORAGE_INTERVAL
+            def refresh():
+                try:
+                    sample = self.list_storage()
+                    if isinstance(sample, list):
+                        self._storage_cache = sample
+                except Exception:
+                    pass  # Retain source timestamps, including after a failed refresh.
+            try:
+                self._storage_scheduler.submit('storage', refresh)
+            except Exception:
+                pass
+        return self._storage_cache
+
+    def _windows_storage(self) -> list:
+        """Public Storage cmdlets: physical capacity and unique filesystem usage."""
+        script = ("$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; "
+                  "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); "
+                  "$d=@(Get-Disk | Select-Object Number,FriendlyName,Size,@{n='BusType';e={[string]$_.BusType}}); "
+                  "$p=@(Get-Partition | ForEach-Object { "
+                  "$v=$_ | Get-Volume -ErrorAction SilentlyContinue; "
+                  "[PSCustomObject]@{DiskNumber=$_.DiskNumber; VolumeId=$v.Path; AccessPaths=@($_.AccessPaths)} }); "
+                  "$v=@(Get-Volume | Select-Object Path,DriveLetter,FileSystem,Size,SizeRemaining); "
+                  "@{disks=$d; partitions=$p; volumes=$v} | ConvertTo-Json -Depth 6 -Compress")
+        encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+        data = json.loads(_map_command([shutil.which('powershell') or 'powershell.exe',
+                         '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], timeout=5).lstrip('\ufeff'))
+        if not isinstance(data, dict) or not all(isinstance(data.get(k), list)
+                                               for k in ('disks', 'partitions', 'volumes')):
+            raise ValueError('invalid storage inventory')
+        timestamp = datetime.now(timezone.utc).isoformat()
+        volumes, owners, mounts = {}, {}, {}
+        for part in data['partitions']:
+            identity = part.get('VolumeId')
+            if identity:
+                owners.setdefault(identity, set()).add(part.get('DiskNumber'))
+                mounts.setdefault(identity, set()).update(x for x in part.get('AccessPaths', [])
+                    if isinstance(x, str) and not x.startswith('\\\\?\\'))
+        for row in data['volumes']:
+            identity = row.get('Path')
+            total = _hardware_positive_int(row.get('Size'))
+            if not identity or not total or not row.get('FileSystem') or identity in volumes:
+                continue
+            letter = row.get('DriveLetter')
+            paths = sorted(mounts.get(identity, set()))
+            if not letter and not paths:
+                continue  # GUID-only EFI/recovery volumes are not mounted user filesystems.
+            mount = str(letter).rstrip(':') + ':/' if letter else (paths[0] if paths else identity)
+            free = _hardware_number(row.get('SizeRemaining'))
+            used = int(total - free) if free is not None and 0 <= free <= total else None
+            volumes[identity] = {'device': identity, 'mount': mount, 'fstype': row['FileSystem'],
+                'kind': 'volume', 'total': total, 'used': used,
+                'percent': round(used / total * 100, 1) if used is not None else None,
+                'usage_scope': 'measured' if used is not None else 'unmeasured', 'sampled_at': timestamp}
+        disks = []
+        seen = set()
+        for row in data['disks']:
+            number, total = row.get('Number'), _hardware_positive_int(row.get('Size'))
+            if number in seen or not total:
+                continue
+            seen.add(number)
+            related = sorted(v['mount'] for k, v in volumes.items() if number in owners.get(k, set()))
+            pooled = sorted(v['mount'] for k, v in volumes.items()
+                            if number in owners.get(k, set()) and len(owners[k]) > 1)
+            device = 'disk' + str(number)
+            disks.append({'device': device, 'mount': device, 'fstype': '', 'kind': 'physical',
+                'total': total, 'used': None, 'percent': None,
+                'model': _hardware_text(row.get('FriendlyName')), 'bus': _hardware_text(row.get('BusType')),
+                'volume_mounts': related, 'pool_mounts': pooled,
+                'usage_scope': 'shared_pool' if pooled else 'unmeasured', 'sampled_at': timestamp})
+        return disks + list(volumes.values())
+
     def _physical_disks(self) -> list:
-        """用 lsblk 列整块物理盘：容量=整盘 size，已用=盘上各文件系统分区已用之和。
-
-        无 lsblk（如 Windows）时返回空，物理盘不显示。
-        """
-        out = []
-        if not psutil:
-            return out
-        try:
-            r = subprocess.run(
-                ["lsblk", "-b", "-J", "-o", "NAME,SIZE,TYPE,MOUNTPOINT"],
-                capture_output=True, text=True, timeout=5, check=True,
-            )
-            data = json.loads(r.stdout)
-        except Exception:
-            return out
-        for disk in data.get("blockdevices", []):
-            if disk.get("type") != "disk":
-                continue
-            total = int(disk.get("size") or 0)
-            if total <= 0:
-                continue
-            used = 0
-
-            def walk(node):
-                nonlocal used
-                mp = node.get("mountpoint")
-                if mp and not mp.startswith("["):  # 排除 [SWAP] 等伪挂载
-                    try:
-                        used += psutil.disk_usage(mp).used
-                    except OSError:
-                        pass
-                for child in node.get("children", []):
-                    walk(child)
-
-            walk(disk)
-            name = "/dev/" + disk.get("name", "")
-            out.append({
-                "device": name, "mount": name, "fstype": "",
-                "total": total, "used": used,
-                "percent": round(used / total * 100, 1), "kind": "physical",
-            })
-        return out
+        """Compatibility view: inventory only; usage belongs to filesystems."""
+        return [row for row in self.list_storage() if row['kind'] == 'physical']
 
     def list_storage(self) -> list:
-        """存储视图：物理整块盘（lsblk）+ 网络挂载/虚拟卷（挂载点视角）。"""
-        out = []
+        """Worker-only platform collection. Failures raise, preserving cached data."""
+        if platform.system() == 'Windows':
+            return self._windows_storage()
         if not psutil:
-            return out
-        import re
-        # 1. 物理整块盘
-        out.extend(self._physical_disks())
-        # 2. 网络挂载（NFS/CIFS）+ 虚拟卷（LVM/md），挂载点视角
-        NOISE_FS = {"tmpfs", "proc", "sysfs", "devtmpfs", "devpts", "securityfs",
-                    "cgroup", "cgroup2", "pstore", "bpf", "autofs", "hugetlbfs",
-                    "mqueue", "tracefs", "configfs", "debugfs", "fusectl",
-                    "binfmt_misc", "nsfs", "overlay", "ramfs"}
-        for p in psutil.disk_partitions(all=True):
-            dev = p.device or ""
-            fs = p.fstype or ""
-            # 物理分区已归并到整块盘，跳过
-            if re.match(r"^/dev/(sd|nvme|vd|hd|mmcblk|mmc)", dev):
+            raise RuntimeError('storage requires psutil')
+        data = json.loads(_map_command(['lsblk', '-b', '-J', '-o',
+                         'NAME,SIZE,TYPE,MOUNTPOINTS,MODEL,TRAN,MAJ:MIN,FSTYPE'], timeout=5))
+        if not isinstance(data, dict) or not isinstance(data.get('blockdevices'), list):
+            raise ValueError('invalid block inventory')
+        timestamp = datetime.now(timezone.utc).isoformat()
+        disks, mount_owners = [], {}
+        for disk in data['blockdevices']:
+            total = _hardware_positive_int(disk.get('size'))
+            if disk.get('type') != 'disk' or not total:
                 continue
-            # 网络挂载 NFS/CIFS
-            if ":/" in dev or dev.startswith("//"):
-                kind = "network"
-            elif dev.startswith("/dev/mapper/") or dev.startswith("/dev/md"):
-                kind = "virtual"
+            device = '/dev/' + disk['name']
+            mounts = set()
+            def walk(node):
+                paths = node.get('mountpoints') or [node.get('mountpoint')]
+                for mount in paths:
+                    if isinstance(mount, str) and mount.startswith('/'):
+                        mounts.add(mount)
+                        mount_owners.setdefault(mount, set()).add(device)
+                for child in node.get('children', []):
+                    walk(child)
+            walk(disk)
+            disks.append({'device': device, 'mount': device, 'fstype': '', 'kind': 'physical',
+                'total': total, 'used': None, 'percent': None,
+                'model': _hardware_text(disk.get('model')), 'bus': _hardware_text(disk.get('tran')),
+                'volume_mounts': sorted(mounts), 'pool_mounts': [],
+                'usage_scope': 'unmeasured', 'sampled_at': timestamp})
+        for disk in disks:
+            shared = [mp for mp in disk['volume_mounts'] if len(mount_owners[mp]) > 1]
+            disk['pool_mounts'] = shared
+            if shared:
+                disk['usage_scope'] = 'shared_pool'
+        noise = {'tmpfs', 'proc', 'sysfs', 'devtmpfs', 'devpts', 'securityfs',
+                 'cgroup', 'cgroup2', 'pstore', 'bpf', 'autofs', 'hugetlbfs',
+                 'mqueue', 'tracefs', 'configfs', 'debugfs', 'fusectl',
+                 'binfmt_misc', 'nsfs', 'overlay', 'ramfs'}
+        seen, volumes = set(), []
+        # Prefer canonical lsblk mountpoints over later bind aliases.
+        partitions = sorted(psutil.disk_partitions(all=True),
+                            key=lambda p: (p.mountpoint not in mount_owners, p.mountpoint))
+        for part in partitions:
+            dev, fs, mount = part.device or '', part.fstype or '', part.mountpoint
+            if fs in noise or not fs or not mount:
+                continue
+            if ':/' in dev or dev.startswith('//'):
+                kind = 'network'
+            elif dev.startswith('/dev/mapper/') or dev.startswith('/dev/md'):
+                kind = 'virtual'
+            elif dev.startswith('/dev/'):
+                kind = 'volume'
             else:
-                continue  # 其余（bind mount 等）跳过
-            if fs in NOISE_FS:
+                continue
+            # Canonical block identity dedupes btrfs subvolumes (which can have
+            # different synthetic st_dev); mount st_dev also dedupes bind aliases.
+            identities = {('dev', os.path.realpath(dev))}
+            try:
+                identities.add(('fs', os.stat(mount).st_dev))
+            except OSError:
+                pass
+            if seen.intersection(identities):
                 continue
             try:
-                u = psutil.disk_usage(p.mountpoint)
-            except (PermissionError, OSError):
-                continue
-            out.append({
-                "device": dev, "mount": p.mountpoint, "fstype": fs,
-                "total": int(u.total), "used": int(u.used),
-                "percent": round(float(u.percent), 1), "kind": kind,
-            })
-        return out
+                usage = psutil.disk_usage(mount)
+            except OSError:
+                raise RuntimeError('filesystem usage unavailable') from None
+            seen.update(identities)
+            volumes.append({'device': dev, 'mount': mount, 'fstype': fs, 'kind': kind,
+                'total': int(usage.total), 'used': int(usage.used),
+                'percent': round(float(usage.percent), 1),
+                'usage_scope': 'measured', 'sampled_at': timestamp})
+        return disks + volumes
 
     # ── 上报（含补传）──
     def report(self, metrics: list, sys_metrics: list):
@@ -1414,6 +1675,7 @@ class Agent:
             "metrics": metrics, "sys_metrics": sys_metrics,
             "components": self._check_components(),
             "os_info": self._os_info(),
+            "storage": self._storage_info(),
         })
 
         # 尝试把队列里的所有数据按顺序补传
@@ -3142,7 +3404,7 @@ class Agent:
                 "metrics": [], "sys_metrics": [],
                 "interfaces": self.list_interfaces(),
                 "agent_version": AGENT_VERSION,
-                "storage": self.list_storage(),
+                "storage": self._storage_info(),
                 "components": self._check_components(),
                 "os_info": self._os_info(),
                 "public_ip_info": self._probe_public_ip(),
@@ -3204,6 +3466,7 @@ class Agent:
             scheduler.close()
             map_scheduler.close()
             self._hardware_scheduler.close()
+            self._storage_scheduler.close()
 
 
 def main():

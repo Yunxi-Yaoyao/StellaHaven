@@ -1,4 +1,4 @@
-# Hardware monitoring (Agent 0.6.11)
+# Hardware monitoring (Agent 0.6.12)
 
 ## Transport and persistence
 
@@ -57,7 +57,10 @@ hardware = {
     memory_total_mib: number|null,
     power_w: number|null,
     fan_pct: number|null,
-    source: string
+    source: string,
+    vendor: string, kind: "integrated"|"discrete"|"unknown",
+    telemetry_status: "available"|"unsupported"|"driver_missing"|"query_failed",
+    pci_bus: string|null, sampled_at?: ISO UTC string
   }],
   sensors: [{
     name: string,
@@ -231,31 +234,126 @@ dynamic sample independently; `machine.detected_at` is not a sensor timestamp.
 The producer should use atomic file replacement and refresh more often than
 120 seconds. Consumers must use the source timestamps for CPU/board freshness.
 
-## NVIDIA GPU inventory (Linux and Windows)
+## GPU inventory and independent telemetry (Linux and Windows)
 
-`nvidia-smi` is discovered through PATH. One CSV query enumerates **all GPUs**,
-using UUID as ID, not just GPU 0. The query requests temperature, graphics and
-memory clocks, utilisation, memory used/total, power and fan speed. Values use
-MHz, MiB, watts and percent; source is `nvidia-smi`. `N/A`, unsupported and
-non-finite numeric cells are null. Invalid CSV/failing commands discard the
-GPU batch, without discarding CPU/board data. No AMD/Intel GPU collector is
-implemented; missing `nvidia-smi` must not be interpreted as proof of no GPU.
+Inventory is independent of NVIDIA tools and cached for 300 seconds. Linux
+enumerates PCI display-class devices from public sysfs class/vendor/device and
+driver links; bounded `lspci -Dnn` provides optional product names. Windows adds
+`Win32_VideoController`/PNP vendor/device and optional public PCI location to the
+**same three-second machine/CPU CIM process**, not another heartbeat query.
+ROOT/software display devices and ToDesk/Zako adapters are excluded. GPU
+enumeration/location failures are isolated inside that PowerShell query: CPU and
+machine results survive, and failed enumeration is null/unknown (not empty). No PNP
+instance suffix, hardware serial or MAC is published. Model/device evidence is
+required for integrated/discrete classification; an unknown model stays unknown,
+not discrete merely because it is AMD/NVIDIA, or integrated merely because Intel.
+
+For NVIDIA, one bounded CSV query enumerates all UUIDs with PCI bus identity,
+then merges measurements into the matching inventory row. Same-model cards use
+bus identity, never row order. Ambiguous matches receive no copied telemetry and
+are not invented as extra cards. UUID stays the telemetry ID. Temperature,
+graphics/memory clocks, utilisation, memory used/total, power and fan retain the
+existing MHz/MiB/watts/percent fields. `N/A`, unsupported/non-finite cells remain
+null. Invalid CSV/failing queries retain hardware inventory with `query_failed`,
+without discarding CPU/board data. A missing driver still leaves inventory present.
+
+Readable non-NVIDIA DRM sysfs `gt_cur_freq_mhz`/`gpu_busy_percent` is optional,
+finite and measured independently; unsupported readings stay null. NVIDIA/DRM
+measurements carry their actual `sampled_at`. The NAS Intel UHD 600/i915 inventory
+is valid without NVIDIA; its readable 100 MHz DRM sample is not an invented zero.
+An enumeration failure is unknown; **only successful complete empty enumeration**
+means no GPU. Availability describes usable readings vs inventory, not vendor tools.
 
 Availability values:
 
 - CPU: `available`, `unavailable`, `sensors_file_missing`,
   `sensors_file_permission_denied`, `sensors_file_invalid`, `sensors_file_stale`,
   `sensors_file_unavailable`.
-- GPU: `available`, `nvidia_smi_missing`, `no_nvidia_gpu`, `nvidia_smi_failed`.
-- Both during scheduler lifecycle: `collecting`, `collection_failed`, `stale`.
+- GPU: `available`, `inventory_only`, `no_gpu`, `unknown`, `collection_failed`.
+  Pending/stale GPU collection is `unknown`, not `no_gpu`.
+- CPU during scheduler lifecycle: `collecting`, `collection_failed`, `stale`.
 
 Consumers must also check `sampled_at` age for disconnected nodes or queued
 reports. Availability means the source worked, not that every optional cell is
 supported. CPU maximum frequency retains its platform-specific provenance.
 
+## Cross-platform storage and periodic reports
+
+The existing `Node.storage` array remains the transport/storage container:
+
+```text
+{kind: "physical"|"virtual"|"network"|"volume",
+ device: string, mount: string, fstype: string, total: bytes,
+ used: bytes|null, percent: number|null,
+ model?: string|null, bus?: string|null,
+ volume_mounts?: string[], pool_mounts?: string[],
+ usage_scope: "measured"|"shared_pool"|"unmeasured",
+ sampled_at: ISO UTC string}
+```
+
+Physical rows are raw-capacity inventory, never a second copy of filesystem
+usage: `used`/`percent` are null for **all** physical disks. Shared RAID members
+have `usage_scope: shared_pool` and `pool_mounts`; ordinary/unmounted physical
+rows use `unmeasured` and retain volume associations. A disk without a mounted
+filesystem is not reported as empty/0%. Real zero is reserved for measured usage.
+Sum usage **only across independent filesystem rows**; do not sum raw disk and
+pool capacity or physical-member usage with volume usage.
+
+Windows uses bounded `Get-Disk`/`Get-Partition`/`Get-Volume` associations (one
+five-second, 128 KiB worker process). `Get-Disk.BusType` exposes actual NVMe even
+when the compatibility `physical_inventory.disks` WMI metadata says SCSI. Volume
+Path deduplication avoids repeated usage; drive-letter or directory-mounted
+filesystems are measured once. GUID-only unmounted EFI/recovery/reserved
+partitions are not turned into user volumes or fake zero usage.
+
+Linux combines lsblk descendants with mounted filesystem usage. Shared md/LVM
+mounts link multiple physical members to a single usage subject; root/EFI remain
+separate volumes. Canonical device identity dedupes btrfs subvolume aliases,
+including different synthetic `st_dev`; filesystem identity also dedupes bind
+mounts. Unsupported pseudo filesystems are excluded. Collection failures raise,
+not return an authoritative empty list.
+
+A separate single-flight storage daemon lane samples at a monotonic **60-second**
+minimum interval. Initial and regular reports immediately include the latest
+cached storage, never run WMI/lsblk synchronously. Before successful collection,
+`storage: null` preserves existing backend storage. A failed/None refresh or
+scheduler error retains the entire old snapshot and **original item timestamps**;
+a successful genuinely empty list remains an explicit empty snapshot. Slow
+storage cannot occupy hardware/task/probe lanes or delay five-second heartbeats.
+Shutdown closes the storage lane as well. Consumers can identify stale storage
+from item `sampled_at`; a new heartbeat is not a new storage sample.
+
+The legacy `os_info.cpu_cores` is physical cores, not logical threads. Logical
+counts remain in `hardware.cpu.logical_cores` (and emitted `cpu_logical_cores`);
+no backend repository/schema change is required. Finite CPU frequency precision
+is retained; rounding belongs to presentation.
+
+### Read-only real-machine reconciliation
+
+The new collector was exercised in memory, without deploying/starting/reporting
+an agent or modifying Scheduled Tasks/services/database. Windows used its resident
+venv Python as SSH yaoyao; NAS used the real service account stella, **UID 992**.
+
+- 5060: **2 physical NVMe + 3 measured NTFS volumes**, disk0 → D:, disk1 → C:/E:.
+  Both raw physical used/percent fields are null. RTX 5060 Ti is discrete with
+  NVIDIA telemetry; AMD Radeon is integrated with unsupported metrics null;
+  virtual ToDesk/Zako adapters are absent. CPU reports 6 physical/12 logical cores.
+- NAS: **7 physical + 5 filesystems** (root, EFI, vol1/2/3). sda/sde/sdf/sdg share
+  `/vol1`, each with null used/percent; sdd remains unmeasured, not 0%. Intel UHD
+  Graphics 600 is integrated, bound to i915, with a readable DRM clock and null
+  unsupported metrics.
+- All eight measured filesystem capacities and used-byte samples match the
+  independent psutil reads in the retained final probe snapshots.
+
+Evidence: `/opt/hermes-workstation/docs/stella-hardware-refine-20261010/backend/`
+contains `5060-new-collector.json`, `nas-new-collector.json`,
+`new-collector-reconciliation.json`, RED/GREEN and per-file regression logs.
+This is collector validation, **not deployment or production UI acceptance**.
+
 ## Offline verification
 
-New tests live in `tests_isolated/test_hardware_agent.py`,
+Storage/inventory tests live in `tests_isolated/test_hardware_storage_refine.py`.
+Existing tests live in `tests_isolated/test_hardware_agent.py`,
 `tests_isolated/test_machine_agent.py`, and
 `tests_isolated/test_hardware_repository.py`. They replace external I/O and do
 not import the app's database module. Repository tests execute the real
@@ -270,6 +368,7 @@ env -i PATH=/usr/bin:/bin \
   /opt/Yunxi-workstation/Stella/.venv/bin/python -m pytest \
   -c /dev/null --noconftest \
   --basetemp=/root/.hermes/cache/scratch/hardware-backend/pytest \
+  tests_isolated/test_hardware_storage_refine.py \
   tests_isolated/test_machine_agent.py \
   tests_isolated/test_hardware_agent.py \
   tests_isolated/test_hardware_repository.py -q
@@ -279,5 +378,13 @@ RED/GREEN and regression outputs are retained under
 `/root/.hermes/cache/scratch/hardware-backend/`. These tests validate collection,
 null/source semantics, bounded background scheduling and repository assignment;
 they do not claim physical Windows driver, production PostgreSQL or deployment
-validation. Existing tests with hard-coded Agent 0.6.10/update-to-0.6.11
-expectations need their fixtures advanced separately when the release lands.
+validation. Existing hardware fixtures must freeze the new GPU inventory lane
+(and not inspect the runner's PCI/DRM), use the new availability enum, and advance
+same/newer version fixtures to 0.6.12/0.6.13. A minimal reviewed fixture patch is
+retained outside the repository at `backend/legacy-fixture-adjustments.patch`;
+the unchanged old tests fail these stale fixture assumptions. Their complete
+fixture-adjusted scratch copy passes 16 tests and 9 subtests without deleting
+CPU/sensor/background/safety assertions. The new storage/inventory suite passes
+17 tests, and the real Windows PowerShell GPU-enumeration failure probe proves
+that machine/CPU data remains intact. This task does not alter the parent-owned
+legacy test file.
