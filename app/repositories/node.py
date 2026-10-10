@@ -132,7 +132,7 @@ def heartbeat(db: Session, node_id: int, agent_version: str | None = None,
         if os_info.get("arch") and not node.arch:
             node.arch = os_info["arch"]
         node.sys_info = {k: os_info.get(k) for k in
-                         ("kernel", "cpu_model", "cpu_cores", "load1", "load5", "load15", "boot_time")}
+                         ("kernel", "cpu_model", "cpu_cores", "load1", "load5", "load15", "boot_time", "hardware")}
     # agent 重新上线 → 已结束的卸载状态（done/failed）复位：说明卸载没成功或已重装，别让「已删除」和「在线」打架
     if node.uninstall_status in ("done", "failed"):
         node.uninstall_status = None

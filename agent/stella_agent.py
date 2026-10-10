@@ -45,7 +45,8 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.10"
+AGENT_VERSION = "0.6.11"
+HARDWARE_INTERVAL = 30    # Cached background hardware collection, never heartbeat IO
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
 SYS_INTERVAL = 60         # 系统指标上报间隔（秒）
 MTR_INTERVAL = 1800       # 监控项定时 MTR 周期（30 分钟）
@@ -414,6 +415,17 @@ def _probe_map_targets(wg, targets, deadline=None):
             job[2]['probe'] = result
 
 
+def _hardware_number(value):
+    """Unsupported, boolean, non-finite and sentinel readings become JSON null."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 class Agent:
     def __init__(self, url: str, token: str):
         if "://" not in url:
@@ -433,6 +445,10 @@ class Agent:
         self.monitored_ifaces = None  # 兼容中心显示偏好，不过滤流量采集
         self.monitors_version = 0  # 监控项配置版本号（心跳 diff 用）
         self.monitors = {}  # monitor_id -> {type, target, interval, timeout, next_run}
+        self._hardware_scheduler = _BackgroundScheduler(max_workers=1)
+        self._hardware_cache = None
+        self._hardware_cached_at = 0
+        self._hardware_next_sample = 0
         self._check_deps()
 
     def collect_map_snapshot(self):
@@ -820,7 +836,194 @@ class Agent:
         except (OSError, AttributeError):
             info["load1"] = info["load5"] = info["load15"] = None
         info["boot_time"] = psutil.boot_time() if psutil else None
+        info["hardware"] = self._hardware_info()
+        if info["hardware"]["cpu"].get("model"):
+            info["cpu_model"] = info["hardware"]["cpu"]["model"]
         return info
+
+    def _empty_hardware(self, reason) -> dict:
+        """Complete null-valued contract for pending/failed collection."""
+        cpu: dict = {key: None for key in (
+            'model', 'physical_cores', 'logical_cores', 'frequency_mhz',
+            'max_frequency_mhz', 'temperature_c', 'temperature_source', 'frequency_source')}
+        cpu['model'] = (self._os_static_cache or {}).get('cpu_model')
+        hardware = {'sampled_at': datetime.now(timezone.utc).isoformat(),
+                    'cpu': cpu, 'gpus': [], 'sensors': [],
+                    'availability': {'cpu_temperature': reason, 'gpu': reason}}
+        return hardware
+
+    def _hardware_info(self) -> dict:
+        now = time.monotonic()
+        if self._hardware_cache is None:
+            self._hardware_cache = self._empty_hardware('collecting')
+            self._hardware_cached_at = now
+        if now >= self._hardware_next_sample:
+            # Reserve before submission: an immediately finishing worker cannot
+            # trigger a duplicate collection from the next heartbeat.
+            self._hardware_next_sample = now + HARDWARE_INTERVAL
+            def refresh():
+                try:
+                    sample = self._collect_hardware()
+                except Exception:
+                    sample = self._empty_hardware('collection_failed')
+                self._hardware_cache = sample
+                self._hardware_cached_at = time.monotonic()
+            try:
+                self._hardware_scheduler.submit('hardware', refresh)
+            except Exception:
+                self._hardware_cache = self._empty_hardware('collection_failed')
+                self._hardware_cached_at = now
+        if now - self._hardware_cached_at > 120:
+            return self._empty_hardware('stale')
+        return self._hardware_cache
+
+    def _collect_hardware(self) -> dict:
+        """Latest hardware sample; executed only by the hardware worker."""
+        hardware = self._empty_hardware('unavailable')
+        hardware['availability']['gpu'] = 'nvidia_smi_missing'
+        cpu = hardware['cpu']
+        if psutil:
+            for logical, key in ((False, 'physical_cores'), (True, 'logical_cores')):
+                try:
+                    cpu[key] = psutil.cpu_count(logical=logical)
+                except Exception:
+                    pass
+            if platform.system() == 'Linux':
+                try:
+                    frequency = psutil.cpu_freq()
+                    if frequency:
+                        cpu['frequency_mhz'] = _hardware_number(frequency.current)
+                        cpu['max_frequency_mhz'] = _hardware_number(frequency.max)
+                        for key in ('frequency_mhz', 'max_frequency_mhz'):
+                            if cpu[key] is not None and cpu[key] <= 0:
+                                cpu[key] = None
+                        if cpu['frequency_mhz'] is not None:
+                            cpu['frequency_source'] = 'psutil.cpu_freq'
+                except Exception:
+                    pass
+                cpu_temperatures = []
+                for method, kind, unit in (('sensors_temperatures', 'temperature', '°C'),
+                                           ('sensors_fans', 'fan', 'RPM')):
+                    try:
+                        readings = getattr(psutil, method)()
+                        for chip, entries in readings.items():
+                            for entry in entries:
+                                value = _hardware_number(entry.current)
+                                if value is None:
+                                    continue
+                                label = entry.label or chip
+                                source = 'psutil:' + chip
+                                hardware['sensors'].append({'name': label, 'kind': kind,
+                                                           'value': value, 'unit': unit, 'source': source})
+                                if (kind == 'temperature' and not chip.lower().startswith('acpi')
+                                        and (chip.lower() in ('coretemp', 'k10temp', 'zenpower')
+                                             or re.search(r'(?:^|[^a-z])cpu(?:[^a-z]|$)', chip + ' ' + label, re.I))):
+                                    cpu_temperatures.append((value, source))
+                    except Exception:
+                        pass
+                if cpu_temperatures:
+                    cpu['temperature_c'], cpu['temperature_source'] = max(cpu_temperatures)
+                    hardware['availability']['cpu_temperature'] = 'available'
+        if platform.system() == 'Windows':
+            try:
+                powershell = shutil.which('powershell') or 'powershell.exe'
+                script = ('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
+                          'Get-CimInstance Win32_Processor | Select-Object Name,CurrentClockSpeed,'
+                          'MaxClockSpeed,NumberOfCores,NumberOfLogicalProcessors | ConvertTo-Json -Compress')
+                encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+                inventory = json.loads(_map_command([powershell, '-NoProfile', '-NonInteractive',
+                                                     '-EncodedCommand', encoded], timeout=3).lstrip('\ufeff'))
+                processors = inventory if isinstance(inventory, list) else [inventory]
+                processors = [p for p in processors if isinstance(p, dict)]
+                if processors:
+                    names = list(dict.fromkeys(p['Name'].strip() for p in processors
+                                              if isinstance(p.get('Name'), str) and p['Name'].strip()))
+                    if names:
+                        cpu['model'] = ' / '.join(names)
+                    for field, key in (('NumberOfCores', 'physical_cores'),
+                                       ('NumberOfLogicalProcessors', 'logical_cores')):
+                        values = [_hardware_number(p.get(field)) for p in processors]
+                        if all(v is not None and v > 0 and v.is_integer() for v in values):
+                            cpu[key] = int(sum(v for v in values if v is not None))
+                    cpu['frequency_mhz'] = _hardware_number(processors[0].get('CurrentClockSpeed'))
+                    cpu['max_frequency_mhz'] = _hardware_number(processors[0].get('MaxClockSpeed'))
+                    if cpu['frequency_mhz'] is not None:
+                        cpu['frequency_source'] = 'Win32_Processor.CurrentClockSpeed (WMI; not measured boost)'
+            except Exception:
+                pass
+            try:
+                path = os.environ.get('STELLA_HARDWARE_SENSORS_FILE', 'C:/stella-agent/hardware-sensors.json')
+                import stat
+                metadata = os.stat(path)
+                if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 131072:
+                    raise ValueError('sensor file limit')
+                with open(path, 'rb') as stream:
+                    raw = stream.read(131073)
+                if len(raw) > 131072:
+                    raise ValueError('sensor file limit')
+                data = json.loads(raw.decode('utf-8-sig'))
+                sampled_at = datetime.fromisoformat(data['sampled_at'].replace('Z', '+00:00'))
+                now = datetime.now(timezone.utc)
+                if sampled_at.tzinfo is None:
+                    raise ValueError('sensor timestamp needs timezone')
+                age = (now - sampled_at).total_seconds()
+                mtime_age = now.timestamp() - metadata.st_mtime
+                if not -30 <= age <= 120 or not -30 <= mtime_age <= 120:
+                    raise ValueError('stale sensor file')
+                for field, key, source_key in (
+                        ('cpu_temperature_c', 'temperature_c', 'temperature_source'),
+                        ('cpu_frequency_mhz', 'frequency_mhz', 'frequency_source')):
+                    raw_value = data.get(field)
+                    value = _hardware_number(raw_value) if isinstance(raw_value, (int, float)) else None
+                    if value is not None:
+                        cpu[key] = value
+                        source = data.get('cpu_' + source_key)
+                        cpu[source_key] = source[:256] if isinstance(source, str) and source else 'LibreHardwareMonitor'
+                entries = data.get('sensors', [])
+                if not isinstance(entries, list):
+                    entries = []
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    kind, name = entry.get('kind'), entry.get('name')
+                    raw_value = entry.get('value')
+                    value = _hardware_number(raw_value) if isinstance(raw_value, (int, float)) else None
+                    unit = {'temperature': '°C', 'fan': 'RPM'}.get(kind) if isinstance(kind, str) else None
+                    if (unit is None or entry.get('unit') != unit or value is None
+                            or not isinstance(name, str) or not name.strip()):
+                        continue
+                    source = entry.get('source')
+                    hardware['sensors'].append({'name': name[:128], 'kind': kind, 'value': value,
+                                                'unit': unit, 'source': source[:256] if isinstance(source, str) and source else 'LibreHardwareMonitor'})
+                if cpu['temperature_c'] is not None:
+                    hardware['availability']['cpu_temperature'] = 'available'
+            except Exception:
+                hardware['availability']['cpu_temperature'] = 'sensors_file_unavailable'
+        nvidia = shutil.which('nvidia-smi')
+        if nvidia:
+            try:
+                import csv
+                import io
+                fields = ('uuid', 'name', 'temperature.gpu', 'clocks.current.graphics',
+                          'clocks.current.memory', 'utilization.gpu', 'memory.used',
+                          'memory.total', 'power.draw', 'fan.speed')
+                output = _map_command([nvidia, '--query-gpu=' + ','.join(fields),
+                                       '--format=csv,noheader,nounits'], timeout=3)
+                keys = ('temperature_c', 'graphics_clock_mhz', 'memory_clock_mhz',
+                        'utilization_pct', 'memory_used_mib', 'memory_total_mib', 'power_w', 'fan_pct')
+                for row in csv.reader(io.StringIO(output), skipinitialspace=True):
+                    if not row:
+                        continue
+                    if len(row) != len(fields) or not row[0].strip() or not row[1].strip():
+                        raise ValueError('invalid gpu row')
+                    hardware['gpus'].append({'id': row[0].strip(), 'name': row[1].strip(),
+                                            'source': 'nvidia-smi',
+                                            **{key: _hardware_number(value) for key, value in zip(keys, row[2:])}})
+                hardware['availability']['gpu'] = 'available' if hardware['gpus'] else 'no_nvidia_gpu'
+            except Exception:
+                hardware['gpus'] = []
+                hardware['availability']['gpu'] = 'nvidia_smi_failed'
+        return hardware
 
     def _physical_disks(self) -> list:
         """用 lsblk 列整块物理盘：容量=整盘 size，已用=盘上各文件系统分区已用之和。
@@ -2702,6 +2905,7 @@ class Agent:
         finally:
             scheduler.close()
             map_scheduler.close()
+            self._hardware_scheduler.close()
 
 
 def main():
