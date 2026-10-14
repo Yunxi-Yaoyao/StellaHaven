@@ -67,6 +67,33 @@ it('untrusted note data-private metadata cannot create active javascript links o
  expect(host.querySelector('img')?.getAttribute('data-private-src')).toBe('/attachments/real');
  expect(restorePrivateMediaHtml(result)).not.toContain('javascript:');
 });
+it('SVG xlink retains its namespace through admission, export, pause, resume and teardown',async()=>{
+ const {guardPrivateMediaHtml,restorePrivateMediaHtml,installPrivateMedia,setPrivateMediaSource}=await import('./privateMedia');
+ const ns='http://www.w3.org/1999/xlink';
+ const owner={id:'xlink-owner',username:'fixture',display_name:'Fixture',home_bg:'x',avatar_url:'',is_admin:false,email:'',email_verified:false};
+ Object.assign(auth,{me:owner,checked:true,suspended:false,sessionClosing:false,sessionGeneration:601,requestEpoch:1});
+ const host=document.createElement('div');host.innerHTML=guardPrivateMediaHtml('<svg><image xlink:href="/attachments/xlink"/></svg>');document.body.append(host);
+ const image=host.querySelector('image')!;expect(image.getAttributeNS(ns,'href')).toBeNull();
+ dispose=installPrivateMedia();expect(image.getAttributeNS(ns,'href')).toBe('/attachments/xlink');
+ const exported=document.createElement('div');exported.innerHTML=restorePrivateMediaHtml(host.innerHTML);
+ expect(exported.querySelector('image')?.getAttributeNS(ns,'href')).toBe('/attachments/xlink');
+ auth.requestEpoch++;auth.suspended=true;expect(image.getAttributeNS(ns,'href')).toBeNull();
+ acceptLogin(owner);await vi.waitFor(()=>expect(image.getAttributeNS(ns,'href')).toBe('/attachments/xlink'));
+ dispose();dispose=undefined;expect(image.getAttributeNS(ns,'href')).toBeNull();
+ setPrivateMediaSource(image,'/assets/public.svg','xlink:href');expect(image.getAttributeNS(ns,'href')).toBe('/assets/public.svg');
+ setPrivateMediaSource(image,'http://[','xlink:href');expect(image.getAttributeNS(ns,'href')).toBeNull();
+});
+it.each([20,20000])('responsive pause snapshots source density with bounded canvas (%s physical pixels)',async physical=>{
+ const {guardPrivateMediaHtml,installPrivateMedia}=await import('./privateMedia');
+ Object.assign(auth,{me:{id:'density-owner'},checked:true,suspended:false,sessionClosing:false,sessionGeneration:701,requestEpoch:1});
+ const host=document.createElement('div');host.innerHTML=guardPrivateMediaHtml(`<img srcset="/attachments/density ${physical/10}x">`);document.body.append(host);
+ const img=host.querySelector('img')!;Object.defineProperties(img,{complete:{value:true},naturalWidth:{value:10},naturalHeight:{value:10},currentSrc:{value:new URL('/attachments/density',location.href).href}});
+ const draw=vi.fn();vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue({drawImage:draw} as unknown as CanvasRenderingContext2D);
+ const snapshots:number[][]=[];vi.spyOn(HTMLCanvasElement.prototype,'toDataURL').mockImplementation(function(this:HTMLCanvasElement){snapshots.push([this.width,this.height]);return 'data:image/png;base64,fixture';});
+ dispose=installPrivateMedia();auth.requestEpoch++;auth.suspended=true;
+ if(physical===20){expect(snapshots).toEqual([[20,20]]);expect(draw).toHaveBeenCalledWith(img,0,0,20,20);expect(img.getAttribute('srcset')).toBe('data:image/png;base64,fixture 2x');}
+ else {expect(draw).not.toHaveBeenCalled();expect(snapshots).toEqual([]);expect(img.hasAttribute('src')).toBe(false);expect(img.hasAttribute('srcset')).toBe(false);}
+});
 it('malformed fetch classification delegates native rejection without crashing URL parser',async()=>{
  const {privateRequest,installSessionFence}=await import('./sessionFence');
  const error=new TypeError('native invalid URL');const network=vi.fn().mockRejectedValue(error);vi.stubGlobal('fetch',network);

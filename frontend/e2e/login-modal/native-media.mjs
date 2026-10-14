@@ -5,12 +5,20 @@ import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import path from 'node:path';
 import {tmpdir} from 'node:os';
 import assert from 'node:assert/strict';
+import {deflateSync} from 'node:zlib';
+function stripePng(size){
+ const crc=b=>{let c=0xffffffff;for(const v of b){c^=v;for(let i=0;i<8;i++)c=(c>>>1)^((c&1)?0xedb88320:0);}return (c^0xffffffff)>>>0;};
+ const chunk=(type,data)=>{const body=Buffer.concat([Buffer.from(type),data]),len=Buffer.alloc(4),sum=Buffer.alloc(4);len.writeUInt32BE(data.length);sum.writeUInt32BE(crc(body));return Buffer.concat([len,body,sum]);};
+ const header=Buffer.alloc(13);header.writeUInt32BE(size);header.writeUInt32BE(size,4);header[8]=8;header[9]=2;
+ const rows=Buffer.alloc(size*(1+size*3));for(let y=0;y<size;y++)for(let x=0;x<size;x++)rows[y*(1+size*3)+1+x*3+(x%2?2:0)]=255;
+ return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',header),chunk('IDAT',deflateSync(rows)),chunk('IEND',Buffer.alloc(0))]);
+}
 const out=process.env.STELLA_LOGIN_QA_OUTPUT||path.join(tmpdir(),'stella-login-modal-evidence');
 mkdirSync(out,{recursive:true});
 const origin='http://127.0.0.1:15384',requests=[],receipts=[],open=new Set();
 const clip=readFileSync('e2e/login-modal/stream-control.mp4');
 const svg='<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>';
-const harness=`<!doctype html><div id="host"></div><script type="module">
+const harness=`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="host"></div><script type="module">
 import {auth,acceptLogin} from '/src/modules/home/auth.ts';
 import * as media from '/src/modules/auth/privateMedia.ts';
 import {sanitizeNoteHtml} from '/src/modules/notes/noteHtml.ts';
@@ -24,6 +32,7 @@ const server=await createServer({root:process.cwd(),configFile:false,cacheDir:pa
  if(p==='/__native.html'){res.setHeader('Content-Type','text/html');res.end(harness);return;}
  if(p.startsWith('/attachments/')){
   requests.push({p,range:req.headers.range||null,fixtureCookie:!!req.headers.cookie,time:Date.now()});
+  if(p.includes('stripe')){res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'no-store'});res.end(stripePng(p.includes('small')?10:20));return;}
   if(p.includes('stream')){const padding=Buffer.alloc(1024*1024),box=Buffer.alloc(8);box.writeUInt32BE(padding.length+8);box.write('free',4);res.writeHead(200,{'Content-Type':'video/mp4','Content-Length':clip.length+box.length+padding.length,'Cache-Control':'no-store'});res.write(clip);res.write(box);res.write(padding.subarray(0,65536));open.add(res);res.on('close',()=>open.delete(res));return;}
   if(p.includes('delayed')){open.add(res);res.on('close',()=>open.delete(res));res.__release=()=>{res.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});res.end(svg);};return;}
   res.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});res.end(svg);return;
@@ -32,9 +41,49 @@ const server=await createServer({root:process.cwd(),configFile:false,cacheDir:pa
 });}}],server:{host:'127.0.0.1',port:15384,strictPort:true,proxy:{}}});
 await server.listen();
 const browser=await chromium.launch({headless:true,executablePath:'/usr/sbin/google-chrome-stable',args:['--no-sandbox']});
-async function setup(dpr=1){const context=await browser.newContext({viewport:{width:1000,height:700},deviceScaleFactor:dpr,serviceWorkers:'block'});await context.addCookies([{name:'access_token',value:'native-fixture-only',url:origin,httpOnly:true,sameSite:'Lax'}]);await context.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort());const page=await context.newPage();await page.goto(origin+'/__native.html');await page.waitForFunction(()=>window.audit);return {context,page};}
+async function setup(dpr=1,mobile=false){const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1000,height:700},isMobile:mobile,deviceScaleFactor:dpr,serviceWorkers:'block'});await context.addCookies([{name:'access_token',value:'native-fixture-only',url:origin,httpOnly:true,sameSite:'Lax'}]);await context.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort());const page=await context.newPage();await page.goto(origin+'/__native.html');await page.waitForFunction(()=>window.audit);return {context,page};}
 async function run(name,fn){const start=requests.length;try{const observation=await fn();receipts.push({name,pass:true,observation,requests:requests.slice(start)});}catch(e){receipts.push({name,pass:false,error:String(e),stack:e.stack,requests:requests.slice(start)});}writeFileSync(path.join(out,'native-regressions.json'),JSON.stringify({receipts,requests},null,2));}
 try{
+for(const [dpr,mobile,picture,explicit] of [[2,false,false,true],[3,false,false,true],[2,true,true,true],[3,true,false,true],[3,true,true,false],[2,false,false,false]])await run(`striped 2x bitmap pixels preserved DPR${dpr} ${mobile?'mobile':'desktop'} ${picture?'picture':'img'} ${explicit?'sized':'intrinsic'}`,async()=>{
+ const {context,page}=await setup(dpr,mobile);try{
+ const candidates='/attachments/stripe-small 1x, /attachments/stripe-large 2x';
+ await page.evaluate(({candidates,picture,explicit})=>window.audit.insert('<p>UNSAVED stripe draft</p>'+(picture?'<picture><source srcset="'+candidates+'">':'')+'<img id="stripe" '+(explicit?'width="10" height="10" ':'')+(picture?'src="/attachments/stripe-fallback"':'srcset="'+candidates+'"')+'>'+(picture?'</picture>':'')),{candidates,picture,explicit});
+ await page.waitForFunction(()=>document.querySelector('img').complete&&document.querySelector('img').naturalWidth>0);
+ const state=()=>page.locator('img').evaluate(el=>{const r=el.getBoundingClientRect();return {natural:el.naturalWidth,src:el.currentSrc,rect:{width:r.width,height:r.height}};});
+ const before=await state();assert.equal(before.natural,10);assert.ok(before.src.endsWith('/attachments/stripe-large'));
+ const screen=await page.evaluate(()=>({width:innerWidth,dpr:devicePixelRatio}));assert.equal(screen.width,mobile?390:1000);assert.equal(screen.dpr,dpr);
+ const pixels=async buffer=>page.evaluate(async data=>{const img=new Image();img.src='data:image/png;base64,'+data;await img.decode();const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);return {width:c.width,height:c.height,data:Array.from(ctx.getImageData(0,0,c.width,c.height).data)};},buffer.toString('base64'));
+ const filename=`stripe-dpr${dpr}-${mobile?'mobile':'desktop'}-${picture?'picture':'img'}-${explicit?'sized':'intrinsic'}`;
+ const a=await pixels(await page.locator('img').screenshot({path:path.join(out,filename+'-before.png')}));
+ const start=requests.length;await page.evaluate(()=>window.audit.suspend());await page.waitForTimeout(100);
+ const after=await state();const b=await pixels(await page.locator('img').screenshot({path:path.join(out,filename+'-paused.png')}));
+ let changed=0;for(let i=0;i<a.data.length;i+=4)if(a.data.slice(i,i+4).some((v,k)=>v!==b.data[i+k]))changed++;
+ const colors=new Set();for(let i=0;i<a.data.length;i+=4)colors.add(a.data.slice(i,i+4).join(','));
+ const observation={before,after,screen,width:a.width,height:a.height,colors:colors.size,changed,refetches:requests.length-start};writeFileSync(path.join(out,filename+'.json'),JSON.stringify(observation,null,2));
+ assert.ok(colors.size>1);assert.equal(requests.length,start);assert.deepEqual(after.rect,before.rect);assert.equal(after.natural,before.natural);assert.equal(b.width,a.width);assert.equal(b.height,a.height);assert.equal(changed,0,JSON.stringify(observation));
+ assert.equal(await page.locator('p').textContent(),'UNSAVED stripe draft');
+ const exported=await page.evaluate(()=>window.audit.restorePrivateMediaHtml(document.querySelector('#host').innerHTML));assert.ok(exported.includes(candidates));assert.ok(!exported.includes('data:image/'));
+ await page.evaluate(()=>window.audit.resume());await page.waitForFunction(()=>document.querySelector('img').currentSrc.endsWith('/attachments/stripe-large'));
+ await page.evaluate(()=>window.audit.dispose());assert.equal(await page.locator('img').getAttribute('src'),null);assert.equal(await page.locator('img').getAttribute('srcset'),null);return observation;
+ }finally{await context.close();}
+});
+await run('SVG xlink active native GET, namespaced export, pending detach and same-owner resume',async()=>{const {context,page}=await setup();try{
+ const start=requests.length;
+ await page.evaluate(()=>window.audit.insert('<svg width="40" height="40"><image id="linked" width="20" height="20" xlink:href="/attachments/xlink-active"/><image id="plain" href="/attachments/href-active"/></svg>'));
+ await page.waitForTimeout(200);
+ const active=await page.locator('#linked').evaluate(el=>({base:el.href.baseVal,ns:el.getAttributeNS('http://www.w3.org/1999/xlink','href')}));
+ assert.deepEqual(active,{base:'/attachments/xlink-active',ns:'/attachments/xlink-active'});
+ assert.ok(requests.slice(start).some(r=>r.p==='/attachments/xlink-active'));
+ assert.ok(requests.slice(start).some(r=>r.p==='/attachments/href-active'));
+ const exported=await page.evaluate(()=>{const t=document.createElement('template');t.innerHTML=window.audit.restorePrivateMediaHtml(document.querySelector('#host').innerHTML);return t.content.querySelector('#linked').href.baseVal;});assert.equal(exported,active.base);
+ await page.evaluate(()=>window.audit.insert('<svg><image id="linked" xlink:href="/attachments/delayed-xlink"/></svg>'));await page.waitForTimeout(100);
+ await page.evaluate(()=>window.audit.suspend());
+ assert.deepEqual(await page.locator('#linked').evaluate(el=>({base:el.href.baseVal,ns:el.getAttributeNS('http://www.w3.org/1999/xlink','href')})),{base:'',ns:null});
+ const paused=requests.length;for(const res of open)res.__release?.();await page.waitForTimeout(100);assert.equal(requests.length,paused);
+ await page.evaluate(()=>window.audit.resume());await page.waitForTimeout(100);
+ assert.equal(await page.locator('#linked').evaluate(el=>el.href.baseVal),'/attachments/delayed-xlink');assert.ok(requests.length>paused);
+ await page.evaluate(()=>window.audit.dispose());assert.equal(await page.locator('#linked').evaluate(el=>el.href.baseVal),'');return {active,pendingDetached:true,resumed:true};
+ }finally{await context.close();}});
 await run('L1 video Range decodes before EOF',async()=>{const {context,page}=await setup();try{await page.evaluate(()=>window.audit.insert('<video muted controls preload="auto" src="/attachments/stream.mp4"></video>'));await page.waitForTimeout(1400);const v=await page.locator('video').evaluate(v=>({ready:v.readyState,width:v.videoWidth,src:v.currentSrc}));assert.ok(v.ready>=2&&v.width>0,JSON.stringify(v));assert.ok(requests.some(r=>r.p.includes('stream')&&r.range));return v;}finally{await context.close();}});
 await run('L1 six offscreen lazy images make zero requests',async()=>{const {context,page}=await setup();const start=requests.length;try{await page.locator('#host').evaluate(el=>el.style.paddingTop='20000px');await page.evaluate(()=>window.audit.insert(Array.from({length:6},(_,i)=>'<img loading="lazy" width="10" height="10" src="/attachments/lazy-'+i+'">').join('')));await page.waitForTimeout(700);const offscreen=requests.slice(start).filter(r=>r.p.includes('lazy')).length;assert.equal(offscreen,0);await page.evaluate(()=>{window.audit.suspend();window.scrollTo(0,20000);});await page.waitForTimeout(250);const suspended=requests.slice(start).filter(r=>r.p.includes('lazy')).length;assert.equal(suspended,0);await page.evaluate(()=>window.audit.resume());await page.waitForTimeout(300);const resumed=requests.slice(start).filter(r=>r.p.includes('lazy')).length;assert.equal(resumed,6);return {offscreen,suspended,resumed};}finally{await context.close();}});
 await run('L2 DPR2 selects 2x srcset not first candidate',async()=>{const {context,page}=await setup(2);const start=requests.length;try{await page.evaluate(()=>window.audit.insert('<img srcset="/attachments/small 1x, /attachments/large 2x">'));await page.waitForTimeout(500);assert.deepEqual(requests.slice(start).map(r=>r.p),['/attachments/large']);}finally{await context.close();}});
