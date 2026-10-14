@@ -6,6 +6,7 @@ const noteRoute = useRoute(), noteRouter = useRouter();
 import { marked } from "marked";
 import { localId } from "./localId";
 import { sanitizeNoteHtml, sanitizeNoteSvg } from "./noteHtml";
+import {guardPrivateMediaHtml,restorePrivateMediaHtml} from "../auth/privateMedia";
 const RichEditor = defineAsyncComponent(() => import("./RichEditor.vue"));
 import {
   getDoc, updateDoc, getDraft, toggleFavorite, createTag, addDocTag, removeDocTag, type Doc,
@@ -192,7 +193,7 @@ const rendered = computed(() => {
     /\[\[([^\[\]]+)\]\]/g,
     '<a class="wikilink" data-title="$1">$1</a>'
   );
-  return sanitizeNoteHtml(html);
+  return guardPrivateMediaHtml(sanitizeNoteHtml(html));
 });
 
 // ── mermaid 渲染：v-html 落 DOM 后，把 .mermaid 容器逐个渲染成 SVG ──
@@ -768,7 +769,7 @@ function localAttachIds(): string[] {
 const EXPORT_CSS = "body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,Inter,\"PingFang SC\",sans-serif;line-height:1.75;color:#222;font-size:15px}h1{font-size:30px;margin:30px 0 14px;padding-bottom:10px;border-bottom:1px solid #eee}h2{font-size:24px;margin:26px 0 12px}h3{font-size:21px;margin:20px 0 9px}p{margin:10px 0}ul,ol{padding-left:24px;margin:10px 0}li{margin:4px 0}blockquote{border-left:3px solid #ccc;padding:4px 0 4px 14px;color:#666;margin:14px 0}hr{border:none;height:1px;background:#ddd;margin:20px 0}img{max-width:100%;border-radius:8px;margin:12px auto;display:block}code{background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:13px}pre{background:#f4f4f4;padding:14px 18px;border-radius:8px;overflow:auto;margin:14px 0}pre code{background:none;padding:0}";
 
 function buildHtml(attachMap?: Map<string, string>) {
-  let body = rendered.value;
+  let body = restorePrivateMediaHtml(rendered.value);
   if (attachMap) {
     for (const [id, fname] of attachMap) {
       body = body.replaceAll(`/attachments/${id}`, `attachments/${fname}`);

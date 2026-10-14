@@ -21,12 +21,12 @@ import { useRouter, useRoute } from "vue-router";
 import { onMounted, onUnmounted } from "vue";
 
 const notesStore = useNotesStore();
-watch(()=>auth.suspended,suspended=>{if(suspended){clearSecurity();stopNotifications();}else if(auth.me&&!auth.sessionClosing){startNotifications();void loadSecurity().catch(()=>{});}},{flush:'sync'});
-watch(() => [auth.me?.id, auth.sessionGeneration, auth.sessionClosing] as const, ([id, session, closing], previous) => {
-  if (id !== previous?.[0] || session !== previous?.[1] || closing !== previous?.[2]) {
+watch(()=>auth.suspended||auth.sessionClosing,blocked=>{if(blocked){clearSecurity();stopNotifications();}else if(auth.me){startNotifications();void loadSecurity().catch(()=>{});}},{flush:'sync'});
+watch(() => [auth.me?.id, auth.sessionGeneration] as const, ([id, session], previous) => {
+  if (id !== previous?.[0] || session !== previous?.[1]) {
     notesStore.resetSession();
     resetNavigation(); clearSecurity();
-    if (id && !closing) { void loadNavigation(); void loadSecurity().catch(() => {}); }
+    if (id && !auth.sessionClosing) { void loadNavigation(); void loadSecurity().catch(() => {}); }
     if (id) startNotifications(); else stopNotifications();
     let cachedUser: string | undefined;
     try { cachedUser = JSON.parse(localStorage.getItem('stella_bootstrap') || '{}').userId; } catch { /* Invalid cache is discarded below. */ }
@@ -41,7 +41,7 @@ watch(settingsOpen, open => {
   void router.push({ path: '/settings', query: { section: 'navigation', module: 'home' } });
 }, { immediate: true });
 const route = useRoute();
-const loginVisible=computed(()=>loginPrompt.requested || auth.suspended || (auth.checked && !loggedIn.value && !route.meta.public));
+const loginVisible=computed(()=>!auth.sessionClosing && (loginPrompt.requested || auth.suspended || (auth.checked && !loggedIn.value && !route.meta.public)));
 async function closeLogin(){
  if(auth.suspended){auth.sessionClosing=true;auth.sessionGeneration++;auth.me=null;auth.suspended=false;auth.sessionClosing=false;}
  if(!route.meta.public)await router.replace("/");
@@ -70,6 +70,7 @@ onUnmounted(() => {
   clearInterval(sessionWatchdog);
   for (const event of activityEvents) document.removeEventListener(event, reportActivity, true);
 });
+import {vPrivateSrc} from "./modules/auth/privateMedia";
 import { lightbox, closeLightbox } from "./composables/useLightbox";
 
 // 放大器缩放/平移状态
@@ -121,7 +122,7 @@ function toggleSidebar() {
 </script>
 
 <template>
-  <div class="shell" :inert="loginVisible || undefined" :aria-hidden="loginVisible || undefined">
+  <div class="shell" :inert="loginVisible || auth.sessionClosing || undefined" :aria-hidden="loginVisible || auth.sessionClosing || undefined">
     <SideBar
       :collapsed="sidebarCollapsed"
       :mobile-open="mobileOpen"
@@ -160,7 +161,7 @@ function toggleSidebar() {
     <!-- 全局图片放大查看器：滚轮/按钮缩放 + 拖动平移 -->
     <div v-if="lightbox.src" class="lightbox" @click="closeLightbox" @wheel="onWheel">
       <img
-        :src="lightbox.src"
+        v-private-src="lightbox.src"
         :style="{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }"
         :class="{ pannable: zoom > 1 }"
         @click.stop
@@ -175,10 +176,12 @@ function toggleSidebar() {
       </div>
     </div>
   </div>
+  <Teleport to="body"><div v-if="auth.sessionClosing" class="logout-pending" role="status" aria-live="polite">正在退出登录…</div></Teleport>
   <Teleport to="body"><LoginModal v-if="loginVisible" @close="closeLogin" @success="loginSuccess" /></Teleport>
 </template>
 
 <style scoped>
+.logout-pending { position: fixed; inset: 0; z-index: 900; display: grid; place-items: center; background: rgba(0,0,0,.35); backdrop-filter: blur(6px); color: var(--text-hi); }
 .shell {
   display: flex;
   height: 100%;

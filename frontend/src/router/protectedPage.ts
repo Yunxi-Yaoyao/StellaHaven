@@ -8,7 +8,7 @@ export function protectedPage(name:string,loader:()=>Promise<{default:Component}
   let mounted=false;
   return ()=>{
    if(loggedIn.value)mounted=true;
-   if(!auth.sessionClosing&&(loggedIn.value||(mounted&&auth.suspended)))return h(Page);
+   if(loggedIn.value||(mounted&&(auth.suspended||auth.sessionClosing)))return h(Page);
    return h('div',{class:'protected-placeholder',role:'status'},'登录后继续');
   };
  }});

@@ -6,5 +6,7 @@ import App from "./App.vue";
 import router from "./router";
 import {installSessionFence} from "./modules/auth/sessionFence";
 installSessionFence();
+import {installPrivateMedia} from "./modules/auth/privateMedia";
+installPrivateMedia();
 
 createApp(App).use(createPinia()).use(router).mount("#app");

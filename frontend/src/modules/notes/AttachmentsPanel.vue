@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {vPrivateSrc} from "../auth/privateMedia";
 import { ref, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useNotesStore } from "../../stores/notes";
@@ -68,7 +69,7 @@ function onCardClick(a: AttachmentItem) {
         :title="isImage(a.mime) ? '点击看大图' : '点击下载「' + a.filename + '」'"
       >
         <div class="thumb">
-          <img v-if="isImage(a.mime)" :src="a.url" :alt="a.filename" loading="lazy" />
+          <img v-if="isImage(a.mime)" v-private-src="a.url" :alt="a.filename" loading="lazy" />
           <Icon v-else name="note" :size="40" />
         </div>
         <div class="info">

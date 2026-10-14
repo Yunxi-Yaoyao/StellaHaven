@@ -172,7 +172,7 @@ async function changePwd() {
     pwdMsg.value = d.hint ?? "已改";
     oldPwd.value = "";
     newPwd.value = "";
-    setTimeout(() => { logout(); router.push("/login"); }, 1200);
+    setTimeout(() => { void doLogout(); }, 1200);
   } else {
     pwdMsg.value = d.detail ?? "失败";
   }
@@ -194,8 +194,8 @@ function openMailEditor() {
 }
 
 async function doLogout() {
-  await logout();
-  router.push("/login");
+  try { await logout(); void router.push("/login"); }
+  catch { /* auth.logoutError remains visible beside the retry button. */ }
 }
 
 watch([isAdmin, tab], () => { if (isAdmin.value && tab.value === "services") void loadEmailCfg(); });
@@ -372,8 +372,9 @@ onMounted(() => {
           <div class="btn-row">
             <button class="btn ghost" @click="openMailEditor">{{ auth.me?.email ? "修改邮箱" : "绑定邮箱" }}</button>
             <button class="btn ghost" @click="pwdOpen = true">修改密码</button>
-            <button class="btn ghost" @click="doLogout">退出登录</button>
+            <button class="btn ghost" :disabled="auth.sessionClosing" @click="doLogout">退出登录</button>
           </div>
+          <p v-if="auth.logoutError" role="alert">{{ auth.logoutError }}（尚未确认退出，请再次点击退出登录）</p>
           <div v-if="profileMsg" class="ok-msg">{{ profileMsg }}</div>
 
           <!-- 头像历史（近 5 个，点选换回） -->

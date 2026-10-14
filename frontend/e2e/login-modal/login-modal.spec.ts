@@ -15,6 +15,8 @@ async function fixture(page:Page,{signed=false,initialized=true}={}){
   const send=(body:unknown,status=200)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(body)});
   if(p==='/auth/status')return send({has_users:initialized,initialized,email_enabled:true});
   if(p==='/config/site-background')return send({value:'/seed/showcase-image.svg'});
+  // Match the real router's public metadata GET; lists and writes remain protected below.
+  if(p==='/homebg/media'&&req.method()==='GET'){const value=url.searchParams.get('url');return send({url:value,status:'ready',poster:null,variants:{original:value}});}
   if(p==='/auth/me'||p==='/auth/refresh')return send(state.signed&&!state.expired?owner:{detail:'fixture unauthenticated'},state.signed&&!state.expired?200:401);
   if(['/auth/login','/auth/register','/auth/login-code'].includes(p)){
    if(state.offline)return route.abort('failed');
@@ -22,11 +24,12 @@ async function fixture(page:Page,{signed=false,initialized=true}={}){
    state.signed=true;state.expired=false;return send(owner);
   }
   if(p==='/auth/logout'){state.signed=false;return send({ok:true});}
-  if(p.startsWith('/auth/')||/^\/(navigation|workspaces|documents|tags|doc-tags|document-links|homebg|notifications|config)/.test(p)){
+  if(p.startsWith('/auth/')||/^\/(navigation|external-modules|workspaces|documents|tags|doc-tags|document-links|homebg|notifications|config)/.test(p)){
    state.privateRequests.push(req.method()+' '+p);
    if(!state.signed||state.expired)return send({detail:'fixture unauthenticated'},401);
    if(p==='/auth/security')return send({enabled:true,configured:true,elevated:false,expires_at:null,single_user:true,setup_required:false});
    if(p==='/auth/activity')return send({ok:true});
+   if(p==='/external-modules')return send([]);
    if(p==='/navigation')return send({modules:[],entries:[{id:'home',kind:'builtin',label:'主页',icon:'home',order:0,visible:true},{id:'notes',kind:'builtin',label:'笔记',icon:'book',order:1,visible:true},{id:'settings',kind:'builtin',label:'设置',icon:'settings',order:2,visible:true}]});
    if(p.startsWith('/workspaces'))return send(p.endsWith('/fixture-workspace')?{id:'fixture-workspace',name:'Fixture workspace',user_id:owner.id}:[{id:'fixture-workspace',name:'Fixture workspace',user_id:owner.id}]);
    if(p==='/documents/')return send([doc]);

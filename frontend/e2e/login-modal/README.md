@@ -21,6 +21,17 @@ Artifacts default to `$TMPDIR/stella-login-modal-evidence`; set `STELLA_LOGIN_QA
 
 The browser cases cover desktop and narrow viewports, Tab/Escape, focus return, error retry, initialization, direct NotesPage login, unsaved editor expiry/resume, protected cancellation, legacy links, logout and the existing administrator-elevation dialog.
 
+## Review-fix regressions
+
+- Same-origin authenticated media in note previews, rich image node views, attachment panels and the lightbox uses epoch-bound `fetch` → Blob → object URL, rather than native authenticated `src` loads. HTML is guarded in an inert template before insertion; private srcset and SVG image URLs cannot bypass admission. Markdown/ProseMirror source URLs are never replaced with blobs.
+- Expiry aborts pending producers and clears undecoded blob sources. Already-loaded media and editor instances survive same-owner resume. Replacement, removal, identity/generation change and controller teardown revoke owned URLs. HTML/Markdown ZIP exports retain original/relative source URLs; public assets still use native loaders.
+- Exactly `GET /homebg/media` is public, matching the backend router. The real background consumer is tested for compressed1 and poster; library lists, optimization and other writes are still protected.
+- Auth producers capture both lifecycle generation and request epoch, including the post-JSON commit. A same-owner resume may retain the editor generation but never revive old profile results.
+- Logout is single-flight. Pending logout keeps the protected page mounted but inert, displays a busy overlay, and prevents login/registration/code-login requests until the cookie-clearing response completes. Successful logout alone clears owner state. HTTP/transport failures restore an interactive retry button with an explicit failure alert. The browser regression uses real HTTP Set-Cookie handling with fixture-only cookies to prove logout/new-login ordering.
+- Third-party cached iframes are still **destroyed on suspension**. This is a security boundary, not a promise to preserve third-party drafts.
+
+The extra video is a tiny ffmpeg-generated neutral fixture, not user media. All new regressions are part of `test:login-modal`; none are skipped and the original focus/narrow/management/draft cases run again.
+
 ## Independent suites
 
 `test:full` is a separate wider regression gate; a passing login gate must not be reported as a passing full suite. On the `ff6fd06` baseline, `src/modules/servers/performance.test.ts` / `turning live off during a slow window load never restarts polling` fails with two signals instead of one. Keep that unrelated failure visible, and verify against the exact baseline rather than weakening its assertion or calling the full suite green.

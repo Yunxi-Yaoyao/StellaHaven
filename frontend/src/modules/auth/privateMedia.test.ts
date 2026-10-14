@@ -1,0 +1,51 @@
+import {it,expect,vi,afterEach} from 'vitest';
+import {auth,acceptLogin} from '../home/auth';
+import {sanitizeNoteHtml} from '../notes/noteHtml';
+// The implementation is imported dynamically so RED exercises existing display HTML too.
+let dispose:(()=>void)|undefined;
+afterEach(()=>{dispose?.();dispose=undefined;vi.unstubAllGlobals();vi.restoreAllMocks();document.body.innerHTML='';});
+it('private display HTML never gives a native loader an authenticated URL',async()=>{
+ const {guardPrivateMediaHtml}=await import('./privateMedia');
+ const html=guardPrivateMediaHtml(sanitizeNoteHtml('<p>draft retained</p><img src="/attachments/private" alt="draft"><video src="/attachments/movie"></video>'));
+ const host=document.createElement('div');host.innerHTML=html;
+ expect(host.querySelector('img')?.hasAttribute('src')).toBe(false);
+ expect(host.querySelector('img')?.getAttribute('data-private-src')).toBe('/attachments/private');
+ expect(host.querySelector('video')?.hasAttribute('src')).toBe(false);
+ expect(host.textContent).toBe('draft retained');
+});
+it('private srcset and SVG image href cannot bypass media admission and exports recover source URLs',async()=>{
+ const {guardPrivateMediaHtml,restorePrivateMediaHtml}=await import('./privateMedia');
+ const source='<img srcset="/attachments/one 1x, /attachments/two 2x"><svg><image href="/attachments/svg" /></svg>';
+ const host=document.createElement('div');host.innerHTML=guardPrivateMediaHtml(sanitizeNoteHtml(source));
+ expect(host.querySelector('img')?.hasAttribute('srcset')).toBe(false);
+ expect(host.querySelector('img')?.getAttribute('data-private-src')).toBe('/attachments/one');
+ expect(host.querySelector('image')?.hasAttribute('href')).toBe(false);
+ expect(host.querySelector('image')?.getAttribute('data-private-href')).toBe('/attachments/svg');
+ const exported=restorePrivateMediaHtml(host.innerHTML);expect(exported).toContain('srcset="/attachments/one 1x, /attachments/two 2x"');expect(exported).toContain('href="/attachments/svg"');
+});
+it('media epoch rejects an ignored abort, retries on resume, and revokes detached URLs',async()=>{
+ const {installPrivateMedia,guardPrivateMediaHtml,setPrivateMediaSource}=await import('./privateMedia');
+ const owner={id:'media-owner',username:'fixture',display_name:'Fixture',home_bg:'x',avatar_url:'',is_admin:false,email:'',email_verified:false};
+ Object.assign(auth,{me:owner,checked:true,suspended:false,sessionClosing:false,sessionGeneration:501,requestEpoch:1});
+ let release!:(r:Response)=>void;
+ const network=vi.fn(()=>new Promise<Response>(r=>release=r));vi.stubGlobal('fetch',network);
+ const create=vi.fn(()=> 'blob:fixture-private'),revoke=vi.fn();
+ const NativeURL=URL;
+ vi.stubGlobal('URL',class extends NativeURL {static createObjectURL=create;static revokeObjectURL=revoke;});
+ dispose=installPrivateMedia();
+ const host=document.createElement('div');host.innerHTML=guardPrivateMediaHtml('<img src="/attachments/private">');document.body.append(host);
+ await vi.waitFor(()=>expect(network).toHaveBeenCalledTimes(1));
+ auth.requestEpoch++;auth.suspended=true;
+ expect(network.mock.calls[0]?.length).toBeGreaterThan(0);
+ release(new Response('late'));await new Promise(r=>setTimeout(r,10));
+ expect(create).not.toHaveBeenCalled();expect(host.querySelector('img')?.hasAttribute('src')).toBe(false);
+ acceptLogin(owner);await vi.waitFor(()=>expect(network).toHaveBeenCalledTimes(2));
+ release(new Response('fresh'));await vi.waitFor(()=>expect(host.querySelector('img')?.getAttribute('src')).toBe('blob:fixture-private'));
+ const img=host.querySelector('img')!;Object.defineProperty(img,'naturalWidth',{value:10});img.dispatchEvent(new Event('load'));
+ auth.requestEpoch++;auth.suspended=true;expect(img.getAttribute('src')).toBe('blob:fixture-private');expect(revoke).not.toHaveBeenCalled();
+ host.remove();await vi.waitFor(()=>expect(revoke).toHaveBeenCalledWith('blob:fixture-private'));
+ acceptLogin(owner);const next=document.createElement('div');next.innerHTML=guardPrivateMediaHtml('<img src="/attachments/private">');document.body.append(next);
+ await vi.waitFor(()=>expect(network).toHaveBeenCalledTimes(3));release(new Response('replacement'));await vi.waitFor(()=>expect(create).toHaveBeenCalledTimes(2));
+ const nextImage=next.querySelector('img')!;setPrivateMediaSource(nextImage,'/assets/public.svg');
+ await vi.waitFor(()=>expect(revoke).toHaveBeenCalledTimes(2));expect(nextImage.getAttribute('src')).toBe('/assets/public.svg');
+});

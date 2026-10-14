@@ -9,6 +9,7 @@ import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand,
   wrapInHeadingCommand, wrapInBulletListCommand, wrapInBlockquoteCommand, insertHrCommand,
   toggleLinkCommand, insertImageCommand } from '@milkdown/kit/preset/commonmark';
 import { createRichMarkdown, RichMarkdownSession } from './richMarkdown';
+import {setPrivateMediaSource} from '../auth/privateMedia';
 import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/classic.css';
 
@@ -86,6 +87,13 @@ onMounted(async () => {
           if (changed !== undefined) emit('update:modelValue', changed);
         }
       },
+      // The schema retains the attachment URL; only the display node uses a guarded blob.
+      nodeViews: { image(node) {
+        const dom=document.createElement('img');
+        dom.alt=node.attrs.alt||'';if(node.attrs.title)dom.title=node.attrs.title;
+        setPrivateMediaSource(dom,node.attrs.src||'');
+        return {dom};
+      } },
       attributes: { 'aria-label': '笔记富文本编辑器', spellcheck: 'false' },
     });
     load();

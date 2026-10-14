@@ -19,6 +19,7 @@ export const auth = reactive({
   sessionGeneration: 0,
   requestEpoch: 0, // Network fence can advance while the editor lifetime stays intact.
   sessionClosing: false,
+  logoutError: '',
   suspended: false, // Confirmed expiry freezes mounted drafts until reauthentication.
   checked: false, // 首次 /auth/me 探测过没有
   error: '', // Transport failures are not a confirmed guest session.
@@ -27,10 +28,11 @@ export const auth = reactive({
 export const loggedIn = computed(() => auth.me !== null && !auth.suspended && !auth.sessionClosing);
 /** Only an explicit successful login can resume an expired owner. */
 export function acceptLogin(me:Me){
+ if(auth.sessionClosing)throw new Error('正在退出登录，请稍候');
  auth.requestEpoch++;
  const resume=auth.suspended&&auth.me?.id===me.id&&!auth.sessionClosing;
  if(!resume)auth.sessionGeneration++;
- auth.sessionClosing=false;auth.suspended=false;auth.error='';auth.me=me;auth.checked=true;
+ auth.sessionClosing=false;auth.suspended=false;auth.error='';auth.logoutError='';auth.me=me;auth.checked=true;
 }
 export interface SecurityState { enabled:boolean; configured:boolean; elevated:boolean; expires_at:string|null; single_user:boolean; setup_required:boolean }
 export const security = reactive<SecurityState>({enabled:true,configured:false,elevated:false,expires_at:null,single_user:true,setup_required:true});
@@ -69,8 +71,8 @@ export const currentAvatar = computed(() =>
   auth.me?.avatar_url || homeSettings.avatar
 );
 
-let _refreshing: {generation:number;promise:Promise<boolean>} | null = null;
-const sessionCurrent=(generation:number)=>generation===auth.sessionGeneration&&!auth.sessionClosing;
+let _refreshing: {generation:number;epoch:number;promise:Promise<boolean>} | null = null;
+const sessionCurrent=(generation:number,epoch:number)=>generation===auth.sessionGeneration&&epoch===auth.requestEpoch&&!auth.sessionClosing;
 let lastActivityReport = 0;
 /** Only actual input extends server idle time; background requests never do. */
 export async function reportActivity(event: Event): Promise<void> {
@@ -88,27 +90,30 @@ export async function reportActivity(event: Event): Promise<void> {
 
 /** 单例 refresh：并发 401 时只发一个 refresh，避免旋转制 refresh token 被并发转废 */
 export function refreshAccess(): Promise<boolean> {
-  const generation=auth.sessionGeneration;
-  if(!sessionCurrent(generation)||auth.suspended)return Promise.resolve(false);
-  if(_refreshing?.generation===generation)return _refreshing.promise;
+  const generation=auth.sessionGeneration,epoch=auth.requestEpoch;
+  if(!sessionCurrent(generation,epoch)||auth.suspended)return Promise.resolve(false);
+  if(_refreshing?.generation===generation&&_refreshing.epoch===epoch)return _refreshing.promise;
   // A late old finally must not clear the new session's single-flight request.
-  const flight={generation,promise:Promise.resolve(false)};
+  const flight={generation,epoch,promise:Promise.resolve(false)};
   _refreshing=flight;
   flight.promise=(async()=>{
     let rejected=false;
     try {
       for(let attempt=0;attempt<2;attempt++) {
-        if(!sessionCurrent(generation))return false;
+        if(!sessionCurrent(generation,epoch))return false;
         try {
           const r=await fetch('/auth/refresh',{method:'POST'});
-          if(!sessionCurrent(generation))return false;
-          if(r.ok){const me=await r.json();if(!sessionCurrent(generation))return false;auth.me=me;auth.error='';return true;}
+          if(!sessionCurrent(generation,epoch))return false;
+          if(r.ok){const me=await r.json();if(!sessionCurrent(generation,epoch))return false;auth.me=me;auth.error='';return true;}
           if(r.status!==401&&r.status!==403){auth.error='身份确认失败，请重试';return false;}
           rejected=true;
           if(attempt===0)await new Promise(resolve=>setTimeout(resolve,300));
-        } catch {if(sessionCurrent(generation))auth.error='身份确认失败，请重试';return false;}
+        } catch {if(sessionCurrent(generation,epoch))auth.error='身份确认失败，请重试';return false;}
       }
-      if(rejected&&sessionCurrent(generation)){auth.requestEpoch++;auth.suspended=!!auth.me;auth.error='';clearSecurity();}
+      if(rejected&&sessionCurrent(generation,epoch)){
+        auth.requestEpoch++;auth.suspended=!!auth.me;auth.error='';auth.checked=true;clearSecurity();
+        if(!auth.me)void loadSiteConfig();
+      }
       return false;
     } finally {if(_refreshing===flight)_refreshing=null;}
   })();
@@ -116,20 +121,20 @@ export function refreshAccess(): Promise<boolean> {
 }
 
 export async function fetchMe(): Promise<boolean> {
-  const generation=auth.sessionGeneration;
-  if(!sessionCurrent(generation)||auth.suspended)return false;
+  const generation=auth.sessionGeneration,epoch=auth.requestEpoch;
+  if(!sessionCurrent(generation,epoch)||auth.suspended)return false;
   try {
     const r=await fetch('/auth/me');
-    if(!sessionCurrent(generation))return false;
+    if(!sessionCurrent(generation,epoch))return false;
     if(r.ok){
-      const me=await r.json();if(!sessionCurrent(generation))return false;
+      const me=await r.json();if(!sessionCurrent(generation,epoch))return false;
       auth.me=me;auth.error='';auth.checked=true;void migrateLegacyBg();return true;
     }
     if(r.status!==401&&r.status!==403){auth.error='身份确认失败，请重试';auth.checked=true;return false;}
-    const refreshed=await refreshAccess();if(!sessionCurrent(generation))return false;
+    const refreshed=await refreshAccess();if(!sessionCurrent(generation,epoch))return false;
     if(refreshed){auth.checked=true;void migrateLegacyBg();return true;}
-  } catch {if(sessionCurrent(generation)){auth.error='身份确认失败，请重试';auth.checked=true;}return false;}
-  if(!sessionCurrent(generation))return false;
+  } catch {if(sessionCurrent(generation,epoch)){auth.error='身份确认失败，请重试';auth.checked=true;}return false;}
+  if(!sessionCurrent(generation,epoch))return false;
   auth.checked=true;
   if(!auth.me)void loadSiteConfig();
   return false;
@@ -149,8 +154,8 @@ export async function loadSiteConfig(): Promise<void> {
 
 /** 背景从 localStorage 迁到账号级 home_bg：登录后若 home_bg 空，把旧 localStorage 背景迁过去（一次性） */
 async function migrateLegacyBg() {
-  const generation=auth.sessionGeneration,owner=auth.me?.id;
-  if(!owner||!sessionCurrent(generation))return;
+  const generation=auth.sessionGeneration,epoch=auth.requestEpoch,owner=auth.me?.id;
+  if(!owner||!sessionCurrent(generation,epoch))return;
   if (auth.me?.home_bg) return; // 已有账号级背景，不用迁移
   try {
     const legacy = localStorage.getItem("stella_home_bg");
@@ -160,7 +165,7 @@ async function migrateLegacyBg() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ home_bg: legacy }),
     });
-    if(r.ok){const me=await r.json();if(sessionCurrent(generation)&&auth.me?.id===owner)auth.me=me;}
+    if(r.ok){const me=await r.json();if(sessionCurrent(generation,epoch)&&auth.me?.id===owner)auth.me=me;}
   } catch { /* 迁移失败不致命，用户可手动重设 */ }
 }
 
@@ -187,13 +192,30 @@ export async function register(username: string, password: string, displayName?:
   return null;
 }
 
-export async function logout(): Promise<void> {
-  auth.requestEpoch++;auth.sessionClosing = true; auth.sessionGeneration++;
-  clearSecurity();
-  const r = await fetch("/auth/logout", { method: "POST" });
-  if (!r.ok) throw new Error('退出未成功，请检查网络后重试');
-  auth.me = null; auth.suspended=false; auth.sessionClosing = false; auth.error='';
-  lastActivityReport = 0;
+let logoutFlight: Promise<void> | null = null;
+export function logout(): Promise<void> {
+  if(logoutFlight)return logoutFlight;
+  const epoch=++auth.requestEpoch, generation=auth.sessionGeneration, owner=auth.me?.id;
+  auth.logoutError='';auth.sessionClosing=true;clearSecurity();
+  const current=()=>auth.sessionClosing&&auth.requestEpoch===epoch&&auth.sessionGeneration===generation&&auth.me?.id===owner;
+  const pending=(async()=>{
+    try {
+      const r=await fetch('/auth/logout',{method:'POST'});
+      if(!current())return;
+      if(!r.ok)throw new Error('退出未成功，请检查网络后重试');
+      // Destroy owner state only after the server's cookie-clearing response settles.
+      auth.requestEpoch++;auth.sessionGeneration++;auth.me=null;
+      auth.suspended=false;auth.error='';lastActivityReport=0;
+    } catch(cause) {
+      if(current())auth.logoutError='退出未成功，请检查网络后重试';
+      throw cause;
+    } finally {
+      if(current() || auth.requestEpoch===epoch+1&&auth.me===null&&auth.sessionGeneration===generation+1)auth.sessionClosing=false;
+    }
+  })();
+  logoutFlight=pending;
+  void pending.then(()=>{if(logoutFlight===pending)logoutFlight=null;},()=>{if(logoutFlight===pending)logoutFlight=null;});
+  return pending;
 }
 
 export async function authStatus(): Promise<boolean> {
