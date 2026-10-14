@@ -2,9 +2,12 @@ import {watch} from 'vue';
 import {auth} from '../home/auth';
 const privatePrefixes=/^\/(?:auth|workspaces|documents|doc-tags|tags|document-links|document-versions|attachments|homebg|navigation|notifications|servers|monitor|drive|gallery|users|config|services|websites|operations|nodes|monitors|tasks|notes-tools|service-settings|website-settings|integration-targets|integration-presets|external-modules|builtin-injections|admin|search|alerts)(?:\/|$)/;
 const entryPaths=new Set(['/auth/status','/auth/login','/auth/register','/auth/refresh','/auth/logout','/auth/forgot','/auth/reset','/auth/login-code','/auth/login-code/send','/auth/email/resend','/auth/register-invite']);
+export function parseMediaUrl(path:string){
+ try{return new URL(path,location.href);}catch{return undefined;}
+}
 export function privateRequest(path:string,method='GET'){
- const url=new URL(path,location.href);
- if(url.origin!==location.origin)return false;
+ const url=parseMediaUrl(path);
+ if(!url||url.origin!==location.origin)return false;
  if(entryPaths.has(url.pathname)||method==='GET'&&['/auth/me','/config/site-background','/homebg/media'].includes(url.pathname))return false;
  return privatePrefixes.test(url.pathname);
 }
@@ -18,9 +21,10 @@ export function installSessionFence(){
  window.fetch=async(input,init)=>{
   const path=typeof input==='string'?input:input instanceof URL?input.href:input.url;
   const method=init?.method||(typeof input==='object'&&'method' in input?input.method:'GET');
-  const url=new URL(path,location.href);
+  const url=parseMediaUrl(path);
+  // Malformed URLs still receive the native fetch rejection, without crashing classification.
   // Serialize cookie-changing responses, not just local identity assignments.
-  if(auth.sessionClosing && url.origin===location.origin && /^\/auth\/(?:login|register|login-code|register-invite|refresh)(?:\/|$)/.test(url.pathname))throw new DOMException('正在退出登录，请稍候','AbortError');
+  if(auth.sessionClosing && url?.origin===location.origin && /^\/auth\/(?:login|register|login-code|register-invite|refresh)(?:\/|$)/.test(url.pathname))throw new DOMException('正在退出登录，请稍候','AbortError');
   const privateCall=privateRequest(path,method.toUpperCase());
   const generation=auth.sessionGeneration,owner=auth.me?.id,epoch=auth.requestEpoch;
   if(privateCall)assertSession(generation,owner,epoch);

@@ -18,34 +18,57 @@ it('private srcset and SVG image href cannot bypass media admission and exports 
  const source='<img srcset="/attachments/one 1x, /attachments/two 2x"><svg><image href="/attachments/svg" /></svg>';
  const host=document.createElement('div');host.innerHTML=guardPrivateMediaHtml(sanitizeNoteHtml(source));
  expect(host.querySelector('img')?.hasAttribute('srcset')).toBe(false);
- expect(host.querySelector('img')?.getAttribute('data-private-src')).toBe('/attachments/one');
+ expect(host.querySelector('img')?.getAttribute('data-private-srcset')).toBe('/attachments/one 1x, /attachments/two 2x');
+ expect(host.querySelector('img')?.getAttribute('data-private-src')).toBe('');
  expect(host.querySelector('image')?.hasAttribute('href')).toBe(false);
  expect(host.querySelector('image')?.getAttribute('data-private-href')).toBe('/attachments/svg');
  const exported=restorePrivateMediaHtml(host.innerHTML);expect(exported).toContain('srcset="/attachments/one 1x, /attachments/two 2x"');expect(exported).toContain('href="/attachments/svg"');
 });
-it('media epoch rejects an ignored abort, retries on resume, and revokes detached URLs',async()=>{
+it('media epoch detaches pending native sources, ignores late callbacks, resumes and cleans replacement/removal',async()=>{
  const {installPrivateMedia,guardPrivateMediaHtml,setPrivateMediaSource}=await import('./privateMedia');
  const owner={id:'media-owner',username:'fixture',display_name:'Fixture',home_bg:'x',avatar_url:'',is_admin:false,email:'',email_verified:false};
  Object.assign(auth,{me:owner,checked:true,suspended:false,sessionClosing:false,sessionGeneration:501,requestEpoch:1});
- let release!:(r:Response)=>void;
- const network=vi.fn(()=>new Promise<Response>(r=>release=r));vi.stubGlobal('fetch',network);
- const create=vi.fn(()=> 'blob:fixture-private'),revoke=vi.fn();
- const NativeURL=URL;
- vi.stubGlobal('URL',class extends NativeURL {static createObjectURL=create;static revokeObjectURL=revoke;});
+ const network=vi.fn();vi.stubGlobal('fetch',network);
  dispose=installPrivateMedia();
  const host=document.createElement('div');host.innerHTML=guardPrivateMediaHtml('<img src="/attachments/private">');document.body.append(host);
- await vi.waitFor(()=>expect(network).toHaveBeenCalledTimes(1));
+ const img=host.querySelector('img')!;
+ await vi.waitFor(()=>expect(img.getAttribute('src')).toBe('/attachments/private'));
+ expect(network).not.toHaveBeenCalled();
  auth.requestEpoch++;auth.suspended=true;
- expect(network.mock.calls[0]?.length).toBeGreaterThan(0);
- release(new Response('late'));await new Promise(r=>setTimeout(r,10));
- expect(create).not.toHaveBeenCalled();expect(host.querySelector('img')?.hasAttribute('src')).toBe(false);
- acceptLogin(owner);await vi.waitFor(()=>expect(network).toHaveBeenCalledTimes(2));
- release(new Response('fresh'));await vi.waitFor(()=>expect(host.querySelector('img')?.getAttribute('src')).toBe('blob:fixture-private'));
- const img=host.querySelector('img')!;Object.defineProperty(img,'naturalWidth',{value:10});img.dispatchEvent(new Event('load'));
- auth.requestEpoch++;auth.suspended=true;expect(img.getAttribute('src')).toBe('blob:fixture-private');expect(revoke).not.toHaveBeenCalled();
- host.remove();await vi.waitFor(()=>expect(revoke).toHaveBeenCalledWith('blob:fixture-private'));
+ expect(img.hasAttribute('src')).toBe(false);
+ img.dispatchEvent(new Event('load'));await new Promise(r=>setTimeout(r,10));expect(img.hasAttribute('src')).toBe(false);
+ acceptLogin(owner);await vi.waitFor(()=>expect(img.getAttribute('src')).toBe('/attachments/private'));
+ Object.defineProperties(img,{naturalWidth:{value:10},complete:{value:true}});
+ auth.requestEpoch++;auth.suspended=true;expect(img.getAttribute('src')).toBe('/attachments/private');
+ host.remove();await vi.waitFor(()=>expect(img.hasAttribute('src')).toBe(false));
  acceptLogin(owner);const next=document.createElement('div');next.innerHTML=guardPrivateMediaHtml('<img src="/attachments/private">');document.body.append(next);
- await vi.waitFor(()=>expect(network).toHaveBeenCalledTimes(3));release(new Response('replacement'));await vi.waitFor(()=>expect(create).toHaveBeenCalledTimes(2));
- const nextImage=next.querySelector('img')!;setPrivateMediaSource(nextImage,'/assets/public.svg');
- await vi.waitFor(()=>expect(revoke).toHaveBeenCalledTimes(2));expect(nextImage.getAttribute('src')).toBe('/assets/public.svg');
+ const nextImage=next.querySelector('img')!;await vi.waitFor(()=>expect(nextImage.getAttribute('src')).toBe('/attachments/private'));
+ setPrivateMediaSource(nextImage,'/assets/public.svg');await new Promise(r=>setTimeout(r,10));expect(nextImage.getAttribute('src')).toBe('/assets/public.svg');
+ setPrivateMediaSource(nextImage,'/attachments/replacement');await vi.waitFor(()=>expect(nextImage.getAttribute('src')).toBe('/attachments/replacement'));
+ auth.me={...owner,id:'other-owner'};expect(nextImage.hasAttribute('src')).toBe(false);
+ await new Promise(r=>setTimeout(r,10));expect(nextImage.hasAttribute('src')).toBe(false);
+ dispose();dispose=undefined;expect(nextImage.hasAttribute('src')).toBe(false);
+});
+it.each(['http://[','https://host:invalid/image'])('invalid URL %s rejects only media, retains body and valid image',async url=>{
+ const {guardPrivateMediaHtml}=await import('./privateMedia');
+ const host=document.createElement('div');host.innerHTML=guardPrivateMediaHtml(sanitizeNoteHtml('<p>draft intact</p><img src="'+url+'"><img src="/attachments/good">'));
+ expect(host.textContent).toBe('draft intact');expect(host.querySelector('img')?.hasAttribute('src')).toBe(false);expect(host.querySelector('img:last-child')?.getAttribute('data-private-src')).toBe('/attachments/good');
+});
+it('imported SVG filter loaders are removed but ordinary SVG image/vector content remains',async()=>{
+ const {guardPrivateMediaHtml}=await import('./privateMedia');
+ const host=document.createElement('div');host.innerHTML=guardPrivateMediaHtml(sanitizeNoteHtml('<svg><defs><filter id="f"><feImage href="/attachments/filter"/></filter></defs><rect width="10"/><image href="/attachments/image"/></svg>'));
+ expect(host.querySelector('feImage')).toBeNull();expect(host.querySelector('rect')).not.toBeNull();expect(host.querySelector('image')?.hasAttribute('href')).toBe(false);
+});
+it('untrusted note data-private metadata cannot create active javascript links or forge media sources',async()=>{
+ const {guardPrivateMediaHtml,restorePrivateMediaHtml}=await import('./privateMedia');
+ const result=guardPrivateMediaHtml(sanitizeNoteHtml('<a data-private-href="javascript:alert(1)">text</a><img data-private-src="/attachments/forged" src="/attachments/real">'));
+ const host=document.createElement('div');host.innerHTML=result;
+ expect(host.querySelector('a')?.hasAttribute('data-private-href')).toBe(false);
+ expect(host.querySelector('img')?.getAttribute('data-private-src')).toBe('/attachments/real');
+ expect(restorePrivateMediaHtml(result)).not.toContain('javascript:');
+});
+it('malformed fetch classification delegates native rejection without crashing URL parser',async()=>{
+ const {privateRequest,installSessionFence}=await import('./sessionFence');
+ const error=new TypeError('native invalid URL');const network=vi.fn().mockRejectedValue(error);vi.stubGlobal('fetch',network);
+ const restore=installSessionFence();try{expect(privateRequest('http://[')).toBe(false);await expect(fetch('http://[')).rejects.toBe(error);expect(network).toHaveBeenCalledOnce();}finally{restore();}
 });

@@ -87,7 +87,7 @@ onMounted(async () => {
           if (changed !== undefined) emit('update:modelValue', changed);
         }
       },
-      // The schema retains the attachment URL; only the display node uses a guarded blob.
+      // The schema retains the attachment URL; only native display admission is guarded.
       nodeViews: { image(node) {
         const dom=document.createElement('img');
         dom.alt=node.attrs.alt||'';if(node.attrs.title)dom.title=node.attrs.title;

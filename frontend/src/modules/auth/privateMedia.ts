@@ -1,143 +1,145 @@
 import {watch, type Directive} from 'vue';
 import {auth} from '../home/auth';
-import {privateRequest,sessionBlocked,assertSession} from './sessionFence';
+import {privateRequest,sessionBlocked,parseMediaUrl} from './sessionFence';
 
+const attributes=['srcset','src','poster','href','xlink:href','background'] as const;
+const marker=(attr:string)=>`data-private-${attr.replace(':','-')}`;
+const selector=attributes.map(attr=>`[${marker(attr)}]`).join(',');
 /** Display URLs only: never mutate Markdown or ProseMirror's source attributes. */
 export function setPrivateMediaSource(el:Element,url:string,attr='src') {
-  if(url && privateRequest(url)) {
-    el.removeAttribute(attr);
-    el.setAttribute(`data-private-${attr}`,url);
-  } else {
-    el.removeAttribute(`data-private-${attr}`);
-    if(url)el.setAttribute(attr,url);else el.removeAttribute(attr);
-  }
+  el.removeAttribute(marker(attr));
+  if(url && parseMediaUrl(url)) {
+    if(privateRequest(url)) {el.removeAttribute(attr);el.setAttribute(marker(attr),url);}
+    else el.setAttribute(attr,url);
+  } else el.removeAttribute(attr);
 }
 export const vPrivateSrc:Directive<HTMLElement,string>={
   beforeMount:(el,{value})=>setPrivateMediaSource(el,value),
   updated:(el,{value,oldValue})=>{if(value!==oldValue)setPrivateMediaSource(el,value);},
 };
-/** Inert parsing before v-html insertion prevents native loads, including during suspension. */
+// Read only candidate URLs, not descriptors. Data URL commas are part of the URL.
+function candidates(srcset:string):string[] {
+  const urls:string[]=[];let rest=srcset;
+  while(rest) {
+    rest=rest.replace(/^[\s,]+/,'');if(!rest)break;
+    const token=/^\S+/.exec(rest)![0];rest=rest.slice(token.length);
+    urls.push(token.replace(/,+$/,''));
+    if(!token.endsWith(',')){const end=rest.indexOf(',');rest=end<0?'':rest.slice(end+1);}
+  }
+  return urls;
+}
+/** Inert parsing before insertion. Native selection/streaming runs only after admission. */
 export function guardPrivateMediaHtml(html:string):string {
   const template=document.createElement('template');template.innerHTML=html;
-  for(const el of template.content.querySelectorAll('img,video,audio,source,image,input[type=image]')) {
-    for(const attr of ['src','poster','href']) {
-      const url=el.getAttribute(attr);if(url&&privateRequest(url))setPrivateMediaSource(el,url,attr);
+  // Internal display metadata is not trusted note input (DOMPurify allows data-*).
+  for(const el of template.content.querySelectorAll(selector))for(const attr of attributes)el.removeAttribute(marker(attr));
+  for(const el of template.content.querySelectorAll('img,video,audio,source,track,image,input[type=image],[background]')) {
+    for(const attr of ['src','poster','href','xlink:href','background']) {
+      const url=el.getAttribute(attr);if(url)setPrivateMediaSource(el,url,attr);
     }
-    // A private candidate must not bypass the guarded src via the native srcset loader.
-    const linked=el.getAttribute('xlink:href');
-    if(linked&&privateRequest(linked)){el.removeAttribute('xlink:href');setPrivateMediaSource(el,linked,'href');}
     const srcset=el.getAttribute('srcset');
-    const candidates=srcset?.split(',').map(part=>part.trim().split(/\s+/)[0]!).filter(Boolean);
-    if(candidates?.some(url=>privateRequest(url))) {
-      el.setAttribute('data-private-srcset',srcset!);el.removeAttribute('srcset');
-      if(!el.hasAttribute('src')&&!el.hasAttribute('data-private-src'))setPrivateMediaSource(el,candidates[0]!);
+    if(srcset) {
+      const urls=candidates(srcset);
+      if(urls.some(url=>!parseMediaUrl(url)))el.removeAttribute('srcset');
+      else if(urls.some(url=>privateRequest(url))){el.setAttribute(marker('srcset'),srcset);el.removeAttribute('srcset');}
+    }
+  }
+  for(const img of template.content.querySelectorAll('img[data-private-srcset]'))if(!img.hasAttribute(marker('src'))) {
+    img.setAttribute(marker('src'),img.getAttribute('src')||'');img.removeAttribute('src');
+  }
+  // A private picture candidate also owns the fallback image's display lifetime.
+  // Empty srcset marks absence so exports/resume can remove a frozen selection.
+  for(const source of template.content.querySelectorAll('picture source[data-private-srcset]')) {
+    const img=source.parentElement?.querySelector('img');if(!img)continue;
+    for(const attr of ['srcset','src'])if(!img.hasAttribute(marker(attr))) {
+      const value=img.getAttribute(attr);if(value!==null||attr==='srcset'){img.setAttribute(marker(attr),value||'');img.removeAttribute(attr);}
     }
   }
   return template.innerHTML;
 }
-/** HTML exports retain original/relative URLs, never transient object URLs. */
+/** HTML exports retain original/relative URLs, never frozen display selections. */
 export function restorePrivateMediaHtml(html:string):string {
   const template=document.createElement('template');template.innerHTML=html;
-  for(const el of template.content.querySelectorAll('[data-private-src],[data-private-poster],[data-private-href]')) {
-    for(const attr of ['src','poster','href']) {
-      const url=el.getAttribute(`data-private-${attr}`);
-      if(url!==null){el.setAttribute(attr,url);el.removeAttribute(`data-private-${attr}`);}
-    }
+  for(const el of template.content.querySelectorAll(selector))for(const attr of attributes) {
+    const url=el.getAttribute(marker(attr));
+    if(url!==null){if(url)el.setAttribute(attr,url);else el.removeAttribute(attr);el.removeAttribute(marker(attr));}
   }
-  for(const el of template.content.querySelectorAll('[data-private-srcset]')){el.setAttribute('srcset',el.getAttribute('data-private-srcset')!);el.removeAttribute('data-private-srcset');}
   return template.innerHTML;
 }
 
-type Media={el:Element;attr:string;source:string;owner:string|undefined;generation:number;epoch:number;controller?:AbortController;objectUrl?:string;loaded:boolean;removeListeners:()=>void};
-/** Private native media goes through an epoch-bound blob producer before native decoding.
- * Loaded media stays in memory on expiry; pending loads are canceled and never admitted.
- * Owner changes, removal, replacement and teardown revoke all owned object URLs.
+type Media={el:Element;sources:Map<string,string>;display:Map<string,string>;owner:string|undefined;generation:number;frozen?:boolean};
+/** No fetch/blob producer: preserve browser Range, lazy, srcset/sizes and picture selection.
+ * Synchronous session transitions detach pending sources. Completed HTML images survive
+ * same-owner expiry; video/audio pause+load discards buffers (not a buffer-retention promise).
+ * Native cancellation cannot retract requests already issued or bytes already downloaded.
+ * The server must authenticate every request. No asynchronous callbacks write sources back.
  */
 export function installPrivateMedia(root:Node=document.documentElement) {
-  const records=new Map<Element,Map<string,Media>>();
+  const records=new Map<Element,Media>(),retired=new WeakSet<Element>();
   let disposed=false;
-  function cancel(record:Media,discard=false) {
-    record.controller?.abort();record.controller=undefined;
-    if(discard||!record.loaded) {
-      if(record.objectUrl){
-        const url=record.objectUrl;
-        if(record.el.getAttribute(record.attr)===url)record.el.removeAttribute(record.attr);
-        const player=record.el instanceof HTMLMediaElement?record.el:record.el.parentElement;
-        if(player instanceof HTMLMediaElement&&player.currentSrc===url){player.pause();player.load();}
-        URL.revokeObjectURL(url);record.objectUrl=undefined;
-      }
-      record.loaded=false;
+  const sameOwner=(r:Media)=>r.owner===auth.me?.id&&r.generation===auth.sessionGeneration;
+  function detach(r:Media) {
+    for(const [attr,url] of r.display)if(r.el.getAttribute(attr)===url)r.el.removeAttribute(attr);
+    r.display.clear();r.frozen=false;
+  }
+  function player(el:Element){return el instanceof HTMLMediaElement?el:el.parentElement instanceof HTMLMediaElement?el.parentElement:undefined;}
+  function pause(discard=false) {
+    const players=new Set<HTMLMediaElement>();
+    // Freeze selected completed images before removing their picture/srcset candidates.
+    for(const r of [...records.values()].sort((a,b)=>Number(b.el instanceof HTMLImageElement)-Number(a.el instanceof HTMLImageElement))) {
+      const el=r.el;
+      if(!discard&&sameOwner(r)&&r.frozen)continue;
+      if(!discard&&sameOwner(r)&&el instanceof HTMLImageElement&&el.complete&&el.naturalWidth>0) {
+        if(r.sources.has('srcset')||el.parentElement?.tagName==='PICTURE') {
+          // Only already decoded responsive images need a local pixel snapshot on pause.
+          // Native srcset removal/reselection re-requests no-store sources. Never fetch
+          // or snapshot pending media; a tainted canvas fails closed by detaching.
+          try {
+            const canvas=document.createElement('canvas');canvas.width=el.naturalWidth;canvas.height=el.naturalHeight;
+            const ctx=canvas.getContext('2d');if(!ctx)throw new Error('No image canvas');
+            ctx.drawImage(el,0,0);const pixels=canvas.toDataURL();
+            el.removeAttribute('srcset');el.setAttribute('src',pixels);
+            r.display.delete('srcset');r.display.set('src',pixels);r.frozen=true;
+          } catch {detach(r);}
+        }
+      } else {detach(r);const media=player(el);if(media)players.add(media);}
+      if(!sameOwner(r)){detach(r);retired.add(el);}
     }
-  }
-  function current(record:Media,epoch:number) {
-    return record.el.isConnected && record.el.getAttribute(`data-private-${record.attr}`)===record.source
-      && !sessionBlocked() && epoch===auth.requestEpoch && record.owner===auth.me?.id && record.generation===auth.sessionGeneration;
-  }
-  async function load(record:Media) {
-    if(record.controller||record.objectUrl||sessionBlocked())return;
-    const epoch=auth.requestEpoch;record.epoch=epoch;
-    const controller=new AbortController();record.controller=controller;
-    try {
-      const response=await fetch(record.source,{signal:controller.signal});
-      if(!response.ok)throw new Error('媒体加载失败');
-      const blob=await response.blob();
-      assertSession(record.generation,record.owner,epoch);
-      if(controller.signal.aborted||!current(record,epoch))return;
-      record.objectUrl=URL.createObjectURL(blob);
-      if(record.attr==='poster'){
-        const poster=new Image();poster.src=record.objectUrl;await poster.decode();
-        if(controller.signal.aborted||!current(record,epoch))return;
-        record.loaded=true;
-      }
-      record.el.setAttribute(record.attr,record.objectUrl!);
-      if(record.el.tagName.toLowerCase()==='source'&&record.el.parentElement instanceof HTMLMediaElement)record.el.parentElement.load();
-    } catch { /* Expired or removed producers are deliberately silent; source/draft stays intact. */ }
-    finally {if(record.controller===controller)record.controller=undefined;}
+    for(const media of players){media.pause();media.load();}
   }
   function scan() {
-    if(disposed)return;
-    for(const [el,attrs] of records) {
-      for(const [attr,record] of attrs) {
-        if(!el.isConnected || el.getAttribute(`data-private-${attr}`)!==record.source) {
-          cancel(record,true);record.removeListeners();attrs.delete(attr);
-        }
-      }
-      if(!attrs.size)records.delete(el);
-    }
-    if(!(root instanceof Element))return;
-    for(const el of root.querySelectorAll('[data-private-src],[data-private-poster],[data-private-href]')) {
-      for(const attr of ['src','poster','href']) {
-        const source=el.getAttribute(`data-private-${attr}`);
-        if(!source||!privateRequest(source))continue;
-        let attrs=records.get(el);if(!attrs){attrs=new Map();records.set(el,attrs);}
-        let record=attrs.get(attr);
-        if(!record) {
-          const loaded=()=>{
-            if(record!.objectUrl && record!.epoch===auth.requestEpoch&&!sessionBlocked())record!.loaded=true;
-          };
-          const target=el.tagName.toLowerCase()==='source'?el.parentElement||el:el;
-          el.addEventListener('load',loaded);target.addEventListener('loadeddata',loaded);
-          record={el,attr,source,owner:auth.me?.id,generation:auth.sessionGeneration,epoch:auth.requestEpoch,loaded:false,
-            removeListeners:()=>{el.removeEventListener('load',loaded);target.removeEventListener('loadeddata',loaded);}};
-          attrs.set(attr,record);
-        }
-        if(record.owner===auth.me?.id&&record.generation===auth.sessionGeneration)void load(record);
+    if(disposed||!(root instanceof Element))return;
+    const players=new Set<HTMLMediaElement>();
+    for(const [el,r] of records) {
+      if(!root.contains(el)||[...r.sources].some(([attr,url])=>el.getAttribute(marker(attr))!==url)) {
+        detach(r);records.delete(el);const media=player(el);if(media)players.add(media);
       }
     }
+    const elements=[...(root.matches(selector)?[root]:[]),...root.querySelectorAll(selector)];
+    for(const el of elements) {
+      if(retired.has(el))continue; // Old owner's still-mounted nodes never rebind to a new login.
+      let r=records.get(el);
+      if(!r) {
+        const sources=new Map<string,string>();
+        for(const attr of attributes){const url=el.getAttribute(marker(attr));if(url!==null)sources.set(attr,url);}
+        r={el,sources,display:new Map(),owner:auth.me?.id,generation:auth.sessionGeneration};records.set(el,r);
+      }
+      if(sessionBlocked()||!sameOwner(r))continue;
+      for(const [attr,url] of r.sources) {
+        if(el.getAttribute(attr)!==(url||null)){if(url)el.setAttribute(attr,url);else el.removeAttribute(attr);const media=player(el);if(media&&attr!=='poster')players.add(media);}
+        if(url)r.display.set(attr,url);else r.display.delete(attr);
+      }
+      r.frozen=false;
+    }
+    for(const media of players)media.load();
   }
   const observer=new MutationObserver(scan);
-  observer.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:['data-private-src','data-private-poster','data-private-href']});
-  const stop=watch(()=>[auth.requestEpoch,auth.suspended,auth.sessionClosing,auth.me?.id,auth.sessionGeneration],(value,previous)=>{
-    if(previous&&value.every((item,index)=>item===previous[index]))return;
-    for(const attrs of records.values())for(const record of attrs.values()) {
-      const discard=record.owner!==auth.me?.id||record.generation!==auth.sessionGeneration;
-      cancel(record,discard);
-      if(discard){record.removeListeners();attrs.delete(record.attr);}
-    }
-    // Admission waits until the whole synchronous auth transition has settled.
-    // Expiry advances the epoch before setting suspended; never start work in that gap.
-    if(!sessionBlocked())queueMicrotask(()=>{if(!sessionBlocked())scan();});
+  observer.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:attributes.map(marker)});
+  const stop=watch(()=>[auth.requestEpoch,auth.suspended,auth.sessionClosing,auth.me?.id,auth.sessionGeneration],()=>{
+    pause();
+    // Epoch advances before suspended/owner changes. Never restore in that synchronous gap.
+    queueMicrotask(()=>{if(!disposed&&!sessionBlocked())scan();});
   },{flush:'sync'});
   scan();
-  return ()=>{disposed=true;observer.disconnect();stop();for(const attrs of records.values())for(const record of attrs.values()){cancel(record,true);record.removeListeners();}records.clear();};
+  return ()=>{disposed=true;observer.disconnect();stop();pause(true);records.clear();};
 }
