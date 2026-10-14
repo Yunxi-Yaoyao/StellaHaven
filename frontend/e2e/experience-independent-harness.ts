@@ -65,6 +65,7 @@ export async function setup(page:Page,options:HarnessOptions={}){
   if(p==='/auth/me'&&m==='GET'){await gates.auth.wait();return json(user,gates.auth.status);}
   if(p==='/navigation'&&m==='GET'){await gates.navigation.wait();return json({entries,legacy_routes:{drive:ID}},gates.navigation.status);}
   if(p==='/external-modules'&&m==='GET'){await gates.modules.wait();return json(modules,gates.modules.status);}
+  if(p==='/auth/status'&&m==='GET')return json({initialized:true,has_users:true,single_user:true,email_enabled:false});
   if(p==='/auth/security'&&m==='GET')return json({enabled:true,configured:true,elevated:false,single_user:true,setup_required:false});
   if(p==='/notifications/unread-count'&&m==='GET')return json({count:0});
   if(p==='/auth/activity'&&m==='POST')return json({ok:true});
