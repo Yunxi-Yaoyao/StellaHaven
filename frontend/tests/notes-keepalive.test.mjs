@@ -7,9 +7,10 @@ const editor = readFileSync(new URL('../src/modules/notes/DocEditor.vue', import
 test('draft socket pauses, resumes once, and ignores late close after destruction', () => {
   const hooks = {}, sockets = [], timers = new Map(); let n = 0, watcher;
   class Socket { static OPEN = 1; readyState = 1; constructor() { sockets.push(this); } close() { this.closed = true; this.onclose?.(); } send() {} }
-  const vue = { watch: (_ref, cb) => { watcher = cb; cb('a'); }, onActivated: cb => hooks.activate = cb, onDeactivated: cb => hooks.deactivate = cb, onBeforeUnmount: cb => hooks.destroy = cb, onUnmounted: cb => hooks.destroy = cb };
+  const session={suspended:false,sessionClosing:false};
+  const vue = { watch: (_ref, cb) => {if(typeof _ref==='function'){hooks.sessionChanged=cb;return;}watcher=cb;cb('a');}, onActivated: cb => hooks.activate = cb, onDeactivated: cb => hooks.deactivate = cb, onBeforeUnmount: cb => hooks.destroy = cb, onUnmounted: cb => hooks.destroy = cb };
   const exports = {};
-  new Function('require', 'exports', 'WebSocket', 'location', 'setTimeout', 'clearTimeout', compile(readFileSync(new URL('../src/composables/useDraftSocket.ts', import.meta.url), 'utf8')))(() => vue, exports, Socket, { protocol: 'http:', host: 'test' }, cb => { timers.set(++n, cb); return n; }, id => timers.delete(id));
+  new Function('require', 'exports', 'WebSocket', 'location', 'setTimeout', 'clearTimeout', compile(readFileSync(new URL('../src/composables/useDraftSocket.ts', import.meta.url), 'utf8')))(name => name==='vue'?vue:{auth:session}, exports, Socket, { protocol: 'http:', host: 'test' }, cb => { timers.set(++n, cb); return n; }, id => timers.delete(id));
   exports.useDraftSocket({ value: 'a' }, { value: 'test' }, () => {});
   assert.equal(typeof hooks.deactivate, 'function');
   hooks.activate(); assert.equal(sockets.length, 1);
@@ -17,8 +18,11 @@ test('draft socket pauses, resumes once, and ignores late close after destructio
   hooks.deactivate(); assert.equal(sockets[0].onclose, null); assert.equal(timers.size, 0);
   lateClose(); watcher('a'); assert.equal(timers.size, 0); assert.equal(sockets.length, 1);
   hooks.activate(); hooks.activate(); assert.equal(sockets.length, 2);
-  const finalClose = sockets[1].onclose; hooks.destroy(); finalClose(); hooks.activate();
-  assert.equal(timers.size, 0); assert.equal(sockets.length, 2);
+  session.suspended=true;hooks.sessionChanged();assert.equal(sockets[1].closed,true);assert.equal(timers.size,0);
+  watcher('a');assert.equal(sockets.length,2);
+  session.suspended=false;hooks.sessionChanged();assert.equal(sockets.length,3);
+  const finalClose = sockets[2].onclose; hooks.destroy(); finalClose(); hooks.activate();
+  assert.equal(timers.size, 0); assert.equal(sockets.length, 3);
 });
 test('editor hooks retain state while pausing and idempotently resuming resources', () => {
   const section = editor.slice(editor.indexOf('let listenersActive ='), editor.indexOf('function fmtDraftTime'));

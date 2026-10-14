@@ -102,7 +102,7 @@ let listWsTimer: ReturnType<typeof setTimeout> | null = null;
 let listWsDead = false;
 
 function connectListWs() {
-  if (!store.workspaceId || listWsDead) return;
+  if (!store.workspaceId || listWsDead || auth.suspended || auth.sessionClosing) return;
   if (listWs && listWs.readyState <= WebSocket.OPEN) return; // 已有活连接不重复开
   const proto = location.protocol === "https:" ? "wss" : "ws";
   listWs = new WebSocket(`${proto}://${location.host}/ws/list/${store.workspaceId}`);
@@ -133,6 +133,7 @@ function stopListWs() {
   if (listWs) { listWs.onclose = null; listWs.onmessage = null; listWs.close(); }
   listWs = null;
 }
+watch(()=>[auth.suspended,auth.sessionClosing],()=>{if(auth.suspended||auth.sessionClosing)stopListWs();else if(active.value&&ready.value){listWsDead=false;connectListWs();}},{flush:'sync'});
 async function initialize() {
   initError.value = '';
   try {

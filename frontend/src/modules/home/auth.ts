@@ -17,12 +17,21 @@ export interface Me {
 export const auth = reactive({
   me: null as Me | null,
   sessionGeneration: 0,
+  requestEpoch: 0, // Network fence can advance while the editor lifetime stays intact.
   sessionClosing: false,
+  suspended: false, // Confirmed expiry freezes mounted drafts until reauthentication.
   checked: false, // 首次 /auth/me 探测过没有
   error: '', // Transport failures are not a confirmed guest session.
 });
 
-export const loggedIn = computed(() => auth.me !== null);
+export const loggedIn = computed(() => auth.me !== null && !auth.suspended && !auth.sessionClosing);
+/** Only an explicit successful login can resume an expired owner. */
+export function acceptLogin(me:Me){
+ auth.requestEpoch++;
+ const resume=auth.suspended&&auth.me?.id===me.id&&!auth.sessionClosing;
+ if(!resume)auth.sessionGeneration++;
+ auth.sessionClosing=false;auth.suspended=false;auth.error='';auth.me=me;auth.checked=true;
+}
 export interface SecurityState { enabled:boolean; configured:boolean; elevated:boolean; expires_at:string|null; single_user:boolean; setup_required:boolean }
 export const security = reactive<SecurityState>({enabled:true,configured:false,elevated:false,expires_at:null,single_user:true,setup_required:true});
 export const securityChecked = ref(false);
@@ -65,7 +74,7 @@ const sessionCurrent=(generation:number)=>generation===auth.sessionGeneration&&!
 let lastActivityReport = 0;
 /** Only actual input extends server idle time; background requests never do. */
 export async function reportActivity(event: Event): Promise<void> {
-  if (!event.isTrusted || document.visibilityState !== 'visible' || !auth.me) return;
+  if (!event.isTrusted || document.visibilityState !== 'visible' || !loggedIn.value) return;
   const now = Date.now();
   if (now - lastActivityReport < 60000) return;
   lastActivityReport = now;
@@ -80,7 +89,7 @@ export async function reportActivity(event: Event): Promise<void> {
 /** 单例 refresh：并发 401 时只发一个 refresh，避免旋转制 refresh token 被并发转废 */
 export function refreshAccess(): Promise<boolean> {
   const generation=auth.sessionGeneration;
-  if(!sessionCurrent(generation))return Promise.resolve(false);
+  if(!sessionCurrent(generation)||auth.suspended)return Promise.resolve(false);
   if(_refreshing?.generation===generation)return _refreshing.promise;
   // A late old finally must not clear the new session's single-flight request.
   const flight={generation,promise:Promise.resolve(false)};
@@ -99,7 +108,7 @@ export function refreshAccess(): Promise<boolean> {
           if(attempt===0)await new Promise(resolve=>setTimeout(resolve,300));
         } catch {if(sessionCurrent(generation))auth.error='身份确认失败，请重试';return false;}
       }
-      if(rejected&&sessionCurrent(generation)){auth.me=null;auth.error='';}
+      if(rejected&&sessionCurrent(generation)){auth.requestEpoch++;auth.suspended=!!auth.me;auth.error='';clearSecurity();}
       return false;
     } finally {if(_refreshing===flight)_refreshing=null;}
   })();
@@ -108,7 +117,7 @@ export function refreshAccess(): Promise<boolean> {
 
 export async function fetchMe(): Promise<boolean> {
   const generation=auth.sessionGeneration;
-  if(!sessionCurrent(generation))return false;
+  if(!sessionCurrent(generation)||auth.suspended)return false;
   try {
     const r=await fetch('/auth/me');
     if(!sessionCurrent(generation))return false;
@@ -162,9 +171,7 @@ export async function login(username: string, password: string, remember: boolea
     body: JSON.stringify({ username, password, remember, device }),
   });
   if (!r.ok) return (await r.json()).detail ?? "登录失败";
-  auth.sessionGeneration++; auth.sessionClosing = false; auth.error='';
-  auth.me = await r.json();
-  auth.checked = true;
+  acceptLogin(await r.json());
   migrateLegacyBg(); // 迁旧背景（一次性）
   return null;
 }
@@ -176,18 +183,16 @@ export async function register(username: string, password: string, displayName?:
     body: JSON.stringify({ username, password, display_name: displayName }),
   });
   if (!r.ok) return (await r.json()).detail ?? "注册失败";
-  auth.sessionGeneration++; auth.sessionClosing = false; auth.error='';
-  auth.me = await r.json();
-  auth.checked = true;
+  acceptLogin(await r.json());
   return null;
 }
 
 export async function logout(): Promise<void> {
-  auth.sessionClosing = true; auth.sessionGeneration++;
+  auth.requestEpoch++;auth.sessionClosing = true; auth.sessionGeneration++;
   clearSecurity();
   const r = await fetch("/auth/logout", { method: "POST" });
   if (!r.ok) throw new Error('退出未成功，请检查网络后重试');
-  auth.me = null; auth.sessionClosing = false; auth.error='';
+  auth.me = null; auth.suspended=false; auth.sessionClosing = false; auth.error='';
   lastActivityReport = 0;
 }
 

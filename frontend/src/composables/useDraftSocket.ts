@@ -1,5 +1,7 @@
 import { watch, onBeforeUnmount, onActivated, onDeactivated, type Ref } from "vue";
 
+import {auth} from '../modules/home/auth';
+
 // 设备名：没起过名就用浏览器名（UA 解析），不再生成「设备-xxxx」随机占位
 export function detectBrowser(): string {
   const ua = navigator.userAgent;
@@ -89,7 +91,7 @@ export function useDraftSocket(
 
   function connect(id: string) {
     disconnect();
-    if (!active || dead || docId.value !== id) return;
+    if (!active || dead || docId.value !== id || auth.suspended || auth.sessionClosing) return;
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws/${id}?device=${encodeURIComponent(device.value)}`);
     const socket = ws;
@@ -130,6 +132,8 @@ export function useDraftSocket(
     if (id) connect(id);
     else disconnect();
   }, { immediate: true });
+
+  watch(()=>[auth.suspended,auth.sessionClosing],()=>{if(auth.suspended||auth.sessionClosing)disconnect();else if(active&&!dead&&docId.value)connect(docId.value);},{flush:'sync'});
 
   onDeactivated(() => { active = false; disconnect(); });
   onActivated(() => {

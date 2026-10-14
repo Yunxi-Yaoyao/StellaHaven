@@ -33,7 +33,7 @@ async function refreshList() {
 }
 
 function connectWs() {
-  if (ws && ws.readyState <= WebSocket.OPEN) return;
+  if (!started || !loggedIn.value || ws && ws.readyState <= WebSocket.OPEN) return;
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws/notifications`);
   ws.onmessage = (ev) => {
@@ -63,7 +63,7 @@ export function startNotifications() {
 export function stopNotifications() {
   started = false;
   clearInterval(pollTimer);
-  ws?.close();
+  if(ws){ws.onclose=null;ws.onmessage=null;ws.close();}
   ws = null;
   state.unread = 0;
   state.items = [];

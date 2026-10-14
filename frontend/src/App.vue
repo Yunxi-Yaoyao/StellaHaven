@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed, defineAsyncComponent } from "vue";
 import SideBar from "./shell/SideBar.vue";
+import {loginPrompt} from "./modules/auth/loginPrompt";
+const LoginModal=defineAsyncComponent(()=>import("./modules/auth/LoginPage.vue"));
 import AdminElevationModal from "./shell/AdminElevationModal.vue";
 import ExternalModuleCache from "./shell/ExternalModuleCache.vue";
 import { loadNavigation, resetNavigation, navigationRows } from "./stores/navigation";
@@ -19,6 +21,7 @@ import { useRouter, useRoute } from "vue-router";
 import { onMounted, onUnmounted } from "vue";
 
 const notesStore = useNotesStore();
+watch(()=>auth.suspended,suspended=>{if(suspended){clearSecurity();stopNotifications();}else if(auth.me&&!auth.sessionClosing){startNotifications();void loadSecurity().catch(()=>{});}},{flush:'sync'});
 watch(() => [auth.me?.id, auth.sessionGeneration, auth.sessionClosing] as const, ([id, session, closing], previous) => {
   if (id !== previous?.[0] || session !== previous?.[1] || closing !== previous?.[2]) {
     notesStore.resetSession();
@@ -38,6 +41,13 @@ watch(settingsOpen, open => {
   void router.push({ path: '/settings', query: { section: 'navigation', module: 'home' } });
 }, { immediate: true });
 const route = useRoute();
+const loginVisible=computed(()=>loginPrompt.requested || auth.suspended || (auth.checked && !loggedIn.value && !route.meta.public));
+async function closeLogin(){
+ if(auth.suspended){auth.sessionClosing=true;auth.sessionGeneration++;auth.me=null;auth.suspended=false;auth.sessionClosing=false;}
+ if(!route.meta.public)await router.replace("/");
+ loginPrompt.requested=false;
+}
+function loginSuccess(){loginPrompt.requested=false;if(route.meta.legacyModule)void router.replace({path:route.fullPath,force:true});}
 const notesHop = ref(route.name === 'notes');
 watch(() => route.name, (next, previous) => { notesHop.value = next === 'notes' || previous === 'notes'; }, { flush: 'sync' });
 
@@ -45,7 +55,7 @@ watch(() => route.name, (next, previous) => { notesHop.value = next === 'notes' 
 // 主页背景要铺满整个内容区，不吃全局 padding（其他页面保留内缩）
 const flushPage = computed(() => route.name === "home");
 
-// 会话巡检：被别处踢下线（refresh 已吊销）时，30 秒内感知并滚去登录页
+// Confirmed expiry opens login in place; transport failures do not destroy drafts.
 let sessionWatchdog: ReturnType<typeof setInterval> | undefined;
 const activityEvents = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
 onMounted(() => {
@@ -53,9 +63,7 @@ onMounted(() => {
   sessionWatchdog = setInterval(async () => {
     if (!loggedIn.value) return;
     const ok = await fetchMe(); // fetchMe 内部会先 refresh 续命；refresh 也被吊销才 false
-    if (!ok && !auth.me) {
-      router.push("/login");
-    }
+    if (!ok && auth.suspended) loginPrompt.requested = true;
   }, 30000);
 });
 onUnmounted(() => {
@@ -113,7 +121,7 @@ function toggleSidebar() {
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" :inert="loginVisible || undefined" :aria-hidden="loginVisible || undefined">
     <SideBar
       :collapsed="sidebarCollapsed"
       :mobile-open="mobileOpen"
@@ -167,6 +175,7 @@ function toggleSidebar() {
       </div>
     </div>
   </div>
+  <Teleport to="body"><LoginModal v-if="loginVisible" @close="closeLogin" @success="loginSuccess" /></Teleport>
 </template>
 
 <style scoped>

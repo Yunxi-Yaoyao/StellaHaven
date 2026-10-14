@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { auth, fetchMe, loggedIn } from "../modules/home/auth";
 import {loadNavigation,navigation,resolveLegacyModule} from "../stores/navigation";
+import {protectedPage} from "./protectedPage";
+import {openLogin,safeLoginTarget} from "../modules/auth/loginPrompt";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -14,20 +16,20 @@ const router = createRouter({
     {
       path: "/login",
       name: "login",
-      component: () => import("../modules/auth/LoginPage.vue"),
+      component: {render:()=>null},
       meta: { title: "登录", public: true, bare: true },
     },
-    { path:"/apps/:id", name:"external-module", props:true, component:()=>import("../shell/ExternalModulePage.vue"), meta:{title:"网站模块"} },
+    { path:"/apps/:id", name:"external-module", props:true, component:{render:()=>null}, meta:{title:"网站模块"} },
     {
       path: "/settings",
       name: "settings",
-      component: () => import("../modules/settings/SettingsPage.vue"),
+      component: protectedPage("settings", () => import("../modules/settings/SettingsPage.vue")),
       meta: { title: "设置" },
     },
     {
       path: "/notes",
       name: "notes",
-      component: () => import("../modules/notes/NotesPage.vue"),
+      component: protectedPage("NotesPage", () => import("../modules/notes/NotesPage.vue")),
       meta: { title: "笔记" },
     },
     // Legacy paths only resolve stored migration aliases; never revive a deleted module.
@@ -37,19 +39,19 @@ const router = createRouter({
       // 服务器模块：ServersPage 是布局（侧栏 + router-view），右侧内容全部走子路由。
       // 详情页 /status/:id 独立路由——SPA 前端路由切换不刷新页面，左侧外壳不重载。
       path: "/status",
-      component: () => import("../modules/servers/ServersPage.vue"),
+      component: protectedPage("servers", () => import("../modules/servers/ServersPage.vue")),
       meta: { title: "服务器" },
       children: [
         {
           path: "",
           name: "status",
-          component: () => import("../modules/servers/ServersHome.vue"),
+          component: protectedPage("status", () => import("../modules/servers/ServersHome.vue")),
           meta: { title: "服务器" },
         },
         {
           path: ":id(\\d+)",
           name: "status-node",
-          component: () => import("../modules/servers/NodeDetailView.vue"),
+          component: protectedPage("status-node", () => import("../modules/servers/NodeDetailView.vue")),
           props: (route: { params: { id: string } }) => ({ nodeId: Number(route.params.id) }),
           meta: { title: "节点详情" },
         },
@@ -59,8 +61,9 @@ const router = createRouter({
   ],
 });
 
-// 路由守卫：非公开页面未登录 → /login；已登录访问 /login → 回主页
-router.beforeEach(async (to) => {
+// Guests keep the requested URL; private route wrappers cannot import business code.
+router.beforeEach(async (to,from) => {
+  if(auth.suspended && to.fullPath!==from.fullPath && !to.meta.public){openLogin();return false;}
   // Public page code is independent of the session probe. Start only the selected
   // route import now, but keep rendering and redirects behind the existing guard.
   if (!auth.checked && to.meta.public) {
@@ -72,11 +75,11 @@ router.beforeEach(async (to) => {
     }
   }
   if (!auth.checked) await fetchMe();
+  if (to.name==='login'){if(!loggedIn.value)openLogin();return {path:safeLoginTarget(to.query.next),replace:true};}
   if (to.meta.public) {
-    if (to.name === "login" && loggedIn.value) return { name: "home" };
     return true;
   }
-  if (!loggedIn.value) return { name: "login", query: { next: to.fullPath } };
+  if (!loggedIn.value) return true;
   if(to.meta.legacyModule){
     if(!navigation.loaded)await loadNavigation();
     const id=resolveLegacyModule(String(to.meta.legacyModule));

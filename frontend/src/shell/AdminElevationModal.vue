@@ -6,7 +6,7 @@ import {elevation,requestElevation,finishElevation} from './elevation';
 const password=ref(''),newPassword=ref(''),repeat=ref(''),error=ref(''),busy=ref(false),first=ref<HTMLInputElement>();
 let previousFocus:HTMLElement|null=null;
 setElevationHandler(requestElevation);
-watch(()=>auth.me?.id,()=>{password.value='';newPassword.value='';repeat.value='';finishElevation(false);});
+watch(()=>[auth.me?.id,auth.suspended,auth.sessionClosing],()=>{password.value='';newPassword.value='';repeat.value='';finishElevation(false);});
 watch(()=>elevation.open,async open=>{password.value='';newPassword.value='';repeat.value='';error.value='';if(open){previousFocus=document.activeElement as HTMLElement;await nextTick();first.value?.focus();}else previousFocus?.focus();});
 onBeforeUnmount(()=>{setElevationHandler();finishElevation(false);});
 async function verify() {

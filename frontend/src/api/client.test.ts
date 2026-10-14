@@ -2,7 +2,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { api } from './client';
 import * as client from './client';
 import {refreshAccess} from '../modules/home/auth';
-vi.mock('../modules/home/auth', () => ({ refreshAccess: vi.fn(async () => false) }));
+vi.mock('../modules/home/auth', () => ({ auth:{me:{id:'fixture'},sessionGeneration:0,sessionClosing:false,suspended:false},refreshAccess: vi.fn(async () => false) }));
 const denied = () => new Response(JSON.stringify({detail:{code:'admin_elevation_required'}}), {status:403});
 beforeEach(() => vi.stubGlobal('fetch', vi.fn()));
 afterEach(() => vi.unstubAllGlobals());

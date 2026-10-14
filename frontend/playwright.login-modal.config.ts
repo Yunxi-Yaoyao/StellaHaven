@@ -1,0 +1,3 @@
+import {defineConfig} from '@playwright/test';
+const out=process.env.STELLA_LOGIN_QA_OUTPUT||process.env.TMPDIR+'/stella-login-modal-evidence';
+export default defineConfig({testDir:'./e2e/login-modal',testMatch:'*.spec.ts',workers:1,timeout:30000,outputDir:out+'/artifacts',reporter:[['list'],['json',{outputFile:out+'/browser-results.json'}]],use:{baseURL:'http://127.0.0.1:15274',viewport:{width:1440,height:900},launchOptions:{executablePath:'/usr/sbin/google-chrome-stable',args:['--no-sandbox']},trace:'retain-on-failure'},webServer:{command:'node e2e/login-modal/server.mjs',url:'http://127.0.0.1:15274',reuseExistingServer:false}});

@@ -37,7 +37,7 @@ import { TEMPLATE_TAG } from "./noteTemplates";
 const props = defineProps<{ docId: string }>();
 const emit = defineEmits<{ saved: []; deleted: []; open: [id: string]; createChild: [id: string] }>();
 const ownerId = auth.me?.id;
-const ownsSession = () => !!ownerId && auth.me?.id === ownerId;
+const ownsSession = () => !!ownerId && auth.me?.id === ownerId && !auth.suspended && !auth.sessionClosing;
 let editorActive = true;
 
 // 设备标签 = 「IP-地区 来源」（来源 = 起过的名字或浏览器名；IP/地区异步查到后补上，缓存24h）

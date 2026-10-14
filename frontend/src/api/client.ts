@@ -1,4 +1,4 @@
-import { refreshAccess } from '../modules/home/auth';
+import { refreshAccess, auth } from '../modules/home/auth';
 export class ApiError extends Error {
   status: number;
   detail: unknown;
@@ -15,7 +15,9 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   } else if (typeof options?.body === 'string' && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  const doFetch = () => fetch(path, { ...options, headers });
+  const generation=auth.sessionGeneration,epoch=auth.requestEpoch,owner=auth.me?.id;
+  const check=()=>{if(auth&&(auth.suspended||auth.sessionClosing||generation!==auth.sessionGeneration||epoch!==auth.requestEpoch||owner!==auth.me?.id))throw new DOMException('登录后继续','AbortError');};
+  const doFetch = () => {check();return fetch(path, { ...options, headers });};
   let response = await doFetch();
   if (response.status === 401 && !path.startsWith('/auth/admin/') && path !== '/auth/security' && await refreshAccess()) response = await doFetch();
   if (response.status === 403 && elevationHandler && !path.startsWith('/auth/admin/') && path !== '/auth/security') {
@@ -30,5 +32,5 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
     throw new ApiError(response.status, detail);
   }
   if (response.status === 204) return undefined as T;
-  return response.json();
+  const value=await response.json();check();return value;
 }

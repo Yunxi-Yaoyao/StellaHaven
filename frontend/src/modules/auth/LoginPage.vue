@@ -1,15 +1,35 @@
 <script setup lang="ts">
-// 登录/初始化页：夜港风。
+// Reused login/initialization form, shown above the current page.
 // 形态自动检测：未初始化 → 「还没初始化哦，点击开始喵~」引导进初始化表单；
 // 已初始化 → 单用户纯登录；初始化只创建唯一 owner。
-import { ref, onMounted } from "vue";
-import { useRouter } from "vue-router";
-import { login, register, auth } from "../home/auth";
-import ParticleCanvas from "../home/ParticleCanvas.vue";
+import { ref, onMounted, onUnmounted, nextTick, watch } from "vue";
+import { login, register, acceptLogin } from "../home/auth";
+import {consumeLoginFocus} from "./loginPrompt";
+const emit=defineEmits<{success:[];close:[]}>();
+const dialog=ref<HTMLElement>();
+let previousFocus:HTMLElement|null=null;
+const focusFirst=()=>{const input=dialog.value?.querySelector<HTMLElement>('input:not([type="checkbox"]), .submit');(input||dialog.value)?.focus();};
+function keyboard(event:KeyboardEvent){
+ if(event.key==='Escape'){event.preventDefault();if(!busy.value)emit('close');}
+ if(event.key!=='Tab')return;
+ const items=Array.from(dialog.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href], [tabindex="0"]')||[]);
+ const first=items[0],last=items.at(-1);
+ if(!first){event.preventDefault();dialog.value?.focus();return;}
+ if(event.shiftKey&&(document.activeElement===first||document.activeElement===dialog.value)){event.preventDefault();last?.focus();}
+ else if(!event.shiftKey&&(document.activeElement===last||document.activeElement===dialog.value)){event.preventDefault();first.focus();}
+}
 
-const router = useRouter();
+onUnmounted(()=>{
+ const rect=previousFocus?.getBoundingClientRect();
+ if(previousFocus!==document.body&&previousFocus!==document.documentElement&&previousFocus?.isConnected&&rect&&rect.width>0&&rect.right>0&&rect.left<innerWidth&&rect.bottom>0&&rect.top<innerHeight)previousFocus.focus();
+ else {
+  const target=['.hamburger','.account'].map(selector=>document.querySelector<HTMLElement>(selector)).find(el=>{const box=el?.getBoundingClientRect();return box&&box.width>0&&box.right>0&&box.left<innerWidth;});
+  target?.focus();
+ }
+});
 const phase = ref<"loading" | "init-guide" | "init-form" | "login" | "forgot" | "forgot-code" | "code-login" | "code-login-verify">("loading");
 const emailEnabled = ref(false);
+watch(()=>phase.value,async()=>{await nextTick();focusFirst();});
 
 const username = ref("");
 const password = ref("");
@@ -29,40 +49,43 @@ const codeLoginEmail = ref("");
 const codeLoginCode = ref("");
 
 onMounted(async () => {
+  previousFocus=consumeLoginFocus()||document.activeElement as HTMLElement;dialog.value?.focus();
   try {
-    const r = await fetch("/auth/status");
+    const r = await formFetch("/auth/status");
+    if(!r.ok)throw new Error('status unavailable');
     const s = await r.json();
     emailEnabled.value = !!s.email_enabled;
     phase.value = s.initialized ? "login" : "init-guide";
   } catch {
+    error.value = "登录状态加载失败，请关闭后重试";
     phase.value = "login";
   }
 });
 
 async function submit() {
+  if(busy.value)return;
   error.value = "";
   notice.value = "";
   busy.value = true;
-  let err: string | null;
-  if (phase.value === "init-form") {
-    err = await register(username.value, password.value, displayName.value || undefined);
-  } else {
-    err = await login(username.value, password.value, remember.value);
-  }
-  busy.value = false;
-  if (err) {
-    error.value = err;
-  } else {
-    const next = router.currentRoute.value.query.next as string | undefined;
-    router.push(next || "/");
-  }
+  try {
+    const err=phase.value === 'init-form'
+      ? await register(username.value,password.value,displayName.value||undefined)
+      : await login(username.value,password.value,remember.value);
+    if(err)error.value=err;else emit('success');
+  } catch {error.value='连接失败，请重试';}
+  finally {busy.value=false;}
+}
+
+// All existing email/reset phases share the same retryable transport error.
+async function formFetch(input:RequestInfo|URL,init?:RequestInit){
+ try{return await fetch(input,init);}catch{return new Response(JSON.stringify({detail:'连接失败，请重试'}),{status:503,headers:{'Content-Type':'application/json'}});}
 }
 
 async function sendResetCode() {
   error.value = "";
   notice.value = "";
   busy.value = true;
-  const r = await fetch("/auth/forgot", {
+  const r = await formFetch("/auth/forgot", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: forgotEmail.value.trim() }),
@@ -79,7 +102,7 @@ async function sendResetCode() {
 async function doReset() {
   error.value = "";
   busy.value = true;
-  const r = await fetch("/auth/reset", {
+  const r = await formFetch("/auth/reset", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: forgotEmail.value.trim(), code: forgotCode.value.trim(), new_password: newPassword.value }),
@@ -100,7 +123,7 @@ async function sendLoginCode() {
   error.value = "";
   notice.value = "";
   busy.value = true;
-  const r = await fetch("/auth/login-code/send", {
+  const r = await formFetch("/auth/login-code/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: codeLoginEmail.value.trim() }),
@@ -117,17 +140,15 @@ async function sendLoginCode() {
 async function doLoginCode() {
   error.value = "";
   busy.value = true;
-  const r = await fetch("/auth/login-code", {
+  const r = await formFetch("/auth/login-code", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: codeLoginEmail.value.trim(), code: codeLoginCode.value.trim(), remember: remember.value }),
   });
   busy.value = false;
   if (r.ok) {
-    auth.me = await r.json();
-    auth.checked = true;
-    const next = router.currentRoute.value.query.next as string | undefined;
-    router.push(next || "/");
+    acceptLogin(await r.json());
+    emit("success");
   } else {
     error.value = (await r.json()).detail ?? "登录失败";
   }
@@ -137,7 +158,7 @@ async function resendCode(email: string, purpose: "login" | "reset") {
   error.value = "";
   notice.value = "";
   busy.value = true;
-  const r = await fetch("/auth/email/resend", {
+  const r = await formFetch("/auth/email/resend", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, purpose }),
@@ -153,10 +174,9 @@ async function resendCode(email: string, purpose: "login" | "reset") {
 </script>
 
 <template>
-  <div class="auth">
-    <div class="stars-bg" />
-    <ParticleCanvas mode="stars" />
-    <div class="card">
+  <div class="auth" @click.self="!busy && emit('close')">
+    <div ref="dialog" class="card" role="dialog" aria-modal="true" aria-label="Stella 登录" tabindex="-1" @keydown="keyboard">
+      <button class="close-login" aria-label="关闭登录" :disabled="busy" @click="emit('close')">×</button>
       <div class="logo">✦</div>
 
       <!-- 加载中 -->
@@ -192,7 +212,7 @@ async function resendCode(email: string, purpose: "login" | "reset") {
           <span class="f-label">密码</span>
           <input v-model="password" type="password" class="input" autocomplete="new-password" @keydown.enter="submit" />
         </div>
-        <div v-if="error" class="err">{{ error }}</div>
+        <div v-if="error" class="err" role="alert">{{ error }}</div>
         <button class="submit" :disabled="busy" @click="submit">{{ busy ? "…" : "点亮港口" }}</button>
       </template>
 
@@ -214,12 +234,12 @@ async function resendCode(email: string, purpose: "login" | "reset") {
             <span>记住我（30 天）</span>
           </label>
           <div class="row-links">
-            <a v-if="emailEnabled" class="forgot" @click="phase = 'code-login'; error = ''; notice = ''; codeLoginCode = ''">验证码登录</a>
-            <a v-if="emailEnabled" class="forgot" @click="phase = 'forgot'; error = ''; notice = ''">忘记密码？</a>
+            <a v-if="emailEnabled" class="forgot" role="button" tabindex="0" @keydown.enter="($event.currentTarget as HTMLElement).click()" @keydown.space.prevent="($event.currentTarget as HTMLElement).click()" @click="phase = 'code-login'; error = ''; notice = ''; codeLoginCode = ''">验证码登录</a>
+            <a v-if="emailEnabled" class="forgot" role="button" tabindex="0" @keydown.enter="($event.currentTarget as HTMLElement).click()" @keydown.space.prevent="($event.currentTarget as HTMLElement).click()" @click="phase = 'forgot'; error = ''; notice = ''">忘记密码？</a>
           </div>
         </div>
         <div v-if="notice" class="notice">{{ notice }}</div>
-        <div v-if="error" class="err">{{ error }}</div>
+        <div v-if="error" class="err" role="alert">{{ error }}</div>
         <button class="submit" :disabled="busy" @click="submit">{{ busy ? "…" : "回港" }}</button>
       </template>
 
@@ -231,7 +251,7 @@ async function resendCode(email: string, purpose: "login" | "reset") {
           <span class="f-label">邮箱</span>
           <input v-model="forgotEmail" class="input" placeholder="你验证过的邮箱" @keydown.enter="sendResetCode" />
         </div>
-        <div v-if="error" class="err">{{ error }}</div>
+        <div v-if="error" class="err" role="alert">{{ error }}</div>
         <div class="row-btns">
           <button class="submit ghost-btn" @click="phase = 'login'">想起密码了</button>
           <button class="submit" :disabled="busy" @click="sendResetCode">{{ busy ? "…" : "发送重置码" }}</button>
@@ -251,10 +271,10 @@ async function resendCode(email: string, purpose: "login" | "reset") {
           <input v-model="newPassword" type="password" class="input" placeholder="至少 6 位" @keydown.enter="doReset" />
         </div>
         <div v-if="notice" class="notice">{{ notice }}</div>
-        <div v-if="error" class="err">{{ error }}</div>
+        <div v-if="error" class="err" role="alert">{{ error }}</div>
         <button class="submit" :disabled="busy || forgotCode.length !== 6" @click="doReset">{{ busy ? "…" : "重置并去登录" }}</button>
         <div class="resend-line">
-          <a class="forgot" @click="resendCode(forgotEmail, 'reset')">重新发送</a>
+          <a class="forgot" role="button" tabindex="0" @keydown.enter="($event.currentTarget as HTMLElement).click()" @keydown.space.prevent="($event.currentTarget as HTMLElement).click()" @click="resendCode(forgotEmail, 'reset')">重新发送</a>
         </div>
       </template>
 
@@ -266,7 +286,7 @@ async function resendCode(email: string, purpose: "login" | "reset") {
           <span class="f-label">邮箱</span>
           <input v-model="codeLoginEmail" class="input" placeholder="你验证过的邮箱" @keydown.enter="sendLoginCode" />
         </div>
-        <div v-if="error" class="err">{{ error }}</div>
+        <div v-if="error" class="err" role="alert">{{ error }}</div>
         <div class="row-btns">
           <button class="submit ghost-btn" @click="phase = 'login'">用密码登录</button>
           <button class="submit" :disabled="busy" @click="sendLoginCode">{{ busy ? "…" : "发送登录码" }}</button>
@@ -282,10 +302,10 @@ async function resendCode(email: string, purpose: "login" | "reset") {
           <input v-model="codeLoginCode" class="input" placeholder="6 位数字" maxlength="6" @keydown.enter="doLoginCode" />
         </div>
         <div v-if="notice" class="notice">{{ notice }}</div>
-        <div v-if="error" class="err">{{ error }}</div>
+        <div v-if="error" class="err" role="alert">{{ error }}</div>
         <button class="submit" :disabled="busy || codeLoginCode.length !== 6" @click="doLoginCode">{{ busy ? "…" : "进港" }}</button>
         <div class="resend-line">
-          <a class="forgot" @click="resendCode(codeLoginEmail, 'login')">重新发送</a>
+          <a class="forgot" role="button" tabindex="0" @keydown.enter="($event.currentTarget as HTMLElement).click()" @keydown.space.prevent="($event.currentTarget as HTMLElement).click()" @click="resendCode(codeLoginEmail, 'login')">重新发送</a>
         </div>
       </template>
     </div>
@@ -299,24 +319,17 @@ async function resendCode(email: string, purpose: "login" | "reset") {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(168deg, #12151e 0%, #0d1017 50%, #090c12 100%);
-  overflow: hidden;
-}
-.stars-bg {
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(1.5px 1.5px at 12% 22%, rgba(201,212,232,0.5), transparent),
-    radial-gradient(1px 1px at 68% 12%, rgba(201,212,232,0.4), transparent),
-    radial-gradient(1.2px 1.2px at 84% 34%, rgba(232,160,191,0.4), transparent),
-    radial-gradient(1px 1px at 34% 66%, rgba(201,212,232,0.35), transparent),
-    radial-gradient(1.6px 1.6px at 52% 82%, rgba(201,212,232,0.3), transparent),
-    radial-gradient(1px 1px at 22% 78%, rgba(201,212,232,0.4), transparent),
-    radial-gradient(1.3px 1.3px at 92% 62%, rgba(201,212,232,0.35), transparent);
+  background: rgba(9, 12, 18, 0.28);
+  backdrop-filter: blur(10px);
+  z-index: 1200;
+  padding: 16px;
+  overflow-y: auto;
 }
 .card {
   position: relative;
-  width: 360px;
+  width: min(360px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   padding: 44px 40px 36px;
   background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
   backdrop-filter: blur(18px);
@@ -399,4 +412,7 @@ async function resendCode(email: string, purpose: "login" | "reset") {
 }
 .submit:hover { background: #d8e2f5; box-shadow: 0 6px 20px rgba(201, 212, 232, 0.25); }
 .submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.close-login {position:absolute;right:12px;top:10px;width:28px;height:28px;border:0;border-radius:50%;background:transparent;color:var(--text-lo);font-size:22px;cursor:pointer;}
+.close-login:focus-visible {outline:2px solid var(--accent);}
+@media(max-width:480px){.card{padding:38px 24px 28px}.row-line{flex-wrap:wrap;gap:12px}.row-links{gap:12px}}
 </style>

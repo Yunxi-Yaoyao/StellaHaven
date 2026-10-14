@@ -1,7 +1,7 @@
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
 import {createTarget,resolveTarget,splitProxyUrl} from './integrations';
 import {setElevationHandler,ApiError} from './client';
-vi.mock('../modules/home/auth',()=>({refreshAccess:vi.fn(async()=>false)}));
+vi.mock('../modules/home/auth',()=>({auth:{me:{id:'fixture'},sessionGeneration:0,sessionClosing:false,suspended:false},refreshAccess:vi.fn(async()=>false)}));
 beforeEach(()=>{vi.restoreAllMocks();setElevationHandler(undefined);});
 afterEach(()=>{vi.unstubAllGlobals();setElevationHandler(undefined);});
 it('splits HTTP private URL with port and preserves initial path query and fragment',()=>{

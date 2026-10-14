@@ -15,13 +15,13 @@ test('only selected public route starts importing while session check is pending
  state.release!(); await pending;
  expect(router.currentRoute.value.name).toBe('home');
 });
-test('unauthenticated private route is not prefetched and still redirects to login', async () => {
+test('unauthenticated private route keeps its URL without importing private code', async () => {
  const { default: router } = await import('./index');
  const { auth } = await import('../modules/home/auth'); auth.checked = false; state.release = null;
  const pending = router.push('/settings'); await pendingGuard();
  expect(state.privateImports).toBe(0);
  state.release!(); await pending;
- expect(router.currentRoute.value.name).toBe('login');
- expect(router.currentRoute.value.query.next).toBe('/settings');
+ expect(router.currentRoute.value.name).toBe('settings');
+ expect(router.currentRoute.value.fullPath).toBe('/settings');
  expect(state.privateImports).toBe(0);
 });

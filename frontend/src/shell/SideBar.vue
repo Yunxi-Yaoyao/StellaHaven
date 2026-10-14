@@ -5,6 +5,14 @@ import Icon from "./Icon.vue";
 import NotificationBell from "./NotificationBell.vue";
 import { auth, fetchMe, loggedIn, currentAvatar } from "../modules/home/auth";
 import { computed, ref } from "vue";
+import {openLogin} from '../modules/auth/loginPrompt';
+function accountClick(event:MouseEvent){
+ event.preventDefault();
+ if(loggedIn.value)void router.push('/settings');else openLogin();
+ emit('closeMobile');
+}
+import {useRouter} from 'vue-router';
+const router=useRouter();
 import { navigation, loadNavigation, navigationRows, builtinNavigation, isNavigationActive } from "../stores/navigation";
 
 // 未登录显示站点名 StellaHaven；登录后昵称优先、回退用户名
@@ -64,13 +72,13 @@ async function retryNavigation() { retrying.value=true;try { if(auth.error || !a
 
     <!-- 底行：账号位 + 折叠钮同一行 -->
     <div class="bottom-row">
-      <RouterLink :to="loggedIn ? '/settings' : '/login'" class="account" @click="emit('closeMobile')">
+      <a :href="loggedIn ? '/settings' : '#'" class="account" @click="accountClick">
         <span class="acc-avatar">
           <img v-if="loggedIn" :src="currentAvatar" alt="头像" />
           <span v-else class="acc-ghost">?</span>
         </span>
         <span class="acc-name">{{ loggedIn ? "已登录喵~" : "未登录哟~" }}</span>
-      </RouterLink>
+      </a>
       <NotificationBell v-if="loggedIn" />
       <button class="fold-btn" :title="collapsed ? '展开侧栏' : '收起侧栏'" @click="emit('toggle')">
         {{ collapsed ? "»" : "«" }}
