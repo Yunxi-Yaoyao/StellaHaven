@@ -95,6 +95,9 @@ class CI182FrozenInputs(unittest.TestCase):
             current = m._V23_TIMINGS['observations'][command]['completed_seconds']
             optimized = m._DERIVATION_TIMINGS['observations'].get(command) if command in m._DERIVATION_TIMINGS['modeled_replacements'] else None
             expected_weight = math.ceil(1.20*optimized['completed_seconds']+5) if optimized else max(math.ceil(1.20*after['seconds']+5),math.ceil(1.20*current+5))
+            audit = m._AUDIT_TIMINGS['observations'].get(command)
+            if audit:
+                expected_weight = max(expected_weight, math.ceil(1.20*audit['completed_seconds']+5))
             self.assertEqual(m.estimated_seconds([command]),expected_weight)
         # Every unmeasured old CI182 floor remains active, including local ones.
         for local,source in ((False,m._CI182_TIMINGS['successful_command_seconds']),
@@ -123,6 +126,8 @@ class CI182FrozenInputs(unittest.TestCase):
         import tempfile
         import os
         successor = runpy.run_path(str(ROOT/'deploy/ci/capacity_successor.py'))
+        from test_backend_capacity import planner
+        m = planner()
         successor['validate_sources'](ROOT)
         manifest = successor['load']()
         frozen = json.loads((ROOT/'deploy/ci/copy-capacity-timings.json').read_text())
@@ -135,18 +140,47 @@ class CI182FrozenInputs(unittest.TestCase):
             self.assertEqual(hashlib.sha256(successor['historical_source'](ROOT,path)).hexdigest(), row['historical_sha256'])
         with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as tmp:
             root = Path(tmp)
-            for path in successor['load_derivation']()['current_source_sha256']:
+            for path in successor['load_audit']()['current_source_sha256']:
                 target = root/path; target.parent.mkdir(parents=True,exist_ok=True)
                 target.write_bytes((ROOT/path).read_bytes())
             successor['validate_sources'](root)
-            for path in successor['load_derivation']()['current_source_sha256']:
+            for path in successor['load_audit']()['current_source_sha256']:
                 target = root/path; original = target.read_bytes()
                 target.write_bytes(original+b'\ncorrupt-capacity-source')
                 with self.assertRaises(AssertionError,msg=path):
                     successor['validate_sources'](root)
                 target.write_bytes(original)
         for path in manifest['observations']:
-            self.assertIn(path,manifest['current_source_sha256'])
+            self.assertIn(path, manifest['current_source_sha256'])
+        # Current server-audit assertions ride on the existing v11 command; no extra shard command is added.
+        audit = successor['load_audit']()
+        self.assertEqual(set(audit['observations']), {
+            'tests_isolated/test_api_response_v11_integration.py',
+            'tests_isolated/test_servers_audit_20261117.py'})
+        for command, row in audit['observations'].items():
+            self.assertGreaterEqual(row['completed_seconds'], row['current_completed_seconds'])
+            self.assertEqual(m.estimated_seconds([command]), math.ceil(1.20*row['completed_seconds']+5))
+            self.assertEqual(len(row['cases_json']), row['cases'])
+        # Preserve actual per-shard admission and measured-time ceilings.
+        plans = [m.plan(ROOT, i, 7) for i in range(1, 8)]
+        for shard in plans:
+            setup = 75 + (140 if any(m.command_requires_browser(c) for c in shard) else 0)
+            self.assertLessEqual(setup + sum(m.estimated_seconds(c) for c in shard), 1100)
+            observed = dict(m._CI178_TIMINGS['successful_command_seconds'])
+            for command, seconds in m._OWNED_TIMINGS['completed_seconds'].items():
+                observed[command] = max(observed.get(command, 0), seconds)
+            for command, row in m._COPY_TIMINGS['observations'].items():
+                observed[command] = row['completed_seconds']
+            for command, seconds in m._CI182_TIMINGS['successful_command_seconds'].items():
+                if command not in m._COPY_TIMINGS['observations']:
+                    observed[command] = max(observed.get(command, 0), seconds)
+            for command, row in m._V23_TIMINGS['observations'].items():
+                observed[command] = max(observed.get(command, 0), row['completed_seconds'])
+            for command, row in m._DERIVATION_TIMINGS['observations'].items():
+                observed[command] = row['completed_seconds']
+            for command, row in audit['observations'].items():
+                observed[command] = max(observed.get(command, 0), row['completed_seconds'])
+            self.assertLessEqual(setup + sum(observed.get(c[0], m.estimated_seconds(c)) for c in shard), 1000)
 
     def test_v23_whole_command_receipts_and_larger_prior_completed_weights(self):
         from test_backend_capacity import planner
@@ -244,7 +278,7 @@ class CI182FrozenInputs(unittest.TestCase):
             import ast
             source = successor['v23_source'](ROOT,path)
             original = [ast.dump(n) for n in ast.walk(ast.parse(source)) if isinstance(n,ast.Assert)]
-            current = [ast.dump(n) for n in ast.walk(ast.parse((ROOT/path).read_bytes())) if isinstance(n,ast.Assert)]
+            current = [ast.dump(n) for n in ast.walk(ast.parse(successor['derivation_source'](ROOT,path))) if isinstance(n,ast.Assert)]
             self.assertEqual(original,current)
             self.assertEqual(len(original),row['assertions'])
 

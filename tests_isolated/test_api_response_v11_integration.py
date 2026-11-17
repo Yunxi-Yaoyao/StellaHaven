@@ -16,6 +16,10 @@ from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from test_api_openapi_contract import ROOT, static_inventory, source_shaped_app, install
 from test_api_response_contract import response_module
+from servers_audit_capacity_checks import (
+    current_contract, test_current_audit_inputs_still_reject_damage,
+    test_exact_current_inventory_declarations_and_decorators,
+)
 
 FILES = ['main.py', 'agent/stella_agent.py', 'agent/install.sh', 'agent/install.ps1', 'agent/run-agent.ps1',
          'app/routers/monitor.py', 'app/schemas/monitor.py', 'app/services/entry_monitor_groups.py',
@@ -41,6 +45,7 @@ REVIEW_DIGESTS = {
     'api_response_v21_refresh_timeout_review.json': 'c1f31ea58a78205bcda43f1ff2c78e7df4278a4312c2b64b8297635b031fd73b',
     'api_response_v22_private_remediation_review.json': 'd93542ae89b386a5325ec7ec8616f5e7f33d92aa66d2a40ac8f0a5df087d0b82',
     'api_response_v23_final_offload_review.json': '179a95e5cc73def47e2b7c7b79c97366c700bd1f8f2b5b227e5ce61020b30ed1',
+    'api_response_v24_servers_audit_review.json': 'fea8cfe9e08568d9ea62706da4172444b0c3ee601d19e89ab244fc1b5b14bc57',
 }
 
 
@@ -119,7 +124,8 @@ def assert_identity_evidence(operation, module):
                        'app/api_response_v16_monitor_ux_review.json',
                        'app/api_response_v17_nav_files_review.json',
                        'app/api_response_v19_unified_files_review.json',
-                       'app/api_response_v21_refresh_timeout_review.json'],
+                       'app/api_response_v21_refresh_timeout_review.json',
+                       'app/api_response_v24_servers_audit_review.json'],
         'handler': source,
         'supporting-symbols': row['sources'],
     }
@@ -174,7 +180,7 @@ def test_identity_closed_actual_http_auth_no_store_source_fingerprint(monkeypatc
         assert response.status_code==200
         body=response.json(); source=(ROOT/'agent/stella_agent.py').read_bytes()
         assert set(body)=={'center_id','node_id','source_version','source_sha256','source_size'}
-        assert body==dict(center_id='a'*64,node_id=17,source_version='0.6.20',source_sha256=hashlib.sha256(source).hexdigest(),source_size=len(source))
+        assert body==dict(center_id='a'*64,node_id=17,source_version='0.6.21',source_sha256=hashlib.sha256(source).hexdigest(),source_size=len(source))
         assert response.headers['cache-control']=='no-store'
         schema=response_module().MODELS['AgentIdentityRead']; v=Draft202012Validator(schema);v.validate(body)
         assert not v.is_valid(body|{'token':'secret'})

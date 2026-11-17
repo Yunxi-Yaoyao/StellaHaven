@@ -1,0 +1,26 @@
+[
+  {
+    "file": "agent/stella_agent.py",
+    "fixture": "agent__stella_agent.py.gz",
+    "sha256": "e95bcb5fc05920e580d5687f277a9f3833bde8d354a923b8faad63e2c90f0aa5",
+    "size": 259323
+  },
+  {
+    "file": "app/routers/monitor.py",
+    "fixture": "app__routers__monitor.py.gz",
+    "sha256": "4fe36146c53823371d1b57699f76053d31d7c5e78bbcb21bb3ad613819ac0956",
+    "size": 35116
+  },
+  {
+    "file": "app/services/task.py",
+    "fixture": "app__services__task.py.gz",
+    "sha256": "68c0a7a42b94bb523b48efea05c4ac983459f5fe558707ad38cee83af08fcc3c",
+    "size": 28924
+  },
+  {
+    "file": "app/api_response_contracts.py",
+    "fixture": "app__api_response_contracts.py.gz",
+    "sha256": "23b3725639c8ec34cde7e239c8e7ea255501ed8e8996a721827e9b4d77fee065",
+    "size": 114483
+  }
+]

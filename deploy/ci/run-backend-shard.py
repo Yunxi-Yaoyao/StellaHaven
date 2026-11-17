@@ -251,6 +251,7 @@ for _path, _observation in _COPY_TIMINGS['observations'].items():
 _SUCCESSOR = runpy.run_path(str(Path(__file__).with_name('capacity_successor.py')))
 _V23_TIMINGS = _SUCCESSOR['apply'](ESTIMATED_SECONDS)
 _DERIVATION_TIMINGS = _SUCCESSOR['apply_derivation'](ESTIMATED_SECONDS)
+_AUDIT_TIMINGS = _SUCCESSOR['apply_audit'](ESTIMATED_SECONDS)
 
 GROUP_COMMANDS = (
     ('tests',),

@@ -119,6 +119,9 @@ class BackendShardContract(unittest.TestCase):
                     current = module._V23_TIMINGS['observations'][path]['completed_seconds']
                     optimized = module._DERIVATION_TIMINGS['observations'].get(path) if path in module._DERIVATION_TIMINGS['modeled_replacements'] else None
                     expected_weight = math.ceil(1.20*optimized['completed_seconds']+5) if optimized else max(observed['new_weight'],math.ceil(1.20*current+5))
+                    audit = module._AUDIT_TIMINGS['observations'].get(path)
+                    if audit:
+                        expected_weight = max(expected_weight, math.ceil(1.20*audit['completed_seconds']+5))
                     self.assertEqual(module.estimated_seconds([path]), expected_weight)
 
     def test_weighted_plan_balances_the_complete_original_inventory(self):

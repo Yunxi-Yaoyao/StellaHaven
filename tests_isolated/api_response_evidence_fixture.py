@@ -30,6 +30,7 @@ REVIEW_DIGESTS = {
     'api_response_v21_refresh_timeout_review.json': 'c1f31ea58a78205bcda43f1ff2c78e7df4278a4312c2b64b8297635b031fd73b',
     'api_response_v22_private_remediation_review.json': 'd93542ae89b386a5325ec7ec8616f5e7f33d92aa66d2a40ac8f0a5df087d0b82',
     'api_response_v23_final_offload_review.json': '179a95e5cc73def47e2b7c7b79c97366c700bd1f8f2b5b227e5ce61020b30ed1',
+    'api_response_v24_servers_audit_review.json': 'fea8cfe9e08568d9ea62706da4172444b0c3ee601d19e89ab244fc1b5b14bc57',
 }
 
 

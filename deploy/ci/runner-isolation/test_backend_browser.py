@@ -146,7 +146,7 @@ class BackendBrowserPlanContract(unittest.TestCase):
         script = root / 'deploy/ci/run-backend-shard.py'
         script.parent.mkdir(parents=True)
         script.write_bytes((ROOT / 'deploy/ci/run-backend-shard.py').read_bytes())
-        for name in ('owned_inventory.py','owned-timings.json','ci178-backend-timings.json','ci182-backend-timings.json','copy-capacity-timings.json','capacity_successor.py','v23-capacity-timings.json','derivation-capacity-timings.json'):
+        for name in ('owned_inventory.py','owned-timings.json','ci178-backend-timings.json','ci182-backend-timings.json','copy-capacity-timings.json','capacity_successor.py','v23-capacity-timings.json','derivation-capacity-timings.json','servers-audit-capacity-sources.json'):
             (script.parent/name).write_bytes((ROOT/'deploy/ci'/name).read_bytes())
         setup = root / 'setup.sh'
         # The only fixture seam: legacy alias destination is scratch-owned.
@@ -348,7 +348,7 @@ if stage == 'registry': print(pathlib.Path(os.environ['CALLS']).parent / 'fake-h
             binding = json.loads(path.read_text())
             self.assertIn('backend_browser_sha256', binding)
             self.assertEqual(set(binding['backend_browser_sha256']),
-                             {'deploy/ci/run-backend-shard.py', 'deploy/ci/runner-isolation/backend_dependencies.py', 'deploy/ci/runner-isolation/prepare-backend-browser.sh', 'deploy/ci/owned_inventory.py', 'deploy/ci/owned_pg.py', 'deploy/ci/owned_pytest.py', 'deploy/ci/run-owned-suite.py','deploy/ci/unified_ci.py','deploy/ci/unified-nodeids.json', 'deploy/ci/create-test-db.py', 'deploy/ci/owned-timings.json','deploy/ci/ci178-backend-timings.json','deploy/ci/ci182-backend-timings.json','deploy/ci/copy-capacity-timings.json','deploy/ci/capacity_successor.py','deploy/ci/v23-capacity-timings.json','deploy/ci/derivation-capacity-timings.json', 'qa/native_nav_pg_guard.py'})
+                             {'deploy/ci/run-backend-shard.py', 'deploy/ci/runner-isolation/backend_dependencies.py', 'deploy/ci/runner-isolation/prepare-backend-browser.sh', 'deploy/ci/owned_inventory.py', 'deploy/ci/owned_pg.py', 'deploy/ci/owned_pytest.py', 'deploy/ci/run-owned-suite.py','deploy/ci/unified_ci.py','deploy/ci/unified-nodeids.json', 'deploy/ci/create-test-db.py', 'deploy/ci/owned-timings.json','deploy/ci/ci178-backend-timings.json','deploy/ci/ci182-backend-timings.json','deploy/ci/copy-capacity-timings.json','deploy/ci/capacity_successor.py','deploy/ci/v23-capacity-timings.json','deploy/ci/derivation-capacity-timings.json','deploy/ci/servers-audit-capacity-sources.json', 'qa/native_nav_pg_guard.py'})
             self.assertEqual(verifier.verify(tmp)['status'], 'PASS')
             for source in binding['backend_browser_sha256']:
                 bad = copy.deepcopy(binding)

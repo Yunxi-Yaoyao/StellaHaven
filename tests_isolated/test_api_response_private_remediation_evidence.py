@@ -12,7 +12,11 @@ from private_remediation_evidence_fixture import REVIEW,DIGEST,review,parent_loa
 
 
 def test_v23_exact_source_only_scope_and_current_closure():
-    m = response_module()
+    from servers_audit_evidence_fixture import frozen
+    literal={'__file__':str(ROOT/'app/api_response_contracts.py')}
+    exec(compile(frozen('app/api_response_contracts.py'),'literal-v23-loader','exec'),literal)
+    from types import SimpleNamespace
+    m = SimpleNamespace(**literal)
     r = m._V23_REVIEW
     assert len(r['sources']) == len(r['source_preconditions']) == 23
     assert len(r['operation_source_updates']) == 68
@@ -25,7 +29,7 @@ def test_v23_exact_source_only_scope_and_current_closure():
     active = {s for row in [*m.INVENTORY, *m.WEBSOCKET_DECLARATIONS] for s in row['sources']}
     assert set(r['source_preconditions']).isdisjoint(active)
     assert {s for s in active if m.SOURCE_EVIDENCE[s]['file'] in r['scope_files']} == set(r['sources'])
-    assert m.validate_response_sources(ROOT, static_inventory()[0]) == []
+    assert response_module().validate_response_sources(ROOT, static_inventory()[0]) == []
     from private_remediation_evidence_fixture import v22_loader, historical_body, FINAL_DIGEST
     assert hashlib.sha256((ROOT/'app/api_response_v23_final_offload_review.json').read_bytes()).hexdigest() == FINAL_DIGEST
     before={'__file__':str(ROOT/'app/api_response_contracts.py')}

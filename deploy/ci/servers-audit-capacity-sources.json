@@ -1,0 +1,425 @@
+{
+  "version": 24,
+  "approved_overlay_sha256": "fea8cfe9e08568d9ea62706da4172444b0c3ee601d19e89ab244fc1b5b14bc57",
+  "predecessor_manifest_sha256": "1f29c6aa22d3c24609d511e60a6a9ec0dde535b51105fd99d6602688dbdb7266",
+  "retired_sources": {
+    "app/api_response_contracts.py": {
+      "fixture": "deploy/ci/fixtures/servers-audit-capacity-history/app__api_response_contracts.py.gz",
+      "sha256": "23b3725639c8ec34cde7e239c8e7ea255501ed8e8996a721827e9b4d77fee065",
+      "size": 114483,
+      "git_blob": "1a02f2995f60746653c166fa5cf5ad435cf9ddcd"
+    },
+    "frontend/src/modules/documentation/api.generated.json": {
+      "fixture": "deploy/ci/fixtures/servers-audit-capacity-history/frontend__src__modules__documentation__api.generated.json.gz",
+      "sha256": "c7bf599d7109bb8fafa80ebfc1d5bda7696d5305ddfa3f61c2a1560ea947b221",
+      "size": 33929038,
+      "git_blob": "3212d6de11c8f95dea65fb5c384bdd999781b88e"
+    },
+    "tests_isolated/api_response_evidence_fixture.py": {
+      "fixture": "deploy/ci/fixtures/servers-audit-capacity-history/tests_isolated__api_response_evidence_fixture.py.gz",
+      "sha256": "fad3e3450045fc580ede1f11d63992a262c01aa3873be16b8cacdc60ee7a1d16",
+      "size": 9699,
+      "git_blob": "ca94edca75512afb73a32919dba7beb7ecec2441"
+    },
+    "tests_isolated/private_remediation_evidence_fixture.py": {
+      "fixture": "deploy/ci/fixtures/servers-audit-capacity-history/tests_isolated__private_remediation_evidence_fixture.py.gz",
+      "sha256": "2d9a030d60719236740f8a5592919a3cb87430863a611a24dd238ed38f4b6b85",
+      "size": 4725,
+      "git_blob": "c5bfa9140612a3c075bd3bd17edbd761a5af22c3"
+    },
+    "tests_isolated/test_api_response_private_remediation_evidence.py": {
+      "fixture": "deploy/ci/fixtures/servers-audit-capacity-history/tests_isolated__test_api_response_private_remediation_evidence.py.gz",
+      "sha256": "bae33842346cf596cdece3f3eb67aed4241ac8a7aba7323b6dc53eeccb80202b",
+      "size": 18321,
+      "git_blob": "9f4426175a18733b003bff4240b73c64697c8d96"
+    },
+    "tests_isolated/test_api_response_v11_integration.py": {
+      "fixture": "deploy/ci/fixtures/servers-audit-capacity-history/tests_isolated__test_api_response_v11_integration.py.gz",
+      "sha256": "60815e1cc066c237f79fbda8ce5294a1831edbeff3d08267a8c18fb4d1addfa6",
+      "size": 21913,
+      "git_blob": "affb02499465648607a4e880a9b9190dcc6709c3"
+    }
+  },
+  "current_source_sha256": {
+    "app/api_response_alerts_upstream.json": "3efbe68ff6e7692e4f5dfcb83b166930aba0d37e3365d828ef064bc35099388a",
+    "app/api_response_auth_review.json": "6154c892d9f4fdda10cc73b90a809721296fa3de95cf5fbfef8d6407817a13e6",
+    "app/api_response_backups.json": "e977065d9ffb605251025fee0b2b74426ecef7b3cfae49268ffb011c0f4e66a0",
+    "app/api_response_contracts.py": "56e1b58abe1c6688c542617e92aa6ce2d4218765e93b4050c6e28b6ffb871d0c",
+    "app/api_response_entry_monitoring.json": "58e18134f84b31dce48e9445b74113557c65801d7a45040012580834bbaba096",
+    "app/api_response_entry_scope_review.json": "56a7b7ffaebac02ec7728d2b1fba57c0cefda47863da06aa377bb1a0abbc3be9",
+    "app/api_response_feedback.json": "3cd82689dc1ce9c1c0d77b84c76c4e47db72ad29104c818e75fc35aeb575068f",
+    "app/api_response_feedback.py": "ccf7e3fe7a3c02fb088a45b72e7a81adcd615eae09f81243ffec6affde5df80e",
+    "app/api_response_integrated.json": "8d0bcc77e6f158b448866635be505c56b51ad7c6d1158b8a5750c4774710c772",
+    "app/api_response_inventory.json": "ffbacf41ec5b07935a10194e6e6bc3a02ec1233185dd831b97ae1656e0a65a3e",
+    "app/api_response_ipv6_udp_source_review.json": "d1c24506af35150b2b1363ae3dfb11356c31e373aeb0d0814a905eb4bba32ab7",
+    "app/api_response_models.json": "a6c8d103011e9a250f94f5422dba8e2b9873e3fc06e4c8b05071b703e319ed00",
+    "app/api_response_node_interruptions_review.json": "5335d2c2c1859bcacb838e522f5c390cf421ef89c594f6eb481288c852c303b3",
+    "app/api_response_notes_upstream.json": "7f284b1e15310761d5782318b89e60f2ea9ea2d4c1a89a0c90edabeda16eb9d3",
+    "app/api_response_overhaul.json": "4cf521caaf1e42f854ba1a08ac97e0dd3ee547bce5d780b621db2017047e1396",
+    "app/api_response_round4_review.json": "51231076a0d1ab427b62e62f9493085b928056b8df5b9cd2116792dcad74c475",
+    "app/api_response_shapes.py": "0c46ac53276e868ff6295c85edec8c0e1e93dd3d3003daf53147be48aafcdba1",
+    "app/api_response_upstream.json": "6a0bed1b23ac5d0f1ffce506434aac3b195bb8b21b054940b7a31ca0c00b3d72",
+    "app/api_response_v11_review.json": "bac85446d66572cd654e821d60f68544006104bd926bbb8e14b9197ac2c422a3",
+    "app/api_response_v12_final_review.json": "45b542418bb39357a842fb4947bf8afc315c57f2eb743362f31d9633d366ea14",
+    "app/api_response_v12_installer_umask_review.json": "52b50bde470285a5f70dba07a93778bc5e45879b5482cb4b22bcf70c7d231cab",
+    "app/api_response_v12_notes_review.json": "c30ca41baf23f811f78658e00e7175dfa06b081bafb3b1826cd64951751d88c3",
+    "app/api_response_v13_monitor404_review.json": "73ff3a13e0c3f106ac442ce9ceea27cfb47e2a50f7e1bf62dcdd2ad10d2b645f",
+    "app/api_response_v13_source_metadata_review.json": "0f9d5694370840dcccf02807726070bacde0b3eb0a5162f275d28f6c508b0e39",
+    "app/api_response_v13_speedtest_duration_review.json": "dd17f38ecfe03cb9aeec68da352bafeada3d1ec7a286af75884dd08c08d6ecd8",
+    "app/api_response_v14_ci167_review.json": "b80cb43ac67552a54708f22741ceaeb2889de97a39bf6153e9fb119ad6b53c6b",
+    "app/api_response_v15_agent_rollout_review.json": "23b2e8350b02b83760f732f27b76c19e12b86c976b7b8e4c8d4c5aa81d2f55be",
+    "app/api_response_v16_monitor_ux_review.json": "a4034ef41bf26506485b59eebc845d1b4f5b0e1141ece576d7da4bf3606bea18",
+    "app/api_response_v17_nav_files_review.json": "dd1bd79485b43553522c66ef9123efa091fb660878b2a9e1eb1a8d3fb856ff75",
+    "app/api_response_v18_nav_files_validation_review.json": "6fd0076187200906416dcfb155e06cdc73e162b2afde7cf0f587e194d2e8a232",
+    "app/api_response_v19_unified_files_review.json": "8beb2030ad77a5773bc43d2195337cdec9f7dc3ce0861a630383821bee2317a9",
+    "app/api_response_v20_fnos_policy_review.json": "96c47ca8ec9f5dab1310346f8d057c59e12b2d5037e38513b62b4daf1663cbbd",
+    "app/api_response_v21_refresh_timeout_review.json": "c1f31ea58a78205bcda43f1ff2c78e7df4278a4312c2b64b8297635b031fd73b",
+    "app/api_response_v22_private_remediation_review.json": "d93542ae89b386a5325ec7ec8616f5e7f33d92aa66d2a40ac8f0a5df087d0b82",
+    "app/api_response_v23_final_offload_review.json": "179a95e5cc73def47e2b7c7b79c97366c700bd1f8f2b5b227e5ce61020b30ed1",
+    "app/api_response_v5_integration.json": "362aeb8309ced40a9f0d3af5bc55f48d4132767cabc04caf178202cfad3fdfbb",
+    "app/api_response_v6_integration.json": "0aade4e711b35fcf57d8a74c2f77b266de63814f773904dace3276b0a0a8132a",
+    "app/api_response_v8_review.json": "2f495dc620892fab91f21f7b777f71416d371d7284a41b9140e5d210a1b3ab9c",
+    "app/api_response_web_projects.json": "319cc72219eae806450cb681513cc2768d5daa69b986dee7b89043191fe5c1da",
+    "deploy/ci/ci182-backend-timings.json": "02b3ad37b256a398295c7b0f4bd2dc5cfd651abcc8efe186da16573001ff335f",
+    "deploy/ci/copy-capacity-timings.json": "c281e5908b1edb91361aa583c5cf0d0779d287feb0836a7828e936a53429bf31",
+    "frontend/src/modules/documentation/api.generated.json": "079422afa47546f6d41950fed7df1ae7a7620cda92de8bf110aa4f50414770d3",
+    "tests_isolated/api_response_evidence_fixture.py": "c91400741a484824186ed029220e964a9fe42d0268575200177bef6649f67d1f",
+    "tests_isolated/evidence_exact_cache.py": "c218f202bed18f39c48177eb119ed639fe800d6580c70820fc50770fdc0bd22d",
+    "tests_isolated/evidence_exact_cache_cases.py": "a1897ec7aeddda71bfc271e20dd9445eafb5da7d907c338481f3741d414e9231",
+    "tests_isolated/evidence_graph_copy.py": "d064679899fd4117311e1313175e2bb6fe42a3aa23ec1440fd970afb91872114",
+    "tests_isolated/evidence_graph_copy_cases.py": "c04ba642f9ca0045979b29dcc96ac178899c73a8733b7d26b6758a8a62c65d57",
+    "tests_isolated/fixtures/api_response_private_remediation_history/v23/agent__node_files_delivery.py.gz": "5854df8a5fdb7ce91e6ecf999ec3160b901c20c9480ee928c24e8fdb8a945e58",
+    "tests_isolated/fixtures/api_response_private_remediation_history/v23/app__api_response_contracts.py.gz": "144f70397bcb5df39225657a0c208ed85bc5542af4ca5951ca1df4a0bd585bcb",
+    "tests_isolated/fixtures/api_response_private_remediation_history/v23/app__routers__integrations_host.py.gz": "cd0476a74ee73cb69a2741568afcf86b3391091058a4c9b4ea4cc5f1c89fdbd3",
+    "tests_isolated/fixtures/api_response_private_remediation_history/v23/app__routers__website_settings.py.gz": "9c5189b28809148565835749dc125c435985faf15cc08619808c7f5aa96cb3c4",
+    "tests_isolated/fixtures/api_response_private_remediation_history/v23/app__services__access_entries.py.gz": "eb8befaa8d79feb563d3f7302454ded7cbea719334e6b84b6872ee99677506b1",
+    "tests_isolated/fixtures/api_response_private_remediation_history/v23/app__services__website_settings.py.gz": "35ca5b1cb28ab7b51feec505332ad0c4100af2db63b4967c0013ef52a7fb5e6d",
+    "tests_isolated/fixtures/api_response_private_remediation_history/v23/manifest.json": "6c180ad4e0146416ff5800919e7ac4543864646c33034cf31db9ace1f6e419f0",
+    "tests_isolated/fnos_policy_evidence_fixture.py": "3d774377af75577c6d98b67e9867c33016e19c8440e0d0dd1b4597be6b18e37a",
+    "tests_isolated/monitor_ux_evidence_fixture.py": "656718a63cc7979970d251fc2da9612c108383c9a0422de6ae2d1cee687fadb8",
+    "tests_isolated/nav_files_evidence_fixture.py": "59d9d11a011ece3e4b746ba061c268070a6e728b0b5ef39c1744cd1ebdd19ca8",
+    "tests_isolated/nav_files_validation_evidence_fixture.py": "bb77009b99fb14d001216c6bcb12b61166949fb2d50b11b9585e99e03344da38",
+    "tests_isolated/private_remediation_evidence_fixture.py": "4c7dd766b27c334c60f392a88876ab8e7bb164c0fe858ba221ec01ab2643bfdb",
+    "tests_isolated/refresh_timeout_evidence_fixture.py": "b6981adebb03690d06d59588300234e44fe2c1900830588b28ee984af44aa69e",
+    "tests_isolated/test_api_openapi_contract.py": "36a8fe36f58ed28e277a9327f46860f863eac8167229174be13a81de560dac4e",
+    "tests_isolated/test_api_response_ci167_evidence.py": "e76312dd4ac37672bd4f25c7919f33bf26af20db42afea64b0a239f32e8775ab",
+    "tests_isolated/test_api_response_completion.py": "4509181aae80edd3aadcf579cb7528a50ba79f150d8d046fed5ab7ac19ba89f8",
+    "tests_isolated/test_api_response_contract.py": "b94c447015a04da10ef3f3a1b50b39df4d40c534f7fe810022a60c678f12c393",
+    "tests_isolated/test_api_response_current_overlay_v13.py": "a2da3e10211d58303338b0d33ac91d7679644d0c2866cce72602012ddcffae6b",
+    "tests_isolated/test_api_response_evidence_fixture.py": "7d4ad114b1111f62a02bd5938d2293b1ae4ae8e2e3d11404cab465f1ed8751b0",
+    "tests_isolated/test_api_response_fnos_policy_evidence.py": "e8ab7d84b6b19411d237c436dab7e6f1ce7d57b1c09a6660d0c7accce2e5eb79",
+    "tests_isolated/test_api_response_nav_files_evidence.py": "c167308207eb99ef72eb4ed31228246096b0ea1f8128cec8be53732ed2819e1d",
+    "tests_isolated/test_api_response_private_remediation_evidence.py": "2cb4f5fd332de18c72dd582127fd30e627ab38f09625fceeba73e9fe7477338e",
+    "tests_isolated/test_api_response_private_remediation_final.py": "e001c6a8ac5d6e415894ce5297ba0314a61ad1cfa033ea695d955f2d26e60180",
+    "tests_isolated/test_api_response_reconcile.py": "0be564587abfc482fdcb686d8f60c82c8d360e3f9051fb0a172d30eedb7cd537",
+    "tests_isolated/test_api_response_refresh_timeout_evidence.py": "38601ce76162c64ec8494b21f08c8c02f74641b8feb616a38af621f18955974e",
+    "tests_isolated/test_api_response_source_metadata_v13.py": "667a1cefc37647b6e7e6039d92d9c1019c47d26593a52433a4cdbc6ebd515f5f",
+    "tests_isolated/test_api_response_v11_integration.py": "f495ef71884378c7e73afe19d4e8372198e93b15185673d45be93cf64f70b622",
+    "tests_isolated/test_api_response_v6_integration.py": "35f930bb6b0eae7b32eb7fb08e000e706ce3b869c02fcab01fb10a3adc07d3c8",
+    "tests_isolated/test_api_response_v8_integration.py": "6f57c101dd0db23c59caafecba5d314d703d6eeee1c7d2164a90cbe26fb39a0e",
+    "tests_isolated/test_backup_response_contract.py": "72236a718c9f760e53702e52824c5333a78a8294ae4110c554d6d8e7b8210894",
+    "tests_isolated/test_documentation_export.py": "c8595c9760b48f197977ce500c3e80279c4ee3661ebd673f4a051849cde3a92c",
+    "tests_isolated/test_v5_contract_integration.py": "b80123f76cc1ad9c3f11f27c7f5c91600a2e85955840db7268fd72e218dbdbfe",
+    "tests_isolated/unified_files_evidence_fixture.py": "0c906ca58cb8691fd9b320465bef3bb94c3a270eb702fd0de360c66b3fc98dad",
+    "app/api_response_v24_servers_audit_review.json": "fea8cfe9e08568d9ea62706da4172444b0c3ee601d19e89ab244fc1b5b14bc57",
+    "tests_isolated/servers_audit_evidence_fixture.py": "3d5c1a7afa3dbacebe4c213097ffd71648df840cf204a0df6d55eae62f02041e",
+    "tests_isolated/test_servers_audit_20261117.py": "f50bf0fcaedffaca78c7576857ffa6890e26904c3c80ce1ff4f7904820d956b0",
+    "deploy/ci/fixtures/servers-audit-timings/test_api_response_servers_audit_evidence.log": "46cf028b4bb12787a7494059b9381999d0a84d68c235cad37ffa2530c8caefe1",
+    "deploy/ci/fixtures/servers-audit-timings/test_api_response_servers_audit_evidence.xml": "833ce4bcc35f738e8e3f2a3c72cd3c10313eaaaf9f0a38199ac6313a03ccc4f2",
+    "deploy/ci/fixtures/servers-audit-timings/test_servers_audit_20261117.log": "531dc712a154e51d99bfd41617c24d35a883bae21c1ebb5cb35b1460f1f1b255",
+    "deploy/ci/fixtures/servers-audit-timings/test_servers_audit_20261117.xml": "d5372a19cf4bbd886fa875645f2dadca457929a019c5d408d43faef7504ead6d",
+    "deploy/ci/fixtures/servers-audit-timings/test_api_response_servers_audit_evidence-final.log": "ed9a81b9d3ce8868c4df5eb9874c457a7c8f079ec943d82e2da1f091b55c062c",
+    "deploy/ci/fixtures/servers-audit-timings/test_api_response_servers_audit_evidence-final.xml": "4701f3fbccf5d9d15c62916deadad9ead9dc9891252a735739abe603a89d41ce",
+    "tests_isolated/servers_audit_capacity_checks.py": "be74f0d00e2ba1c875f55d5bcb81da58be65e64a56d51a72684a15b90276ae53",
+    "deploy/ci/fixtures/servers-audit-timings/test_api_response_v11_integration-final.log": "98c2c54705d3dedf39bab3c69763a442c8c92aa7262fc28ff973955e0ec112c3",
+    "deploy/ci/fixtures/servers-audit-timings/test_api_response_v11_integration-final.xml": "ebe795abb781ae3bfe5f52f16b03a466af578bd3f05a3e8d6b7a2a32f1d7dac0",
+    "deploy/ci/fixtures/servers-audit-timings/test_servers_audit_20261117-final.log": "2a378adf15a55081bd7fe0e60493c7c7d7098c7637925a052ca4da08199d28e1",
+    "deploy/ci/fixtures/servers-audit-timings/test_servers_audit_20261117-final.xml": "52cedf6de9201397b9faa17acd1cb2bb86dba11fa62239e3db630d5a3d114f62"
+  },
+  "release_approval": false,
+  "observations": {
+    "tests_isolated/test_servers_audit_20261117.py": {
+      "completed_seconds": 1.6194124639732763,
+      "current_completed_seconds": 1.2667536119697616,
+      "retained_completed_seconds": [
+        1.2667536119697616,
+        1.368108402006328,
+        1.6194124639732763
+      ],
+      "cases": 14,
+      "cases_json": [
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_missing_mtr_rejected_before_any_task_write[monitor-False]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_missing_mtr_rejected_before_any_task_write[monitor-capability1]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_missing_mtr_rejected_before_any_task_write[single-False]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_missing_mtr_rejected_before_any_task_write[single-capability1]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_missing_mtr_rejected_before_any_task_write[multi-False]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_missing_mtr_rejected_before_any_task_write[multi-capability1]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_unknown_legacy_capability_still_admits_online_node[True]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_unknown_legacy_capability_still_admits_online_node[capability1]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_unknown_legacy_capability_still_admits_online_node[None]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_monitor_mtr_checks_source_liveness[offline]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_monitor_mtr_checks_source_liveness[removed]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_monitor_mtr_checks_source_liveness[pending]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_automatic_missing_mtr_reports_failure_without_spawning_binary[periodic]"
+        ],
+        [
+          "tests_isolated.test_servers_audit_20261117",
+          "test_automatic_missing_mtr_reports_failure_without_spawning_binary[failure]"
+        ]
+      ],
+      "cases_sha256": "089331d680905ffd55009431b23dffb3bec0b91cd9357b585c823aefae21cdf3",
+      "source_sha256": "f50bf0fcaedffaca78c7576857ffa6890e26904c3c80ce1ff4f7904820d956b0",
+      "provenance": "Fresh complete current-source pytest process; exact original backend command argv, full log/XML and exact testcase identities. Earlier successful wall times remain retained; latest XML is the current whole-command receipt.",
+      "log": "deploy/ci/fixtures/servers-audit-timings/test_servers_audit_20261117-final.log",
+      "log_sha256": "2a378adf15a55081bd7fe0e60493c7c7d7098c7637925a052ca4da08199d28e1",
+      "xml": "deploy/ci/fixtures/servers-audit-timings/test_servers_audit_20261117-final.xml",
+      "xml_sha256": "52cedf6de9201397b9faa17acd1cb2bb86dba11fa62239e3db630d5a3d114f62"
+    },
+    "tests_isolated/test_api_response_v11_integration.py": {
+      "completed_seconds": 185.79985986603424,
+      "current_completed_seconds": 185.79985986603424,
+      "retained_completed_seconds": [
+        185.79985986603424
+      ],
+      "cases": 45,
+      "cases_json": [
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_current_audit_inputs_still_reject_damage[agent/stella_agent.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_current_audit_inputs_still_reject_damage[app/routers/monitor.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_current_audit_inputs_still_reject_damage[app/services/task.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_exact_current_inventory_declarations_and_decorators"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_exact_source_gate_and_new_identity_inventory"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_identity_closed_actual_http_auth_no_store_source_fingerprint"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_identity_source_shaped_openapi_and_metadata_mutation_negative"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_append_only_exact_review_ranges_edges_and_history"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-main.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-agent/stella_agent.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-agent/install.sh]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-agent/install.ps1]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-agent/run-agent.ps1]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/routers/monitor.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/schemas/monitor.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/services/entry_monitor_groups.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/services/entry_monitoring.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/services/monitor.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/services/monitor_groups.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/services/node.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/services/host.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/services/agent_install.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[byte-app/services/access_entries.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-main.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-agent/stella_agent.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-agent/install.sh]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-agent/install.ps1]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-agent/run-agent.ps1]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/routers/monitor.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/schemas/monitor.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/services/entry_monitor_groups.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/services/entry_monitoring.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/services/monitor.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/services/monitor_groups.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/services/node.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/services/host.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/services/agent_install.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_original_checker_rejects_each_approved_file[missing-app/services/access_entries.py]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_review_metadata_negative[line-0]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_review_metadata_negative[end_line-0]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_review_metadata_negative[symbol-missing.symbol]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_review_metadata_negative[symbol_sha256-0000000000000000000000000000000000000000000000000000000000000000]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_review_metadata_negative[sha256-0000000000000000000000000000000000000000000000000000000000000000]"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_new_operation_wrong_callable_and_union_precondition_fail_closed"
+        ],
+        [
+          "tests_isolated.test_api_response_v11_integration",
+          "test_frozen_dto_object_list_nested_copies_empty_availability_not_health"
+        ]
+      ],
+      "cases_sha256": "70990800269d7b9d6dd84902874068df25ac23963a1f54de9c2df95bc7001226",
+      "source_sha256": "f495ef71884378c7e73afe19d4e8372198e93b15185673d45be93cf64f70b622",
+      "provenance": "Fresh complete current-source pytest process; exact original backend command argv, full log/XML and exact testcase identities.",
+      "log": "deploy/ci/fixtures/servers-audit-timings/test_api_response_v11_integration-final.log",
+      "log_sha256": "98c2c54705d3dedf39bab3c69763a442c8c92aa7262fc28ff973955e0ec112c3",
+      "xml": "deploy/ci/fixtures/servers-audit-timings/test_api_response_v11_integration-final.xml",
+      "xml_sha256": "ebe795abb781ae3bfe5f52f16b03a466af578bd3f05a3e8d6b7a2a32f1d7dac0"
+    }
+  },
+  "timing_margin": "ceil(1.20 * max(all retained completed observations) + 5); preserve existing completed weights; not a remote CI guarantee",
+  "retired_standalone_audit": {
+    "command": "tests_isolated/test_api_response_servers_audit_evidence.py",
+    "retained_completed_seconds": [
+      9.611771973082796,
+      20.431372637976892
+    ],
+    "replacement_command": "tests_isolated/test_api_response_v11_integration.py",
+    "replacement_checks": "tests_isolated/servers_audit_capacity_checks.py",
+    "reason": "All four cases execute in the existing command; no separate discovered file or command remains."
+  }
+}

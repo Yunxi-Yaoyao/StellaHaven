@@ -34,6 +34,9 @@ def assert_historical_floor_or_measured_clone(test, module, path, seconds):
         current = module._V23_TIMINGS['observations'][path]['completed_seconds']
         optimized = module._DERIVATION_TIMINGS['observations'].get(path) if path in module._DERIVATION_TIMINGS['modeled_replacements'] else None
         expected = math.ceil(1.20*optimized['completed_seconds']+5) if optimized else max(math.ceil(1.20*observed['completed_seconds']+5), math.ceil(1.20*current+5))
+        audit = module._AUDIT_TIMINGS['observations'].get(path)
+        if audit:
+            expected = max(expected, math.ceil(1.20*audit['completed_seconds']+5))
         test.assertEqual(module.estimated_seconds([path]), expected)
 
 class BackendCapacityContract(unittest.TestCase):
@@ -158,7 +161,7 @@ class BackendCapacityContract(unittest.TestCase):
                 'sys.exit(73 if os.environ.get("FAIL") else 0)\n')
             ci = root/'deploy/ci'
             ci.mkdir(parents=True)
-            for name in ('run-backend-shard.py','owned_inventory.py','owned-timings.json','ci178-backend-timings.json','ci182-backend-timings.json','copy-capacity-timings.json','capacity_successor.py','v23-capacity-timings.json','derivation-capacity-timings.json'):
+            for name in ('run-backend-shard.py','owned_inventory.py','owned-timings.json','ci178-backend-timings.json','ci182-backend-timings.json','copy-capacity-timings.json','capacity_successor.py','v23-capacity-timings.json','derivation-capacity-timings.json','servers-audit-capacity-sources.json'):
                 (ci/name).write_bytes((ROOT/'deploy/ci'/name).read_bytes())
             (ci/'run-owned-suite.py').write_bytes((root/'pytest.py').read_bytes())
             for directory in ('tests_isolated','tests_node_files','tests_node_files_delivery','tests_agent_unified','tests_agent_refresh_timeout'):

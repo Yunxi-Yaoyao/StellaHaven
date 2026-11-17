@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import time
 
-CHROMIUM = '156.0.8078.47-1~deb12u1'
+CHROMIUM = '156.0.8078.79-1~deb12u1'
 MIRRORS = ('https://mirrors.tuna.tsinghua.edu.cn', 'https://deb.debian.org')
 MODES = {
     'frontend': ['chromium=' + CHROMIUM, 'chromium-common=' + CHROMIUM],

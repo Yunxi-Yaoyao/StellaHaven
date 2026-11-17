@@ -57,17 +57,21 @@ def historical_body(source):
     if source in final_review()['source_preconditions'].values():
         return final_frozen(source['file'],source['sha256'])
     if source in review()['source_preconditions'].values():return frozen(source['file'],source['sha256'])
-    return (ROOT/source['file']).read_bytes()
-def final_successor(key):return final_review()['source_replacements'].get(key,key)
+    from servers_audit_evidence_fixture import historical_body as audit_body
+    return audit_body(source)
+def final_successor(key):
+    from servers_audit_evidence_fixture import successor as audit_successor
+    return audit_successor(final_review()['source_replacements'].get(key,key))
 def successor(key):return final_successor(review()['source_replacements'].get(key,key))
 def final_advance_row(row):
+    from servers_audit_evidence_fixture import advance_row as audit_row
     updates=[u for u in final_review()['operation_source_updates'] if (u['method'],u['path'])==(row['method'],row['path'])]
-    if not updates:return row
+    if not updates:return audit_row(row)
     u,=updates;b=u['before_operation']
     assert all(row[k]==v for k,v in b.items() if k in row)
     assert (row['method'],row['path'],row['endpoint'])==(b['method'],b['path'],b['endpoint'])
     assert row['sources']==u['before_sources']
-    return {**row,'sources':list(u['sources'])}
+    return audit_row({**row,'sources':list(u['sources'])})
 def advance_row(row,*,current=True):
     updates=[u for u in review()['operation_source_updates'] if (u['method'],u['path'])==(row['method'],row['path'])]
     if not updates:return final_advance_row(row) if current else row
@@ -78,9 +82,10 @@ def advance_row(row,*,current=True):
     result={**row,'sources':list(u['sources'])}
     return final_advance_row(result) if current else result
 def final_source_maps(row,maps):
+    from servers_audit_evidence_fixture import source_maps as audit_maps
     if any((u['method'],u['path'],u['endpoint'])==(row['method'],row['path'],row['endpoint']) for u in final_review()['operation_source_updates']):
-        return [*(maps if isinstance(maps,list) else [maps]),'app/'+FINAL_REVIEW]
-    return maps
+        maps = [*(maps if isinstance(maps,list) else [maps]),'app/'+FINAL_REVIEW]
+    return audit_maps(row,maps)
 def source_maps(row,maps):
     if any((u['method'],u['path'],u['endpoint'])==(row['method'],row['path'],row['endpoint']) for u in review()['operation_source_updates']):
         maps=[*(maps if isinstance(maps,list) else [maps]),'app/'+REVIEW]

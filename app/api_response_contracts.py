@@ -822,6 +822,45 @@ for _operation in INVENTORY:
 SOURCE_EVIDENCE.update(_V23_REVIEW['sources'])
 _V5_HANDLERS.update(_V23_REVIEW['handler_source_replacements'])
 
+# v24 preserves every earlier source record and advances only the audited files.
+_V24_TEXT = (_BASE / 'api_response_v24_servers_audit_review.json').read_text()
+if _review_hashlib.sha256(_V24_TEXT.encode()).hexdigest() != 'fea8cfe9e08568d9ea62706da4172444b0c3ee601d19e89ab244fc1b5b14bc57':
+    raise ValueError('v24 servers audit immutable overlay drift')
+_V24_REVIEW = json.loads(_V24_TEXT)
+_V24_ACTIVE = {s for r in [*INVENTORY, *WEBSOCKET_DECLARATIONS] for s in r['sources']
+               if s in _V24_REVIEW['source_preconditions']}
+if (_V24_REVIEW['version'] != 24 or _V24_REVIEW['release_approval'] is not False or
+        len(_V24_ACTIVE) != 139 or set(_V24_REVIEW['source_preconditions']) != _V24_ACTIVE or
+        set(_V24_REVIEW['source_replacements']) != _V24_ACTIVE or
+        any(SOURCE_EVIDENCE[k] != v for k, v in _V24_REVIEW['source_preconditions'].items()) or
+        len(set(_V24_REVIEW['source_replacements'].values())) != 139 or
+        _V24_REVIEW['new_source_keys'] != ['app.services.task._require_mtr_node@v24-servers-audit'] or
+        set(_V24_REVIEW['sources']) != set(_V24_REVIEW['source_replacements'].values()) | set(_V24_REVIEW['new_source_keys']) or
+        set(SOURCE_EVIDENCE).intersection(_V24_REVIEW['sources']) or
+        _V24_REVIEW['operations'] != [] or _V24_REVIEW['models'] != {}):
+    raise ValueError('v24 servers audit source precondition drift')
+_V24_HANDLERS = {e: k for e, k in _V5_HANDLERS.items() if k in _V24_ACTIVE}
+if (_V24_REVIEW['handler_source_preconditions'] != _V24_HANDLERS or
+        _V24_REVIEW['handler_source_replacements'] != {e: _V24_REVIEW['source_replacements'][k] for e, k in _V24_HANDLERS.items()}):
+    raise ValueError('v24 servers audit handler drift')
+_V24_ROWS = {(u['method'], u['path']): u for u in _V24_REVIEW['operation_source_updates']}
+if (len(_V24_ROWS) != 107 or len(_V24_REVIEW['operation_source_updates']) != 107 or
+        set(_V24_ROWS) != {(r['method'], r['path']) for r in INVENTORY if _V24_ACTIVE.intersection(r['sources'])}):
+    raise ValueError('v24 servers audit operation scope drift')
+for _operation in INVENTORY:
+    _update = _V24_ROWS.get((_operation['method'], _operation['path']))
+    if _update is not None:
+        _additions = _V24_REVIEW['new_source_keys'] if any(SOURCE_EVIDENCE.get(s, {}).get('symbol') in
+            ['app.services.task.create_mtr_job', 'app.services.task.create_mtr_for_monitor'] for s in _operation['sources']) else []
+        if (_operation != _update['before_operation'] or _operation['sources'] != _update['before_sources'] or
+                _operation['endpoint'] != _update['endpoint'] or _update['source_additions'] != _additions or
+                _update['sources'] != sorted({_V24_REVIEW['source_replacements'].get(s, s) for s in _operation['sources']} | set(_additions)) or
+                _update['operation'] != {**_operation, 'sources': _update['sources']}):
+            raise ValueError('v24 servers audit exact source union drift')
+        _operation['sources'] = list(_update['sources'])
+SOURCE_EVIDENCE.update(_V24_REVIEW['sources'])
+_V5_HANDLERS.update(_V24_REVIEW['handler_source_replacements'])
+
 MODELS = json.loads((_BASE / 'api_response_models.json').read_text())
 MODELS.update(_INTEGRATED['models'])
 MODELS.update(_ENTRY_MONITORING['models'])
@@ -1541,6 +1580,11 @@ def decorate_response(operation, method, path, endpoint, *, document=None):
         operation['x-stella-contract-evidence']['source-map'] = [
             *(_prior_maps if isinstance(_prior_maps,list) else [_prior_maps]),
             'app/api_response_v23_final_offload_review.json']
+    if (method.upper(), path) in _V24_ROWS:
+        _prior_maps = operation['x-stella-contract-evidence']['source-map']
+        operation['x-stella-contract-evidence']['source-map'] = [
+            *(_prior_maps if isinstance(_prior_maps, list) else [_prior_maps]),
+            'app/api_response_v24_servers_audit_review.json']
     operation['x-stella-contract-validation'] = 'Documentation only; no new runtime response filtering, input validation or redaction.'
     if record['description']:
         operation['description'] = record['description']
