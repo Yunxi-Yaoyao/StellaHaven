@@ -18,7 +18,7 @@ def actual_source_version():
                    if isinstance(node, ast.Assign) and any(
                        isinstance(target, ast.Name) and target.id == 'AGENT_VERSION'
                        for target in node.targets))
-    assert version in {'0.6.18', '0.6.19', '0.6.20'}, 'source version outside this approved rollout transition'
+    assert version in {'0.6.18', '0.6.19', '0.6.20', '0.6.21'}, 'source version outside this approved rollout transition'
     return version
 
 
@@ -74,10 +74,12 @@ def test_candidate_20_keeps_19_18_15_pins_and_exact_source(monkeypatch):
             response = client.get('/agent/version')
             assert response.status_code == 200, response.text
             assert response.json() == {'version': pin}
-            assert client.get('/agent/release').json() == dict(source_version='0.6.20', source_sha256=hashlib.sha256(body).hexdigest(), source_size=len(body), announcement_version=pin, rollout_policy='pinned')
+            assert client.get('/agent/release').json() == dict(source_version='0.6.21', source_sha256=hashlib.sha256(body).hexdigest(), source_size=len(body), announcement_version=pin, rollout_policy='pinned')
         monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.20')
-        assert client.get('/agent/version').json() == dict(version='0.6.20', sha256=hashlib.sha256(body).hexdigest(), size=len(body))
+        assert client.get('/agent/version').json() == {'version': '0.6.20'}
         monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.21')
+        assert client.get('/agent/version').json() == dict(version='0.6.21', sha256=hashlib.sha256(body).hexdigest(), size=len(body))
+        monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.22')
         assert client.get('/agent/version').status_code == 503
         assert client.get('/agent/release').status_code == 503
 

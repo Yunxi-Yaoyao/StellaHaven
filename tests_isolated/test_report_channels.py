@@ -174,7 +174,7 @@ def test_exact_candidate_release_bytes_and_old_rollout_pins(monkeypatch):
     import hashlib
     monkeypatch.delenv('STELLA_AGENT_ROLLOUT_VERSION',raising=False)
     body=agent_script().body
-    assert agent_version()==dict(version='0.6.20',sha256=hashlib.sha256(body).hexdigest(),size=len(body))
+    assert agent_version()==dict(version='0.6.21',sha256=hashlib.sha256(body).hexdigest(),size=len(body))
     for version in ('0.6.16','0.6.17'):
         monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION',version)
         assert agent_version()=={'version':version}

@@ -346,7 +346,9 @@ def test_actual_monitor_object_list_and_agent_artifact_are_current(installed):
     historical_artifact,previous=current_agent()
     artifact=(ROOT/'agent/stella_agent.py').read_bytes()
     assert historical_artifact!=artifact
-    assert hashlib.sha256(artifact).hexdigest()=='e95bcb5fc05920e580d5687f277a9f3833bde8d354a923b8faad63e2c90f0aa5'
+    from servers_audit_evidence_fixture import frozen, review
+    assert hashlib.sha256(frozen('agent/stella_agent.py')).hexdigest()=='e95bcb5fc05920e580d5687f277a9f3833bde8d354a923b8faad63e2c90f0aa5'
+    assert {s['sha256'] for s in review()['sources'].values() if s['file']=='agent/stella_agent.py'} == {hashlib.sha256(artifact).hexdigest()}
     # Reviewed 7497d50 HTTPError availability fix atop the 4462964 artifact.
     # Keep the historical blob/ledger frozen; pin today's served source exactly.
     assert hashlib.sha256(previous).hexdigest()=='25bc5e8c4f8e6ec262b89118098ea6d7b796f0bf3e75d8b10bd9a0aab070208b'
@@ -355,7 +357,7 @@ def test_actual_monitor_object_list_and_agent_artifact_are_current(installed):
     manifest=c.get('/agent/version');validate('GET','/agent/version',manifest)
     assert manifest.status_code==200
     assert manifest.json()=={
-        'version':'0.6.20',
+        'version':'0.6.21',
         'sha256':hashlib.sha256(artifact).hexdigest(),
         'size':len(artifact),
     }

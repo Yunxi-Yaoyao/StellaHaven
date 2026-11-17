@@ -41,7 +41,7 @@ def load_derivation():
     return data
 
 
-AUDIT_SOURCES_SHA256 = 'b1923999499c5d21bdfe366f63406ee5985b160244ae35b170159336521a8726'
+AUDIT_SOURCES_SHA256 = '5cd2fd2fc7f33b4fb16c163dc2ff3e3bcfbefc7764c18d49067cd21f609350fd'
 
 
 def load_audit():

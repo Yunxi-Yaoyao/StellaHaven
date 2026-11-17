@@ -266,7 +266,7 @@ def test_os_cpu_cores_means_physical_and_keeps_logical_separate():
 
 def test_agent_release_version_is_0612():
     # Integrated artifact version; this assertion does not publish a fleet update.
-    assert a.AGENT_VERSION == '0.6.20'
+    assert a.AGENT_VERSION == '0.6.21'
 
 
 def test_pending_and_stale_gpu_availability_is_unknown_not_no_gpu():

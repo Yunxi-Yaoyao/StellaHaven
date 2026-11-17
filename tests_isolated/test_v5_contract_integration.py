@@ -172,7 +172,8 @@ def test_native_request_openapi_pins_post_put_and_nullable_agent_report(native):
                       'api_response_v19_unified_files_review.json',
                       'api_response_v21_refresh_timeout_review.json',
                       'api_response_v22_private_remediation_review.json',
-                      'api_response_v23_final_offload_review.json'):
+                      'api_response_v23_final_offload_review.json',
+                       'api_response_v24_servers_audit_review.json'):
             feedback = layers[name]
             if (operation['method'], operation['path']) in {
                     (r['method'], r['path']) for r in feedback['operation_source_updates']}:

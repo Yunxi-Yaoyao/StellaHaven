@@ -15,13 +15,13 @@ spec.loader.exec_module(agent)
 class VersionTests(unittest.TestCase):
     def test_announcement_is_strictly_newer_numeric_release(self):
         instance = agent.Agent('https://offline.invalid', 'fixture')
-        self.assertEqual(agent.AGENT_VERSION, '0.6.20')
+        self.assertEqual(agent.AGENT_VERSION, '0.6.21')
         for version in ('0.6.9', '0.6.10', '0.6.11', agent.AGENT_VERSION, '', '0.6.010', '0.6.20rc1', ' 0.6.20',
                         '0.6', '0.6.20\n', None, 7, '9' * 1000 + '.1.1'):
             with self.subTest(version=version), patch.object(instance, '_get', return_value={'version': version}), patch.object(instance, '_download_and_restart') as download:
                 instance.check_update()
                 download.assert_not_called()
-        for version in ('0.6.21', '0.7.0', '1.0.0'):
+        for version in ('0.6.22', '0.7.0', '1.0.0'):
             self.assertGreater(tuple(map(int, version.split('.'))), tuple(map(int, agent.AGENT_VERSION.split('.'))))
             with self.subTest(version=version), patch.object(instance, '_get', return_value={'version': version}), patch.object(instance, '_download_and_restart') as download:
                 instance.check_update()
@@ -80,10 +80,10 @@ class DownloadTests(unittest.TestCase):
         self.me.write_bytes(self.old)
         self.me.chmod(0o640)
         cls = type(self)
-        cls.body = b'AGENT_VERSION = "0.6.21"\nclass Agent: pass\ndef main(): pass\n'
+        cls.body = b'AGENT_VERSION = "0.6.22"\nclass Agent: pass\ndef main(): pass\n'
         cls.status = 200
         cls.encoding = ''
-        cls.manifest = {'version': '0.6.21', 'sha256': hashlib.sha256(cls.body).hexdigest(), 'size': len(cls.body)}
+        cls.manifest = {'version': '0.6.22', 'sha256': hashlib.sha256(cls.body).hexdigest(), 'size': len(cls.body)}
         cls.seen.clear()
         self.instance = agent.Agent('http://127.0.0.1:' + str(cls.server.server_port), 'fixture-credential')
         self.stack.enter_context(patch.object(agent, '__file__', str(self.me)))
@@ -109,7 +109,7 @@ class DownloadTests(unittest.TestCase):
     def publish(self, body):
         import hashlib
         type(self).body = body
-        type(self).manifest = {'version': '0.6.21', 'sha256': hashlib.sha256(body).hexdigest(), 'size': len(body)}
+        type(self).manifest = {'version': '0.6.22', 'sha256': hashlib.sha256(body).hexdigest(), 'size': len(body)}
 
     def test_old_access_time_does_not_block_a_valid_update(self):
         import os
@@ -216,7 +216,7 @@ class DownloadTests(unittest.TestCase):
         import subprocess
         import sys
         marker = self.me.parent / 'restarted-marker'
-        self.publish(('AGENT_VERSION = "0.6.21"\nclass Agent: pass\n'
+        self.publish(('AGENT_VERSION = "0.6.22"\nclass Agent: pass\n'
                       'def main():\n    from pathlib import Path\n    Path(' + repr(str(marker)) + ').write_text("fixture-restarted")\n'
                       'if __name__ == "__main__": main()\n').encode())
         worker = self.me.parent / 'fixture_worker.py'
@@ -236,7 +236,7 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(self.restarts, [])
 
     def test_complete_agent_source_can_load_without_running_main(self):
-        self.publish((ROOT / 'agent/stella_agent.py').read_bytes().replace(f'AGENT_VERSION = "{agent.AGENT_VERSION}"'.encode(), b'AGENT_VERSION = "0.6.21"', 1))
+        self.publish((ROOT / 'agent/stella_agent.py').read_bytes().replace(f'AGENT_VERSION = "{agent.AGENT_VERSION}"'.encode(), b'AGENT_VERSION = "0.6.22"', 1))
         self.instance.check_update()
         self.assertEqual(self.me.read_bytes(), type(self).body)
         self.exec.assert_called_once()
@@ -262,7 +262,7 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(self.restarts, [])
 
     def test_early_success_exit_is_not_a_load_success(self):
-        self.publish(b'AGENT_VERSION = "0.6.21"\nimport sys\nsys.exit(0)\n')
+        self.publish(b'AGENT_VERSION = "0.6.22"\nimport sys\nsys.exit(0)\n')
         self.instance.check_update()
         self.unchanged()
 
@@ -299,9 +299,9 @@ class DownloadTests(unittest.TestCase):
     def test_invalid_artifacts_never_replace_old_script(self):
         import hashlib
         good = type(self).body
-        cases = [b'', b'<html>error</html>', b'AGENT_VERSION = "0.6.21"\ndef broken(:\n',
-                 good.replace(b'0.6.21', b'0.6.10'), b'AGENT_VERSION = "0.6.21"\nAGENT_VERSION = "0.6.14"\n',
-                 b'AGENT_VERSION = "0.6.21"\n' + b'#' * (2 * 1024 * 1024), b'\xff']
+        cases = [b'', b'<html>error</html>', b'AGENT_VERSION = "0.6.22"\ndef broken(:\n',
+                 good.replace(b'0.6.22', b'0.6.10'), b'AGENT_VERSION = "0.6.22"\nAGENT_VERSION = "0.6.14"\n',
+                 b'AGENT_VERSION = "0.6.22"\n' + b'#' * (2 * 1024 * 1024), b'\xff']
         for transport in (agent.httpx, None):
             for body in cases:
                 with self.subTest(transport=bool(transport), prefix=body[:40]), patch.object(agent, 'httpx', transport):
@@ -310,9 +310,9 @@ class DownloadTests(unittest.TestCase):
                     self.instance.check_update()
                     self.unchanged()
             type(self).body = good
-            for manifest in ({'version': '0.6.21'},
-                             {'version': '0.6.21', 'sha256': '0' * 64, 'size': len(good)},
-                             {'version': '0.6.21', 'sha256': hashlib.sha256(good).hexdigest(), 'size': len(good) + 1}):
+            for manifest in ({'version': '0.6.22'},
+                             {'version': '0.6.22', 'sha256': '0' * 64, 'size': len(good)},
+                             {'version': '0.6.22', 'sha256': hashlib.sha256(good).hexdigest(), 'size': len(good) + 1}):
                 with self.subTest(manifest=manifest), patch.object(agent, 'httpx', transport):
                     type(self).manifest = manifest
                     self.instance.check_update()

@@ -171,7 +171,7 @@ class TransportTests(unittest.TestCase):
         self.assertNotIn('ExecStart=', host)
 
     def test_new_protocol_version_and_windows_installer_header(self):
-        self.assertEqual(agent.AGENT_VERSION, '0.6.20')
+        self.assertEqual(agent.AGENT_VERSION, '0.6.21')
         script = (ROOT / 'agent/install.ps1').read_text()
         self.assertNotIn('/agent/config?token=', script)
         self.assertIn('Authorization', script)

@@ -201,11 +201,11 @@ def test_real_parent_sigkill_leaves_no_live_owned_children(center, tmp_path, pha
     if phase == 'prepare':
         center['delay'] = 3
     if phase == 'load-probe':
-        body = center['bodies']['stella_agent.py'].replace(b'AGENT_VERSION = "0.6.20"', b'AGENT_VERSION = "0.6.21"', 1)
+        body = center['bodies']['stella_agent.py'].replace(b'AGENT_VERSION = "0.6.21"', b'AGENT_VERSION = "0.6.22"', 1)
         body += ('\nfrom pathlib import Path\nPath(' + repr(str(tmp_path / 'probe-ready')) + ').write_text("ready")\nimport time\ntime.sleep(60)\n').encode()
         center['bodies']['stella_agent.py'] = body
-        center['manifest']['version'] = '0.6.21'
-        center['manifest']['files']['stella_agent.py'].update(version='0.6.21', size=len(body), sha256=hashlib.sha256(body).hexdigest())
+        center['manifest']['version'] = '0.6.22'
+        center['manifest']['files']['stella_agent.py'].update(version='0.6.22', size=len(body), sha256=hashlib.sha256(body).hexdigest())
     code = '''import ctypes,json,os,signal,subprocess,sys,time
 ctypes.CDLL(None).prctl(36,1,0,0,0)
 parent_code = """import json,sys,time

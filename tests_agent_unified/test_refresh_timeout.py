@@ -182,13 +182,13 @@ def test_real_ten_second_load_deadline_remains_fail_closed(center, tmp_path):
     try:
         wait_until(lambda: (manager.tick() or True) and center['claims'] > 0)
         worker = manager.worker
-        body = center['bodies']['stella_agent.py'].replace(b'AGENT_VERSION = "0.6.20"', b'AGENT_VERSION = "0.6.21"', 1)
+        body = center['bodies']['stella_agent.py'].replace(b'AGENT_VERSION = "0.6.21"', b'AGENT_VERSION = "0.6.22"', 1)
         assert body != center['bodies']['stella_agent.py']
         marker = tmp_path / 'load-entered'
         body += ('\nfrom pathlib import Path\nPath(' + repr(str(marker)) + ').write_text("ready")\nimport time\ntime.sleep(60)\n').encode()
         center['bodies']['stella_agent.py'] = body
-        center['manifest']['version'] = '0.6.21'
-        center['manifest']['files']['stella_agent.py'].update(version='0.6.21', size=len(body), sha256=hashlib.sha256(body).hexdigest())
+        center['manifest']['version'] = '0.6.22'
+        center['manifest']['files']['stella_agent.py'].update(version='0.6.22', size=len(body), sha256=hashlib.sha256(body).hexdigest())
         # The load probe's existing ten-second deadline also remains fatal; it
         # must never be confused with a network timeout by exception name.
         wait_until(lambda: (manager.tick() or True) and marker.exists())

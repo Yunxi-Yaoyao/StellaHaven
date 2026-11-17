@@ -36,10 +36,10 @@ def test_actual_19_updater_loads_and_installs_exact_20(old19, center, monkeypatc
     if fallback: module.httpx = None
     else: assert module.httpx is not None
     candidate = (ROOT / 'agent/stella_agent.py').read_bytes()
-    assert candidate.count(b'AGENT_VERSION = "0.6.20"') == 1
+    assert candidate.count(b'AGENT_VERSION = "0.6.21"') == 1
     loads = []; real_load = module.Agent._validate_update_load
     def load(p, version):
-        assert Path(p).read_bytes() == candidate and version == '0.6.20'
+        assert Path(p).read_bytes() == candidate and version == '0.6.21'
         loads.append(p); return real_load(p, version)
     agent = module.Agent(center[0], 'owned-19-only')
     with patch.object(module.Agent, '_validate_update_load', staticmethod(load)), patch.object(module.os, 'execv') as execute:
@@ -58,10 +58,10 @@ def test_19_rejects_exact_downloaded_body_against_matching_current_metadata(old1
     if fallback: module.httpx = None
     else: assert module.httpx is not None
     candidate = (ROOT / 'agent/stella_agent.py').read_bytes()
-    assert candidate.count(b'AGENT_VERSION = "0.6.20"') == 1
-    payload = candidate.replace(b'AGENT_VERSION = "0.6.20"', b'AGENT_VERSION = "0.6.21"', 1) if failure != 'size' else candidate
+    assert candidate.count(b'AGENT_VERSION = "0.6.21"') == 1
+    payload = candidate.replace(b'AGENT_VERSION = "0.6.21"', b'AGENT_VERSION = "0.6.22"', 1) if failure != 'size' else candidate
     assert len(payload) == len(candidate)
-    manifest = dict(version='0.6.20', size=len(candidate), sha256=hashlib.sha256(candidate).hexdigest())
+    manifest = dict(version='0.6.21', size=len(candidate), sha256=hashlib.sha256(candidate).hexdigest())
     if failure == 'size': manifest['size'] += 1
     elif failure == 'declaration': manifest['sha256'] = hashlib.sha256(payload).hexdigest()
     state = center[1]; state.update(manifest=manifest, body=payload)

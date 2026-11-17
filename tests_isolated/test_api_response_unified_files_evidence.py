@@ -189,7 +189,7 @@ def test_current_release_manifest_and_raw_artifact_real_bodies_match_contract():
         node_agent=lambda db,token:17)
     manifest=ns['manifest']('owned',None);value=json.loads(manifest.body)
     assert manifest.status_code==200 and manifest.headers['cache-control']=='no-store'
-    assert value['version']=='0.6.20'
+    assert value['version']=='0.6.21'
     schema=response_module().DECLARATIONS['GET','/agent/files/release']['responses']['200']['content']['application/json']['schema']
     Draft202012Validator(schema).validate(value)
     for name in FILES:

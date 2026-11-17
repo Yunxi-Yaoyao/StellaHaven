@@ -397,13 +397,13 @@ class HardwareAgentTests(unittest.TestCase):
 
 
     def test_release_version_refuses_same_version_update_and_accepts_newer(self):
-        self.assertEqual(agent.AGENT_VERSION, '0.6.20')
+        self.assertEqual(agent.AGENT_VERSION, '0.6.21')
         obj = instance()
-        with patch.object(obj, '_get', return_value={'version': '0.6.20'}), \
+        with patch.object(obj, '_get', return_value={'version': '0.6.21'}), \
                 patch.object(obj, '_download_and_restart') as download:
             obj.check_update()
             download.assert_not_called()
-        with patch.object(obj, '_get', return_value={'version': '0.6.21'}), \
+        with patch.object(obj, '_get', return_value={'version': '0.6.22'}), \
                 patch.object(obj, '_download_and_restart') as download:
             obj.check_update()
             download.assert_called_once()

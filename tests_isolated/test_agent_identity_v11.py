@@ -28,7 +28,7 @@ def test_identity_exact_response_and_removed_token_closed():
     c,ns,repo = client()
     response = c.get('/agent/identity'); assert response.status_code == 200
     body = (ROOT/'agent/stella_agent.py').read_bytes()
-    assert response.json() == dict(center_id='a'*64,node_id=17,source_version='0.6.20',
+    assert response.json() == dict(center_id='a'*64,node_id=17,source_version='0.6.21',
         source_sha256=hashlib.sha256(body).hexdigest(),source_size=len(body))
     assert response.headers['cache-control'] == 'no-store'
     repo.get_by_token = lambda db,token: None

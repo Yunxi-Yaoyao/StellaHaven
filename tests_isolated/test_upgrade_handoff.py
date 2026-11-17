@@ -74,13 +74,14 @@ def test_public_background_uses_pinned_owner_not_legacy_admin(auth_env):
 
 
 def test_session_records_expose_explicit_utc_timezone(auth_env):
-    from datetime import datetime
+    from datetime import datetime, timedelta, timezone
     from app.models.user import AuthSession
     c, db, app = auth_env
     owner(c)
     row = db.query(AuthSession).first()
-    row.created_at = datetime(2026, 10, 5, 20, 44)
-    row.last_seen = datetime(2026, 10, 5, 20, 45)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    row.created_at = now - timedelta(minutes=2)
+    row.last_seen = now - timedelta(minutes=1)
     db.commit()
     r = c.get('/auth/sessions')
     assert r.status_code == 200
@@ -106,7 +107,7 @@ def test_agent_rollout_can_hold_version_until_helpers_are_seeded(auth_env, monke
     assert c.get('/agent/version').status_code == 503
     monkeypatch.delenv('STELLA_AGENT_ROLLOUT_VERSION')
     announced = c.get('/agent/version').json()
-    assert announced['version'] == '0.6.20'
+    assert announced['version'] == '0.6.21'
     assert len(announced['sha256']) == 64 and announced['size'] > 0
 
 

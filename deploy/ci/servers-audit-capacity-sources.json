@@ -38,6 +38,12 @@
       "sha256": "60815e1cc066c237f79fbda8ce5294a1831edbeff3d08267a8c18fb4d1addfa6",
       "size": 21913,
       "git_blob": "affb02499465648607a4e880a9b9190dcc6709c3"
+    },
+    "tests_isolated/test_v5_contract_integration.py": {
+      "fixture": "deploy/ci/fixtures/servers-audit-capacity-history/tests_isolated__test_v5_contract_integration.py.gz",
+      "size": 16316,
+      "sha256": "b80123f76cc1ad9c3f11f27c7f5c91600a2e85955840db7268fd72e218dbdbfe",
+      "git_blob": "3e0f2730b845e2aec21581577ea7f88083e789d5"
     }
   },
   "current_source_sha256": {
@@ -119,7 +125,7 @@
     "tests_isolated/test_api_response_v8_integration.py": "6f57c101dd0db23c59caafecba5d314d703d6eeee1c7d2164a90cbe26fb39a0e",
     "tests_isolated/test_backup_response_contract.py": "72236a718c9f760e53702e52824c5333a78a8294ae4110c554d6d8e7b8210894",
     "tests_isolated/test_documentation_export.py": "c8595c9760b48f197977ce500c3e80279c4ee3661ebd673f4a051849cde3a92c",
-    "tests_isolated/test_v5_contract_integration.py": "b80123f76cc1ad9c3f11f27c7f5c91600a2e85955840db7268fd72e218dbdbfe",
+    "tests_isolated/test_v5_contract_integration.py": "eb9b2d264f2a67cefe82667cb7346b5c1862efaa5f3bd275e1f0edca57b440aa",
     "tests_isolated/unified_files_evidence_fixture.py": "0c906ca58cb8691fd9b320465bef3bb94c3a270eb702fd0de360c66b3fc98dad",
     "app/api_response_v24_servers_audit_review.json": "fea8cfe9e08568d9ea62706da4172444b0c3ee601d19e89ab244fc1b5b14bc57",
     "tests_isolated/servers_audit_evidence_fixture.py": "3d5c1a7afa3dbacebe4c213097ffd71648df840cf204a0df6d55eae62f02041e",
@@ -134,7 +140,21 @@
     "deploy/ci/fixtures/servers-audit-timings/test_api_response_v11_integration-final.log": "98c2c54705d3dedf39bab3c69763a442c8c92aa7262fc28ff973955e0ec112c3",
     "deploy/ci/fixtures/servers-audit-timings/test_api_response_v11_integration-final.xml": "ebe795abb781ae3bfe5f52f16b03a466af578bd3f05a3e8d6b7a2a32f1d7dac0",
     "deploy/ci/fixtures/servers-audit-timings/test_servers_audit_20261117-final.log": "2a378adf15a55081bd7fe0e60493c7c7d7098c7637925a052ca4da08199d28e1",
-    "deploy/ci/fixtures/servers-audit-timings/test_servers_audit_20261117-final.xml": "52cedf6de9201397b9faa17acd1cb2bb86dba11fa62239e3db630d5a3d114f62"
+    "deploy/ci/fixtures/servers-audit-timings/test_servers_audit_20261117-final.xml": "52cedf6de9201397b9faa17acd1cb2bb86dba11fa62239e3db630d5a3d114f62",
+    "tests_agent_unified/test_refresh_timeout.py": "8a684d3a43e92da378e5a0c428b603a29b38f6295d68a970799a377f25921f80",
+    "tests_agent_unified/test_unified_agent.py": "25831ad463f9d4056d0af2a246255fc14139c2c0e039401376e8d14433b4d432",
+    "tests_isolated/test_agent_19_upgrade.py": "4fa0bb4daec09b1f42cd2f7db96f4fe1b257c309681436a9827c0c3c9b0289c6",
+    "tests_isolated/test_agent_identity_v11.py": "13046a790e0ea0502fc66429e86fa2aae8ed140debc99e40df086f96e78b535a",
+    "tests_isolated/test_agent_legacy_upgrade.py": "060b0f61ca39a837748ad104d7bc8f655697c25c4a4e198590b3313ca2623cf7",
+    "tests_isolated/test_agent_privileges.py": "2587d3aa22f8c6de17e226d90bfa0b3814160ded226f8342700c01cd004ebcb0",
+    "tests_isolated/test_agent_rollout_compat.py": "1015bb1af273bd191f865e5c1856f963828d33eaf5831612e5ae3cdb87278fac",
+    "tests_isolated/test_agent_update.py": "707887b2df4fddfecfc6098fcc9fdb4263083e4665a7f5ed6ad7ce543bce6c9f",
+    "tests_isolated/test_api_response_unified_files_evidence.py": "a5530c4a0c82c654a075fea76d360256e7a8dd6efe3c5b2aed3a618435435ed1",
+    "tests_isolated/test_api_response_v6_runtime.py": "caccae215665b2c5cb7f5cbfc69dd4c39fe5d55a68047e53bf15609a0f90d39f",
+    "tests_isolated/test_hardware_agent.py": "be8536bf7268ea64be7249dc49a933391c4f9d113b4537fea45bb4d6c1460a69",
+    "tests_isolated/test_hardware_storage_refine.py": "c04c94f450c1fb33b017b7faca73b934281000a20b5f5a6ee37e6b75ca8a7238",
+    "tests_isolated/test_report_channels.py": "50aa110a672c6a59f4ea10d1ba8240e39860c144b1aa110fcb7d4ac7547d9aa0",
+    "tests_isolated/test_upgrade_handoff.py": "cc58dd2b69dae71c3649395615b91eeb3442429f7674b9cdd01bf7a26f860a03"
   },
   "release_approval": false,
   "observations": {

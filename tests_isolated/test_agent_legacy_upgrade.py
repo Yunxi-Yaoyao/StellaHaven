@@ -133,7 +133,7 @@ def test_old_updaters_reject_invalid_metadata_or_payload(legacy, center, monkeyp
     agent = instance(legacy, center, fallback)
     module, path, body = legacy
     payload = (ROOT / 'agent/stella_agent.py').read_bytes()
-    manifest = dict(version='0.6.20', sha256=hashlib.sha256(payload).hexdigest(), size=len(payload))
+    manifest = dict(version='0.6.21', sha256=hashlib.sha256(payload).hexdigest(), size=len(payload))
     state = center[1]
     state['manifest'] = manifest
     if failure == 'missing': manifest.pop('sha256')
@@ -143,8 +143,8 @@ def test_old_updaters_reject_invalid_metadata_or_payload(legacy, center, monkeyp
     elif failure == 'older_version': manifest['version'] = '0.6.11'
     elif failure == 'malformed_version': manifest['version'] = '0.6.018'
     elif failure in ('payload_version', 'syntax'):
-        assert payload.count(b'AGENT_VERSION = "0.6.20"') == 1
-        payload = payload.replace(b'AGENT_VERSION = "0.6.20"', b'AGENT_VERSION = "0.6.18"', 1) if failure == 'payload_version' else b'def broken(:\n'
+        assert payload.count(b'AGENT_VERSION = "0.6.21"') == 1
+        payload = payload.replace(b'AGENT_VERSION = "0.6.21"', b'AGENT_VERSION = "0.6.18"', 1) if failure == 'payload_version' else b'def broken(:\n'
         state['body'] = payload
         manifest.update(sha256=hashlib.sha256(payload).hexdigest(), size=len(payload))
     else:
