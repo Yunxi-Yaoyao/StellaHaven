@@ -1,0 +1,20 @@
+import {build} from '../frontend/node_modules/vite/dist/node/index.js';
+import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs';
+import {mkdir,readFile,readdir,writeFile} from 'node:fs/promises';
+import {dirname,join,relative} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+const repo=dirname(dirname(fileURLToPath(import.meta.url))),output=process.argv[2];
+if(!output?.startsWith(process.env.TMPDIR+'/'))throw Error('build output must be owned scratch');
+await mkdir(output,{recursive:true});
+await build({root:join(repo,'frontend'),configFile:join(repo,'frontend/vite.config.ts'),build:{outDir:join(output,'main'),emptyOutDir:true},cacheDir:join(output,'cache-main')});
+await build({root:join(repo,'frontend'),configFile:false,plugins:[vue()],build:{outDir:join(output,'node-files'),emptyOutDir:true,lib:{entry:join(repo,'frontend/src/modules/servers/NodeFilesView.vue'),formats:['es'],fileName:'node-files'},rollupOptions:{external:['vue']}},cacheDir:join(output,'cache-files')});
+const manifest={};
+async function walk(dir){for(const item of await readdir(dir,{withFileTypes:true})){const path=join(dir,item.name);if(item.isDirectory())await walk(path);else manifest[relative(output,path)]=createHash('sha256').update(await readFile(path)).digest('hex')}}
+await walk(join(output,'main'));await walk(join(output,'node-files'));
+const sources={};
+for(const file of ['frontend/src/modules/servers/NodeFilesView.vue','frontend/src/shell/Dropdown.vue','frontend/src/shell/Icon.vue','frontend/src/style.css','tests_node_files/build.mjs'])sources[file]=createHash('sha256').update(await readFile(join(repo,file))).digest('hex');
+const view=await readFile(join(repo,'frontend/src/modules/servers/NodeFilesView.vue'),'utf8');
+if(/<select\b|--text-primary|--bg-primary|--text-secondary|--bg-secondary/.test(view))throw Error('NodeFiles retained native select or nonexistent theme tokens');
+await writeFile(join(process.env.NODE_FILES_EVIDENCE,'F2-build-manifest.json'),JSON.stringify({output,files:manifest,sources},null,2));
+console.log('full-app and dedicated NodeFiles production builds',Object.keys(manifest).length,'hashed files');

@@ -1,3 +1,4 @@
+import {notifyClientPreferenceChange} from '../settings/clientPreferenceEvents';
 export type DriveBackgroundMode='solid'|'image';
 export const DRIVE_BACKGROUND_KEY='stella_drive_bg_mode';
 export const LEGACY_DRIVE_BACKGROUND_KEY='__stella_drive_bg_mode__';
@@ -13,4 +14,5 @@ export function saveDriveBackground(mode:DriveBackgroundMode){
  localStorage.setItem(DRIVE_BACKGROUND_KEY,mode);
  localStorage.setItem(LEGACY_DRIVE_BACKGROUND_KEY,mode);
  window.dispatchEvent(new Event(DRIVE_BACKGROUND_EVENT));
+ notifyClientPreferenceChange('stella_drive_bg_mode',mode);
 }

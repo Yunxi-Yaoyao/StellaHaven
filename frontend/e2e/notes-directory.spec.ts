@@ -1,14 +1,15 @@
+import {installLegacyBoundary} from './notes-legacy-boundary';
 import { test, expect, chromium } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 let browser: Browser;
 let page: Page;
 let saved: any[];
-const baseURL = process.env.STELLA_TEST_URL || 'http://127.0.0.1:5173';
+const baseURL = process.env.STELLA_TEST_URL || 'http://127.0.0.1:15186';
 const original = '# 正文标题\n\n保留的正文与 [[手写双链]]\n';
 test.beforeAll(async () => { browser = await chromium.launch({ executablePath: '/usr/sbin/google-chrome-stable', args: ['--no-sandbox'], headless: true }); });
 test.afterAll(async () => { await browser?.close(); });
 test.beforeEach(async () => {
-  page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); saved = [];
+  page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); await page.routeWebSocket('**/*',socket=>socket.close()); saved = [];
   const doc: any = { id: 'doc-a', title: '编辑验收', file_path: '/test.md', workspace_id: 'ws-a', parent_id: null, content: original, updated_at: '2026-09-08T06:00:00Z', created_at: '2026-09-08T06:00:00Z', has_draft: false, status: 'published', is_folder: false, is_favorite: false, is_pinned: false };
   await page.route('**/*', async route => {
     const url = new URL(route.request().url()); const p = url.pathname;
@@ -27,7 +28,7 @@ test.beforeEach(async () => {
     if (p.startsWith('/auth/') || p.startsWith('/api/')) return fulfill({});
     return route.continue();
   });
-  await page.addInitScript(() => { localStorage.clear(); localStorage.setItem('stella_bootstrap', JSON.stringify({ userId:'user-a', workspaceId:'ws-a' })); });
+  await installLegacyBoundary(page);await page.addInitScript(() => { localStorage.clear(); localStorage.setItem('stella_bootstrap', JSON.stringify({ userId:'user-a', workspaceId:'ws-a' })); });
   page.on('pageerror', e => console.log('PAGE_ERROR:', e.message));
   await page.goto(`${baseURL}/notes`);
   await expect(page.getByText('编辑验收', { exact: true }).first()).toBeVisible();
@@ -48,7 +49,7 @@ test('directory sits before body, direct children only, folded backlinks and no 
  await expect(directory).toBeVisible();
  await page.keyboard.press('Control+s');
  expect(saved).toEqual([]);
- await page.screenshot({path:'/tmp/stella-auto-directory-desktop.png',fullPage:true});
+ await page.screenshot({path:process.env.NOTES_REFRESH_ARTIFACTS+'/stella-auto-directory-desktop.png',fullPage:true});
 });
 test('phone with body collapses directory, remembers expansion, no horizontal overflow', async () => {
  await page.setViewportSize({width:390,height:844});
@@ -56,11 +57,11 @@ test('phone with body collapses directory, remembers expansion, no horizontal ov
  await expect(page.locator('.title-readonly')).toHaveText('编辑验收');
  await expect(page.locator('.auto-directory')).toBeVisible();
  await expect(page.locator('.auto-directory').getByRole('button',{name:'模板',exact:true})).not.toBeVisible();
- await page.screenshot({path:'/tmp/stella-auto-directory-mobile-collapsed.png',fullPage:true});
+ await page.screenshot({path:process.env.NOTES_REFRESH_ARTIFACTS+'/stella-auto-directory-mobile-collapsed.png',fullPage:true});
  await page.locator('.auto-directory button[aria-expanded]').first().click();
  await expect(page.locator('.auto-directory').getByRole('button',{name:'模板',exact:true})).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- await page.screenshot({path:'/tmp/stella-auto-directory-mobile.png',fullPage:true});
+ await page.screenshot({path:process.env.NOTES_REFRESH_ARTIFACTS+'/stella-auto-directory-mobile.png',fullPage:true});
 });
 
 test('directory child creation chooses body template and uses the current parent ID', async()=>{

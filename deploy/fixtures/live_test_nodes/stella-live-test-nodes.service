@@ -1,0 +1,24 @@
+[Unit]
+Description=Stella persistent isolated test nodes (owned nodes 2/3; never production agent)
+Requires=docker.service
+After=docker.service network-online.target stella-preview-backend.service
+[Service]
+Type=simple
+WorkingDirectory=/opt/hermes-workstation/docs/Stella-追加修正-20261019/live-test-nodes
+ExecStart=/usr/bin/python3 /opt/hermes-workstation/docs/Stella-追加修正-20261019/live-test-nodes/supervisor.py
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=128M
+CPUQuota=20%
+TasksMax=64
+[Install]
+WantedBy=multi-user.target

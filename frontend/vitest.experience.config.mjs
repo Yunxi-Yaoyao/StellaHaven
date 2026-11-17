@@ -1,3 +1,3 @@
 import {defineConfig} from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
-export default defineConfig({plugins:[vue()],cacheDir:'node_modules/.cache/experience-unit',test:{environment:'jsdom',include:['src/**/*.experience.test.ts'],pool:'forks',maxWorkers:1,minWorkers:1}});
+export default defineConfig({plugins:[vue()],cacheDir:'node_modules/.cache/experience-unit',test:{environment:'jsdom',include:['src/**/*.experience.test.ts','src/stores/navigation.save-light.test.ts','src/modules/settings/WebsiteSettings.save-light.test.ts','src/composables/navigationOrder.test.ts','src/modules/settings/NavigationOrder.drag.test.ts','src/modules/home/startupAdmission.test.ts','src/modules/home/live2dAdmission.test.ts','src/modules/home/Live2dWidget.admission.test.ts','src/modules/home/BgLayer.admission.test.ts'],pool:'forks',maxWorkers:1,minWorkers:1}});

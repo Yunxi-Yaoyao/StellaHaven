@@ -29,8 +29,14 @@ def test_pg_attachment_no_file_and_delete(client,pg_doc,db_session):
     docdata=client.get('/documents/'+doc).json()
     r=client.put('/documents/'+doc,json={'updated_at':docdata['updated_at'],'content':'no attachment'})
     assert r.status_code==200
-    assert client.get(url).status_code==404
-    assert db_session.get(BlobObject,'attachments/'+ident) is None
+    # Pending uploads have no implicit expiry on an unrelated save.
+    from sqlalchemy.orm import Session
+    from uuid import UUID
+    from app.models.attachment import Attachment
+    assert client.get(url).content==payload
+    with Session(db_session.get_bind()) as fresh:
+        assert fresh.get(Attachment, UUID(ident)) is not None
+        assert fresh.get(BlobObject,'attachments/'+ident).size==len(payload)
 
 
 def test_pg_upload_idempotency_same_content_and_conflict(client,pg_doc):

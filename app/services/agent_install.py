@@ -15,6 +15,42 @@ SUDOERS_PATH = Path('/etc/sudoers.d/stella-docker')
 HELPER_SOURCE = Path(__file__).resolve().parents[2] / 'deploy/agent-privileges/stella-docker-helper.py'
 
 
+def installation_center_id():
+    """Authenticated install bootstrap, not the public read-only JWKS route.
+
+    No OIDC client registration is required. Existing keys are never replaced;
+    HA still requires its operator-provisioned shared key. Serialize first-use
+    provisioning so two authenticated installers cannot mint different centers.
+    """
+    import fcntl
+    from app.services import oidc, agent_channels
+    if oidc.ha_state.enabled():
+        return agent_channels.center_id()
+    oidc.OIDC_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock = oidc.OIDC_DIR / '.agent-install-identity.lock'
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        if not oidc.PRIVATE_KEY_PATH.exists():
+            # Authenticated first-use provisioning must never expose a 0644 key
+            # even briefly. Public /oidc/jwks remains strictly read-only.
+            from authlib.jose import JsonWebKey
+            import json
+            import tempfile
+            key = JsonWebKey.generate_key('RSA', 2048, is_private=True).as_dict(is_private=True)
+            key['kid'] = oidc.KID
+            stage_fd, stage = tempfile.mkstemp(prefix='.agent-identity-', dir=oidc.OIDC_DIR)
+            try:
+                with os.fdopen(stage_fd, 'w') as out:
+                    json.dump(key, out); out.flush(); os.fsync(out.fileno())
+                os.replace(stage, oidc.PRIVATE_KEY_PATH)
+            finally:
+                if os.path.exists(stage): os.unlink(stage)
+        return agent_channels.center_id()
+    finally:
+        os.close(fd)
+
+
 def docker_sudoers():
     return ''.join(f'stella ALL=(root) NOPASSWD: {HELPER_PATH} {action}{suffix}\n'
                    for action, suffix in [('ps', ''), ('inspect', ' *'), ('logs', ' *'),

@@ -7,6 +7,11 @@ export function componentTone(n: Heartbeat, installed: boolean | null, now = Dat
   if (!reachable(n, now)) return 'off';
   return installed === true ? 'ok' : installed === false ? 'bad' : 'unknown';
 }
+export function componentInstalled(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (value && typeof value === 'object' && 'installed' in value && typeof value.installed === 'boolean') return value.installed;
+  return null;
+}
 export function errorDetail(e: unknown, fallback: string): string {
   const err = e as {detail?: unknown; message?: string};
   return typeof err?.detail === 'string' ? err.detail : err?.message || fallback;

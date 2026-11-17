@@ -13,7 +13,15 @@ test('uneven buckets use raw sample weights for availability latency and loss',(
  assert.equal(result.loss,1000/1010);
 });
 
-test('raw points remain backward-compatible and unavailable latencies are ignored',()=>{
+test('missing packet measurements stay unknown, not inferred from check failure',()=>{
  assert.deepEqual(summarizeMonitorPoints([{ts:'a',success:true,latency_ms:10,loss_pct:null},{ts:'b',success:false,latency_ms:500,loss_pct:null}]),
- {total:2,avail:50,avgLat:10,loss:50});
+ {total:2,avail:50,avgLat:10,loss:null});
+ assert.equal(summarizeMonitorPoints([]).loss,null);
+ assert.equal(summarizeMonitorPoints([{ts:'a',success:false,latency_ms:null,loss_pct:null,sample_count:10,success_count:0,loss_count:0}]).loss,null);
+});
+
+test('explicit measured zero remains zero and unmeasured failures do not dilute it',()=>{
+ const result=summarizeMonitorPoints([{ts:'a',success:true,latency_ms:1,loss_pct:0},{ts:'b',success:false,latency_ms:null,loss_pct:null}]);
+ assert.equal(result.loss,0);
+ assert.equal(result.avail,50);
 });

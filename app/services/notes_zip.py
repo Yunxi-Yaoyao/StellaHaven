@@ -47,7 +47,7 @@ def decode_body(data, encoding):
     raise HTTPException(400, 'Cannot decode Markdown')
 
 
-def parse_archive(data, encoding='auto'):
+def parse_archive(data, encoding='auto', *, require_notes=True):
     decode_body(b'', encoding)
     if len(data) > MAX_COMPRESSED:
         raise HTTPException(413, 'ZIP exceeds compressed limit')
@@ -116,7 +116,7 @@ def parse_archive(data, encoding='auto'):
         else:
             kind, title = 'attachment', p.name
         entries.append(dict(path=path, title=title, kind=kind, parent_path=parent))
-    if not bodies:
+    if require_notes and not bodies:
         raise HTTPException(400, 'ZIP must contain a Markdown document or directory')
     return entries, files, bodies, sources
 
@@ -147,20 +147,89 @@ def preview_archive(data, encoding='auto'):
 from app.services.markdown_links import rewrite_markdown
 
 
+def _reconcile_failed_files(bind, owner_id, receipt_key, scope, created_ids, storage):
+    """Only caller-proven, newly published immutable UUIDs; never a disk sweep.
+
+    A rollback return is NOT evidence of commit failure. A fresh writer session
+    must acquire the same graph/workspace/receipt locks as the import, then read
+    the atomic receipt, metadata and ALL references. Holding the graph lock from
+    scan through intent commit excludes reference writers; drain rechecks under
+    that lock again before unlink. DB/read/lock uncertainty retains bytes.
+    """
+    import logging
+    from uuid import UUID
+    from sqlalchemy.orm import Session
+    from app.services.notes_lifecycle import lock_workspace
+    from app.services.notes_tools import lock_key
+    from app.services.attachment_lifecycle import referenced_candidates, drain_file_gc
+
+    engine = getattr(bind, 'engine', bind)
+    if engine.dialect.name == 'postgresql':
+        engine = engine.execution_options(isolation_level='READ COMMITTED', postgresql_readonly=False)
+    try:
+        with Session(engine) as fresh:
+            if engine.dialect.name == 'postgresql':
+                fresh.execute(text("SET LOCAL lock_timeout = '2s'"))
+                fresh.execute(text("SET LOCAL statement_timeout = '5s'"))
+                if fresh.execute(text('SELECT pg_is_in_recovery()')).scalar():
+                    raise RuntimeError('Reconciliation requires writer authority')
+            workspace = lock_workspace(fresh, UUID(scope[0]))
+            if workspace.user_id != owner_id:
+                raise RuntimeError('Reconciliation owner changed')
+            lock_key(fresh, receipt_key)
+            # Any receipt is a veto, including a different-scope concurrent retry.
+            if fresh.get(AppConfig, receipt_key) is not None:
+                return
+            found, unknown = referenced_candidates(fresh, created_ids)
+            if unknown:
+                raise RuntimeError('Reconciliation reference check incomplete')
+            approved = []
+            for ident in created_ids:
+                if ident in found or fresh.get(Attachment, ident) is not None:
+                    continue
+                key = 'notes-file-gc:' + str(ident)
+                if fresh.get(AppConfig, key) is None:
+                    fresh.add(AppConfig(key=key, value=json.dumps({
+                        'attachment_id': str(ident), 'attempts': 0, 'state': 'pending',
+                        'source': 'notes-zip', 'owner_id': str(owner_id),
+                        'receipt_key': receipt_key, 'scope': scope})))
+                    approved.append(ident)
+            # Durable retry intents precede unlink. If this commit is uncertain,
+            # leave them for existing drain_file_gc; never compensate blindly.
+            fresh.commit()
+            if approved:
+                # Intent commit ended the previous transaction-local budgets.
+                if engine.dialect.name == 'postgresql':
+                    fresh.execute(text("SET LOCAL lock_timeout = '2s'"))
+                    fresh.execute(text("SET LOCAL statement_timeout = '5s'"))
+                drain_file_gc(fresh, storage=storage, object_ids=approved)
+    except Exception as exc:
+        logging.getLogger(__name__).error(
+            'notes_zip_file_reconcile_deferred receipt=%s failure=%s', receipt_key, type(exc).__name__)
+
+
 def commit_archive(db, user, workspace_id, parent_id, import_id, data, encoding='auto'):
     from app.routers import attachment as storage
     entries, files, bodies, sources = parse_archive(data, encoding)
     if not bodies:
         raise HTTPException(400, 'ZIP must contain a Markdown document or directory')
     digest = hashlib.sha256(data).hexdigest()
-    receipt_key = hashlib.sha256(f'notes-zip:{user.id}:{import_id}'.encode()).hexdigest()
+    owner_id = user.id  # Scalars survive rollback/expire_on_commit without new reads.
+    bind = db.get_bind()
+    receipt_key = hashlib.sha256(f'notes-zip:{owner_id}:{import_id}'.encode()).hexdigest()
     scope = [str(workspace_id), str(parent_id) if parent_id else None, digest, encoding]
-    created_files = []
+    created_ids = []
     try:
-        # PostgreSQL transaction locks cover cross-process retries and sibling naming.
-        for lock in (receipt_key, hashlib.sha256(str(workspace_id).encode()).hexdigest()):
-            db.execute(text('SELECT pg_advisory_xact_lock(:key)'),
-                       {'key': int.from_bytes(bytes.fromhex(lock[:16]), 'big', signed=True)})
+        from app.services.notes_lifecycle import lock_workspace
+        from app.services.notes_tools import lock_key
+        workspace = lock_workspace(db, workspace_id)
+        if workspace.user_id != user.id:
+            raise HTTPException(404, '工作区不存在')
+        lock_key(db, receipt_key)
+        if parent_id is not None:
+            parent = db.query(Document).filter(Document.id == parent_id).populate_existing().with_for_update().first()
+            if parent is None or parent.workspace_id != workspace_id or parent.deleted_at is not None:
+                raise HTTPException(404, '父文档不存在')
         receipt = db.get(AppConfig, receipt_key)
         if receipt:
             saved = json.loads(receipt.value)
@@ -202,10 +271,17 @@ def commit_archive(db, user, workspace_id, parent_id, import_id, data, encoding=
                 if blob_store.enabled():
                     blob_store.put(db,'attachments/'+str(att.id),io.BytesIO(payload),att.mime,MAX_FILE)
                 else:
-                    disk = storage.STORAGE / str(att.id)
-                    with disk.open('xb') as handle:
-                        created_files.append(disk)
-                        handle.write(payload)
+                    from app.services.attachment_files import publish
+                    try:
+                        publish(storage.STORAGE, att.id, payload)
+                    except Exception as exc:
+                        # A collision is NOT ours; a post-link fsync failure is
+                        # uncertain. Neither is eligible for automatic unlink.
+                        import logging
+                        logging.getLogger(__name__).error(
+                            'notes_zip_file_publish_uncertain object=%s failure=%s', att.id, type(exc).__name__)
+                        raise
+                    created_ids.append(att.id)
                 db.add(att)
                 attachments[key] = att
             return '/attachments/' + str(attachments[key].id)
@@ -249,8 +325,19 @@ def commit_archive(db, user, workspace_id, parent_id, import_id, data, encoding=
         db.add(AppConfig(key=receipt_key, value=json.dumps({'scope': scope, 'result': result})))
         db.commit()
         return result
-    except Exception:
-        db.rollback()
-        for path in created_files:
-            path.unlink(missing_ok=True)
+    except Exception as exc:
+        import logging
+        log = logging.getLogger(__name__)
+        for ident in created_ids:
+            # Retry evidence also survives a database outage. No absolute paths,
+            # content or exception payloads; this is not a generic GC authority.
+            log.error('notes_zip_file_reconcile_required object=%s owner=%s receipt=%s scope=%s failure=%s',
+                      ident, owner_id, receipt_key, json.dumps(scope), type(exc).__name__)
+        try:
+            db.rollback()
+        except Exception as rollback_error:
+            log.error('notes_zip_rollback_uncertain failure=%s', type(rollback_error).__name__)
+        else:
+            if created_ids:
+                _reconcile_failed_files(bind, owner_id, receipt_key, scope, created_ids, storage.STORAGE)
         raise

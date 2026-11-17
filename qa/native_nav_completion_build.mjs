@@ -1,0 +1,11 @@
+import {createRequire} from 'node:module';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+const frontend=path.resolve(import.meta.dirname,'../frontend');
+const require=createRequire(frontend+'/package.json');
+const {build}=await import(require.resolve('vite'));const vue=require('@vitejs/plugin-vue').default;
+const scratch=process.env.NAV_BROWSER_ROOT;if(!scratch)throw new Error('owned scratch required');
+await fs.mkdir(scratch,{recursive:false});
+await fs.writeFile(scratch+'/index.html','<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><div id="app"></div><script type="module" src="/entry.ts"></script></html>');
+await fs.writeFile(scratch+'/entry.ts',`import {createApp,h} from 'vue';import {createRouter,createWebHistory,RouterView,RouterLink} from 'vue-router';import Page from '${frontend}/src/modules/nav/NavPage.vue';import {acceptLogin} from '${frontend}/src/modules/home/auth';import {navigation} from '${frontend}/src/stores/navigation';import '${frontend}/src/style.css';import '${frontend}/src/shell/controls.css';const response=await fetch('/auth/me');if(!response.ok)throw new Error('fixture authentication failed');acceptLogin(await response.json());const modules=await fetch('/external-modules');if(!modules.ok)throw new Error('fixture modules failed');navigation.modules=await modules.json();const router=createRouter({history:createWebHistory(),routes:[{path:'/nav',component:Page},{path:'/:pathMatch(.*)*',component:{render:()=>h('main',[h('h1','离页验收'),h(RouterLink,{to:'/nav'},{default:()=>'进入原生导航'})])}}]});createApp({render:()=>h(RouterView)}).use(router).mount('#app');`);
+await build({configFile:false,root:scratch,cacheDir:scratch+'/vite-cache',plugins:[vue()],build:{outDir:scratch+'/dist',emptyOutDir:false},resolve:{alias:[{find:'vue',replacement:frontend+'/node_modules/vue/dist/vue.runtime.esm-bundler.js'},{find:'vue-router',replacement:frontend+'/node_modules/vue-router/dist/vue-router.mjs'}]}});

@@ -3,25 +3,31 @@ import pytest
 from test_website_settings import upstream, api_env, checker
 
 
-def test_legacy_icon_retention_does_not_allow_new_or_changed_legacy_icons(upstream, api_env):
+def test_expanded_icon_catalog_preserves_old_keys_and_rejects_unknown_before_io(upstream, api_env):
+    from app.navigation_icons import NAVIGATION_ICONS
     root, _, seen = upstream
     c, _, _, _ = api_env
     old = c.post('/external-modules', json=dict(name='Legacy', icon='heart', browser_url=root)).json()
     seen.clear()
-    for icon in ('heart', 'music', 'not-a-real-icon'):
-        assert c.post('/website-settings', json=dict(address=root, icon=icon, idempotency_key='restricted-' + icon)).status_code == 422
-    for icon in ('music', 'not-a-real-icon'):
+    for icon in ('not-a-real-icon', '<svg onload=evil>', '../private'):
+        assert icon not in NAVIGATION_ICONS
+        assert c.post('/website-settings', json=dict(address=root, icon=icon, idempotency_key='restricted-icon')).status_code == 422
         assert c.patch('/website-settings/' + old['id'], json=dict(address=root, icon=icon)).status_code == 422
     assert not seen
+    # These are now explicitly supported choices, not a legacy-validation bypass.
+    for icon in ('heart', 'music'):
+        assert icon in NAVIGATION_ICONS
+        created = c.post('/website-settings', json=dict(address=root, icon=icon, idempotency_key='expanded-' + icon))
+        assert created.status_code == 201, created.text
+        assert created.json()['icon'] == icon
     result = c.patch('/website-settings/' + old['id'], json=dict(address=root, icon='heart', name='Rename'))
     assert result.status_code == 200, result.text
     reread = c.get('/external-modules/' + old['id']).json()
     assert (reread['name'], reread['icon']) == ('Rename', 'heart')
-    result = c.patch('/website-settings/' + old['id'], json=dict(address=root, icon='book'))
-    assert result.status_code == 200, result.text
-    seen.clear()
-    assert c.patch('/website-settings/' + old['id'], json=dict(address=root, icon='heart')).status_code == 422
-    assert not seen
+    for icon in ('book', 'heart', 'music'):
+        result = c.patch('/website-settings/' + old['id'], json=dict(address=root, icon=icon))
+        assert result.status_code == 200, result.text
+        assert c.get('/external-modules/' + old['id']).json()['icon'] == icon
 
 
 def test_unknown_stored_icon_cannot_bypass_validation_via_partial_edit(upstream, api_env):
@@ -176,6 +182,7 @@ def test_http_custom_delivery_uses_https_isolated_proxy_without_mixed_content(up
     root, _, seen = upstream
     c, factory, _, _ = api_env
     monkeypatch.setenv('STELLA_MAIN_ORIGIN', 'https://stella.test')
+    c.base_url = 'https://stella.test'  # Exercise HTTPS source, not a mismatched HTTP fixture.
     checked = c.post('/website-settings/check', json=dict(address=root + '/custom', custom_enabled=True))
     assert checked.status_code == 200, checked.text
     result = checked.json()
@@ -208,12 +215,21 @@ def test_http_not_safe_for_proxy_stays_blocked_without_writes(upstream, api_env,
     root, responses, _ = upstream
     c, factory, _, _ = api_env
     monkeypatch.setenv('STELLA_MAIN_ORIGIN', 'https://stella.test')
+    c.base_url = 'https://stella.test'  # Exercise HTTPS source, not a mismatched HTTP fixture.
     responses['/restricted'] = (200, [('Content-Type', 'text/html')] + headers, body)
     result = c.post('/website-settings/check', json=dict(address=root + '/restricted', custom_enabled=custom_enabled)).json()
-    assert result['embedding']['status'] == 'blocked'
-    assert result['embedding']['reason_code'] == reason
-    assert result['can_save'] is False
-    saved = c.post('/website-settings', json=dict(address=root + '/restricted', idempotency_key='restricted-http-delivery', custom=dict(enabled=custom_enabled, css='body{color:red}')))
-    assert saved.status_code == 422, saved.text
+    safe_https_proxy = not headers and body == b'<html/>' and custom_enabled is False
+    assert result['embedding']['status'] == ('allowed' if safe_https_proxy else 'blocked')
+    assert result['embedding']['reason_code'] == ('isolated_https_proxy' if safe_https_proxy else reason)
+    assert result['can_save'] is safe_https_proxy
     with factory() as db:
-        assert db.query(AppConfig).count() == 0
+        assert db.query(AppConfig).count() == 0  # draft checks remain read-only
+    saved = c.post('/website-settings', json=dict(address=root + '/restricted', idempotency_key='restricted-http-delivery', custom=dict(enabled=custom_enabled, css='body{color:red}')))
+    if safe_https_proxy:
+        assert saved.status_code == 201, saved.text
+        assert saved.json()['mode'] == 'isolated_proxy'
+        assert saved.json()['origin'].startswith('https://')
+    else:
+        assert saved.status_code == 422, saved.text
+        with factory() as db:
+            assert db.query(AppConfig).count() == 0

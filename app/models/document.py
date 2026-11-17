@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import ForeignKey, Boolean, DateTime, Text
+from sqlalchemy import ForeignKey, Boolean, DateTime, Text, FetchedValue
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.models import Base, Mapped, mapped_column, UUID, uuid4
@@ -25,6 +25,13 @@ class Document(Base):
     # updated_at 只代表「正文最后保存时间」——由 repo 显式赋值，不用 onupdate 魔法
     # （onupdate 会在草稿同步时也刷新它，导致编辑器手里的乐观锁令牌失效 → 保存必 409）
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Database-observed save event; never a CAS token or a raw-clock conversion.
+    # Historical rows remain NULL. The scoped migration trigger also observes
+    # legacy writers while leaving draft/version/view/delete clocks untouched.
+    saved_event_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        server_default=FetchedValue(), server_onupdate=FetchedValue(),
+    )
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 最近查看戳
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"))
     parent_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
@@ -33,3 +40,9 @@ class Document(Base):
     draft_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     draft_device: Mapped[str | None] = mapped_column(nullable=True)
+
+    @property
+    def updated_at_display(self) -> datetime | None:
+        """Independent display instant, never a normalized optimistic-lock token."""
+        value = self.saved_event_at
+        return value if value is not None and value.tzinfo is not None else None

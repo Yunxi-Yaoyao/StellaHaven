@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:'notes-preferences.spec.ts',workers:1,timeout:30000,reporter:'list',outputDir:process.env.NOTES_ARTIFACTS+'/traces',use:{baseURL:'http://127.0.0.1:15316',launchOptions:{executablePath:process.env.STELLA_CHROMIUM||'/usr/sbin/google-chrome-stable',args:['--no-sandbox']},trace:'retain-on-failure'},webServer:{command:'NOTES_REFRESH_PORT=15316 node e2e/notes-refresh-server.mjs',cwd:new URL('..',import.meta.url).pathname,port:15316,reuseExistingServer:false}});

@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { createPinia, setActivePinia, defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 globalThis.__VUE_PROD_DEVTOOLS__ = false;
 const compile = source => ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const deferred = () => { let resolve; const promise = new Promise(r => resolve = r); return { promise, resolve }; };
 function storeWith(api) {
   setActivePinia(createPinia());
   const exports = {};
-  new Function('require', 'exports', compile(readFileSync(new URL('../src/stores/notes.ts', import.meta.url), 'utf8')))(name => name === 'pinia' ? { defineStore } : name === 'vue' ? { ref } : name.endsWith('/notes') ? api : name.endsWith('useToast') ? { toast() {} } : { ApiError: Error }, exports);
+  new Function('require', 'exports', compile(readFileSync(new URL('../src/stores/notes.ts', import.meta.url), 'utf8')))(name => name === 'pinia' ? { defineStore } : name === 'vue' ? { ref, watch } : name.endsWith('/notes') ? api : name.endsWith('useToast') ? { toast() {} } : { ApiError: Error }, exports);
   const store = exports.useNotesStore(); store.workspaceId = 'ws'; return store;
 }
 test('successful create remains selectable when list read fails', async () => {
@@ -30,7 +30,7 @@ function loader(getDoc) {
   const section = source.slice(source.indexOf('// ── 加载文档'), source.indexOf('watch(() => props.docId'));
   const state = Object.fromEntries(['doc','title','content','savedTitle','savedContent','savedAt','draftSynced','draftPreview','draftBanner'].map(k => [k, { value: null }]));
   const notices = []; const props = { docId: 'a' };
-  const env = { ...state, props, getDoc, toast: s => notices.push(s), isDismissed: () => false, loadBacklinks: async () => {}, loadAttachMeta: async () => {} };
+  const env = { ...state, editorActive: true, ownsSession: () => true, store: {workspaceId: 'ws'}, resetDraftSource() {}, props, getDoc: async id => ({...await getDoc(id), workspace_id: 'ws'}), toast: s => notices.push(s), isDismissed: () => false, loadBacklinks: async () => {}, loadAttachMeta: async () => {} };
   const load = new Function(...Object.keys(env), compile(section) + '\nreturn load;')(...Object.values(env));
   return { ...state, props, load, notices };
 }
@@ -52,7 +52,9 @@ test('directory inventory remains complete during search and removes moved/delet
   assert.deepEqual(store.allDocs?.map(d=>d.id),['parent','child']);
   assert.equal(store.childCount('parent'),1);
   store.requestDelete(all[0]);
-  assert.equal(store.pendingDelete.childCount,1);
+  // Local directory count above remains useful for navigation, never deletion authority.
+  assert.equal(store.pendingDelete.doc.id,'parent');
+  assert.equal(store.pendingDelete.childCount,null, 'cold trash inventory must remain unknown until server preview');
   all=[all[0]]; await store.refreshList();
   assert.deepEqual(store.allDocs.map(d=>d.id),['parent']);
   store.resetSession(); assert.deepEqual(store.allDocs,[]);

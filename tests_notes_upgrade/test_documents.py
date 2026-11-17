@@ -62,8 +62,15 @@ def test_move_detects_existing_cycle_without_hanging(db, make_doc):
 def test_move_serializes_same_workspace_tree_mutations(db, workspace, make_doc, monkeypatch):
     from app.services import notes_tools
     keys = []
-    monkeypatch.setattr(notes_tools, 'lock_key', lambda db, key: keys.append(key))
+    def record_lock(session, key):
+        assert session is db  # Never an independent connection/transaction.
+        keys.append(key)
+    monkeypatch.setattr(notes_tools, 'lock_key', record_lock)
     d = make_doc(); p = make_doc()
     update_document(db, d.id, DocumentUpdate(updated_at=d.updated_at, parent_id=p.id))
-    assert keys == ['document-tree:' + str(workspace.id)]
+    # Approved graph-first contract; reference synchronization re-enters the
+    # same transaction's graph lock after the workspace/tree mutation lock.
+    assert keys == ['notes-reference-graph:v1',
+                    'document-tree:' + str(workspace.id),
+                    'notes-reference-graph:v1']
     assert d.parent_id == p.id

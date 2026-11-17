@@ -69,42 +69,36 @@ def pg_security(monkeypatch):
 
 
 def test_pg_concurrent_management_setup_only_one_commits(pg_security):
-    engine,c0,c1,_ = pg_security
-    barrier = Barrier(2)
+    # Approved v6 retirement: concurrent old requests cannot create a password.
+    engine,c0,c1,_=pg_security
+    barrier=Barrier(2)
     def setup(c):
         barrier.wait(timeout=5)
         return c.post('/auth/admin/setup',json={'user_password':DAILY,'new_password':ADMIN}).status_code
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(setup,[c0,c1]))
-    assert sorted(results) == [200,409]
+        assert list(pool.map(setup,[c0,c1])) == [410,410]
     with Session(engine) as db:
         assert db.query(User).count() == 1
-        state = json.loads(db.get(AppConfig,STATE_KEY).value)
-        assert state['password_hash'].startswith('$argon2id$')
-        from app.services.backup_health import read_change_audit
-        assert [event['action'] for event in read_change_audit(db)] == ['security.setup']
+        state=json.loads(db.get(AppConfig,STATE_KEY).value)
+        assert not state.get('password_hash') and not state['grants']
+    assert c0.post('/danger').status_code == c1.post('/danger').status_code == 200
 
 
 def test_pg_concurrent_unlocks_preserve_both_session_grants_and_invalidate_across_workers(pg_security):
-    engine,c0,c1,make_app = pg_security
-    assert c0.post('/auth/admin/setup',json={'user_password':DAILY,'new_password':ADMIN}).status_code == 200
-    barrier = Barrier(2)
+    engine,c0,c1,make_app=pg_security
+    barrier=Barrier(2)
     def unlock(c):
         barrier.wait(timeout=5)
         return c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code
     with ThreadPoolExecutor(max_workers=2) as pool:
-        assert list(pool.map(unlock,[c0,c1])) == [200,200]
-    with Session(engine) as db:
-        state = json.loads(db.get(AppConfig,STATE_KEY).value)
-        assert len(state['grants']) == 2
-        assert all(g['version'] == state['version'] for g in state['grants'].values())
-    # Fresh app instance and fresh SQLAlchemy session: no process-local grant cache.
-    second_worker = TestClient(make_app())
-    second_worker.cookies.update(c1.cookies)
+        assert list(pool.map(unlock,[c0,c1])) == [410,410]
+    second_worker=TestClient(make_app());second_worker.cookies.update(c1.cookies)
     assert second_worker.post('/danger').status_code == 200
-    assert c0.post('/auth/admin/password',json={'current_password':ADMIN,'new_password':ADMIN+'2'}).status_code == 200
-    assert second_worker.post('/danger').status_code == 403
-    assert c1.post('/danger').status_code == 403
+    assert c0.post('/auth/password',json={'old_password':DAILY,'new_password':DAILY+'2'}).status_code == 200
+    assert second_worker.post('/danger').status_code == c1.post('/danger').status_code == 401
+    with Session(engine) as db:
+        assert all(s.revoked for s in db.query(AuthSession).all())
+        assert not json.loads(db.get(AppConfig,STATE_KEY).value)['grants']
     second_worker.close()
 
 

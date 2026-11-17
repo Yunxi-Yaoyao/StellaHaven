@@ -1,0 +1,8 @@
+{
+  "commit": "96766477caffcbf85f66eae82af07d99e638214a",
+  "file": "app/api_response_contracts.py",
+  "fixture": "loader.py.gz",
+  "sha256": "b60ddbb1b307a3b64982538bd1902466d92179708303e9dc4c6611f9ec84dfc1",
+  "size": 74830,
+  "git_blob": "16a95107ae37042ac14b8043b82af9002ce356e0"
+}

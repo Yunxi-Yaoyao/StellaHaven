@@ -1,0 +1,1 @@
+import {build} from 'vite';import vue from '@vitejs/plugin-vue';await build({configFile:false,envDir:false,cacheDir:'/root/.hermes/cache/scratch/v9-app-windows/cache',plugins:[vue()],build:{outDir:'/root/.hermes/cache/scratch/v9-app-windows/dist',assetsDir:'static',cssTarget:'chrome90'}});

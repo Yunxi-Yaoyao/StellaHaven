@@ -1,0 +1,22 @@
+import {test,expect} from '@playwright/test';import {fixture} from './notes-rework-fixture';
+for(const width of [1440,393])test(`notes local settings and import first ${width}`,async({page})=>{
+ await page.setViewportSize({width,height:960});const m=await fixture(page);
+ await page.getByRole('button',{name:'笔记目录',exact:true}).click();
+ const list=page.locator('.doc-list');await expect(list.getByText('快捷记录',{exact:true})).toHaveCount(0);
+ await expect(list.getByText('导入 .md / .txt / .zip',{exact:true})).toHaveCount(0);
+ let choosers=0;page.on('filechooser',()=>choosers++);
+ await list.getByRole('button',{name:'导入',exact:true}).click();
+ const imp=page.getByRole('dialog',{name:/导入/});await expect(imp).toBeVisible();expect(choosers).toBe(0);
+ await expect(imp.locator('input[type=file]')).toHaveAttribute('multiple','');
+ await imp.getByRole('button',{name:/关闭|取消/}).first().click();
+ await list.getByRole('button',{name:'新建',exact:true}).click();
+ const create=page.getByRole('dialog',{name:'新建笔记',exact:true});await expect(create).toBeVisible();await expect(create.getByRole('button',{name:'空白文章',exact:true})).toBeVisible();await expect(create.locator('select')).toHaveCount(0);await create.getByRole('button',{name:'取消',exact:true}).click();
+ const oldUrl=page.url();await list.getByRole('button',{name:'笔记设置',exact:true}).click();
+ const drawer=page.getByRole('dialog',{name:'笔记设置',exact:true});await expect(drawer).toBeVisible();expect(page.url()).toBe(oldUrl);
+ await drawer.getByLabel('字号',{exact:true}).fill('20');await drawer.getByLabel('字号',{exact:true}).press('Tab');
+ await expect.poll(()=>m.preferences.font_size).toBe(20);
+ await expect(page.locator('.preview.markdown-body')).toHaveCSS('font-size','20px');
+ await page.screenshot({path:process.env.NOTES_ARTIFACTS+`/notes-drawer-${width}.png`});
+ await page.getByRole('button',{name:'关闭笔记设置'}).click();await expect(drawer).not.toBeVisible();await expect(page.locator('.preview h1')).toHaveText('清爽阅读');
+ expect(m.errors).toEqual([]);
+});

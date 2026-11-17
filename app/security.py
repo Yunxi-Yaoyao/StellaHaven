@@ -115,18 +115,28 @@ def install_log_redaction():
     import logging
     import re
 
+    def runtime_text(value):
+        value = re.sub(r'(?i)(/(?:p|%70)/)[^/\s?\"\'<>]+', r'\1[redacted]', str(value))
+        value = re.sub(r'(https?://[^\s?]+|/(?:agent|auth|oauth|p|%70)/[^\s?]*)\?[^\s]+', r'\1?[redacted]', value)
+        return re.sub(r'(?i)([\"\']?(?:capability|cap|token|password|password_hash|user_password|new_password|old_password|current_password|client_secret|authorization|stdout|stderr)[\"\']?\s*[:=]\s*)([\"\'][^\"\']*[\"\']|[^,\s}]+)', r'\1[redacted]', value)
+
     class SecretFilter(logging.Filter):
         def filter(self, record):
             if record.name == 'uvicorn.access' and isinstance(record.args, tuple) and len(record.args) == 5:
                 args = list(record.args)
-                args[2] = str(args[2]).split('?', 1)[0]
+                args[2] = runtime_text(str(args[2]).split('?', 1)[0])
                 record.args = tuple(args)
             else:
-                message = record.getMessage()
-                message = re.sub(r'(https?://[^\s?]+|/(?:agent|auth|oauth)/[^\s?]*)\?[^\s]+', r'\1?[redacted]', message)
-                message = re.sub(r'(?i)([\"\']?(?:token|password|password_hash|user_password|new_password|old_password|current_password|client_secret|authorization|stdout|stderr)[\"\']?\s*[:=]\s*)([\"\'][^\"\']*[\"\']|[^,\s}]+)', r'\1[redacted]', message)
-                record.msg = message
+                record.msg = runtime_text(record.getMessage())
                 record.args = ()
+            if record.exc_info:
+                import traceback
+                record.exc_text = runtime_text(''.join(traceback.format_exception(*record.exc_info)))
+                record.exc_info = None
+            elif record.exc_text:
+                record.exc_text = runtime_text(record.exc_text)
+            if record.stack_info:
+                record.stack_info = runtime_text(record.stack_info)
             return True
 
     for name in ('uvicorn.access', 'uvicorn.error', 'stella'):
@@ -135,7 +145,7 @@ def install_log_redaction():
             filt = SecretFilter()
             filt._stella_secret_filter = True
             logger.addFilter(filt)
-    for handler in logging.getLogger().handlers:
+    for handler in [*logging.getLogger().handlers, *([logging.lastResort] if logging.lastResort else [])]:
         if not any(getattr(f, '_stella_secret_filter', False) for f in handler.filters):
             filt = SecretFilter()
             filt._stella_secret_filter = True

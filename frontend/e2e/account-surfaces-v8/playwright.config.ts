@@ -1,0 +1,3 @@
+import {defineConfig} from '@playwright/test';
+const out=process.env.STELLA_ACCOUNT_OUTPUT!;
+export default defineConfig({testDir:'.',testMatch:'surfaces.spec.ts',workers:1,timeout:45000,outputDir:out+'/artifacts',reporter:[['list'],['json',{outputFile:out+'/results.json'}]],use:{baseURL:'http://127.0.0.1:15386',serviceWorkers:'block',trace:'retain-on-failure',screenshot:'only-on-failure',launchOptions:{executablePath:'/usr/sbin/google-chrome-stable',args:['--no-sandbox','--disable-background-networking']}},webServer:{cwd:new URL('../..',import.meta.url).pathname,command:'/root/.local/share/fnm/node-versions/v23.11.1/installation/bin/node e2e/account-v6/server.mjs',url:'http://127.0.0.1:15386',reuseExistingServer:false}});

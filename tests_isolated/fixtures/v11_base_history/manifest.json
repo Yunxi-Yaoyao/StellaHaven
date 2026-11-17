@@ -1,0 +1,101 @@
+{
+  "commit": "d0eafe9389a70159d25e88741a9e870fc54ab506",
+  "files": {
+    "main.py": {
+      "fixture": "main.py.gz",
+      "sha256": "a35ee8aade658ed8543b6784af5a286698d81a09ec01fb596dc60bf06717bf67",
+      "git_blob": "e0c58a66089920f077b613d06038dd26512bdea2",
+      "size": 9945
+    },
+    "agent/stella_agent.py": {
+      "fixture": "agent__stella_agent.py.gz",
+      "sha256": "4d14d4a009458382c2fbf154a445dd2bd990857bab2818b329796a85ee1a83dc",
+      "git_blob": "1dbf7330726710a584e0e54537ab33fc3ab16e6c",
+      "size": 233219
+    },
+    "agent/install.sh": {
+      "fixture": "agent__install.sh.gz",
+      "sha256": "e802c09d31227e7d9535240e3f37b450eef50aea1bf6045ae75746be66eef5df",
+      "git_blob": "6c2520cd002f31102f5081ee5c3250de019229ee",
+      "size": 14115
+    },
+    "agent/install.ps1": {
+      "fixture": "agent__install.ps1.gz",
+      "sha256": "ba14eae13e0fdb812fcd4b1061b8c762d629041ab2258f37144c7fdd5560b476",
+      "git_blob": "9caa434c04b2928da4526c16f3c5cd4ee184a33b",
+      "size": 36741
+    },
+    "agent/run-agent.ps1": {
+      "fixture": "agent__run-agent.ps1.gz",
+      "sha256": "c826e7ca21af97a177ca090cbaf489f267f721164d0c6eb7099a48f6024b6a35",
+      "git_blob": "8c2970e52fb2f7c0fcd127ec37cedc9a820d1ab3",
+      "size": 2035
+    },
+    "app/routers/monitor.py": {
+      "fixture": "app__routers__monitor.py.gz",
+      "sha256": "99f4e1b10d957a52779422cb8d26b59b40d75ec3d27b001aa4704a6e7fc38383",
+      "git_blob": "e5c4faaa4cbcb0d27eeda3f278da15c7082f9462",
+      "size": 31992
+    },
+    "app/schemas/monitor.py": {
+      "fixture": "app__schemas__monitor.py.gz",
+      "sha256": "7c9406b236ddb0d09f09e3fb2682b3d20bc807b962fc6ae93d8807b03210d356",
+      "git_blob": "0dfc369c00bf733c8533b3e760354a3a03371cb8",
+      "size": 14972
+    },
+    "app/services/entry_monitor_groups.py": {
+      "fixture": "app__services__entry_monitor_groups.py.gz",
+      "sha256": "b26c58fff6f10a15f8ccbba120adf6f646539fb5f88fa078a46f6de0980dddb7",
+      "git_blob": "5b5958411ac858627d765318ef76b24adead0700",
+      "size": 8676
+    },
+    "app/services/entry_monitoring.py": {
+      "fixture": "app__services__entry_monitoring.py.gz",
+      "sha256": "0f31011f72502a739223662ad483e3f1f78b417aa027f1c9860830999c56162f",
+      "git_blob": "eb36fe732b658c0289e16d93aabe21fc34372cd3",
+      "size": 25170
+    },
+    "app/services/monitor.py": {
+      "fixture": "app__services__monitor.py.gz",
+      "sha256": "4ed87a3354722558be05c786d65e9e7bd638d333ae66dcf26f5b6fd4d0bd87bc",
+      "git_blob": "d6c95d805702e74766aa0146e9d3340ab09d0af3",
+      "size": 8526
+    },
+    "app/services/monitor_groups.py": {
+      "fixture": "app__services__monitor_groups.py.gz",
+      "sha256": "d903a59157b2cd874a671aca1729bc796b8452518ef3f1735cc5ed2eeb142e82",
+      "git_blob": "6c1fcde6fdf65cdb8a286f6ed7af602f11f8e080",
+      "size": 12034
+    },
+    "app/services/node.py": {
+      "fixture": "app__services__node.py.gz",
+      "sha256": "d8d2621837eba07516aede57af9e22e022a7b499718b0750a3a9c2fb805e681f",
+      "git_blob": "e2861f1200a6df8197cec5ebffae24df8a201ac9",
+      "size": 16296
+    },
+    "app/services/host.py": {
+      "fixture": "app__services__host.py.gz",
+      "sha256": "7d96d5697d6387996c61c22564bdbe5cf49288c9728c679d5d345110e46e5225",
+      "git_blob": "e0293f92b598cc31fdf89342f2c48016d0ed0e19",
+      "size": 5344
+    },
+    "app/services/agent_install.py": {
+      "fixture": "app__services__agent_install.py.gz",
+      "sha256": "679be47f3a90b8b8a917fb554801ca704552f4dd2cd0fe1d955042346ba52fa0",
+      "git_blob": "dd997509ccfb6849d77883396212e222a2269f95",
+      "size": 5301
+    },
+    "app/services/access_entries.py": {
+      "fixture": "app__services__access_entries.py.gz",
+      "sha256": "614966ee2d5186be1b63895e5befbd9e0bf930bfca232e6ef89beec6f2c6c9df",
+      "git_blob": "75aa862f9998592ed266f0de75255d9f3569435d",
+      "size": 7943
+    },
+    "app/api_response_contracts.py": {
+      "fixture": "app__api_response_contracts.py.gz",
+      "sha256": "8e40b54210dca347abd9dd119428426d75562d0efe28c5f04af9a033b003489b",
+      "git_blob": "2b8919c55231293abd648fa8698db631a593480d",
+      "size": 60450
+    }
+  }
+}

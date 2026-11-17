@@ -34,6 +34,7 @@ async function pick(id: string | null) {
   <div class="mask" @click.self="emit('cancel')">
     <div class="dialog">
       <div class="head">移动「{{ node.title }}」到…</div>
+      <p role="note" style="padding:0 18px;font-size:12px">项目内移动/重命名会改变相对引用，需自行检查 HTML/CSS/JS，动态路径不会自动修复。单个无子页文本可移出并保留私有源码编辑；二进制/整目录移出及跨项目移入暂不支持，图片可拖到普通笔记正文独立复制。</p>
       <div class="list">
         <div
           v-for="c in candidates"

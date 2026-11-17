@@ -29,18 +29,22 @@ def test_admin_secret_not_shared(monkeypatch):
 
 def test_routes_authorization_and_removed_lifecycle(client, monkeypatch):
     from app.services import external_services as svc
-    from tests.conftest import ADMIN_PASSWORD
-    cfg = svc.Connection(browser_url='https://example.com')
-    monkeypatch.setattr(svc, 'load', lambda *args: cfg)
-    assert client.post('/auth/admin/lock').status_code == 200
+    from tests.conftest import OWNER_USERNAME,OWNER_PASSWORD,ADMIN_PASSWORD
+    cfg=svc.Connection(browser_url='https://example.com')
+    monkeypatch.setattr(svc,'load',lambda *args:cfg)
+    assert client.post('/auth/admin/lock').status_code==410
     for kind in ('drive','gallery'):
-        assert client.get('/'+kind+'/status').status_code == 200
-        assert client.get('/'+kind+'/connection').status_code == 403
-        assert client.put('/'+kind+'/connection',json=cfg.model_dump()).status_code == 403
-        assert client.post('/'+kind+'/connection/test',json=cfg.model_dump()).status_code == 403
+        assert client.get('/'+kind+'/status').status_code==200
+        assert client.get('/'+kind+'/connection').status_code==200
         for action in ('start','stop','restart','install','docker/install','uninstall','update'):
-            assert client.post('/'+kind+'/'+action).status_code == 405  # main's GET-only SPA fallback
-    assert client.post('/auth/admin/unlock',json={'password':ADMIN_PASSWORD}).status_code == 200
+            assert client.post('/'+kind+'/'+action).status_code==405
+    assert client.post('/auth/logout').status_code==200
+    for kind in ('drive','gallery'):
+        assert client.get('/'+kind+'/connection').status_code==401
+        assert client.put('/'+kind+'/connection',json=cfg.model_dump()).status_code==401
+        assert client.post('/'+kind+'/connection/test',json=cfg.model_dump()).status_code==401
+    assert client.post('/auth/login',json={'username':OWNER_USERNAME,'password':OWNER_PASSWORD}).status_code==200
+    assert client.post('/auth/admin/unlock',json={'password':ADMIN_PASSWORD}).status_code==410
     assert client.get('/drive/connection').json()['has_token'] is False
 
 
@@ -100,13 +104,21 @@ def test_proxy_preserves_range_and_bytes(monkeypatch, method):
 
 
 def test_gallery_manual_login_does_not_force_configured_oidc(monkeypatch):
+    import json
     from app.services import gallery, external_services as svc
     cfg = svc.Connection(browser_url='https://photos.example', alternate_browser_url='https://photos.yunxi.life', auth_mode='manual')
     monkeypatch.setattr(svc, 'load', lambda *args: cfg)
-    assert gallery.browser_url(None) == 'https://photos.example/auth/login?autoLaunch=0'
-    assert gallery.browser_url(None, 'stella.yunxi.life') == 'https://photos.yunxi.life/auth/login?autoLaunch=0'
+    monkeypatch.setenv('STELLA_ENTRY_REGISTRY', json.dumps([
+        {'service_id': 'stella', 'public': 'https://stella.example'},
+    ]))
+    assert gallery.browser_url(None, 'https://stella.example') == 'https://photos.example/auth/login?autoLaunch=0'
+    # The legacy alias must itself be registered, not trusted by suffix alone.
+    monkeypatch.setenv('STELLA_ENTRY_REGISTRY', json.dumps([
+        {'service_id': 'stella', 'public': 'https://stella.yunxi.life'},
+    ]))
+    assert gallery.browser_url(None, 'https://stella.yunxi.life') == 'https://photos.yunxi.life/auth/login?autoLaunch=0'
     cfg.auth_mode = 'oidc'
-    assert gallery.browser_url(None) == 'https://photos.example/'
+    assert gallery.browser_url(None, 'https://stella.yunxi.life') == 'https://photos.yunxi.life/'
 
 
 def test_drive_single_service_url_and_explicit_admin_token_reveal(client, monkeypatch):
@@ -119,8 +131,8 @@ def test_drive_single_service_url_and_explicit_admin_token_reveal(client, monkey
     response=client.post('/drive/connection/token')
     assert response.json()=={'token':'TEST_SECRET'}
     assert response.headers['cache-control']=='no-store'
-    assert client.post('/auth/admin/lock').status_code == 200
-    assert client.post('/drive/connection/token').status_code==403
+    assert client.post('/auth/logout').status_code == 200
+    assert client.post('/drive/connection/token').status_code==401
     form=svc.DriveConnection(service_url=cfg.upstream_url,auth_mode='token',token='TEST_SECRET')
     assert form.as_connection().upstream_url==cfg.upstream_url
     assert form.as_connection().use_proxy is True

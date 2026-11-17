@@ -129,18 +129,8 @@ def strip_legacy(html, site):
 
 
 def admin_notice_code():
-    # No automatic replay: Request/FormData/streams are not consumed or cloned.
-    # Parent can optionally open a management modal, but must verify origin AND
-    # event.source === the currently mounted frame.contentWindow.
-    main_origin = os.environ.get('STELLA_BUILTIN_MAIN_ORIGIN', 'https://stella.xiya.live')
-    gallery_head_loader(main_origin)  # validates deployment-owned root origin
-    return r"""(()=>{if(window.__stellaAdminNotice)return;window.__stellaAdminNotice=true;const mainOrigin=ORIGIN;
-function target(url){try{const u=new URL(typeof url==='string'?url:url.url,location.href);return u.origin===location.origin&&/^\/(?:drive\/openlist\/)?api\//.test(u.pathname);}catch{return false;}}
-function notify(data){const code=data?.detail?.code||data?.code;if(typeof code!=='string'||!code.startsWith('admin_'))return;
-let box=document.querySelector('[data-stella-admin-required]');if(!box){box=document.createElement('div');box.dataset.stellaAdminRequired='true';box.setAttribute('role','alert');box.style.cssText='position:fixed;z-index:2147483647;bottom:12px;left:12px;right:12px;padding:14px;background:#1b1f2a;color:#f0f4f8;border:1px solid #889bb8;border-radius:10px';const text=document.createElement('span');text.textContent='此操作需要管理解锁。请前往集中安全设置解锁后手动重试；删除/上传不会自动重发。 ';const link=document.createElement('a');link.href=mainOrigin+'/settings?section=profile';link.target='_top';link.textContent='打开集中安全设置';box.append(text,link);(document.body||document.documentElement).appendChild(box);}
-if(window.parent!==window)window.parent.postMessage({type:'stella-admin-required',site:'drive',code,manual_retry:true},mainOrigin);}
-const original=window.fetch;window.fetch=async function(...args){const response=await original.apply(this,args);if(response.status===403&&target(args[0]))response.clone().json().then(notify).catch(()=>{});return response;};
-const open=XMLHttpRequest.prototype.open,send=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(method,url,...rest){this.__stellaAdminUrl=url;return open.call(this,method,url,...rest);};XMLHttpRequest.prototype.send=function(body){if(target(this.__stellaAdminUrl))this.addEventListener('load',function(){if(this.status!==403)return;try{notify(this.responseType==='json'?this.response:JSON.parse(this.responseText));}catch{}});return send.call(this,body);};})();""".replace('ORIGIN', safe_json(main_origin))
+    """Retired management-unlock injection; upstream 403 remains untouched."""
+    return ''
 
 
 def client_version(site, active, appearance=None):

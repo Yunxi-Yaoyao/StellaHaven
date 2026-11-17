@@ -4,10 +4,10 @@ BACKGROUND_JS = r"""
 /* stella:background-ready:v1 */
 (()=>{
   if(window.__stellaBackgroundV3)return;window.__stellaBackgroundV3=true;
-  const parentOrigin=location.origin;
+  const parentOrigins=[location.origin];
   const key='stella_drive_bg_mode',legacy='__stella_drive_bg_mode__';
   const valid=v=>v==='image'||v==='solid';
-  let mode='solid',observer=null,pending=null,scheduled=false;
+  let mode='solid',canvasScheme='normal',canvasMeta=null,observer=null,pending=null,scheduled=false;
   const changed=new Map(),changedMeta=new Map();
   // A style-ready ACK is not an application/content-ready claim.
   function ready(){
@@ -19,10 +19,10 @@ BACKGROUND_JS = r"""
       scheduled=false;
       if(!pending||!document.body||!document.getElementById('root'))return;
       const reply=pending;pending=null;
-      window.parent.postMessage({type:'stella-bg-ready',mode,module_id:reply.module_id,request_id:reply.request_id},parentOrigin);
+      window.parent.postMessage({type:'stella-bg-ready',mode,color_scheme:canvasScheme,module_id:reply.module_id,request_id:reply.request_id},reply.origin);
     });
   }
-  function requestMode(){if(window.parent!==window)try{window.parent.postMessage({type:'stella-bg-request'},parentOrigin);}catch{}}
+  function requestMode(){if(window.parent!==window)for(const origin of parentOrigins)try{window.parent.postMessage({type:'stella-bg-request'},origin);}catch{}}
   function transparent(el,prop,value){
     if(!el)return;
     if(!changed.has(el))changed.set(el,new Map());
@@ -35,11 +35,16 @@ BACKGROUND_JS = r"""
     const html=document.documentElement;
     if(html.dataset.bgMode!=='image')html.dataset.bgMode='image';
     transparent(html,'color-scheme','normal');
-    // Chromium canvas uses the document's meta scheme even when computed CSS
-    // says normal. Match the host's normal canvas only while transparency is on.
+    // Chromium also uses metadata for the child canvas. A normal child inside
+    // a dark host becomes opaque white despite transparent computed CSS.
+    // Match the trusted host's scheme only while transparency is on.
+    if(!document.querySelectorAll('meta[name="color-scheme" i]').length){
+      canvasMeta=document.createElement('meta');canvasMeta.setAttribute('name','color-scheme');
+      (document.head||html).appendChild(canvasMeta);
+    }
     for(const meta of document.querySelectorAll('meta[name="color-scheme" i]')){
       if(!changedMeta.has(meta))changedMeta.set(meta,[meta.hasAttribute('content'),meta.getAttribute('content')]);
-      if(meta.getAttribute('content')!=='normal')meta.setAttribute('content','normal');
+      if(meta.getAttribute('content')!==canvasScheme)meta.setAttribute('content',canvasScheme);
     }
     for(const el of [html,document.body,document.getElementById('root')])transparent(el,'background-color','transparent');
     ready();
@@ -58,6 +63,7 @@ BACKGROUND_JS = r"""
       changed.clear();
       for(const [meta,[present,value]] of changedMeta){if(present)meta.setAttribute('content',value);else meta.removeAttribute('content');}
       changedMeta.clear();
+      canvasMeta?.remove();canvasMeta=null;
       if(pending&&(!document.body||!document.getElementById('root'))){
         observer ||= new MutationObserver(paint);
         observer.observe(document.documentElement,{subtree:true,childList:true});
@@ -74,10 +80,13 @@ BACKGROUND_JS = r"""
   const initial=saved();remember(initial);apply(initial);
   document.addEventListener('DOMContentLoaded',()=>{paint();requestMode();},{once:true});
   window.addEventListener('message',event=>{
-    if(event.origin!==location.origin||event.source!==window.parent)return;
+    if(!parentOrigins.includes(event.origin)||event.source!==window.parent)return;
     if(event.data?.type!=='stella-bg-mode'||!valid(event.data.mode))return;
     const data=event.data;
-    pending=typeof data.module_id==='string'&&data.module_id.length>0&&data.module_id.length<=128&&typeof data.request_id==='string'&&data.request_id.length>0&&data.request_id.length<=128?{module_id:data.module_id,request_id:data.request_id}:null;
+    if(data.color_scheme!==undefined&&!['normal','light','dark'].includes(data.color_scheme))return;
+    if(typeof data.module_id!=='string'||!data.module_id.length||data.module_id.length>128||typeof data.request_id!=='string'||!data.request_id.length||data.request_id.length>128)return;
+    canvasScheme=data.color_scheme||'normal';
+    pending={module_id:data.module_id,request_id:data.request_id,origin:event.origin};
     remember(data.mode);apply(data.mode);
   });
   requestMode();

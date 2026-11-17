@@ -90,17 +90,51 @@ test('raw traffic percentile keeps 5-second units when chart is downsampled', as
   expect(host.querySelector('.stats-bar .stat-item b')?.textContent).toBe('1.00 Mbps');
 });
 
-test('turning live off during a slow window load never restarts polling', async () => {
+test('turning live off during a slow window load restores history once and never restarts polling', async () => {
   await mount();
-  const signals:AbortSignal[]=[];
-  vi.mocked(api.getNodeMetrics).mockImplementation(async (_id,opts)=>{
-    signals.push(opts!.signal!); await new Promise(resolve=>setTimeout(resolve,5000)); return [];
+  vi.mocked(api.getNodeMetrics).mockClear();
+  vi.mocked(api.getNodeSysMetrics).mockClear();
+  vi.mocked(api.getTrafficStats).mockClear();
+  const pending: (() => void)[] = [];
+  vi.mocked(api.getNodeMetrics).mockImplementation(async () => {
+    // Deliberately allow stale completion after abort, like an uncancellable
+    // response body: the old loadCharts().then(startLive) must remain fenced.
+    await new Promise<void>(resolve => pending.push(resolve)); return [];
   });
+  const requests = () => [api.getNodeMetrics, api.getNodeSysMetrics, api.getTrafficStats];
+  const expectGroup = (index: number, seconds: number) => {
+    const options = requests().map(request => vi.mocked(request).mock.calls[index]![1]!);
+    const signal = options[0].signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    for (const opts of options) {
+      expect(opts.signal).toBe(signal);
+      expect(Date.parse(opts.end!) - Date.parse(opts.start!)).toBe(seconds * 1000);
+    }
+    return signal!;
+  };
   (host.querySelector('.live-btn') as HTMLElement).click(); await settle();
+  for (const request of requests()) expect(request).toHaveBeenCalledTimes(1);
+  const liveSignal = expectGroup(0, 300);
+  expect(liveSignal.aborted).toBe(false);
+
   (host.querySelector('.live-btn') as HTMLElement).click(); await settle();
-  expect(signals[0]?.aborted).toBe(true);
+  expect(host.querySelector('.live-btn')?.classList.contains('on')).toBe(false);
+  expect(liveSignal.aborted).toBe(true);
+  // Leaving live intentionally loads the selected 1-hour history range once;
+  // this is not a delta poll or a second concurrent live request.
+  for (const request of requests()) expect(request).toHaveBeenCalledTimes(2);
+  const historySignal = expectGroup(1, 3600);
+  expect(historySignal).not.toBe(liveSignal);
+  expect(historySignal.aborted).toBe(false);
+
+  pending[0]!(); await settle(); // Complete the aborted live window first.
   await vi.advanceTimersByTimeAsync(15000); await settle();
-  expect(signals).toHaveLength(1);
+  for (const request of requests()) expect(request).toHaveBeenCalledTimes(2);
+  expect(historySignal.aborted).toBe(false);
+  pending[1]!(); await settle(); // Complete the one-off history window too.
+  await vi.advanceTimersByTimeAsync(15000); await settle();
+  for (const request of requests()) expect(request).toHaveBeenCalledTimes(2);
+  expect(historySignal.aborted).toBe(false);
 });
 
 test('one preset selection sends one query group', async () => {

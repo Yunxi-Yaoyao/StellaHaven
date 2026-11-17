@@ -1,0 +1,281 @@
+{
+  "sources": {
+    "app/routers/document.py:overhaul-reviewed": {
+      "file": "app/routers/document.py",
+      "sha256": "3ceb1ea4d9cb2ebf4f463cf95a54cd1a38df0b028571b41a49952d0398dc6202",
+      "line": 1,
+      "end_line": 330,
+      "symbol": "app/routers/document.py:overhaul-reviewed"
+    },
+    "app/services/html_note_conversion.py:overhaul-reviewed": {
+      "file": "app/services/html_note_conversion.py",
+      "line": 1,
+      "end_line": 150,
+      "sha256": "eefb30c667c86de4f79e50cc0ddff20d446f54bfcd34e50d444ec0d56d080f83",
+      "symbol": "app/services/html_note_conversion.py:overhaul-reviewed"
+    },
+    "app/routers/notes_tools.py:overhaul-reviewed": {
+      "file": "app/routers/notes_tools.py",
+      "sha256": "a78715efcebee32c5d811f9be7b21b2bde7e7b483f22debd30c57850ae119111",
+      "line": 1,
+      "end_line": 98,
+      "symbol": "app/routers/notes_tools.py:overhaul-reviewed"
+    },
+    "app/services/notes_templates.py:overhaul-reviewed": {
+      "file": "app/services/notes_templates.py",
+      "sha256": "1ae0b4394f2666e1e6b0a9a687a4770ac2d9d10fcc1b3dffa39213a15ccdbfed",
+      "line": 1,
+      "end_line": 202,
+      "symbol": "app/services/notes_templates.py:overhaul-reviewed"
+    },
+    "app.routers.document.preview_html": {
+      "file": "app/routers/document.py",
+      "sha256": "3ceb1ea4d9cb2ebf4f463cf95a54cd1a38df0b028571b41a49952d0398dc6202",
+      "line": 53,
+      "end_line": 60,
+      "symbol": "app.routers.document.preview_html"
+    },
+    "app.routers.document.import_html": {
+      "file": "app/routers/document.py",
+      "sha256": "3ceb1ea4d9cb2ebf4f463cf95a54cd1a38df0b028571b41a49952d0398dc6202",
+      "line": 64,
+      "end_line": 73,
+      "symbol": "app.routers.document.import_html"
+    },
+    "app.routers.notes_tools.initialize_templates": {
+      "file": "app/routers/notes_tools.py",
+      "sha256": "a78715efcebee32c5d811f9be7b21b2bde7e7b483f22debd30c57850ae119111",
+      "line": 36,
+      "end_line": 40,
+      "symbol": "app.routers.notes_tools.initialize_templates"
+    },
+    "app.routers.notes_tools.list_templates": {
+      "file": "app/routers/notes_tools.py",
+      "sha256": "a78715efcebee32c5d811f9be7b21b2bde7e7b483f22debd30c57850ae119111",
+      "line": 44,
+      "end_line": 47,
+      "symbol": "app.routers.notes_tools.list_templates"
+    },
+    "app.routers.notes_tools.copy_template": {
+      "file": "app/routers/notes_tools.py",
+      "sha256": "a78715efcebee32c5d811f9be7b21b2bde7e7b483f22debd30c57850ae119111",
+      "line": 51,
+      "end_line": 57,
+      "symbol": "app.routers.notes_tools.copy_template"
+    },
+    "app.routers.notes_tools.save_template": {
+      "file": "app/routers/notes_tools.py",
+      "sha256": "a78715efcebee32c5d811f9be7b21b2bde7e7b483f22debd30c57850ae119111",
+      "line": 61,
+      "end_line": 64,
+      "symbol": "app.routers.notes_tools.save_template"
+    }
+  },
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/documents/import/html/preview",
+      "endpoint": "app.routers.document.preview_html",
+      "status_code": "200",
+      "sources": [
+        "app.routers.auth.current_user",
+        "app.routers.auth.require_ws_owner",
+        "app.routers.document.preview_html",
+        "app/routers/document.py:overhaul-reviewed",
+        "app/services/html_note_conversion.py:overhaul-reviewed",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "413",
+        "415",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "POST",
+      "path": "/documents/import/html",
+      "endpoint": "app.routers.document.import_html",
+      "status_code": "200",
+      "sources": [
+        "app.routers.auth.current_user",
+        "app.routers.auth.require_ws_owner",
+        "app.routers.document.import_html",
+        "app/routers/document.py:overhaul-reviewed",
+        "app/services/html_note_conversion.py:overhaul-reviewed",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "413",
+        "415",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "POST",
+      "path": "/notes-tools/templates/{workspace_id}/initialize",
+      "endpoint": "app.routers.notes_tools.initialize_templates",
+      "status_code": "200",
+      "sources": [
+        "app.routers.auth.current_user",
+        "app.routers.auth.require_ws_owner",
+        "app.routers.notes_tools.initialize_templates",
+        "app/models/attachment.py:renewal-detached-review",
+        "app/routers/notes_tools.py:overhaul-reviewed",
+        "app/services/notes_templates.py:overhaul-reviewed",
+        "app/services/notes_templates.py:renewal-detached-review",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "413",
+        "415",
+        "503"
+      ],
+      "request_validation": true,
+      "review_7790dcf": "See docs/api-response-web-projects-review.md and api_response_web_projects.json review.source_audit for changed helper semantics; response fields/statuses reviewed, not a hash-only refresh."
+    },
+    {
+      "method": "GET",
+      "path": "/notes-tools/templates/{workspace_id}",
+      "endpoint": "app.routers.notes_tools.list_templates",
+      "status_code": "200",
+      "sources": [
+        "app.routers.auth.current_user",
+        "app.routers.auth.require_ws_owner",
+        "app.routers.notes_tools.list_templates",
+        "app/models/attachment.py:renewal-detached-review",
+        "app/routers/notes_tools.py:overhaul-reviewed",
+        "app/services/notes_templates.py:overhaul-reviewed",
+        "app/services/notes_templates.py:renewal-detached-review",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "413",
+        "415",
+        "503"
+      ],
+      "request_validation": true,
+      "review_7790dcf": "See docs/api-response-web-projects-review.md and api_response_web_projects.json review.source_audit for changed helper semantics; response fields/statuses reviewed, not a hash-only refresh."
+    },
+    {
+      "method": "POST",
+      "path": "/notes-tools/templates/{workspace_id}/create",
+      "endpoint": "app.routers.notes_tools.copy_template",
+      "status_code": "201",
+      "sources": [
+        "app.routers.auth.current_user",
+        "app.routers.auth.require_ws_owner",
+        "app.routers.notes_tools.copy_template",
+        "app/models/attachment.py:renewal-detached-review",
+        "app/routers/notes_tools.py:overhaul-reviewed",
+        "app/services/notes_templates.py:overhaul-reviewed",
+        "app/services/notes_templates.py:renewal-detached-review",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "413",
+        "415",
+        "503"
+      ],
+      "request_validation": true,
+      "review_7790dcf": "See docs/api-response-web-projects-review.md and api_response_web_projects.json review.source_audit for changed helper semantics; response fields/statuses reviewed, not a hash-only refresh."
+    },
+    {
+      "method": "POST",
+      "path": "/notes-tools/templates/{workspace_id}/copy/{source_id}",
+      "endpoint": "app.routers.notes_tools.save_template",
+      "status_code": "201",
+      "sources": [
+        "app.routers.auth.current_user",
+        "app.routers.auth.require_ws_owner",
+        "app.routers.notes_tools.save_template",
+        "app/models/attachment.py:renewal-detached-review",
+        "app/routers/notes_tools.py:overhaul-reviewed",
+        "app/services/notes_templates.py:overhaul-reviewed",
+        "app/services/notes_templates.py:renewal-detached-review",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "413",
+        "415",
+        "503"
+      ],
+      "request_validation": true,
+      "review_7790dcf": "See docs/api-response-web-projects-review.md and api_response_web_projects.json review.source_audit for changed helper semantics; response fields/statuses reviewed, not a hash-only refresh."
+    }
+  ],
+  "reviews": {
+    "feedback-20261019": {
+      "source_revision": "6c73caae0b42fb8a7e3ea8ef3d7fbb7d928aa6ae",
+      "audit": "docs/api-response-feedback-review.md",
+      "scope": {
+        "main.py": "Only reserve /mtr-jobs alongside existing API prefixes; no mount/auth change.",
+        "app/routers/monitor.py": "Four ordered /groups routes, current_user read and admin_user writes, 201/204 and string 400; real DTO output.",
+        "app/schemas/monitor.py": "Nullable optional job_id, bounded MtrJobCreate and MonitorGroupWrite/Read; other schemas unchanged.",
+        "app/models/task.py": "Add nullable indexed job_id only.",
+        "app/repositories/task.py": "Advisory-locked atomic fan-out, no manual queue, trigger-scoped retention of completed tasks; pre-limit source filter.",
+        "app/services/task.py": "Bounded unique online node fan-out with existing params validation; list trigger delegated.",
+        "app/models/monitor.py": "Group/member tables only, FK cascading membership not child data.",
+        "app/models/alert.py": "Archived rule partial uniqueness, snapshot/context/dedupe fields; notification link remains nullable.",
+        "app/routers/alerts.py": "Incident list timezone/range422 and detail404, notification context and entity detail; auth inherited current_user.",
+        "app/services/alerts.py": "Archive instead of delete, unknown resets consecutive, frozen transitions and exact incident notification contexts; SMTP remains existing explicit rule choice.",
+        "app/routers/task.py": "Manual filter Literal, active conflict409, current_user one-shot /mtr-jobs and detail404.",
+        "app/public_website.py": "Validated optional private_address and follow/public policy only.",
+        "app/routers/website_settings.py": "Request-origin source for check/save and authenticated JS loader; response envelopes unchanged.",
+        "app/services/website_settings.py": "Exact deployed private entry validation/probe; optional field persistence; no DNS/TLS/callback provisioning.",
+        "app/services/website_templates.py": "Explicit exported editable dual registered parent origins; snapshot not runtime rewrite.",
+        "app/services/website_assets.py": "Exact selected registered browser origin in authenticated asset payload.",
+        "app/services/entry_registry.py": "Select registered private/public entry, preserve suffix and reject arbitrary private entry; isolated proxy restrictions.",
+        "app/services/alert_metrics.py": "Exclude archived rules for save/list/dedupe/cap; serialization remains PublicMetricRule.",
+        "app/routers/web_projects.py": "New owner workspace identities route; other handler signatures/shapes unchanged.",
+        "app/services/web_projects.py": "Manifest corrupt metadata409; ancestry-only identities and optional guarded image hints.",
+        "app/services/backup_archive.py": "Closed InvalidArchive reason lookup; resources ZIP_STORED, all validators unchanged.",
+        "app/services/backup_center.py": "Closed failure code and execution stage, safe fixed log fields, nullable initial diagnostics, ownership fences preserved.",
+        "app/schemas/backups.py": "Nullable ReasonCode/FailedStage on Job and nested Status, exact standalone serialization schema frozen.",
+        "app/backup_diagnostics.py": "Reviewed closed reason and stage vocabulary; fixed guard labels only.",
+        "app/services/backup_postgres.py": "Known PG client/dump errors become closed BackupFailure; command execution unchanged.",
+        "app/services/alert_history.py": "Read-only adjacent transition projection before filter/pagination; incomplete gaps and raw internal notification context.",
+        "app/services/monitor_groups.py": "Advisory serialized explicit membership CRUD; bounded unique children and no probe/history rewrite.",
+        "app/services/notifications.py": "Trusted deduped terminal-result admission only, no new HTTP/auth; current JSONB writers do not validate legacy context."
+      },
+      "historical_evidence": "Preserved, not rerun. Runtime preview and disposable-PG evidence outside repository."
+    }
+  }
+}

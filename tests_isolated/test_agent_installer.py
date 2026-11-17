@@ -1,166 +1,180 @@
-"""Run the real installer with an apt-only fake PATH and relocated writes.
-
-No host package/user/service operations or networking are permitted.
-Run: python3 -m unittest discover -s tests_isolated -p test_agent_installer.py -v
+"""Real Linux shell entry point; only scratch paths + fake service/account tools.
+No real systemd/sudoers/users/packages and no non-loopback networking.
 """
+import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 
-SOURCE = Path(__file__).resolve().parents[1] / 'agent/install.sh'
-FAKE = r'''#!PYTHON
-import os, pathlib, sys
+ROOT = Path(__file__).resolve().parents[1]
+TOKEN = 'fixture-not-a-real-token'
+CENTER_A, CENTER_B = 'a' * 64, 'b' * 64
+
+def instance_id(center):
+    return hashlib.sha256(('stella-instance-v1:' + center).encode()).hexdigest()[:24]
+
+FAKE = '''#!PYTHON
+import json, os, pathlib, sys
+root = pathlib.Path(os.environ['FIXTURE_ROOT'])
 name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
-root = pathlib.Path(os.environ['SANDBOX'])
-# Never log curl arguments: they may contain credentials.
-with (root / 'calls').open('a') as f:
-    f.write(name + (' ' + ' '.join(args) if name not in ('curl',) else '') + '\n')
-mode = os.environ.get('MODE', '')
+with (root/'calls').open('a') as f: f.write(json.dumps([name]+args)+'\\n')
+users = root/'users.json'
+state = json.loads(users.read_text()) if users.exists() else {}
 if name == 'id':
-    print('1000' if mode == 'nonroot' and args == ['-u'] else '0')
-elif name == 'python3':
-    if args == ['--version']: print('Python 3.12.3')
-    elif args[:2] == ['-m', 'pip']:
-        if mode == 'no-pip': sys.exit(1)
-        if 'install' in args: sys.exit(1)  # PEP 668 managed Python
-        print('pip (externally managed)')
-    elif args[:1] == ['-c'] and args[1] in ('import httpx', 'import psutil'):
-        sys.exit(0 if (root / 'deps').exists() else 1)
-    else:
-        os.execv(sys.executable, [sys.executable] + args)
-elif name == 'apt-get':
-    if mode == 'apt-failure': sys.exit(1)
-    if 'python3-httpx' in args or 'python3-psutil' in args: (root / 'deps').touch()
-elif name == 'curl':
-    if any('/agent/config' in arg for arg in args):
-        print('401' if mode == 'unauthorized' else '503' if mode == 'unavailable' else '200', end='')
-    else:
-        assert '-fsSL' in args or '--fail' in args, 'download must fail on HTTP errors'
-        if mode == 'download-failure': sys.exit(22)
-        target = args[args.index('-o') + 1]
-        pathlib.Path(target).write_text('<html>login</html>' if mode == 'html' else '' if mode == 'empty' else '#!/usr/bin/env python3\nprint("agent")\n')
-elif name == 'systemctl' and (mode == 'service-failure' or (mode == 'service-crash' and 'is-active' in args)): sys.exit(1)
+    if args == ['-u']: print('0')
+    elif args[-1] in state: print(state[args[-1]])
+    else: sys.exit(1)
+elif name == 'useradd':
+    state[args[-1]] = 65001 + len(state); users.write_text(json.dumps(state))
+elif name == 'userdel':
+    state.pop(args[-1],None); users.write_text(json.dumps(state))
+elif name == 'systemctl':
+    if args[0] == 'show': print('')
+    if args[0] == 'restart' and os.environ.get('FAIL_RESTART') == '1': sys.exit(1)
+elif name == 'visudo': pass
+else: raise SystemExit('unexpected side effect command')
 '''
 
+class LinuxInstances(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix='stella-instance-v11-', dir=os.environ.get('TMPDIR'))
+        self.root = Path(self.tmp.name)
+        self.bin = self.root/'bin'; self.bin.mkdir()
+        for name in ('systemctl','useradd','userdel','id','visudo','systemd-run'):
+            path = self.bin/name
+            path.write_text(FAKE.replace('#!PYTHON','#!'+sys.executable)); path.chmod(0o755)
+        (self.bin/'python3').symlink_to(sys.executable)
+        self.env = {'PATH':str(self.bin), 'FIXTURE_ROOT':str(self.root), 'TMPDIR':str(self.root)}
+        self.center, self.node, self.mode = CENTER_A, 7, ''
+        self.body = b'#!/usr/bin/env python3\nAGENT_VERSION = "0.6.17"\nprint("fixture")\n'
+        fixture = self
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_GET(self):
+                if self.path == '/agent/identity':
+                    if fixture.mode == '401' or self.headers.get('Authorization') != 'Bearer '+TOKEN:
+                        self.send_response(401); self.end_headers(); return
+                    data = dict(center_id=fixture.center,node_id=fixture.node,source_version='0.6.17',
+                                source_sha256=hashlib.sha256(fixture.body).hexdigest(),source_size=len(fixture.body))
+                    if fixture.mode == 'noidentity': data.pop('center_id')
+                    body = json.dumps(data).encode()
+                elif self.path == '/agent/script':
+                    body = b'<html>bad</html>' if fixture.mode == 'corrupt' else fixture.body
+                else: self.send_response(404); self.end_headers(); return
+                self.send_response(200); self.end_headers(); self.wfile.write(body)
+        self.server = ThreadingHTTPServer(('127.0.0.1',0),Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever,daemon=True); self.thread.start()
+        self.url = 'http://127.0.0.1:'+str(self.server.server_port)
+        # Absolute destination constants are relocated before the real script runs.
+        source = (ROOT/'agent/install.sh').read_text()
+        for base in ('/opt/stella-agents','/etc/stella-agents','/etc/systemd/system','/etc/sudoers.d','/usr/local/libexec'):
+            source = source.replace(base,str(self.root)+base)
+        self.script = self.root/'install.sh'; self.script.write_text(source)
+        self.legacy = self.root/'opt/stella-agent/agent.env'
+        self.legacy.parent.mkdir(parents=True); self.legacy.write_bytes(b'legacy opaque sentinel')
+    def tearDown(self):
+        self.server.shutdown(); self.server.server_close(); self.thread.join(); self.tmp.cleanup()
+    def install(self, extra_env=None, origin=None, extra_args=()):
+        self.assertIn('STELLA_INSTANCE_INSTALLER', self.script.read_text(), 'Instance-safe entry point is missing; do not execute legacy writer')
+        result = subprocess.run(['/bin/bash',str(self.script),'--url',origin or self.url,'--token',TOKEN,'--no-deps',*extra_args],
+            env={**self.env,**(extra_env or {})},text=True,capture_output=True,timeout=15)
+        self.assertNotIn(TOKEN,result.stdout+result.stderr)
+        self.assertEqual(self.legacy.read_bytes(),b'legacy opaque sentinel')
+        return result
+    def calls(self):
+        return [json.loads(line) for line in (self.root/'calls').read_text().splitlines()] if (self.root/'calls').exists() else []
+    def code(self, center=CENTER_A): return self.root/'opt/stella-agents'/instance_id(center)
+    def snapshot(self):
+        return {str(p.relative_to(self.root)):p.read_bytes() for folder in ('opt','etc','usr')
+                for p in (self.root/folder).rglob('*') if p.is_file()}
+    def test_same_center_two_origins_same_node_reuses_instance(self):
+        first = self.install(); self.assertEqual(first.returncode,0,first.stdout+first.stderr)
+        second = self.install(origin=self.url.replace('127.0.0.1','localhost'))
+        self.assertEqual(second.returncode,0,second.stdout+second.stderr)
+        envfile=self.root/'etc/stella-agents'/instance_id(CENTER_A)/'agent.env'
+        self.assertIn('STELLA_URL='+json.dumps(self.url),envfile.read_text(), 'Origin alias repair must preserve the installed report/cache identity')
+        self.assertTrue((self.code()/'stella_agent.py').exists())
+        self.assertEqual(len(list((self.root/'opt/stella-agents').iterdir())),1)
+        self.assertTrue(all('stella-agent' not in c[1:] for c in self.calls() if c[0]=='systemctl'))
 
-class AgentInstallerTest(unittest.TestCase):
-    def run_install(self, mode='', deps: str | None = '--deps', missing=()):
-        with tempfile.TemporaryDirectory(prefix='stella-installer-') as tmp:
-            root = Path(tmp)
-            bindir = root / 'bin'
-            bindir.mkdir()
-            prefixes = ('/opt/stella-agent', '/etc/sudoers.d', '/etc/systemd/system',
-                        '/usr/local/bin', '/usr/local/libexec', '/etc/stella-agent')
-            for prefix in prefixes:
-                (root / prefix.lstrip('/')).mkdir(parents=True, exist_ok=True)
-            old = root / 'opt/stella-agent/stella_agent.py'
-            old.write_text('# old working agent\n')
-            script = SOURCE.read_text()
-            for prefix in prefixes:
-                script = script.replace(prefix, str(root) + prefix)
-            installer = root / 'install.sh'
-            installer.write_text(script)
-            for name in ('cat', 'chmod', 'mkdir', 'mktemp', 'mv', 'rm', 'head'):
-                executable = shutil.which(name)
-                assert executable, name
-                (bindir / name).symlink_to(executable)
-            # Real syntax parser only; every destination path is relocated first.
-            (bindir / 'visudo').symlink_to('/usr/sbin/visudo')
-            for name in ('id', 'useradd', 'chown', 'systemctl', 'apt-get', 'python3', 'curl', 'iperf3', 'speedtest-go', 'sleep', 'docker', 'ip', 'ufw', 'wg'):
-                if name in missing:
-                    continue
-                stub = bindir / name
-                stub.write_text(FAKE.replace('#!PYTHON', '#!' + sys.executable))
-                stub.chmod(0o755)
-            env = dict(os.environ, PATH=str(bindir), SANDBOX=tmp, MODE=mode)
-            # Feeding the installer over stdin reproduces curl|bash. No controlling tty.
-            result = subprocess.run(['/bin/bash', '-s', '--', '--url', 'https://example.invalid', '--token', 'secret-regression-token'] + ([deps] if deps else []), input=script, text=True, capture_output=True, env=env, start_new_session=True, timeout=15)
-            output = result.stdout + result.stderr
-            self.assertNotIn('secret-regression-token', output)
-            self.assertFalse(list((root / 'opt/stella-agent').glob('.stella_agent.*')))
-            self.assertFalse((root / 'opt/stella-agent/__pycache__').exists())
-            return result.returncode, output, old.read_text(), (root / 'calls').read_text(), (root / 'etc/systemd/system/stella-agent.service').exists()
-
-    def test_apt_only_reaches_completion_and_managed_python_dependencies(self):
-        code, output, agent, calls, service = self.run_install()
-        self.assertEqual(code, 0, output)
-        self.assertIn('安装完成', output)
-        self.assertIn('python3-httpx', calls)
-        self.assertIn('python3-psutil', calls)
-        self.assertNotIn('pip install', calls)
-        self.assertIn('print("agent")', agent)
-        self.assertTrue(service)
-        self.assertIn('systemctl restart stella-agent', calls)
-
-    def test_no_deps_reaches_completion_without_package_installs(self):
-        code, output, _, calls, service = self.run_install('no-pip', deps='--no-deps')
-        self.assertEqual(code, 0, output)
-        self.assertTrue(service)
-        self.assertNotIn('apt-get install', calls)
-        self.assertIn('安装完成', output)
-
-    def test_bad_download_never_overwrites_or_starts_service(self):
-        for mode in ('html', 'empty', 'download-failure'):
+    def test_different_centers_coexist_with_distinct_users_and_no_legacy_writes(self):
+        self.assertEqual(self.install().returncode,0)
+        first = self.snapshot()
+        self.center = CENTER_B
+        result = self.install(); self.assertEqual(result.returncode,0,result.stderr)
+        for path,data in first.items(): self.assertEqual((self.root/path).read_bytes(),data)
+        users = json.loads((self.root/'users.json').read_text())
+        self.assertEqual(len(users),2)
+        self.assertTrue(self.code(CENTER_B).exists())
+    def test_same_center_different_node_refuses_without_changes(self):
+        self.assertEqual(self.install().returncode,0)
+        before = self.snapshot(); self.node = 8
+        self.assertNotEqual(self.install().returncode,0); self.assertEqual(self.snapshot(),before)
+    def test_auth_identity_and_corrupt_source_fail_before_resident_writes(self):
+        for mode in ('401','noidentity','corrupt'):
             with self.subTest(mode=mode):
-                code, output, agent, calls, service = self.run_install(mode)
-                self.assertNotEqual(code, 0, output)
-                self.assertIn('错误', output)
-                self.assertEqual(agent, '# old working agent\n')
-                self.assertFalse(service)
-                self.assertNotIn('systemctl restart', calls)
+                self.mode = mode; before = self.snapshot()
+                self.assertNotEqual(self.install().returncode,0)
+                self.assertEqual(self.snapshot(),before)
+                self.assertFalse(any(c[0]=='useradd' for c in self.calls()))
+    def test_upgrade_failure_restores_bytes_modes_and_owner(self):
+        self.assertEqual(self.install().returncode,0)
+        before = self.snapshot()
+        original = (self.code()/'stella_agent.py').stat()
+        self.body += b'# upgrade\n'
+        self.assertNotEqual(self.install({'FAIL_RESTART':'1'}).returncode,0)
+        self.assertEqual(self.snapshot(),before)
+        restored = (self.code()/'stella_agent.py').stat()
+        self.assertEqual((restored.st_mode,restored.st_uid),(original.st_mode,original.st_uid))
+    def test_uninstall_exact_instance_leaves_other_center_and_legacy_bytes(self):
+        self.assertEqual(self.install().returncode,0)
+        self.center = CENTER_B; self.assertEqual(self.install().returncode,0)
+        before = self.snapshot()
+        helper = self.root/'usr/local/libexec'/('stella-agent-'+instance_id(CENTER_A))
+        result = subprocess.run([sys.executable,'-I',str(helper),'--remove'],env=self.env,text=True,capture_output=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertFalse(self.code().exists())
+        for path,data in before.items():
+            if instance_id(CENTER_A) not in path: self.assertEqual((self.root/path).read_bytes(),data)
+        self.assertTrue(self.code(CENTER_B).exists())
+        self.assertEqual(self.legacy.read_bytes(),b'legacy opaque sentinel')
+        stopped = [c for c in self.calls() if c[:2]==['systemctl','stop']]
+        self.assertEqual(stopped,[['systemctl','stop','stella-agent-'+instance_id(CENTER_A)]])
+    def test_foreign_target_and_symlink_fail_closed(self):
+        self.code().mkdir(parents=True); marker = self.code()/'foreign'; marker.write_bytes(b'foreign')
+        before = self.snapshot(); self.assertNotEqual(self.install().returncode,0)
+        self.assertEqual(self.snapshot(),before)
+    def test_duplicate_concurrent_lock_refuses_before_changes(self):
+        import fcntl
+        self.assertEqual(self.install().returncode,0)
+        before = self.snapshot()
+        lock = self.root/'etc/stella-agents'/('.'+instance_id(CENTER_A)+'.lock')
+        with lock.open('r+') as handle:
+            fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            self.assertNotEqual(self.install().returncode,0)
+        self.assertEqual(self.snapshot(),before)
+    def test_same_name_foreign_unit_is_not_adopted_even_with_valid_manifest(self):
+        self.assertEqual(self.install().returncode,0)
+        unit = self.root/'etc/systemd/system'/('stella-agent-'+instance_id(CENTER_A)+'.service')
+        unit.write_text('[Service]\nUser=foreign\nExecStart=/some/other/program\n')
+        before = self.snapshot()
+        self.assertNotEqual(self.install().returncode,0)
+        self.assertEqual(self.snapshot(),before)
 
-    def test_token_errors_abort_even_with_auto_dependencies(self):
-        for mode in ('unauthorized', 'unavailable'):
-            with self.subTest(mode=mode):
-                code, output, agent, calls, service = self.run_install(mode)
-                self.assertNotEqual(code, 0, output)
-                self.assertIn('错误', output)
-                self.assertEqual(agent, '# old working agent\n')
-                self.assertFalse(service)
-                self.assertNotIn('systemctl restart', calls)
+    def test_explicit_slot_allows_second_node_without_rebinding_default(self):
+        self.assertEqual(self.install().returncode,0)
+        before = self.snapshot(); self.node = 8
+        result = self.install(extra_args=('--instance','second'))
+        self.assertEqual(result.returncode,0,result.stderr)
+        for path,data in before.items(): self.assertEqual((self.root/path).read_bytes(),data)
+        self.assertEqual(len(list((self.root/'opt/stella-agents').iterdir())),2)
 
-    def test_mandatory_prerequisites_are_explicit(self):
-        for mode, missing in (('nonroot', ()), ('', ('systemctl',)), ('', ('curl',))):
-            with self.subTest(mode=mode, missing=missing):
-                code, output, _, calls, _ = self.run_install(mode, missing=missing)
-                self.assertNotEqual(code, 0, output)
-                self.assertIn('错误', output)
-                self.assertNotIn('apt-get install', calls)
-
-    def test_unexpected_failure_has_safe_stage_diagnostic(self):
-        code, output, _, _, _ = self.run_install('service-failure')
-        self.assertNotEqual(code, 0)
-        self.assertIn('错误', output)
-        self.assertIn('systemd', output)
-        self.assertNotIn('安装完成', output)
-
-    def test_started_then_crashed_service_is_not_success(self):
-        code, output, _, calls, _ = self.run_install('service-crash')
-        self.assertNotEqual(code, 0)
-        self.assertIn('systemctl restart stella-agent', calls)
-        self.assertIn('错误', output)
-        self.assertNotIn('安装完成', output)
-
-    def test_no_tty_does_not_consume_piped_installer(self):
-        code, output, _, _, service = self.run_install(deps=None)
-        self.assertEqual(code, 0, output)
-        self.assertTrue(service)
-        self.assertIn('安装完成', output)
-        self.assertNotIn('/dev/tty:', output)
-
-    def test_optional_dependency_failures_remain_optional(self):
-        for mode in ('no-pip', 'apt-failure'):
-            with self.subTest(mode=mode):
-                code, output, _, calls, _ = self.run_install(mode, deps=None)
-                self.assertEqual(code, 0, output)
-                self.assertIn('安装完成', output)
-                self.assertNotIn('--break-system-packages', calls)
-
-
-if __name__ == '__main__':
-    unittest.main()
+if __name__ == '__main__': unittest.main()

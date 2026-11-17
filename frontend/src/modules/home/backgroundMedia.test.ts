@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, expect, test, vi } from 'vitest';
-import { createApp, effectScope, nextTick, ref } from 'vue';
+import { createApp, effectScope, nextTick, ref, h } from 'vue';
+import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
+import HomePage from './HomePage.vue';
+// This suite exercises the real home entry/router/drawer, not theme rendering.
+// Theme-local entry is now the approved trigger; real visual themes are covered by Playwright.
+vi.mock('./themes/HomeDaybreak.vue', async () => { const {h}=await import('vue');const {settingsOpen}=await import('./settings');return {__esModule:true,default:{render:()=>h('button',{'aria-label':'主页设置','aria-expanded':String(settingsOpen.value),onClick:()=>{settingsOpen.value=true;}},'主页设置')}}; });
+vi.mock('./themes/HomeClassic.vue', async () => { const {h}=await import('vue');const {settingsOpen}=await import('./settings');return {__esModule:true,default:{render:()=>h('button',{'aria-label':'主页设置','aria-expanded':String(settingsOpen.value),onClick:()=>{settingsOpen.value=true;}},'主页设置')}}; });
 import SettingsPanel from '../../shell/SettingsPanel.vue';
 import BgManager from './BgManager.vue';
 import { auth } from './auth';
@@ -22,9 +28,29 @@ function consume(input = ref(url)) {
   const scope = effectScope(); cleanups.push(() => scope.stop());
   return { scope, input, state: scope.run(() => useBackgroundMedia(input))! };
 }
-function mount(component: typeof SettingsPanel | typeof BgManager) {
+function mount(component: typeof BgManager) {
   const node = document.createElement('div'); document.body.append(node);
-  const app = createApp(component, component === SettingsPanel ? { embedded: true } : {}); app.mount(node); cleanups.push(() => app.unmount());
+  const app = createApp(component); app.mount(node); cleanups.push(() => app.unmount());
+}
+async function mountHomeEntry(initial = '/') {
+  const router = createRouter({ history: createMemoryHistory(), routes: [
+    { path: '/', name: 'home', component: HomePage },
+    { path: '/settings', component: SettingsPanel, props: { embedded: true } },
+  ] });
+  await router.push(initial); await router.isReady();
+  const node = document.createElement('div'); document.body.append(node);
+  const app = createApp({ render: () => h(RouterView) }).use(router);
+  app.mount(node); cleanups.push(() => app.unmount()); await flush();
+  return router;
+}
+async function openHomeDrawer() {
+  settingsOpen.value = false;
+  const router = await mountHomeEntry();
+  await vi.waitFor(() => expect(document.querySelector('button[aria-label="主页设置"]')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('button[aria-label="主页设置"]')!.click();
+  await vi.waitFor(() => expect(document.querySelector('[role="dialog"][aria-label="主页设置"]')).not.toBeNull());
+  await flush();
+  expect(router.currentRoute.value.path).toBe('/');
 }
 test('shared quality updates all consumers immediately without changing original identity', async () => {
   storeBackgroundMedia(record()); const a = consume(); const b = consume();
@@ -73,7 +99,7 @@ test('settings uses effective account name, static thumbnail and nonoptimistic r
     if (init?.method === 'PATCH') return new Response('{}', { status: 500 });
     return new Response(JSON.stringify(record()));
   });
-  mount(SettingsPanel); await flush();
+  await openHomeDrawer();
   expect(document.querySelector('.bg-name')?.textContent).toBe('Account movie');
   expect(document.querySelector('.bg-preview img')?.getAttribute('src')).toBe('/thumb.webp');
   expect(document.querySelector('.bg-preview video')).toBeNull();
@@ -81,6 +107,19 @@ test('settings uses effective account name, static thumbnail and nonoptimistic r
   reset.click(); await flush(); expect(auth.me?.home_bg).toBe(url);
   vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ ...me, home_bg: DEFAULT_HOME_BG })));
   reset.click(); await flush(); expect(auth.me?.home_bg).toBe(DEFAULT_HOME_BG);
+});
+test('embedded compatibility link opens the same home drawer without a second editor', async () => {
+  vi.mocked(fetch).mockImplementation(async () => new Response('[]'));
+  const router = await mountHomeEntry('/settings');
+  expect(document.querySelector('.theme-row')).toBeNull();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  const link = [...document.querySelectorAll('button')].find(e => e.textContent === '到主页调整外观')!;
+  link.click();
+  await vi.waitFor(() => expect(document.querySelector('[role="dialog"][aria-label="主页设置"]')).not.toBeNull());
+  expect(router.currentRoute.value.name).toBe('home');
+  expect(document.querySelectorAll('[role="dialog"][aria-label="主页设置"]')).toHaveLength(1);
+  expect(settingsOpen.value).toBe(true);
+  expect(document.querySelector('button[aria-label="主页设置"]')?.getAttribute('aria-expanded')).toBe('true');
 });
 test('manager grid never creates videos, and upload network failure clears busy state', async () => {
   const entry = { id: 'entry', name: 'Movie', url, ext: 'mp4', isDefault: false, media: record() };

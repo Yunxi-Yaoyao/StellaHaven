@@ -1,0 +1,4314 @@
+{
+  "review": {
+    "audit": "docs/api-response-integrated-review.md",
+    "scope": {
+      "app/routers/auth.py": "Validated access SID, independent current query, exclude current BEFORE paging; exact expires_at read-only. Existing auth response and owner policy unchanged.",
+      "app/routers/auth_provider.py": "Sensitive POST owner/admin plus singleton exact trusted Origin; authorization rechecked after secret lock; no-store success and HTTP denials; response is only client_id/client_secret.",
+      "app/services/oidc.py": "Read existing value under file/HA share lock. No default bootstrap, generation, rotate, credential_version or metadata write. Raise absent value.",
+      "app/routers/monitor.py": "Three explicit policy APIs before numeric routes. Read current_user, writes admin_user. Existing prefixes. Reject local install when service exists.",
+      "app/services/node_monitor_policy.py": "AppConfig CAS/advisory lock, explicit source/host identity, capability and numeric allowed scope gating. Managed identity never adopts manual monitors; deletion tombstones/pause retained.",
+      "app/schemas/node_monitor_policy.py": "Strict source/host/null/interval inputs and exact typed managed/pending/test-target response. No DDL.",
+      "app/services/node.py": "Node creation/reconcile same transaction; capability arrival reconcile; no name/loopback host deletion or discovery; real install remains explicit.",
+      "app/repositories/node.py": "Optional no-commit creation flush for atomic reconcile; default commit behavior retained.",
+      "app/services/monitor.py": "Managed policy gating only affects its own dispatched items/status; manual monitors unchanged.",
+      "agent/stella_agent.py": "Test 0.6.16 reports actual local Ping availability/target scope; no production Agent upgrade. Source is not fake host metrics.",
+      "app/routers/config.py": "Owner/admin no-store read/check/apply access entries; original config API unchanged.",
+      "app/services/access_entries.py": "Pinned owner and CAS/digest exact deployment capability; no DNS/TLS/env/credential changes. Immutable request selection snapshot.",
+      "app/services/entry_registry.py": "Exact registered parent selection, explicit access adapter; new launch selection distinct from retained grant validation.",
+      "app/public_website.py": "Validated access_adapter enum added to PublicModule, inherited result copies updated too. No secret field.",
+      "app/services/website_settings.py": "Exact selected private address/adapter persistence and deployment check. Existing normal website auth and active injection preserved.",
+      "app/services/integrations_sessions.py": "Launch and stored ticket/grant add entry_revision. Source and target stay bound; only new launches use selection.",
+      "app/routers/web_projects.py": "State authorize uses exact stored source rather than rederived new target; owner/SID/root checks retained.",
+      "app/services/web_project_runtime.py": "Pinned exact source/target capability survives selector off only while deployment trust remains. TTL/epoch/SID/owner and wrong-target checks retained for read/renew.",
+      "app/services/web_project_write_auth.py": "After all locks authorize exact stored source; no new selector lookup. Owner/root/SID/epoch gates retained.",
+      "app/routers/integrations_host.py": "Request snapshot wraps HTTP/WS; bootstrap singleton registered parent and proxy grant source. No broad anonymous fallback."
+    }
+  },
+  "sources": {
+    "app.services.entry_registry.request_origin": {
+      "file": "app/services/entry_registry.py",
+      "sha256": "66eac941f492dbb4bdcae2f8425d96feb08c12453e81ead5b884397eb6001147",
+      "line": 85,
+      "end_line": 90,
+      "symbol": "app.services.entry_registry.request_origin"
+    },
+    "app.services.entry_registry.parent_context": {
+      "file": "app/services/entry_registry.py",
+      "sha256": "66eac941f492dbb4bdcae2f8425d96feb08c12453e81ead5b884397eb6001147",
+      "line": 54,
+      "end_line": 58,
+      "symbol": "app.services.entry_registry.parent_context"
+    },
+    "app.services.entry_registry.records": {
+      "file": "app/services/entry_registry.py",
+      "sha256": "66eac941f492dbb4bdcae2f8425d96feb08c12453e81ead5b884397eb6001147",
+      "line": 28,
+      "end_line": 51,
+      "symbol": "app.services.entry_registry.records"
+    },
+    "app.routers.auth.current_user": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 35,
+      "end_line": 55,
+      "symbol": "app.routers.auth.current_user"
+    },
+    "app.routers.auth.require_ws_owner": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 125,
+      "end_line": 131,
+      "symbol": "app.routers.auth.require_ws_owner"
+    },
+    "app.routers.auth.admin_user": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 58,
+      "end_line": 61,
+      "symbol": "app.routers.auth.admin_user"
+    },
+    "app.routers.auth.require_doc_owner": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 134,
+      "end_line": 141,
+      "symbol": "app.routers.auth.require_doc_owner"
+    },
+    "app.routers.auth.security": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 65,
+      "end_line": 67,
+      "symbol": "app.routers.auth.security"
+    },
+    "app.routers.auth.update_security": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 82,
+      "end_line": 85,
+      "symbol": "app.routers.auth.update_security"
+    },
+    "app.routers.auth.change_management_password": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 89,
+      "end_line": 92,
+      "symbol": "app.routers.auth.change_management_password"
+    },
+    "app.routers.auth.admin_setup": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 105,
+      "end_line": 108,
+      "symbol": "app.routers.auth.admin_setup"
+    },
+    "app.routers.auth.admin_unlock": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 112,
+      "end_line": 115,
+      "symbol": "app.routers.auth.admin_unlock"
+    },
+    "app.routers.auth.admin_lock": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 119,
+      "end_line": 122,
+      "symbol": "app.routers.auth.admin_lock"
+    },
+    "app.routers.auth.status": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 224,
+      "end_line": 230,
+      "symbol": "app.routers.auth.status"
+    },
+    "app.routers.auth._assert_identifiers_free": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 205,
+      "end_line": 219,
+      "symbol": "app.routers.auth._assert_identifiers_free"
+    },
+    "app.routers.auth._create_session": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 271,
+      "end_line": 309,
+      "symbol": "app.routers.auth._create_session"
+    },
+    "app.routers.auth._device_label": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 145,
+      "end_line": 154,
+      "symbol": "app.routers.auth._device_label"
+    },
+    "app.routers.auth._issue_cookies": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 157,
+      "end_line": 170,
+      "symbol": "app.routers.auth._issue_cookies"
+    },
+    "app.routers.auth._presented_session": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 343,
+      "end_line": 356,
+      "symbol": "app.routers.auth._presented_session"
+    },
+    "app.routers.auth._user_out": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 814,
+      "end_line": 824,
+      "symbol": "app.routers.auth._user_out"
+    },
+    "app.routers.auth.register": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 234,
+      "end_line": 255,
+      "symbol": "app.routers.auth.register"
+    },
+    "app.routers.auth._find_by_identifier": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 193,
+      "end_line": 202,
+      "symbol": "app.routers.auth._find_by_identifier"
+    },
+    "app.routers.auth.login": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 259,
+      "end_line": 268,
+      "symbol": "app.routers.auth.login"
+    },
+    "app.routers.auth.refresh": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 339,
+      "end_line": 340,
+      "symbol": "app.routers.auth.refresh"
+    },
+    "app.routers.auth.rotate_refresh": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 312,
+      "end_line": 335,
+      "symbol": "app.routers.auth.rotate_refresh"
+    },
+    "app.routers.auth.logout": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 360,
+      "end_line": 368,
+      "symbol": "app.routers.auth.logout"
+    },
+    "app.routers.auth.me": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 372,
+      "end_line": 373,
+      "symbol": "app.routers.auth.me"
+    },
+    "app.routers.auth.activity": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 377,
+      "end_line": 389,
+      "symbol": "app.routers.auth.activity"
+    },
+    "app.routers.auth.update_profile": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 399,
+      "end_line": 418,
+      "symbol": "app.routers.auth.update_profile"
+    },
+    "app.routers.auth.change_password": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 427,
+      "end_line": 439,
+      "symbol": "app.routers.auth.change_password"
+    },
+    "app.routers.auth.upload_avatar": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 443,
+      "end_line": 477,
+      "symbol": "app.routers.auth.upload_avatar"
+    },
+    "app.routers.auth.avatar_history": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 515,
+      "end_line": 518,
+      "symbol": "app.routers.auth.avatar_history"
+    },
+    "app.routers.auth.email_service_status": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 546,
+      "end_line": 552,
+      "symbol": "app.routers.auth.email_service_status"
+    },
+    "app.routers.auth._mail_for": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 523,
+      "end_line": 542,
+      "symbol": "app.routers.auth._mail_for"
+    },
+    "app.routers.auth._send_purpose_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 567,
+      "end_line": 583,
+      "symbol": "app.routers.auth._send_purpose_code"
+    },
+    "app.routers.auth.send_email_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 587,
+      "end_line": 589,
+      "symbol": "app.routers.auth.send_email_code"
+    },
+    "app.routers.auth.forgot_password": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 603,
+      "end_line": 609,
+      "symbol": "app.routers.auth.forgot_password"
+    },
+    "app.routers.auth.send_login_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 624,
+      "end_line": 632,
+      "symbol": "app.routers.auth.send_login_code"
+    },
+    "app.routers.auth._verified_email_owner": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 559,
+      "end_line": 564,
+      "symbol": "app.routers.auth._verified_email_owner"
+    },
+    "app.routers.auth.login_by_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 647,
+      "end_line": 653,
+      "symbol": "app.routers.auth.login_by_code"
+    },
+    "app.routers.auth.reset_password": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 657,
+      "end_line": 670,
+      "symbol": "app.routers.auth.reset_password"
+    },
+    "app.routers.auth.verify_email_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 674,
+      "end_line": 681,
+      "symbol": "app.routers.auth.verify_email_code"
+    },
+    "app.routers.auth.resend_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 690,
+      "end_line": 696,
+      "symbol": "app.routers.auth.resend_code"
+    },
+    "app.routers.auth.pick_avatar": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 704,
+      "end_line": 723,
+      "symbol": "app.routers.auth.pick_avatar"
+    },
+    "app.routers.auth.retired_invitation_api": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 729,
+      "end_line": 730,
+      "symbol": "app.routers.auth.retired_invitation_api"
+    },
+    "app.routers.auth._active_sessions": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 762,
+      "end_line": 766,
+      "symbol": "app.routers.auth._active_sessions"
+    },
+    "app.routers.auth.my_sessions": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 736,
+      "end_line": 759,
+      "symbol": "app.routers.auth.my_sessions"
+    },
+    "app.routers.auth.session_history": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 770,
+      "end_line": 781,
+      "symbol": "app.routers.auth.session_history"
+    },
+    "app.routers.auth.revoke_session": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 802,
+      "end_line": 811,
+      "symbol": "app.routers.auth.revoke_session"
+    },
+    "app.repositories.node.list_all": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 12,
+      "end_line": 20,
+      "symbol": "app.repositories.node.list_all"
+    },
+    "app.routers.monitor.list_nodes": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 30,
+      "end_line": 31,
+      "symbol": "app.routers.monitor.list_nodes"
+    },
+    "app.services.node.list_nodes": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 14,
+      "end_line": 16,
+      "symbol": "app.services.node.list_nodes"
+    },
+    "app.repositories.node.create": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 35,
+      "end_line": 41,
+      "symbol": "app.repositories.node.create"
+    },
+    "app.routers.monitor.create_node": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 35,
+      "end_line": 36,
+      "symbol": "app.routers.monitor.create_node"
+    },
+    "app.services.node.create_node": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 23,
+      "end_line": 24,
+      "symbol": "app.services.node.create_node"
+    },
+    "app.repositories.node.get_by_id": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 23,
+      "end_line": 24,
+      "symbol": "app.repositories.node.get_by_id"
+    },
+    "app.routers.monitor.install_command": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 40,
+      "end_line": 68,
+      "symbol": "app.routers.monitor.install_command"
+    },
+    "app.routers.monitor.read_map_topology": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 72,
+      "end_line": 74,
+      "symbol": "app.routers.monitor.read_map_topology"
+    },
+    "app.routers.monitor.update_map_location": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 78,
+      "end_line": 84,
+      "symbol": "app.routers.monitor.update_map_location"
+    },
+    "app.repositories.node.get_by_name": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 31,
+      "end_line": 32,
+      "symbol": "app.repositories.node.get_by_name"
+    },
+    "app.routers.monitor.get_host": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 88,
+      "end_line": 100,
+      "symbol": "app.routers.monitor.get_host"
+    },
+    "app.services.node.get_host_node": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 82,
+      "end_line": 84,
+      "symbol": "app.services.node.get_host_node"
+    },
+    "app.repositories.node.set_installed": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 187,
+      "end_line": 193,
+      "symbol": "app.repositories.node.set_installed"
+    },
+    "app.repositories.node.set_uninstall_status": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 49,
+      "end_line": 61,
+      "symbol": "app.repositories.node.set_uninstall_status"
+    },
+    "app.routers.monitor.install_host": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 104,
+      "end_line": 108,
+      "symbol": "app.routers.monitor.install_host"
+    },
+    "app.services.node.ensure_host_node": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 87,
+      "end_line": 92,
+      "symbol": "app.services.node.ensure_host_node"
+    },
+    "app.services.node.install_host_node": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 95,
+      "end_line": 107,
+      "symbol": "app.services.node.install_host_node"
+    },
+    "app.routers.monitor.uninstall_node": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 112,
+      "end_line": 117,
+      "symbol": "app.routers.monitor.uninstall_node"
+    },
+    "app.services.node.request_uninstall": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 110,
+      "end_line": 121,
+      "symbol": "app.services.node.request_uninstall"
+    },
+    "app.repositories.node.remove": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 44,
+      "end_line": 46,
+      "symbol": "app.repositories.node.remove"
+    },
+    "app.routers.monitor.delete_node": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 121,
+      "end_line": 122,
+      "symbol": "app.routers.monitor.delete_node"
+    },
+    "app.services.node.remove_node": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 27,
+      "end_line": 32,
+      "symbol": "app.services.node.remove_node"
+    },
+    "app.routers.monitor.read_node_metrics": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 126,
+      "end_line": 131,
+      "symbol": "app.routers.monitor.read_node_metrics"
+    },
+    "app.services.node.get_node_metrics": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 215,
+      "end_line": 222,
+      "symbol": "app.services.node.get_node_metrics"
+    },
+    "app.services.node.query_window": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 142,
+      "end_line": 160,
+      "symbol": "app.services.node.query_window"
+    },
+    "app.services.node.run_history_query": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 163,
+      "end_line": 177,
+      "symbol": "app.services.node.run_history_query"
+    },
+    "app.routers.monitor.read_traffic_stats": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 135,
+      "end_line": 139,
+      "symbol": "app.routers.monitor.read_traffic_stats"
+    },
+    "app.services.node.get_traffic_stats": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 235,
+      "end_line": 242,
+      "symbol": "app.services.node.get_traffic_stats"
+    },
+    "app.routers.monitor.read_node_sys_metrics": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 143,
+      "end_line": 148,
+      "symbol": "app.routers.monitor.read_node_sys_metrics"
+    },
+    "app.services.node.get_node_sys_metrics": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 225,
+      "end_line": 232,
+      "symbol": "app.services.node.get_node_sys_metrics"
+    },
+    "app.routers.monitor.update_node": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 152,
+      "end_line": 158,
+      "symbol": "app.routers.monitor.update_node"
+    },
+    "app.services.node.update_monitored_ifaces": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 245,
+      "end_line": 253,
+      "symbol": "app.services.node.update_monitored_ifaces"
+    },
+    "app.routers.monitor.update_net_type": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 162,
+      "end_line": 168,
+      "symbol": "app.routers.monitor.update_net_type"
+    },
+    "app.services.node._guess_ip_version": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 271,
+      "end_line": 272,
+      "symbol": "app.services.node._guess_ip_version"
+    },
+    "app.services.node._http_json": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 261,
+      "end_line": 268,
+      "symbol": "app.services.node._http_json"
+    },
+    "app.services.node.lookup_ip_region": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 275,
+      "end_line": 287,
+      "symbol": "app.services.node.lookup_ip_region"
+    },
+    "app.services.node.update_net_type": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 290,
+      "end_line": 311,
+      "symbol": "app.services.node.update_net_type"
+    },
+    "app.routers.monitor.change_ip": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 172,
+      "end_line": 179,
+      "symbol": "app.routers.monitor.change_ip"
+    },
+    "app.services.node.get_node": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 19,
+      "end_line": 20,
+      "symbol": "app.services.node.get_node"
+    },
+    "app.routers.monitor.firewall_scan": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 183,
+      "end_line": 188,
+      "symbol": "app.routers.monitor.firewall_scan"
+    },
+    "app.routers.monitor.read_net_task": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 192,
+      "end_line": 197,
+      "symbol": "app.routers.monitor.read_net_task"
+    },
+    "app.routers.monitor.docker_scan": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 201,
+      "end_line": 206,
+      "symbol": "app.routers.monitor.docker_scan"
+    },
+    "app.routers.monitor.docker_ctl": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 210,
+      "end_line": 216,
+      "symbol": "app.routers.monitor.docker_ctl"
+    },
+    "app.routers.monitor.pbr_scan": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 220,
+      "end_line": 225,
+      "symbol": "app.routers.monitor.pbr_scan"
+    },
+    "app.routers.monitor.docker_logs": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 229,
+      "end_line": 235,
+      "symbol": "app.routers.monitor.docker_logs"
+    },
+    "app.routers.monitor.docker_inspect": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 239,
+      "end_line": 245,
+      "symbol": "app.routers.monitor.docker_inspect"
+    },
+    "app.routers.monitor.latest_net_task": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 249,
+      "end_line": 252,
+      "symbol": "app.routers.monitor.latest_net_task"
+    },
+    "app.repositories.node.get_latest_metrics": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 323,
+      "end_line": 333,
+      "symbol": "app.repositories.node.get_latest_metrics"
+    },
+    "app.repositories.node.get_latest_sys_metric": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 336,
+      "end_line": 341,
+      "symbol": "app.repositories.node.get_latest_sys_metric"
+    },
+    "app.routers.monitor.read_node": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 256,
+      "end_line": 261,
+      "symbol": "app.routers.monitor.read_node"
+    },
+    "app.services.node._monitored_ifaces": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 180,
+      "end_line": 193,
+      "symbol": "app.services.node._monitored_ifaces"
+    },
+    "app.services.node.get_node_detail": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 196,
+      "end_line": 212,
+      "symbol": "app.services.node.get_node_detail"
+    },
+    "app.routers.monitor.list_monitors": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 444,
+      "end_line": 445,
+      "symbol": "app.routers.monitor.list_monitors"
+    },
+    "app.services.monitor.list_monitors": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 14,
+      "end_line": 16,
+      "symbol": "app.services.monitor.list_monitors"
+    },
+    "app.routers.monitor.create_monitor": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 449,
+      "end_line": 454,
+      "symbol": "app.routers.monitor.create_monitor"
+    },
+    "app.services.monitor._normalize_target": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 27,
+      "end_line": 29,
+      "symbol": "app.services.monitor._normalize_target"
+    },
+    "app.services.monitor.create_monitor": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 57,
+      "end_line": 64,
+      "symbol": "app.services.monitor.create_monitor"
+    },
+    "app.routers.monitor.update_monitor": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 458,
+      "end_line": 462,
+      "symbol": "app.routers.monitor.update_monitor"
+    },
+    "app.services.monitor.update_monitor": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 67,
+      "end_line": 80,
+      "symbol": "app.services.monitor.update_monitor"
+    },
+    "app.routers.monitor.delete_monitor": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 466,
+      "end_line": 467,
+      "symbol": "app.routers.monitor.delete_monitor"
+    },
+    "app.services.monitor.remove_monitor": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 83,
+      "end_line": 87,
+      "symbol": "app.services.monitor.remove_monitor"
+    },
+    "app.routers.monitor.monitor_mtr_history": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 471,
+      "end_line": 476,
+      "symbol": "app.routers.monitor.monitor_mtr_history"
+    },
+    "app.services.monitor.get_monitor": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 23,
+      "end_line": 24,
+      "symbol": "app.services.monitor.get_monitor"
+    },
+    "app.routers.monitor.monitor_mtr_run": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 480,
+      "end_line": 486,
+      "symbol": "app.routers.monitor.monitor_mtr_run"
+    },
+    "app.services.monitor.mtr_spec": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 32,
+      "end_line": 54,
+      "symbol": "app.services.monitor.mtr_spec"
+    },
+    "app.routers.monitor.monitor_checks": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 490,
+      "end_line": 491,
+      "symbol": "app.routers.monitor.monitor_checks"
+    },
+    "app.services.monitor.list_checks": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 90,
+      "end_line": 91,
+      "symbol": "app.services.monitor.list_checks"
+    },
+    "app.routers.monitor.monitor_series": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 495,
+      "end_line": 499,
+      "symbol": "app.routers.monitor.monitor_series"
+    },
+    "app.services.monitor.list_checks_range": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 94,
+      "end_line": 110,
+      "symbol": "app.services.monitor.list_checks_range"
+    },
+    "app.repositories.node.get_by_token": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 27,
+      "end_line": 28,
+      "symbol": "app.repositories.node.get_by_token"
+    },
+    "app.repositories.node.heartbeat": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 106,
+      "end_line": 151,
+      "symbol": "app.repositories.node.heartbeat"
+    },
+    "app.repositories.node.insert_metrics": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 65,
+      "end_line": 85,
+      "symbol": "app.repositories.node.insert_metrics"
+    },
+    "app.repositories.node.insert_sys_metrics": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 88,
+      "end_line": 102,
+      "symbol": "app.repositories.node.insert_sys_metrics"
+    },
+    "app.routers.monitor.agent_report": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 269,
+      "end_line": 280,
+      "symbol": "app.routers.monitor.agent_report"
+    },
+    "app.services.node.apply_public_ip_info": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 314,
+      "end_line": 328,
+      "symbol": "app.services.node.apply_public_ip_info"
+    },
+    "app.services.node.handle_report": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 35,
+      "end_line": 72,
+      "symbol": "app.services.node.handle_report"
+    },
+    "app.routers.monitor._monitor_for_agent": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 299,
+      "end_line": 303,
+      "symbol": "app.routers.monitor._monitor_for_agent"
+    },
+    "app.routers.monitor.agent_config": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 284,
+      "end_line": 296,
+      "symbol": "app.routers.monitor.agent_config"
+    },
+    "app.services.monitor.list_monitors_for_node": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 19,
+      "end_line": 20,
+      "symbol": "app.services.monitor.list_monitors_for_node"
+    },
+    "app.services.node.get_agent_config": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 75,
+      "end_line": 79,
+      "symbol": "app.services.node.get_agent_config"
+    },
+    "app.routers.monitor.agent_mtr_report": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 307,
+      "end_line": 315,
+      "symbol": "app.routers.monitor.agent_mtr_report"
+    },
+    "app.routers.monitor.agent_monitor_check": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 319,
+      "end_line": 330,
+      "symbol": "app.routers.monitor.agent_monitor_check"
+    },
+    "app.services.monitor.record_check": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 113,
+      "end_line": 124,
+      "symbol": "app.services.monitor.record_check"
+    },
+    "app.routers.monitor.agent_map_targets": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 334,
+      "end_line": 338,
+      "symbol": "app.routers.monitor.agent_map_targets"
+    },
+    "app.routers.monitor.agent_script": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 342,
+      "end_line": 347,
+      "symbol": "app.routers.monitor.agent_script"
+    },
+    "app.routers.monitor.agent_version": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 351,
+      "end_line": 368,
+      "symbol": "app.routers.monitor.agent_version"
+    },
+    "app.routers.monitor.agent_install_sh": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 372,
+      "end_line": 378,
+      "symbol": "app.routers.monitor.agent_install_sh"
+    },
+    "app.routers.monitor.agent_install_ps1": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 382,
+      "end_line": 388,
+      "symbol": "app.routers.monitor.agent_install_ps1"
+    },
+    "app.routers.monitor.agent_run_ps1": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 392,
+      "end_line": 397,
+      "symbol": "app.routers.monitor.agent_run_ps1"
+    },
+    "app.routers.monitor.agent_hardware_sensors_ps1": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 401,
+      "end_line": 406,
+      "symbol": "app.routers.monitor.agent_hardware_sensors_ps1"
+    },
+    "app.repositories.node.mark_offline": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 174,
+      "end_line": 184,
+      "symbol": "app.repositories.node.mark_offline"
+    },
+    "app.services.node.finish_uninstall": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 124,
+      "end_line": 133,
+      "symbol": "app.services.node.finish_uninstall"
+    },
+    "app.routers.config.get_public_host": {
+      "file": "app/routers/config.py",
+      "sha256": "65312bcae0c5e7a732b266c0982ee090ac641f2342f550ba0a22d933fb0fa4d3",
+      "line": 22,
+      "end_line": 23,
+      "symbol": "app.routers.config.get_public_host"
+    },
+    "app.routers.config.set_public_host": {
+      "file": "app/routers/config.py",
+      "sha256": "65312bcae0c5e7a732b266c0982ee090ac641f2342f550ba0a22d933fb0fa4d3",
+      "line": 27,
+      "end_line": 30,
+      "symbol": "app.routers.config.set_public_host"
+    },
+    "app.routers.config.get_site_background": {
+      "file": "app/routers/config.py",
+      "sha256": "65312bcae0c5e7a732b266c0982ee090ac641f2342f550ba0a22d933fb0fa4d3",
+      "line": 34,
+      "end_line": 40,
+      "symbol": "app.routers.config.get_site_background"
+    },
+    "app.services.oidc.openid_configuration": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 331,
+      "end_line": 346,
+      "symbol": "app.services.oidc.openid_configuration"
+    },
+    "app.services.oidc.resolve_issuer": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 35,
+      "end_line": 58,
+      "symbol": "app.services.oidc.resolve_issuer"
+    },
+    "app.services.oidc._get_key": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 120,
+      "end_line": 134,
+      "symbol": "app.services.oidc._get_key"
+    },
+    "app.services.oidc.jwks": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 349,
+      "end_line": 361,
+      "symbol": "app.services.oidc.jwks"
+    },
+    "app.services.oidc._get_client": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 196,
+      "end_line": 200,
+      "symbol": "app.services.oidc._get_client"
+    },
+    "app.services.oidc._load_clients": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 190,
+      "end_line": 193,
+      "symbol": "app.services.oidc._load_clients"
+    },
+    "app.services.oidc._locked_client_runtime": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 178,
+      "end_line": 187,
+      "symbol": "app.services.oidc._locked_client_runtime"
+    },
+    "app.services.oidc._locked_clients": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 150,
+      "end_line": 174,
+      "symbol": "app.services.oidc._locked_clients"
+    },
+    "app.services.oidc._prune_runtime": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 77,
+      "end_line": 80,
+      "symbol": "app.services.oidc._prune_runtime"
+    },
+    "app.services.oidc._shared_state": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 85,
+      "end_line": 113,
+      "symbol": "app.services.oidc._shared_state"
+    },
+    "app.services.oidc.create_authorization_code": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 405,
+      "end_line": 423,
+      "symbol": "app.services.oidc.create_authorization_code"
+    },
+    "app.services.oidc.validate_authorization": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 390,
+      "end_line": 402,
+      "symbol": "app.services.oidc.validate_authorization"
+    },
+    "app.services.oidc.userinfo": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 472,
+      "end_line": 488,
+      "symbol": "app.services.oidc.userinfo"
+    },
+    "app.routers.auth_provider.provider_config": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 66,
+      "end_line": 78,
+      "symbol": "app.routers.auth_provider.provider_config"
+    },
+    "app.services.oidc._public_client": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 216,
+      "end_line": 222,
+      "symbol": "app.services.oidc._public_client"
+    },
+    "app.services.oidc.list_clients": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 225,
+      "end_line": 226,
+      "symbol": "app.services.oidc.list_clients"
+    },
+    "app.routers.auth_provider.clients": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 82,
+      "end_line": 83,
+      "symbol": "app.routers.auth_provider.clients"
+    },
+    "app.routers.auth_provider.client": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 87,
+      "end_line": 91,
+      "symbol": "app.routers.auth_provider.client"
+    },
+    "app.routers.auth_provider._call": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 55,
+      "end_line": 62,
+      "symbol": "app.routers.auth_provider._call"
+    },
+    "app.routers.auth_provider.create": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 95,
+      "end_line": 96,
+      "symbol": "app.routers.auth_provider.create"
+    },
+    "app.routers.auth_provider.update": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 100,
+      "end_line": 101,
+      "symbol": "app.routers.auth_provider.update"
+    },
+    "app.routers.auth_provider.rotate": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 105,
+      "end_line": 106,
+      "symbol": "app.routers.auth_provider.rotate"
+    },
+    "app.routers.auth_provider.delete": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 110,
+      "end_line": 112,
+      "symbol": "app.routers.auth_provider.delete"
+    },
+    "app.services.integrations_sessions.digest": {
+      "file": "app/services/integrations_sessions.py",
+      "sha256": "8326c3b5bdc72a5be126445ccb7930d7b52819613fa14403053c56f27dd7cfe0",
+      "line": 17,
+      "end_line": 18,
+      "symbol": "app.services.integrations_sessions.digest"
+    },
+    "app.services.integrations_sessions.issue": {
+      "file": "app/services/integrations_sessions.py",
+      "sha256": "8326c3b5bdc72a5be126445ccb7930d7b52819613fa14403053c56f27dd7cfe0",
+      "line": 58,
+      "end_line": 69,
+      "symbol": "app.services.integrations_sessions.issue"
+    },
+    "app.services.integrations_sessions.prune": {
+      "file": "app/services/integrations_sessions.py",
+      "sha256": "8326c3b5bdc72a5be126445ccb7930d7b52819613fa14403053c56f27dd7cfe0",
+      "line": 52,
+      "end_line": 55,
+      "symbol": "app.services.integrations_sessions.prune"
+    },
+    "app.services.integrations_sessions.session_alive": {
+      "file": "app/services/integrations_sessions.py",
+      "sha256": "8326c3b5bdc72a5be126445ccb7930d7b52819613fa14403053c56f27dd7cfe0",
+      "line": 21,
+      "end_line": 49,
+      "symbol": "app.services.integrations_sessions.session_alive"
+    },
+    "app.services.website_settings.css_errors": {
+      "file": "app/services/website_settings.py",
+      "sha256": "f98f2accb01382b0332c4a61d1fd81bf7236b87fb5192a3be4e7cd3a7b8ad97f",
+      "line": 76,
+      "end_line": 138,
+      "symbol": "app.services.website_settings.css_errors"
+    },
+    "app.services.website_settings.fingerprint": {
+      "file": "app/services/website_settings.py",
+      "sha256": "f98f2accb01382b0332c4a61d1fd81bf7236b87fb5192a3be4e7cd3a7b8ad97f",
+      "line": 59,
+      "end_line": 64,
+      "symbol": "app.services.website_settings.fingerprint"
+    },
+    "app.services.website_settings.retry_result": {
+      "file": "app/services/website_settings.py",
+      "sha256": "f98f2accb01382b0332c4a61d1fd81bf7236b87fb5192a3be4e7cd3a7b8ad97f",
+      "line": 66,
+      "end_line": 74,
+      "symbol": "app.services.website_settings.retry_result"
+    },
+    "app.services.website_settings.save_website": {
+      "file": "app/services/website_settings.py",
+      "sha256": "f98f2accb01382b0332c4a61d1fd81bf7236b87fb5192a3be4e7cd3a7b8ad97f",
+      "line": 140,
+      "end_line": 290,
+      "symbol": "app.services.website_settings.save_website"
+    },
+    "app/services/website_settings.py:schema": {
+      "file": "app/services/website_settings.py",
+      "sha256": "f98f2accb01382b0332c4a61d1fd81bf7236b87fb5192a3be4e7cd3a7b8ad97f",
+      "line": 1,
+      "end_line": 290,
+      "symbol": "app/services/website_settings.py:schema"
+    },
+    "app/routers/auth.py:response-shapes": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 1,
+      "end_line": 824,
+      "symbol": "app/routers/auth.py:response-shapes"
+    },
+    "agent/stella_agent.py:response-shapes": {
+      "file": "agent/stella_agent.py",
+      "sha256": "704f199d41047421bc45e4d6c9524e996b8585a0ba4fa79fb5e45185b7296ca9",
+      "line": 1,
+      "end_line": 3691,
+      "symbol": "agent/stella_agent.py:response-shapes"
+    },
+    "app/services/oidc.py:response-shapes": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 1,
+      "end_line": 495,
+      "symbol": "app/services/oidc.py:response-shapes"
+    },
+    "app/services/website_settings.py:response-shapes": {
+      "file": "app/services/website_settings.py",
+      "sha256": "f98f2accb01382b0332c4a61d1fd81bf7236b87fb5192a3be4e7cd3a7b8ad97f",
+      "line": 1,
+      "end_line": 290,
+      "symbol": "app/services/website_settings.py:response-shapes"
+    },
+    "app/public_website.py:response-projection": {
+      "file": "app/public_website.py",
+      "sha256": "f4593ea4d2c98743a70d86527f39e0f05f3152752cc8ac5bc1e287788f3b888f",
+      "line": 1,
+      "end_line": 458,
+      "symbol": "app/public_website.py:response-projection"
+    },
+    "app.routers.auth.session_location": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 796,
+      "end_line": 798,
+      "symbol": "app.routers.auth.session_location"
+    },
+    "app.routers.auth._session_location_ip": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 784,
+      "end_line": 792,
+      "symbol": "app.routers.auth._session_location_ip"
+    },
+    "app.services.entry_registry._origin": {
+      "file": "app/services/entry_registry.py",
+      "sha256": "66eac941f492dbb4bdcae2f8425d96feb08c12453e81ead5b884397eb6001147",
+      "line": 16,
+      "end_line": 25,
+      "symbol": "app.services.entry_registry._origin"
+    },
+    "app/services/entry_registry.py:web-project-review": {
+      "file": "app/services/entry_registry.py",
+      "sha256": "66eac941f492dbb4bdcae2f8425d96feb08c12453e81ead5b884397eb6001147",
+      "line": 1,
+      "end_line": 145,
+      "symbol": "app/services/entry_registry.py:web-project-review"
+    },
+    "app/services/web_project_runtime.py:web-project-review": {
+      "file": "app/services/web_project_runtime.py",
+      "sha256": "8cc7566a07386bc88c33bffa1b9ef984045892f1d28f5484410d4193cebf6a4c",
+      "line": 1,
+      "end_line": 154,
+      "symbol": "app/services/web_project_runtime.py:web-project-review"
+    },
+    "app/services/web_project_write_auth.py:web-project-review": {
+      "file": "app/services/web_project_write_auth.py",
+      "sha256": "6b1496ea508c4b88633670e25a46922b1203365fd459bbe69d47dc84f9b1923f",
+      "line": 1,
+      "end_line": 25,
+      "symbol": "app/services/web_project_write_auth.py:web-project-review"
+    },
+    "app.routers.web_projects.catalog": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 12,
+      "end_line": 20,
+      "symbol": "app.routers.web_projects.catalog"
+    },
+    "app.routers.web_projects.preview": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 28,
+      "end_line": 35,
+      "symbol": "app.routers.web_projects.preview"
+    },
+    "app.routers.web_projects.import_project": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 38,
+      "end_line": 42,
+      "symbol": "app.routers.web_projects.import_project"
+    },
+    "app.routers.web_projects.manifest": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 45,
+      "end_line": 46,
+      "symbol": "app.routers.web_projects.manifest"
+    },
+    "app.routers.web_projects.source": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 54,
+      "end_line": 61,
+      "symbol": "app.routers.web_projects.source"
+    },
+    "app.routers.web_projects.update_source": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 64,
+      "end_line": 74,
+      "symbol": "app.routers.web_projects.update_source"
+    },
+    "app.routers.web_projects.state": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 77,
+      "end_line": 78,
+      "symbol": "app.routers.web_projects.state"
+    },
+    "app.routers.web_projects.launch": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 81,
+      "end_line": 89,
+      "symbol": "app.routers.web_projects.launch"
+    },
+    "app.routers.web_projects.write_state": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 115,
+      "end_line": 125,
+      "symbol": "app.routers.web_projects.write_state"
+    },
+    "app.routers.web_projects.reset": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 128,
+      "end_line": 129,
+      "symbol": "app.routers.web_projects.reset"
+    },
+    "app.routers.web_projects.copy_asset": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 138,
+      "end_line": 139,
+      "symbol": "app.routers.web_projects.copy_asset"
+    },
+    "app.services.web_project_runtime.launch": {
+      "file": "app/services/web_project_runtime.py",
+      "sha256": "8cc7566a07386bc88c33bffa1b9ef984045892f1d28f5484410d4193cebf6a4c",
+      "line": 58,
+      "end_line": 75,
+      "symbol": "app.services.web_project_runtime.launch"
+    },
+    "app.services.web_project_runtime.destination": {
+      "file": "app/services/web_project_runtime.py",
+      "sha256": "8cc7566a07386bc88c33bffa1b9ef984045892f1d28f5484410d4193cebf6a4c",
+      "line": 51,
+      "end_line": 55,
+      "symbol": "app.services.web_project_runtime.destination"
+    },
+    "app.services.web_project_runtime.key": {
+      "file": "app/services/web_project_runtime.py",
+      "sha256": "8cc7566a07386bc88c33bffa1b9ef984045892f1d28f5484410d4193cebf6a4c",
+      "line": 49,
+      "end_line": 49,
+      "symbol": "app.services.web_project_runtime.key"
+    },
+    "app.services.web_project_runtime.authorize": {
+      "file": "app/services/web_project_runtime.py",
+      "sha256": "8cc7566a07386bc88c33bffa1b9ef984045892f1d28f5484410d4193cebf6a4c",
+      "line": 77,
+      "end_line": 84,
+      "symbol": "app.services.web_project_runtime.authorize"
+    },
+    "app/routers/web_projects.py:renewal-detached-review": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 1,
+      "end_line": 139,
+      "symbol": "app/routers/web_projects.py:renewal-detached-review"
+    },
+    "app/services/web_project_runtime.py:renewal-detached-review": {
+      "file": "app/services/web_project_runtime.py",
+      "sha256": "8cc7566a07386bc88c33bffa1b9ef984045892f1d28f5484410d4193cebf6a4c",
+      "line": 1,
+      "end_line": 154,
+      "symbol": "app/services/web_project_runtime.py:renewal-detached-review"
+    },
+    "app.routers.web_projects.renew": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 97,
+      "end_line": 104,
+      "symbol": "app.routers.web_projects.renew"
+    },
+    "app/routers/integrations_host.py:backup-response-review": {
+      "file": "app/routers/integrations_host.py",
+      "sha256": "96257cc9abfb65f5883b5fc878884a5741f732c1d023f821332e86bd581d9559",
+      "line": 1,
+      "end_line": 152,
+      "symbol": "app/routers/integrations_host.py:backup-response-review"
+    },
+    "app/services/entry_registry.py:backup-response-review": {
+      "file": "app/services/entry_registry.py",
+      "sha256": "66eac941f492dbb4bdcae2f8425d96feb08c12453e81ead5b884397eb6001147",
+      "line": 1,
+      "end_line": 145,
+      "symbol": "app/services/entry_registry.py:backup-response-review"
+    },
+    "app.routers.monitor.list_monitor_groups": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 414,
+      "end_line": 416,
+      "symbol": "app.routers.monitor.list_monitor_groups"
+    },
+    "app.routers.monitor.create_monitor_group": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 420,
+      "end_line": 425,
+      "symbol": "app.routers.monitor.create_monitor_group"
+    },
+    "app.routers.monitor.update_monitor_group": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 429,
+      "end_line": 434,
+      "symbol": "app.routers.monitor.update_monitor_group"
+    },
+    "app.routers.monitor.dissolve_monitor_group": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 438,
+      "end_line": 440,
+      "symbol": "app.routers.monitor.dissolve_monitor_group"
+    },
+    "app.routers.web_projects.identities": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 23,
+      "end_line": 25,
+      "symbol": "app.routers.web_projects.identities"
+    },
+    "app/routers/web_projects.py:feedback-review": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 1,
+      "end_line": 139,
+      "symbol": "app/routers/web_projects.py:feedback-review"
+    },
+    "app/routers/auth.py:integrated-review": {
+      "file": "app/routers/auth.py",
+      "sha256": "e30b4ca0d968731765c0ced6f36ab8153d78ba566421516ab7e9377b8e39d2cb",
+      "line": 1,
+      "end_line": 833,
+      "symbol": "app/routers/auth.py:integrated-review"
+    },
+    "app/routers/auth_provider.py:integrated-review": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 1,
+      "end_line": 149,
+      "symbol": "app/routers/auth_provider.py:integrated-review"
+    },
+    "app/services/oidc.py:integrated-review": {
+      "file": "app/services/oidc.py",
+      "sha256": "35b0dac1124762d7d4d299e488aa3053bc697cbee09b4f621688aaf592f67ebe",
+      "line": 1,
+      "end_line": 529,
+      "symbol": "app/services/oidc.py:integrated-review"
+    },
+    "app/routers/monitor.py:integrated-review": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 1,
+      "end_line": 519,
+      "symbol": "app/routers/monitor.py:integrated-review"
+    },
+    "app/services/node_monitor_policy.py:integrated-review": {
+      "file": "app/services/node_monitor_policy.py",
+      "sha256": "80464faf6ae5a0ec7eca404f5feaee417015ae44e26df06ab92165f692c3c35d",
+      "line": 1,
+      "end_line": 205,
+      "symbol": "app/services/node_monitor_policy.py:integrated-review"
+    },
+    "app/schemas/node_monitor_policy.py:integrated-review": {
+      "file": "app/schemas/node_monitor_policy.py",
+      "sha256": "c8f09aa5e94838a72cddabfbb9ff2b959c2031426601a1d5b53d02efa47d570b",
+      "line": 1,
+      "end_line": 39,
+      "symbol": "app/schemas/node_monitor_policy.py:integrated-review"
+    },
+    "app/services/node.py:integrated-review": {
+      "file": "app/services/node.py",
+      "sha256": "4b88b8643bcea6ed756cae77e819e595a463e848c1800f802417f8e42eaadcab",
+      "line": 1,
+      "end_line": 334,
+      "symbol": "app/services/node.py:integrated-review"
+    },
+    "app/repositories/node.py:integrated-review": {
+      "file": "app/repositories/node.py",
+      "sha256": "d152ac0bce3cef5fdf74d6edccf6f559c72601843446e086703634ff0d07ac9b",
+      "line": 1,
+      "end_line": 388,
+      "symbol": "app/repositories/node.py:integrated-review"
+    },
+    "app/services/monitor.py:integrated-review": {
+      "file": "app/services/monitor.py",
+      "sha256": "a4480c60e8fec4fc3f84017c026453ca8027b02144b83f629ecc26943eb923cd",
+      "line": 1,
+      "end_line": 129,
+      "symbol": "app/services/monitor.py:integrated-review"
+    },
+    "agent/stella_agent.py:integrated-review": {
+      "file": "agent/stella_agent.py",
+      "sha256": "704f199d41047421bc45e4d6c9524e996b8585a0ba4fa79fb5e45185b7296ca9",
+      "line": 1,
+      "end_line": 3706,
+      "symbol": "agent/stella_agent.py:integrated-review"
+    },
+    "app/routers/config.py:integrated-review": {
+      "file": "app/routers/config.py",
+      "sha256": "65312bcae0c5e7a732b266c0982ee090ac641f2342f550ba0a22d933fb0fa4d3",
+      "line": 1,
+      "end_line": 58,
+      "symbol": "app/routers/config.py:integrated-review"
+    },
+    "app/services/access_entries.py:integrated-review": {
+      "file": "app/services/access_entries.py",
+      "sha256": "9cee5c915165e5ff6f2eac09331e76eff6f300130bbb6e609ea8d79b35595230",
+      "line": 1,
+      "end_line": 174,
+      "symbol": "app/services/access_entries.py:integrated-review"
+    },
+    "app/services/entry_registry.py:integrated-review": {
+      "file": "app/services/entry_registry.py",
+      "sha256": "66eac941f492dbb4bdcae2f8425d96feb08c12453e81ead5b884397eb6001147",
+      "line": 1,
+      "end_line": 145,
+      "symbol": "app/services/entry_registry.py:integrated-review"
+    },
+    "app/public_website.py:integrated-review": {
+      "file": "app/public_website.py",
+      "sha256": "f4593ea4d2c98743a70d86527f39e0f05f3152752cc8ac5bc1e287788f3b888f",
+      "line": 1,
+      "end_line": 458,
+      "symbol": "app/public_website.py:integrated-review"
+    },
+    "app/services/website_settings.py:integrated-review": {
+      "file": "app/services/website_settings.py",
+      "sha256": "f98f2accb01382b0332c4a61d1fd81bf7236b87fb5192a3be4e7cd3a7b8ad97f",
+      "line": 1,
+      "end_line": 298,
+      "symbol": "app/services/website_settings.py:integrated-review"
+    },
+    "app/services/integrations_sessions.py:integrated-review": {
+      "file": "app/services/integrations_sessions.py",
+      "sha256": "8326c3b5bdc72a5be126445ccb7930d7b52819613fa14403053c56f27dd7cfe0",
+      "line": 1,
+      "end_line": 98,
+      "symbol": "app/services/integrations_sessions.py:integrated-review"
+    },
+    "app/routers/web_projects.py:integrated-review": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "c5b2e056865bd0f4998d0c1e4f1d0155e9863b2671b76af7c2288873dfde0db9",
+      "line": 1,
+      "end_line": 139,
+      "symbol": "app/routers/web_projects.py:integrated-review"
+    },
+    "app/services/web_project_runtime.py:integrated-review": {
+      "file": "app/services/web_project_runtime.py",
+      "sha256": "8cc7566a07386bc88c33bffa1b9ef984045892f1d28f5484410d4193cebf6a4c",
+      "line": 1,
+      "end_line": 164,
+      "symbol": "app/services/web_project_runtime.py:integrated-review"
+    },
+    "app/services/web_project_write_auth.py:integrated-review": {
+      "file": "app/services/web_project_write_auth.py",
+      "sha256": "6b1496ea508c4b88633670e25a46922b1203365fd459bbe69d47dc84f9b1923f",
+      "line": 1,
+      "end_line": 25,
+      "symbol": "app/services/web_project_write_auth.py:integrated-review"
+    },
+    "app/routers/integrations_host.py:integrated-review": {
+      "file": "app/routers/integrations_host.py",
+      "sha256": "96257cc9abfb65f5883b5fc878884a5741f732c1d023f821332e86bd581d9559",
+      "line": 1,
+      "end_line": 166,
+      "symbol": "app/routers/integrations_host.py:integrated-review"
+    },
+    "app.routers.monitor.read_node_monitoring_policy": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 42,
+      "end_line": 43,
+      "symbol": "app.routers.monitor.read_node_monitoring_policy"
+    },
+    "app.routers.monitor.write_node_monitoring_policy": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 47,
+      "end_line": 48,
+      "symbol": "app.routers.monitor.write_node_monitoring_policy"
+    },
+    "app.routers.monitor.pause_node_monitoring": {
+      "file": "app/routers/monitor.py",
+      "sha256": "4d6848f6c1ea99ecfc4d72d29ac537e8a30684aab756fcf28708847d6766199a",
+      "line": 52,
+      "end_line": 54,
+      "symbol": "app.routers.monitor.pause_node_monitoring"
+    },
+    "app.routers.config.access_read": {
+      "file": "app/routers/config.py",
+      "sha256": "65312bcae0c5e7a732b266c0982ee090ac641f2342f550ba0a22d933fb0fa4d3",
+      "line": 21,
+      "end_line": 23,
+      "symbol": "app.routers.config.access_read"
+    },
+    "app.routers.config.access_check": {
+      "file": "app/routers/config.py",
+      "sha256": "65312bcae0c5e7a732b266c0982ee090ac641f2342f550ba0a22d933fb0fa4d3",
+      "line": 26,
+      "end_line": 28,
+      "symbol": "app.routers.config.access_check"
+    },
+    "app.routers.config.access_apply": {
+      "file": "app/routers/config.py",
+      "sha256": "65312bcae0c5e7a732b266c0982ee090ac641f2342f550ba0a22d933fb0fa4d3",
+      "line": 31,
+      "end_line": 33,
+      "symbol": "app.routers.config.access_apply"
+    },
+    "app.routers.auth_provider.reveal": {
+      "file": "app/routers/auth_provider.py",
+      "sha256": "13163cf09c46da0d52b7bc4dd763c92d80e0a07f1c63ef5a86fa39cfa2d36d88",
+      "line": 129,
+      "end_line": 138,
+      "symbol": "app.routers.auth_provider.reveal"
+    },
+    "app/navigation_icons.py:settings-hint-review": {
+      "file": "app/navigation_icons.py",
+      "sha256": "53d55391fb5f24ba8a7d461251901e5ce38835a5b8101eeea940183de558043a",
+      "line": 1,
+      "end_line": 2,
+      "symbol": "app/navigation_icons.py:settings-hint-review"
+    },
+    "app.services.website_settings.css_errors:round2-0a5f97c": {
+      "file": "app/services/website_settings.py",
+      "sha256": "91f1586985612234915446d3c8684a66a96c389adc829b7232a2dc206682e1c5",
+      "line": 79,
+      "end_line": 141,
+      "symbol": "app.services.website_settings.css_errors"
+    },
+    "app.services.website_settings.fingerprint:round2-0a5f97c": {
+      "file": "app/services/website_settings.py",
+      "sha256": "91f1586985612234915446d3c8684a66a96c389adc829b7232a2dc206682e1c5",
+      "line": 61,
+      "end_line": 67,
+      "symbol": "app.services.website_settings.fingerprint"
+    },
+    "app.services.website_settings.retry_result:round2-0a5f97c": {
+      "file": "app/services/website_settings.py",
+      "sha256": "91f1586985612234915446d3c8684a66a96c389adc829b7232a2dc206682e1c5",
+      "line": 69,
+      "end_line": 77,
+      "symbol": "app.services.website_settings.retry_result"
+    },
+    "app.services.website_settings.save_website:round2-0a5f97c": {
+      "file": "app/services/website_settings.py",
+      "sha256": "91f1586985612234915446d3c8684a66a96c389adc829b7232a2dc206682e1c5",
+      "line": 143,
+      "end_line": 303,
+      "symbol": "app.services.website_settings.save_website"
+    },
+    "app/services/website_settings.py:integrated-review:round2-0a5f97c": {
+      "file": "app/services/website_settings.py",
+      "sha256": "91f1586985612234915446d3c8684a66a96c389adc829b7232a2dc206682e1c5",
+      "line": 1,
+      "end_line": 303,
+      "symbol": "app/services/website_settings.py:integrated-review"
+    },
+    "app/services/website_settings.py:response-shapes:round2-0a5f97c": {
+      "file": "app/services/website_settings.py",
+      "sha256": "91f1586985612234915446d3c8684a66a96c389adc829b7232a2dc206682e1c5",
+      "line": 1,
+      "end_line": 303,
+      "symbol": "app/services/website_settings.py:response-shapes"
+    },
+    "app/services/website_settings.py:schema:round2-0a5f97c": {
+      "file": "app/services/website_settings.py",
+      "sha256": "91f1586985612234915446d3c8684a66a96c389adc829b7232a2dc206682e1c5",
+      "line": 1,
+      "end_line": 303,
+      "symbol": "app/services/website_settings.py:schema"
+    }
+  },
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/nodes/monitoring-policy",
+      "endpoint": "app.routers.monitor.read_node_monitoring_policy",
+      "status_code": "200",
+      "model": "NodeMonitoringPolicyRead",
+      "sources": [
+        "app.routers.monitor.read_node_monitoring_policy",
+        "app/repositories/node.py:integrated-review",
+        "app/schemas/node_monitor_policy.py:integrated-review",
+        "app/services/monitor.py:integrated-review",
+        "app/services/node.py:integrated-review",
+        "app/services/node_monitor_policy.py:integrated-review"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "PUT",
+      "path": "/nodes/monitoring-policy",
+      "endpoint": "app.routers.monitor.write_node_monitoring_policy",
+      "status_code": "200",
+      "model": "NodeMonitoringPolicyRead",
+      "sources": [
+        "app.routers.monitor.write_node_monitoring_policy",
+        "app/repositories/node.py:integrated-review",
+        "app/schemas/node_monitor_policy.py:integrated-review",
+        "app/services/monitor.py:integrated-review",
+        "app/services/node.py:integrated-review",
+        "app/services/node_monitor_policy.py:integrated-review"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/nodes/monitoring-policy/targets/{target_node_id}",
+      "endpoint": "app.routers.monitor.pause_node_monitoring",
+      "status_code": "200",
+      "model": "NodeMonitoringPolicyRead",
+      "sources": [
+        "app.routers.monitor.pause_node_monitoring",
+        "app/repositories/node.py:integrated-review",
+        "app/schemas/node_monitor_policy.py:integrated-review",
+        "app/services/monitor.py:integrated-review",
+        "app/services/node.py:integrated-review",
+        "app/services/node_monitor_policy.py:integrated-review"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "GET",
+      "path": "/config/access-entries",
+      "endpoint": "app.routers.config.access_read",
+      "status_code": "200",
+      "model": "AccessEntrySummary",
+      "sources": [
+        "app.routers.config.access_read",
+        "app/public_website.py:integrated-review",
+        "app/services/access_entries.py:integrated-review",
+        "app/services/entry_registry.py:integrated-review",
+        "app/services/integrations_sessions.py:integrated-review",
+        "app/navigation_icons.py:settings-hint-review"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "POST",
+      "path": "/config/access-entries/check",
+      "endpoint": "app.routers.config.access_check",
+      "status_code": "200",
+      "model": "AccessEntryCheck",
+      "sources": [
+        "app.routers.config.access_check",
+        "app/public_website.py:integrated-review",
+        "app/services/access_entries.py:integrated-review",
+        "app/services/entry_registry.py:integrated-review",
+        "app/services/integrations_sessions.py:integrated-review",
+        "app/navigation_icons.py:settings-hint-review"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "PUT",
+      "path": "/config/access-entries",
+      "endpoint": "app.routers.config.access_apply",
+      "status_code": "200",
+      "model": "AccessEntrySummary",
+      "sources": [
+        "app.routers.config.access_apply",
+        "app/public_website.py:integrated-review",
+        "app/services/access_entries.py:integrated-review",
+        "app/services/entry_registry.py:integrated-review",
+        "app/services/integrations_sessions.py:integrated-review",
+        "app/navigation_icons.py:settings-hint-review"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/provider/clients/{client_id}/reveal-secret",
+      "endpoint": "app.routers.auth_provider.reveal",
+      "status_code": "200",
+      "model": "ClientSecretReveal",
+      "sources": [
+        "app.routers.auth_provider.reveal",
+        "app/routers/auth.py:integrated-review",
+        "app/routers/auth_provider.py:integrated-review",
+        "app/services/oidc.py:integrated-review"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503"
+      ],
+      "request_validation": true
+    }
+  ],
+  "source_additions": {
+    "app.routers.auth.my_sessions": [
+      "app/routers/auth.py:integrated-review"
+    ],
+    "app.routers.monitor.list_nodes": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.create_node": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.install_command": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.read_map_topology": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.update_map_location": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.get_host": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.install_host": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.uninstall_node": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.delete_node": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.read_node_metrics": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.read_traffic_stats": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.read_node_sys_metrics": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.update_node": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.update_net_type": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.change_ip": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.firewall_scan": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.read_net_task": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.docker_scan": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.docker_ctl": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.pbr_scan": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.docker_logs": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.docker_inspect": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.latest_net_task": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.read_node": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.list_monitors": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.create_monitor": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.update_monitor": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.delete_monitor": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.monitor_mtr_history": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.monitor_mtr_run": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.monitor_checks": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.monitor_series": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_report": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_config": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_mtr_report": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_monitor_check": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_map_targets": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_script": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_version": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_install_sh": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_install_ps1": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_run_ps1": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.agent_hardware_sensors_ps1": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.list_iperf": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.get_iperf": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.cancel_iperf": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.create_iperf": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.list_mtr": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.create_mtr": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.list_commands": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.create_command": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.list_components": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.install_component": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.poll_tasks": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.get_iperf_status": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.finish_iperf": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.iperf_progress": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.finish_component": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.finish_net_task": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.download_speedtest_go": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.finish_mtr": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.mtr_live": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.finish_command": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.finish_uninstall": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.integrations.targets": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.create_target": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.resolve_target": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.navigation": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.save_navigation": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.modules": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.create": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.module": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.patch": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.delete": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.launch": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.validate_injection": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.apply_injection": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.rollback_injection": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.presets": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.integrations.check": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.website_settings.check": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.website_settings.create": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.website_settings.update": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.website_settings.templates": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.website_settings.website_asset": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.website_settings.create_template": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.website_settings.remove_template": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.catalog": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.preview": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.import_project": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.manifest": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.source": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.update_source": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.state": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.launch": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.write_state": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.reset": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.copy_asset": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.web_projects.renew": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ],
+    "app.routers.monitor.list_monitor_groups": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.create_monitor_group": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.update_monitor_group": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.monitor.dissolve_monitor_group": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.create_mtr_job": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.task.get_mtr": [
+      "app/repositories/node.py:integrated-review",
+      "app/schemas/node_monitor_policy.py:integrated-review",
+      "app/services/monitor.py:integrated-review",
+      "app/services/node.py:integrated-review",
+      "app/services/node_monitor_policy.py:integrated-review"
+    ],
+    "app.routers.web_projects.identities": [
+      "app/public_website.py:integrated-review",
+      "app/routers/integrations_host.py:integrated-review",
+      "app/services/access_entries.py:integrated-review",
+      "app/services/entry_registry.py:integrated-review",
+      "app/services/integrations_sessions.py:integrated-review",
+      "app/services/web_project_runtime.py:integrated-review",
+      "app/services/web_project_write_auth.py:integrated-review",
+      "app/navigation_icons.py:settings-hint-review"
+    ]
+  },
+  "models": {
+    "AccessEntrySummary": {
+      "type": "object",
+      "properties": {
+        "settings": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "public_origin": {
+              "type": "string"
+            },
+            "private_origin": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "revision",
+            "enabled",
+            "public_origin",
+            "private_origin"
+          ],
+          "additionalProperties": false
+        },
+        "issuer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deployed": {
+          "type": "object",
+          "properties": {
+            "public": {
+              "type": "string"
+            },
+            "private": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "public"
+          ],
+          "additionalProperties": false
+        },
+        "websites": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string"
+              },
+              "public_address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "private_address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "entry_policy": {
+                "type": "string"
+              },
+              "template_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "access_adapter": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "mode",
+              "public_address",
+              "private_address",
+              "entry_policy",
+              "template_id",
+              "access_adapter"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "settings",
+        "issuer",
+        "deployed",
+        "websites"
+      ],
+      "additionalProperties": false
+    },
+    "AccessEntryCheck": {
+      "type": "object",
+      "properties": {
+        "can_apply": {
+          "type": "boolean"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "configured",
+                  "pending",
+                  "unused"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "status",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "network": {
+          "type": "object",
+          "properties": {
+            "dns": {
+              "const": "unknown"
+            },
+            "tls": {
+              "const": "unknown"
+            },
+            "browser": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "dns",
+            "tls",
+            "browser"
+          ],
+          "additionalProperties": false
+        },
+        "behavior": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "can_apply",
+        "digest",
+        "checks",
+        "network",
+        "behavior"
+      ],
+      "additionalProperties": false
+    },
+    "NodeMonitoringPolicyRead": {
+      "$defs": {
+        "DeferredNodeMonitor": {
+          "properties": {
+            "node_id": {
+              "title": "Node Id",
+              "type": "integer"
+            },
+            "reason": {
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "required": [
+            "node_id",
+            "reason"
+          ],
+          "title": "DeferredNodeMonitor",
+          "type": "object"
+        },
+        "ManagedNodeMonitor": {
+          "properties": {
+            "target_node_id": {
+              "title": "Target Node Id",
+              "type": "integer"
+            },
+            "source_node_id": {
+              "title": "Source Node Id",
+              "type": "integer"
+            },
+            "monitor_id": {
+              "title": "Monitor Id",
+              "type": "integer"
+            },
+            "suppressed": {
+              "title": "Suppressed",
+              "type": "boolean"
+            },
+            "exists": {
+              "title": "Exists",
+              "type": "boolean"
+            },
+            "paused": {
+              "title": "Paused",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "target_node_id",
+            "source_node_id",
+            "monitor_id",
+            "suppressed",
+            "exists",
+            "paused"
+          ],
+          "title": "ManagedNodeMonitor",
+          "type": "object"
+        },
+        "ProbeTestTarget": {
+          "properties": {
+            "type": {
+              "enum": [
+                "ping",
+                "tcp"
+              ],
+              "title": "Type",
+              "type": "string"
+            },
+            "target": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Target",
+              "type": "string"
+            },
+            "description": {
+              "maxLength": 128,
+              "title": "Description",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "target",
+            "description"
+          ],
+          "title": "ProbeTestTarget",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "minimum": 0,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "source_node_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Node Id"
+        },
+        "host_node_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host Node Id"
+        },
+        "interval": {
+          "default": 60,
+          "maximum": 3600,
+          "minimum": 60,
+          "title": "Interval",
+          "type": "integer"
+        },
+        "managed": {
+          "items": {
+            "$ref": "#/$defs/ManagedNodeMonitor"
+          },
+          "title": "Managed",
+          "type": "array"
+        },
+        "pending": {
+          "items": {
+            "$ref": "#/$defs/DeferredNodeMonitor"
+          },
+          "title": "Pending",
+          "type": "array"
+        },
+        "source_ready": {
+          "title": "Source Ready",
+          "type": "boolean"
+        },
+        "source_scope": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Scope"
+        },
+        "source_test_targets": {
+          "items": {
+            "$ref": "#/$defs/ProbeTestTarget"
+          },
+          "title": "Source Test Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "revision",
+        "enabled",
+        "managed",
+        "pending",
+        "source_ready",
+        "source_scope"
+      ],
+      "title": "NodeMonitoringPolicyRead",
+      "type": "object"
+    },
+    "PublicModule": {
+      "$defs": {
+        "ProjectionStatus": {
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "incomplete",
+              "default": "incomplete",
+              "title": "State",
+              "type": "string"
+            },
+            "invalid_fields": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Invalid Fields",
+              "type": "array"
+            }
+          },
+          "required": [
+            "invalid_fields"
+          ],
+          "title": "ProjectionStatus",
+          "type": "object"
+        },
+        "PublicCapabilities": {
+          "additionalProperties": false,
+          "properties": {
+            "injection": {
+              "default": false,
+              "title": "Injection",
+              "type": "boolean"
+            },
+            "browser_status": {
+              "const": "unobservable",
+              "default": "unobservable",
+              "title": "Browser Status",
+              "type": "string"
+            },
+            "managed_settings": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Managed Settings"
+            }
+          },
+          "title": "PublicCapabilities",
+          "type": "object"
+        },
+        "PublicConnection": {
+          "additionalProperties": false,
+          "properties": {
+            "transport": {
+              "default": "auto",
+              "enum": [
+                "auto",
+                "proxy",
+                "direct"
+              ],
+              "title": "Transport",
+              "type": "string"
+            },
+            "auth_mode": {
+              "default": "original",
+              "enum": [
+                "original",
+                "header",
+                "oidc"
+              ],
+              "title": "Auth Mode",
+              "type": "string"
+            },
+            "header_name": {
+              "default": "Authorization",
+              "enum": [
+                "Authorization",
+                "X-API-Key",
+                "X-Auth-Token"
+              ],
+              "title": "Header Name",
+              "type": "string"
+            },
+            "injection_delivery": {
+              "default": "proxy",
+              "enum": [
+                "proxy",
+                "loader"
+              ],
+              "title": "Injection Delivery",
+              "type": "string"
+            },
+            "has_token": {
+              "default": false,
+              "title": "Has Token",
+              "type": "boolean"
+            }
+          },
+          "title": "PublicConnection",
+          "type": "object"
+        },
+        "PublicInjectionVersion": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "css": {
+              "default": "",
+              "title": "Css",
+              "type": "string"
+            },
+            "js": {
+              "default": "",
+              "title": "Js",
+              "type": "string"
+            },
+            "timing": {
+              "default": "dom_ready",
+              "enum": [
+                "dom_ready",
+                "document_start"
+              ],
+              "title": "Timing",
+              "type": "string"
+            },
+            "csp_policy": {
+              "default": "reject",
+              "enum": [
+                "reject",
+                "controlled"
+              ],
+              "title": "Csp Policy",
+              "type": "string"
+            },
+            "version": {
+              "default": "",
+              "title": "Version",
+              "type": "string"
+            },
+            "source_origin": {
+              "default": "",
+              "title": "Source Origin",
+              "type": "string"
+            }
+          },
+          "title": "PublicInjectionVersion",
+          "type": "object"
+        },
+        "PublicInjectionVersions": {
+          "additionalProperties": false,
+          "properties": {
+            "draft": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicInjectionVersion"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "active": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicInjectionVersion"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "previous": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicInjectionVersion"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "projection": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProjectionStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "title": "PublicInjectionVersions",
+          "type": "object"
+        },
+        "PublicRequestPolicy": {
+          "additionalProperties": false,
+          "properties": {
+            "management_prefixes": {
+              "items": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "title": "Management Prefixes",
+              "type": "array"
+            },
+            "read_post_paths": {
+              "items": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "title": "Read Post Paths",
+              "type": "array"
+            },
+            "protect_other_writes": {
+              "default": false,
+              "title": "Protect Other Writes",
+              "type": "boolean"
+            }
+          },
+          "title": "PublicRequestPolicy",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": "unavailable",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "配置不完整",
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "icon": {
+          "default": "globe",
+          "title": "Icon",
+          "type": "string"
+        },
+        "mode": {
+          "default": "iframe",
+          "enum": [
+            "iframe",
+            "link",
+            "openlist",
+            "isolated_proxy"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "adapter": {
+          "default": "generic",
+          "enum": [
+            "generic",
+            "openlist",
+            "immich"
+          ],
+          "title": "Adapter",
+          "type": "string"
+        },
+        "browser_url": {
+          "default": "",
+          "title": "Browser Url",
+          "type": "string"
+        },
+        "private_address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Private Address"
+        },
+        "entry_policy": {
+          "default": "follow",
+          "enum": [
+            "follow",
+            "public"
+          ],
+          "title": "Entry Policy",
+          "type": "string"
+        },
+        "access_adapter": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "generic",
+            "openlist",
+            "immich"
+          ],
+          "title": "Access Adapter",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Id"
+        },
+        "initial_path": {
+          "default": "/",
+          "title": "Initial Path",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "keep_alive": {
+          "default": false,
+          "title": "Keep Alive",
+          "type": "boolean"
+        },
+        "origin": {
+          "default": "",
+          "title": "Origin",
+          "type": "string"
+        },
+        "injection": {
+          "$ref": "#/$defs/PublicInjectionVersions"
+        },
+        "template_id": {
+          "anyOf": [
+            {
+              "pattern": "^(openlist|immich|user_[0-9a-f]{32})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Template Id"
+        },
+        "connection": {
+          "$ref": "#/$defs/PublicConnection"
+        },
+        "background": {
+          "default": "solid",
+          "enum": [
+            "solid",
+            "home"
+          ],
+          "title": "Background",
+          "type": "string"
+        },
+        "request_policy": {
+          "$ref": "#/$defs/PublicRequestPolicy"
+        },
+        "route": {
+          "default": "/settings",
+          "title": "Route",
+          "type": "string"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/PublicCapabilities"
+        },
+        "projection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectionStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "PublicModule",
+      "type": "object"
+    },
+    "PublicWebsiteResult": {
+      "$defs": {
+        "ProjectionStatus": {
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "incomplete",
+              "default": "incomplete",
+              "title": "State",
+              "type": "string"
+            },
+            "invalid_fields": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Invalid Fields",
+              "type": "array"
+            }
+          },
+          "required": [
+            "invalid_fields"
+          ],
+          "title": "ProjectionStatus",
+          "type": "object"
+        },
+        "PublicAppearanceCompatibility": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "css": {
+              "default": "",
+              "title": "Css",
+              "type": "string"
+            },
+            "js": {
+              "default": "",
+              "title": "Js",
+              "type": "string"
+            },
+            "timing": {
+              "default": "document_start",
+              "enum": [
+                "document_start",
+                "dom_ready"
+              ],
+              "title": "Timing",
+              "type": "string"
+            }
+          },
+          "title": "PublicAppearanceCompatibility",
+          "type": "object"
+        },
+        "PublicCapabilities": {
+          "additionalProperties": false,
+          "properties": {
+            "injection": {
+              "default": false,
+              "title": "Injection",
+              "type": "boolean"
+            },
+            "browser_status": {
+              "const": "unobservable",
+              "default": "unobservable",
+              "title": "Browser Status",
+              "type": "string"
+            },
+            "managed_settings": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Managed Settings"
+            }
+          },
+          "title": "PublicCapabilities",
+          "type": "object"
+        },
+        "PublicCheckAccess": {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "default": "unknown",
+              "enum": [
+                "reachable",
+                "login_required",
+                "blocked",
+                "unknown"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "http_status": {
+              "anyOf": [
+                {
+                  "maximum": 599,
+                  "minimum": 100,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Http Status"
+            }
+          },
+          "title": "PublicCheckAccess",
+          "type": "object"
+        },
+        "PublicCheckEmbedding": {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "default": "unknown",
+              "enum": [
+                "allowed",
+                "blocked",
+                "unknown"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "reason_code": {
+              "default": "incomplete_receipt",
+              "title": "Reason Code",
+              "type": "string"
+            },
+            "reason": {
+              "default": "已保存的检测记录不完整，请重新检测",
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "title": "PublicCheckEmbedding",
+          "type": "object"
+        },
+        "PublicCheckHelp": {
+          "additionalProperties": false,
+          "properties": {
+            "title": {
+              "default": "重新检测网站",
+              "title": "Title",
+              "type": "string"
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Location"
+            },
+            "instructions": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Instructions",
+              "type": "array"
+            },
+            "external_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "External Url"
+            }
+          },
+          "title": "PublicCheckHelp",
+          "type": "object"
+        },
+        "PublicCheckInjection": {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "default": "unknown",
+              "enum": [
+                "supported",
+                "unsupported",
+                "unknown",
+                "loader_required"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "reason": {
+              "default": "已保存的检测记录不完整，请重新检测",
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "title": "PublicCheckInjection",
+          "type": "object"
+        },
+        "PublicConnection": {
+          "additionalProperties": false,
+          "properties": {
+            "transport": {
+              "default": "auto",
+              "enum": [
+                "auto",
+                "proxy",
+                "direct"
+              ],
+              "title": "Transport",
+              "type": "string"
+            },
+            "auth_mode": {
+              "default": "original",
+              "enum": [
+                "original",
+                "header",
+                "oidc"
+              ],
+              "title": "Auth Mode",
+              "type": "string"
+            },
+            "header_name": {
+              "default": "Authorization",
+              "enum": [
+                "Authorization",
+                "X-API-Key",
+                "X-Auth-Token"
+              ],
+              "title": "Header Name",
+              "type": "string"
+            },
+            "injection_delivery": {
+              "default": "proxy",
+              "enum": [
+                "proxy",
+                "loader"
+              ],
+              "title": "Injection Delivery",
+              "type": "string"
+            },
+            "has_token": {
+              "default": false,
+              "title": "Has Token",
+              "type": "boolean"
+            }
+          },
+          "title": "PublicConnection",
+          "type": "object"
+        },
+        "PublicInjectionVersion": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "css": {
+              "default": "",
+              "title": "Css",
+              "type": "string"
+            },
+            "js": {
+              "default": "",
+              "title": "Js",
+              "type": "string"
+            },
+            "timing": {
+              "default": "dom_ready",
+              "enum": [
+                "dom_ready",
+                "document_start"
+              ],
+              "title": "Timing",
+              "type": "string"
+            },
+            "csp_policy": {
+              "default": "reject",
+              "enum": [
+                "reject",
+                "controlled"
+              ],
+              "title": "Csp Policy",
+              "type": "string"
+            },
+            "version": {
+              "default": "",
+              "title": "Version",
+              "type": "string"
+            },
+            "source_origin": {
+              "default": "",
+              "title": "Source Origin",
+              "type": "string"
+            }
+          },
+          "title": "PublicInjectionVersion",
+          "type": "object"
+        },
+        "PublicInjectionVersions": {
+          "additionalProperties": false,
+          "properties": {
+            "draft": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicInjectionVersion"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "active": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicInjectionVersion"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "previous": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicInjectionVersion"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "projection": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProjectionStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "title": "PublicInjectionVersions",
+          "type": "object"
+        },
+        "PublicRequestPolicy": {
+          "additionalProperties": false,
+          "properties": {
+            "management_prefixes": {
+              "items": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "title": "Management Prefixes",
+              "type": "array"
+            },
+            "read_post_paths": {
+              "items": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "title": "Read Post Paths",
+              "type": "array"
+            },
+            "protect_other_writes": {
+              "default": false,
+              "title": "Protect Other Writes",
+              "type": "boolean"
+            }
+          },
+          "title": "PublicRequestPolicy",
+          "type": "object"
+        },
+        "PublicSoftwareHint": {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "default": "unknown",
+              "enum": [
+                "unknown",
+                "openlist",
+                "immich"
+              ],
+              "title": "Type",
+              "type": "string"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "html:generator",
+                    "html:application-name"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Source"
+            }
+          },
+          "title": "PublicSoftwareHint",
+          "type": "object"
+        },
+        "PublicWebsiteCheck": {
+          "additionalProperties": false,
+          "properties": {
+            "software": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicSoftwareHint"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "compatibility": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicAppearanceCompatibility"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "normalized_url": {
+              "default": "",
+              "title": "Normalized Url",
+              "type": "string"
+            },
+            "name_suggestion": {
+              "default": "",
+              "title": "Name Suggestion",
+              "type": "string"
+            },
+            "access": {
+              "$ref": "#/$defs/PublicCheckAccess"
+            },
+            "embedding": {
+              "$ref": "#/$defs/PublicCheckEmbedding"
+            },
+            "injection": {
+              "$ref": "#/$defs/PublicCheckInjection"
+            },
+            "help": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicCheckHelp"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "can_save": {
+              "default": false,
+              "title": "Can Save",
+              "type": "boolean"
+            },
+            "recommended_behavior": {
+              "default": "external",
+              "enum": [
+                "embedded",
+                "external"
+              ],
+              "title": "Recommended Behavior",
+              "type": "string"
+            },
+            "issues": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Issues",
+              "type": "array"
+            },
+            "projection": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProjectionStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "title": "PublicWebsiteCheck",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": "unavailable",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "配置不完整",
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "icon": {
+          "default": "globe",
+          "title": "Icon",
+          "type": "string"
+        },
+        "mode": {
+          "default": "iframe",
+          "enum": [
+            "iframe",
+            "link",
+            "openlist",
+            "isolated_proxy"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "adapter": {
+          "default": "generic",
+          "enum": [
+            "generic",
+            "openlist",
+            "immich"
+          ],
+          "title": "Adapter",
+          "type": "string"
+        },
+        "browser_url": {
+          "default": "",
+          "title": "Browser Url",
+          "type": "string"
+        },
+        "private_address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Private Address"
+        },
+        "entry_policy": {
+          "default": "follow",
+          "enum": [
+            "follow",
+            "public"
+          ],
+          "title": "Entry Policy",
+          "type": "string"
+        },
+        "access_adapter": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "generic",
+            "openlist",
+            "immich"
+          ],
+          "title": "Access Adapter",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Id"
+        },
+        "initial_path": {
+          "default": "/",
+          "title": "Initial Path",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "keep_alive": {
+          "default": false,
+          "title": "Keep Alive",
+          "type": "boolean"
+        },
+        "origin": {
+          "default": "",
+          "title": "Origin",
+          "type": "string"
+        },
+        "injection": {
+          "$ref": "#/$defs/PublicInjectionVersions"
+        },
+        "template_id": {
+          "anyOf": [
+            {
+              "pattern": "^(openlist|immich|user_[0-9a-f]{32})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Template Id"
+        },
+        "connection": {
+          "$ref": "#/$defs/PublicConnection"
+        },
+        "background": {
+          "default": "solid",
+          "enum": [
+            "solid",
+            "home"
+          ],
+          "title": "Background",
+          "type": "string"
+        },
+        "request_policy": {
+          "$ref": "#/$defs/PublicRequestPolicy"
+        },
+        "route": {
+          "default": "/settings",
+          "title": "Route",
+          "type": "string"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/PublicCapabilities"
+        },
+        "projection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectionStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "check": {
+          "$ref": "#/$defs/PublicWebsiteCheck"
+        }
+      },
+      "required": [
+        "check"
+      ],
+      "title": "PublicWebsiteResult",
+      "type": "object"
+    }
+  },
+  "reviews": {
+    "settings-correction-20261019": {
+      "audit": "docs/api-response-settings-correction-review.md",
+      "scope": {
+        "app/services/website_check.py": "Explicit HTML generator/application-name only, conflicts unknown; optional software + inert appearance compatibility fields. No domain inference/auth override. Failure result omits both. Closed check schema reviewed against actual loopback HTTP; PublicWebsiteResult.check must retain only typed fields.",
+        "app/services/access_entries.py": "Legacy enabled=false retained on GET but no longer a lane gate; explicit public preserved. No env writes, no issuer change. Existing grant exact source/target validation retained.",
+        "app/services/entry_registry.py": "Private source direct URL without configured private address returns original URL; credential proxy still fail-closed. Exact trusted origins and existing pinned deployment boundaries retained.",
+        "app/public_website.py": "Add typed optional public check software + appearance compatibility; existing legacy receipt fields and unknown-extension exclusion retained. No module/target/token/identity schema expansion."
+      },
+      "new_routes": false,
+      "migrations": false,
+      "incomplete_contracts_preserved": 3
+    },
+    "round2-0a5f97c": {
+      "audit": "/opt/hermes-workstation/docs/Stella-Outline整改-20261020/review-followup/REPORT.md",
+      "candidate_sha": "0a5f97c9a128a18ed468baca5964d985d9bd6338",
+      "scope": {
+        "app/services/website_settings.py": "Reviewed unified editor preserve_saved_draft strict optional flag and legacy false/omitted idempotency fingerprint; explicit disabled/empty current snapshot preserves independent saved draft. Condition at line275 now includes preserve_saved_draft, with no executable enabled change. Existing owner/admin/CSRF router and target/CSP/credential guards, CAS, idempotent retry and origin/version bindings unchanged. Real router+SQLite and process-owned HTTP same/changed-origin tests, inject_html disabled nonexecution, fresh response replay to actual Vue editor approved. Not PostgreSQL concurrency/auth/deployment approval."
+      },
+      "new_routes": false,
+      "migrations": false,
+      "full_ci_claim": false,
+      "historical_strict_completeness_failures_preserved": 2
+    }
+  }
+}

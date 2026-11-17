@@ -30,20 +30,31 @@ def _engine():
 
 
 @contextmanager
-def locked_state(key, default):
-    """One transaction owns initialization, row lock, read, mutation and write.
+def locked_states(defaults):
+    """Lock an ordered mapping of keys/defaults on one connection/transaction.
 
-    ON CONFLICT also serializes racing creation of an absent key. Never expose
-    a load/modify/save API: callers must mutate only within this context.
-    Exceptions roll back all mutations; DB failure never falls back to files.
+    Callers must request shared keys in a consistent order (OIDC: clients then
+    runtime). Initialize and SELECT FOR UPDATE each key before moving to the
+    next: even absent-row creation therefore respects that order. Every write
+    commits together; any exception rolls the whole set back. No file fallback.
     """
     engine = _engine()
     if engine.dialect.name != 'postgresql':
         raise RuntimeError('shared state requires PostgreSQL')
     with engine.begin() as conn:
-        conn.execute(insert(state_table).values(key=key, payload=default)
-                     .on_conflict_do_nothing(index_elements=['key']))
-        state = deepcopy(conn.execute(select(state_table.c.payload)
-                         .where(state_table.c.key == key).with_for_update()).scalar_one())
-        yield state
-        conn.execute(update(state_table).where(state_table.c.key == key).values(payload=state))
+        states = {}
+        for key, default in defaults.items():
+            conn.execute(insert(state_table).values(key=key, payload=default)
+                         .on_conflict_do_nothing(index_elements=['key']))
+            states[key] = deepcopy(conn.execute(select(state_table.c.payload)
+                                   .where(state_table.c.key == key).with_for_update()).scalar_one())
+        yield states
+        for key, state in states.items():
+            conn.execute(update(state_table).where(state_table.c.key == key).values(payload=state))
+
+
+@contextmanager
+def locked_state(key, default):
+    """Single-key compatibility wrapper; mutation must stay inside the context."""
+    with locked_states({key: default}) as states:
+        yield states[key]

@@ -56,6 +56,8 @@ def prune(config):
 
 
 def issue(db,module,sid,source_origin):
+    from app.services.entry_registry import module_context
+    target_origin = module_context(module, source_origin)
     if not session_alive(db,sid):
         raise HTTPException(401,'无效主站会话')
     ticket=secrets.token_urlsafe(32)
@@ -63,8 +65,10 @@ def issue(db,module,sid,source_origin):
         prune(config)
         if len(config['tickets'])>=512:
             raise HTTPException(429,'启动票据数量超过限制')
-        config['tickets'][digest(ticket)]=dict(id=module['id'],sid=sid,origin=module['origin'],source_origin=source_origin,expires=time.time()+TICKET_SECONDS)
-    return dict(mode='isolated_proxy',url=module['origin']+'/__stella/bootstrap',method='POST',fields={'ticket':ticket},expires_in=TICKET_SECONDS)
+        from app.services.access_entries import current
+        revision = (current() or {}).get('revision',0)
+        config['tickets'][digest(ticket)]=dict(id=module['id'],sid=sid,origin=target_origin,source_origin=source_origin,entry_revision=revision,expires=time.time()+TICKET_SECONDS)
+    return dict(mode='isolated_proxy',url=target_origin+'/__stella/bootstrap',source_origin=source_origin,target_origin=target_origin,entry_revision=revision,method='POST',fields={'ticket':ticket},expires_in=TICKET_SECONDS)
 
 
 def redeem(db,mid,origin,source_origin,ticket):
@@ -81,7 +85,7 @@ def redeem(db,mid,origin,source_origin,ticket):
         if len(config['grants'])>=512:
             raise HTTPException(429,'集成会话数量超过限制')
         del config['tickets'][digest(ticket)]
-        config['grants'][digest(raw)]=dict(id=mid,origin=origin,sid=item['sid'],expires=time.time()+GRANT_SECONDS)
+        config['grants'][digest(raw)]=dict(id=mid,origin=origin,source_origin=source_origin,sid=item['sid'],entry_revision=item.get('entry_revision',0),expires=time.time()+GRANT_SECONDS)
     return raw
 
 

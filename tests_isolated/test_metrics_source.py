@@ -51,8 +51,8 @@ def api():
     app.include_router(auth_router)
     with TestClient(app) as client:
         assert client.post('/auth/register',json={'username':'metrics-owner','password':'metrics-daily-123'}).status_code == 201
-        assert client.post('/auth/admin/setup',json={'user_password':'metrics-daily-123','new_password':'metrics-management-independent'}).status_code == 200
-        assert client.post('/auth/admin/unlock',json={'password':'metrics-management-independent'}).status_code == 200
+        assert client.post('/auth/admin/setup',json={'user_password':'metrics-daily-123','new_password':'metrics-management-independent'}).status_code == 410
+        assert client.post('/auth/admin/unlock',json={'password':'metrics-management-independent'}).status_code == 410
         yield client, app, engine, routes, current_user
     engine.dispose()
 
@@ -110,10 +110,10 @@ def test_comparison_is_readonly_and_reports_raw_cadence(api):
 @pytest.mark.parametrize('path', ['/config/prometheus', '/nodes/7/metrics-comparison'])
 def test_admin_only(api, path):
     client, app, _, _, current_user = api
-    assert client.post('/auth/admin/lock').status_code == 200
-    assert client.get(path).status_code == 403
+    assert client.post('/auth/admin/lock').status_code == 410
+    assert client.get(path).status_code == (200 if path=='/config/prometheus' else 409)
     if path == '/config/prometheus':
-        assert client.put(path, json={'enabled': False}).status_code == 403
+        assert client.put(path, json={'enabled': False}).status_code == 200
     assert client.post('/auth/logout').status_code == 200
     assert client.get(path).status_code == 401
 

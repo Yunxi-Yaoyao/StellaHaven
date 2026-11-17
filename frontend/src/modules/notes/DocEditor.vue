@@ -1,19 +1,28 @@
 <script setup lang="ts">
+import {notifyClientPreferenceChange} from '../settings/clientPreferenceEvents';
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated, toRef, defineAsyncComponent } from "vue";
 import { auth } from "../home/auth";
 import { useRoute, useRouter } from "vue-router";
 const noteRoute = useRoute(), noteRouter = useRouter();
 import { marked } from "marked";
 import { localId } from "./localId";
-import { sanitizeNoteHtml, sanitizeNoteSvg } from "./noteHtml";
+import { draftReceipt } from "./draftReceipt";
+import {PROJECT_ASSET_MIME,parseProjectAsset,createProjectAssetCopy} from "./projectAssetCopy";
+import {copyProjectAsset} from "../../api/projectFiles";
+import type { ConsumedDraft } from "../../api/notes";
+let consumedDraft: ConsumedDraft | undefined;
+let draftLineage = 0, receiptSequence = 0;
+import { useNoteDraftChannel } from "./useNoteDraftChannel";
+import { sanitizeNoteHtml } from "./noteHtml";
+import { renderMermaidBlocks } from "./lazyMermaid";
 import {guardPrivateMediaHtml,restorePrivateMediaHtml} from "../auth/privateMedia";
 const RichEditor = defineAsyncComponent(() => import("./RichEditor.vue"));
 import {
-  getDoc, updateDoc, getDraft, toggleFavorite, createTag, addDocTag, removeDocTag, type Doc,
+  getDoc, updateDoc, getDraft, toggleFavorite, type Doc,
 } from "../../api/notes";
 import { api } from "../../api/client";
 import { ApiError } from "../../api/client";
-import { useDraftSocket, getDeviceName, setDeviceName, getIpInfo } from "../../composables/useDraftSocket";
+import { getDeviceName, setDeviceName, getIpInfo } from "../../composables/useDraftSocket";
 import { useNotesStore } from "../../stores/notes";
 import { toast } from "../../composables/useToast";
 import { openLightbox } from "../../composables/useLightbox";
@@ -21,24 +30,130 @@ import Icon from "../../shell/Icon.vue";
 import TagBar from "./TagBar.vue";
 import AutoDirectory from "./AutoDirectory.vue";
 import VersionsPanel from "./VersionsPanel.vue";
-import NoteTimelinePanel from './NoteTimelinePanel.vue';
-const timelineOpen = ref(false);
+const moreOpen = ref(false);
+const infoOpen = ref(false);
+const fullTitleOpen = ref(false);
+const moreButton = ref<HTMLButtonElement | null>(null);
+const titleEl = ref<HTMLTextAreaElement | null>(null);
+const saveError = ref('');
+const remoteUnconfirmed = ref(false);
+const savePending = ref(false);
+const infoDialog = ref<HTMLElement | null>(null);
+let releaseInfoDialog: (() => void) | null = null;
+watch(() => fullTitleOpen.value || infoOpen.value, async (open, _, onCleanup) => {
+  if (!open) return;
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; releaseInfoDialog?.(); releaseInfoDialog = null; });
+  const trigger = infoOpen.value ? moreButton.value : document.activeElement as HTMLElement | null;
+  await nextTick();
+  if (cancelled || !infoDialog.value) return;
+  const dialog = infoDialog.value;
+  const inert: [HTMLElement, boolean][] = [];
+  let branch: HTMLElement | null = dialog.parentElement;
+  while (branch && branch !== document.body) {
+    for (const sibling of Array.from(branch.parentElement?.children ?? [])) {
+      if (sibling !== branch && sibling instanceof HTMLElement) { inert.push([sibling, sibling.inert]); sibling.inert = true; }
+    }
+    branch = branch.parentElement;
+  }
+  const overflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+  const key = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closeOverlays(); }
+    if (e.key !== 'Tab') return;
+    const targets = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select,textarea,[tabindex="0"]')).filter(el => el.getClientRects().length);
+    const first = targets[0] ?? dialog, last = targets[targets.length - 1] ?? dialog;
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === dialog) || !e.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+      e.preventDefault(); (e.shiftKey ? last : first).focus();
+    }
+  };
+  document.addEventListener('keydown', key, true);
+  releaseInfoDialog = () => {
+    document.removeEventListener('keydown', key, true);
+    for (const [el, previous] of inert) el.inert = previous;
+    document.body.style.overflow = overflow;
+    if (trigger?.isConnected) trigger.focus({preventScroll:true});
+  };
+  dialog.focus();
+});
+onBeforeUnmount(() => { releaseInfoDialog?.(); releaseInfoDialog = null; });
+const findOpen = ref(false);
+const findQuery = ref('');
+const findResult = ref('');
+let findIndex = -1;
+function resizeTitle() {
+  const el = titleEl.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  // Keep the complete value, but never let an extreme title consume the body.
+  el.style.height = Math.min(el.scrollHeight, 112) + 'px';
+}
+function onTitleInput(e: Event) {
+  const el = e.target as HTMLTextAreaElement;
+  if ((e as InputEvent).isComposing) return;
+  const start = el.selectionStart;
+  const normalized = el.value.replace(/[\r\n\u2028\u2029]+/g, ' ');
+  title.value = normalized;
+  if (el.value !== normalized) { el.value = normalized; el.setSelectionRange(Math.min(start, normalized.length), Math.min(start, normalized.length)); }
+  resizeTitle();
+}
+function titleKey(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) e.preventDefault();
+}
+function closeOverlays() {
+  moreOpen.value = false; infoOpen.value = false; fullTitleOpen.value = false; tocOpen.value = false; findOpen.value = false; versionsOpen.value = false; exportWin.value = false;
+}
+function menuAction(action: () => unknown) { moreOpen.value = false; void action(); }
+function outsideMenu(e: PointerEvent) {
+  if (!(e.target as Element).closest('.more-wrap')) moreOpen.value = false;
+}
+async function openFind() {
+  if (!reading.value && editMode.value === 'markdown') { cmRef.value?.openFind(); return; }
+  findOpen.value = true; await nextTick(); document.querySelector<HTMLInputElement>('.note-find input')?.focus();
+}
+function findNext() {
+  const root = reading.value ? previewEl.value : document.querySelector<HTMLElement>(editMode.value === 'rich' ? '.rich-editor .ProseMirror' : '.cm-content');
+  if (!root || !findQuery.value) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const matches: Range[] = []; let node: Node | null;
+  const nodes: {node: Node; start: number; end: number}[] = [];
+  let text = '';
+  while ((node = walker.nextNode())) {
+    const value = node.textContent || '';
+    nodes.push({node, start:text.length, end:text.length + value.length}); text += value;
+  }
+  const query = findQuery.value.toLocaleLowerCase(), haystack = text.toLocaleLowerCase();
+  for (let i = haystack.indexOf(query); i >= 0; i = haystack.indexOf(query, i + query.length)) {
+    const start = nodes.find(n => n.start <= i && n.end > i);
+    const end = nodes.find(n => n.start < i + query.length && n.end >= i + query.length);
+    if (!start || !end) continue;
+    const range = document.createRange(); range.setStart(start.node, i - start.start); range.setEnd(end.node, i + query.length - end.start); matches.push(range);
+  }
+  if (!matches.length) { findResult.value = '无匹配'; return; }
+  findIndex = (findIndex + 1) % matches.length; const range = matches[findIndex]!;
+  const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+  range.startContainer.parentElement?.scrollIntoView({block:'center'});
+  findResult.value = `${findIndex + 1} / ${matches.length}`;
+}
 const versionsOpen = ref(false);
 function onVersionRestored(restored: Doc) {
   if (!ownsSession() || props.docId !== restored.id) return;
+  ++editorEpoch; ++loadSequence; ++draftReadSequence;
+  resetDraftSource();
   doc.value = restored;
   title.value = savedTitle.value = restored.title;
   content.value = savedContent.value = restored.content || '';
-  savedAt.value = restored.updated_at;
+  savedAt.value = restored.updated_at_display ?? null;
   draftSynced.value = false; draftBanner.value = null;
   void loadBacklinks(); emit('saved');
 }
-import { TEMPLATE_TAG } from "./noteTemplates";
 
 const props = defineProps<{ docId: string }>();
-const emit = defineEmits<{ saved: []; deleted: []; open: [id: string]; createChild: [id: string] }>();
+const emit = defineEmits<{ saved: []; deleted: []; open: [id: string]; createChild: [id: string]; directory: []; history: [] }>();
 const ownerId = auth.me?.id;
-const ownsSession = () => !!ownerId && auth.me?.id === ownerId && !auth.suspended && !auth.sessionClosing;
+const ownerGeneration = auth.sessionGeneration;
+const ownsSession = () => !!ownerId && auth.me?.id === ownerId && auth.sessionGeneration === ownerGeneration && !auth.suspended && !auth.sessionClosing;
+let editorEpoch = 0, editRevision = 0, draftReadSequence = 0;
 let editorActive = true;
 
 // 设备标签 = 「IP-地区 来源」（来源 = 起过的名字或浏览器名；IP/地区异步查到后补上，缓存24h）
@@ -63,18 +178,21 @@ function renameDevice() {
 const doc = ref<Doc | null>(null);
 const title = ref("");
 const content = ref("");
+watch([title, content], () => { ++editRevision; }, {flush: "sync"});
 const savedTitle = ref("");
 const savedContent = ref("");
 const reading = ref(true); // 默认阅览，编辑方式单独记忆
 const editMode = ref<"rich" | "markdown">(localStorage.getItem("stella_note_edit_mode") === "markdown" ? "markdown" : "rich");
 const richRef = ref<InstanceType<typeof RichEditor> | null>(null);
 const richLoaded = ref(false);
-watch(reading, (value) => { if (!value && editMode.value === "rich") richLoaded.value = true; });
+watch(reading, (value) => { if (!value && editMode.value === "rich") richLoaded.value = true; void nextTick(resizeTitle); });
+watch(title, () => { void nextTick(resizeTitle); });
 async function switchEditMode(mode: "rich" | "markdown") {
   if (editMode.value === "rich") richRef.value?.flush();
   editMode.value = mode;
   suggestMode.value = null;
   if (mode === "rich") richLoaded.value = true;
+  notifyClientPreferenceChange('stella_note_edit_mode',mode);
   localStorage.setItem("stella_note_edit_mode", mode);
   await nextTick();
   if (mode === "rich") richRef.value?.focus(); else cmRef.value?.focus();
@@ -197,56 +315,15 @@ const rendered = computed(() => {
 });
 
 // ── mermaid 渲染：v-html 落 DOM 后，把 .mermaid 容器逐个渲染成 SVG ──
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-let mermaidSeq = 0;
-let mermaidPromise: Promise<any> | null = null;
-function loadMermaid(): Promise<any> {
-  // 按需动态加载 CDN 的 mermaid（v10 UMD）；v11 打包有 TDZ 循环依赖问题，已绕开打包链。
-  // 只在笔记里真有 mermaid 图时才加载，避免 3MB 脚本拖慢其他页面/切换。
-  const w = window as any;
-  if (w.mermaid) return Promise.resolve(w.mermaid);
-  if (mermaidPromise) return mermaidPromise;
-  mermaidPromise = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
-    s.onload = () => {
-      const m = w.mermaid;
-      if (m) {
-        m.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict", flowchart: { htmlLabels: false } });
-        resolve(m);
-      } else {
-        reject(new Error("mermaid 加载失败"));
-      }
-    };
-    s.onerror = () => reject(new Error("mermaid CDN 加载失败"));
-    document.head.appendChild(s);
-  });
-  return mermaidPromise;
-}
+let mermaidGeneration = 0;
 async function renderMermaid() {
+  const generation = ++mermaidGeneration;
+  const id = props.docId, source = content.value, epoch = editorEpoch;
+  const current = () => generation === mermaidGeneration && id === props.docId &&
+    source === content.value && epoch === editorEpoch && editorActive && ownsSession();
   await nextTick();
-  const containers = Array.from(document.querySelectorAll(".preview .mermaid:not([data-processed])"));
-  if (containers.length === 0) return;
-  let m: any;
-  try {
-    m = await loadMermaid();
-  } catch {
-    return; // CDN 加载失败时静默跳过（代码块仍以源码显示）
-  }
-  for (const el of containers) {
-    const code = (el.textContent || "").trim();
-    if (!code) { el.setAttribute("data-processed", "1"); continue; }
-    try {
-      const { svg } = await m.render(`mmd-${Date.now()}-${mermaidSeq++}`, code);
-      el.innerHTML = sanitizeNoteSvg(svg);
-    } catch {
-      // 语法错误等：回退成纯文本代码块，方便定位
-      el.innerHTML = `<pre class="mermaid-error">${escapeHtml(code)}</pre>`;
-    }
-    el.setAttribute("data-processed", "1");
-  }
+  if (!current() || !previewEl.value) return;
+  await renderMermaidBlocks(previewEl.value, current);
 }
 
 // ── TOC 大纲 ──
@@ -517,12 +594,46 @@ const savedAgo = computed(() => {
 });
 
 const statusLeft = computed(() => {
-  if (dirty.value) return draftSynced.value ? "编辑中 · 草稿已暂存" : "编辑中…";
-  return savedAt.value ? `保存于 ${savedAgo.value}` : "";
+  if (saveError.value) return saveError.value;
+  if (savePending.value) return "正在保存…";
+  if (dirty.value) return draftSynced.value ? "待保存 · 草稿已发送（尚未确认同步）" : "待保存 · 未同步";
+  if (remoteUnconfirmed.value) return '本地已恢复上次保存内容 · 未重新确认远端';
+  return savedAt.value ? `保存于 ${savedAgo.value}` : (doc.value ? "保存时间未知" : "");
 });
 
 // ── 面包屑 + 子页面（目录页 = 有子页面的文章页，同一个东西）──
 const store = useNotesStore();
+function currentEditor() {
+  const epoch = editorEpoch, id = props.docId, workspace = store.workspaceId;
+  return () => editorActive && ownsSession() && epoch === editorEpoch && props.docId === id && doc.value?.id === id && store.workspaceId === workspace && doc.value.workspace_id === workspace;
+}
+const projectCopy=createProjectAssetCopy({
+  copy:copyProjectAsset,
+  target:()=>editorActive&&ownsSession()?doc.value?.id??null:null,
+  capture:()=>{const current=currentEditor(),epoch=auth.requestEpoch;return()=>current()&&epoch===auth.requestEpoch;},
+  insert:markdown=>{richRef.value?.flush();content.value+=(content.value?"\n\n":"")+markdown;toast("图片已独立复制，原项目文件未移动");},
+});
+const {pending:projectCopyPending,busy:projectCopyBusy,error:projectCopyError}=projectCopy;
+function projectDragOver(event:DragEvent){
+  if(!event.dataTransfer?.types.includes(PROJECT_ASSET_MIME))return;
+  event.preventDefault();event.stopPropagation();event.dataTransfer.dropEffect="copy";
+}
+function projectDrop(event:DragEvent){
+  if(!event.dataTransfer?.types.includes(PROJECT_ASSET_MIME))return;
+  event.preventDefault();event.stopPropagation();
+  const asset=parseProjectAsset(event.dataTransfer.getData(PROJECT_ASSET_MIME));
+  if(!asset){toast("项目图片拖放信息无效，请从项目文件重新拖入");return;}
+  void projectCopy.start(asset);
+}
+function pendingProjectCopy(){
+  if(!projectCopyPending.value)return false;
+  toast("图片复制尚未确认，请先重试或取消这次插入");return true;
+}
+onBeforeUnmount(projectCopy.dispose);
+function resetDraftSource() {
+  consumedDraft = undefined; ++draftLineage; receiptSequence = 0;
+  invalidateDraftRequests();
+}
 
 const breadcrumb = computed(() => {
   // 从 parent_id 一路向上走，拼出祖先链
@@ -543,29 +654,27 @@ const childDocs = computed(() =>
 );
 
 const templateBusy = ref(false);
-const templateTags = computed(() => store.tags.filter(t => t.name === TEMPLATE_TAG));
-const isTemplate = computed(() => store.docTags.some(t => t.doc_id === props.docId && templateTags.value.some(tag => tag.id === t.tag_id)));
 async function toggleTemplate() {
   if (templateBusy.value || !doc.value || !ownsSession()) return;
   templateBusy.value = true;
   try {
     if (!(await save())) return;
-    if (isTemplate.value) {
-      for (const tag of templateTags.value) await removeDocTag(props.docId, tag.id);
-    } else {
-      let tag = templateTags.value[0];
-      if (!tag) {
-        try { tag = await createTag(TEMPLATE_TAG); }
-        catch (e) { await store.refreshTags(); tag = templateTags.value[0]; if (!tag) throw e; }
-      }
-      await addDocTag(props.docId, tag.id);
-    }
-    await store.refreshTags();
-    toast(isTemplate.value ? '已加入模板库喵~' : '已移出模板库，原文保留喵~');
-  } catch { toast('模板状态修改失败，请重试喵~'); }
+    const {saveAsTemplate} = await import('../../api/notes');
+    await saveAsTemplate(doc.value.workspace_id, props.docId);
+    await store.refreshList();
+    toast('已复制到模板目录，原笔记保留');
+  } catch { toast('模板复制失败，原笔记未改变，请重试'); }
   finally { templateBusy.value = false; }
 }
-defineExpose({ prepareNavigation: save });
+// Deletion must await durable body persistence while this editor is still mounted.
+async function prepareDeletion(): Promise<boolean> {
+  const current = currentEditor();
+  if (!doc.value || !current() || pendingProjectCopy()) return false;
+  if (!(await save()) || !current()) return false;
+  richRef.value?.flush();
+  return !dirty.value && !savePending.value && !saveError.value;
+}
+defineExpose({ prepareNavigation: () => pendingProjectCopy() ? Promise.resolve(false) : save(), prepareDeletion });
 const backlinksOpen = ref(false);
 async function newChildPage() {
   if (!(await save())) return;
@@ -580,7 +689,7 @@ const wsName = computed(() =>
 // ── 加载文档 ──
 let loadSequence = 0;
 async function load(id: string, background = false) {
-  if (background && dirty.value) return;
+  if (background && (dirty.value || savePending.value)) return;
   const initialTitle = title.value;
   const initialContent = content.value;
   const sequence = ++loadSequence;
@@ -591,14 +700,15 @@ async function load(id: string, background = false) {
     if (sequence === loadSequence && props.docId === id) toast("笔记加载失败，请重新选择重试");
     return;
   }
-  if (sequence !== loadSequence || props.docId !== id) return;
-  if (background && (dirty.value || title.value !== initialTitle || content.value !== initialContent)) return;
+  if (sequence !== loadSequence || props.docId !== id || !editorActive || !ownsSession() || loaded.workspace_id !== store.workspaceId) return;
+  if (background && (savePending.value || dirty.value || title.value !== initialTitle || content.value !== initialContent)) return;
+  resetDraftSource();
   doc.value = loaded;
   title.value = doc.value.title;
   content.value = doc.value.content || "";
   savedTitle.value = doc.value.title;
   savedContent.value = doc.value.content || "";
-  savedAt.value = doc.value.updated_at;
+  savedAt.value = doc.value.updated_at_display ?? null;
   draftSynced.value = false;
   draftPreview.value = null;
   void loadBacklinks().catch(() => {});
@@ -610,10 +720,10 @@ async function load(id: string, background = false) {
 }
 
 watch(() => props.docId, (newId, oldId) => {
-  // 切走前先把旧文档的挂起草稿冲出去（此 watcher 注册早于 WS 重连，socket 还连着旧文档）
+  // Flush the old body with its frozen receipt before replacing the document scope.
   if (oldId && oldId !== newId) flushDraft();
-  ++loadSequence;
-  if (oldId !== newId) doc.value = null;
+  ++loadSequence; ++editorEpoch; ++draftReadSequence;
+  if (oldId !== newId) { consumedDraft = undefined; ++draftLineage; receiptSequence = 0; doc.value = null; saveError.value = ""; }
   if (newId) load(newId);
 }, { immediate: true });
 
@@ -635,14 +745,13 @@ function flushDraft() {
 }
 
 watch([content, title], () => {
-  if (!editorActive || !ownsSession() || !doc.value || !dirty.value) return;
+  if (!editorActive || !ownsSession() || !doc.value || content.value === savedContent.value) return;
   const forDoc = doc.value.id;
   if (draftTimer) clearTimeout(draftTimer);
   draftTimer = setTimeout(() => {
     // 回调触发时世界可能已变：文档换了就不能发（防止交叉污染）
-    if (editorActive && ownsSession() && dirty.value && doc.value?.id === forDoc) {
-      sendDraft(content.value);
-      draftSynced.value = true;
+    if (editorActive && ownsSession() && content.value !== savedContent.value && doc.value?.id === forDoc && doc.value.workspace_id === store.workspaceId) {
+      draftSynced.value = sendDraft(content.value, doc.value.updated_at, draftLineage);
     }
   }, 2500);
 });
@@ -657,70 +766,98 @@ function onRemoteSaved() {
   }
 }
 
-const { sendDraft } = useDraftSocket(toRef(props, "docId"), deviceLabel, onRemoteSaved);
+const { sendDraft, invalidate: invalidateDraftRequests } = useNoteDraftChannel(toRef(props, "docId"), toRef(store, "workspaceId"), deviceLabel, onRemoteSaved, (receipt, lineage, sequence) => {
+  if (!editorActive || !ownsSession() || lineage !== draftLineage || sequence <= receiptSequence) return;
+  consumedDraft = receipt;
+  receiptSequence = sequence;
+});
 
 // ── 保存（乐观锁 PUT；切换保存和 Ctrl+S 都走这里）──
 let saving: Promise<boolean> | null = null;
 async function save(): Promise<boolean> {
-  if (saving) { await saving; }
-  if (!ownsSession()) return false;
+  const entryEpoch = editorEpoch, entryId = doc.value?.id;
+  while (saving) { if (!(await saving)) return false; }
+  if (!editorActive || !ownsSession() || entryEpoch !== editorEpoch || entryId !== doc.value?.id || (doc.value && doc.value.workspace_id !== store.workspaceId)) return false;
   richRef.value?.flush();
-  if (!doc.value || !dirty.value) return true;
+  if (!doc.value) return true;
+  if (!dirty.value) {
+    if (saveError.value) { saveError.value = ''; remoteUnconfirmed.value = true; }
+    return true;
+  }
   if (draftTimer) clearTimeout(draftTimer);
+  ++draftReadSequence; ++loadSequence;
   const id = doc.value.id;
   const token = doc.value.updated_at;
-  const payload = { title: title.value, content: content.value };
+  const bodyChanged = content.value !== savedContent.value;
+  const receipt = bodyChanged ? consumedDraft : undefined;
+  const current = currentEditor();
+  const payload = { ...(title.value !== savedTitle.value ? {title: title.value} : {}), ...(bodyChanged ? {content: content.value} : {}), ...(receipt ? {consumed_draft: receipt} : {}) };
+  savePending.value = true;
   saving = (async () => {
     try {
       const updated = await updateDoc(id, token, payload);
       if (!ownsSession()) return false;
       // An old save completing after navigation must not replace the newly opened note.
-      if (doc.value?.id === id) {
+      if (current()) {
         doc.value = updated;
         savedTitle.value = updated.title;
         savedContent.value = updated.content || "";
-        savedAt.value = updated.updated_at;
+        savedAt.value = updated.updated_at_display ?? null;
+        saveError.value = "";
+        remoteUnconfirmed.value = false;
         draftSynced.value = false;
-        draftBanner.value = null;
-        loadBacklinks();
+        draftBanner.value = updated.has_draft && updated.draft_updated_at && !isDismissed(id, updated.draft_updated_at)
+          ? {device: updated.draft_device, updatedAt: updated.draft_updated_at} : null;
+        if (bodyChanged) {
+          // A late ACK for the saved snapshot must not become the source of future text.
+          invalidateDraftRequests(); ++draftLineage; receiptSequence = 0;
+          if (consumedDraft === receipt) consumedDraft = undefined;
+        }
+        void loadBacklinks().catch(() => {});
       }
       toast("已自动保存喵~");
       emit("saved");
       return true;
     } catch (e) {
-      if (!ownsSession()) return false;
+      if (!current()) return false;
+      saveError.value = e instanceof ApiError && e.status === 409 ? "版本冲突 · 本地修改保留，请复制或导出" : "保存失败 · 未同步，本地修改保留，请重试";
       toast(e instanceof ApiError && e.status === 409
         ? "另一设备已保存新版本，本地修改仍保留，请先复制或导出后再刷新喵~"
         : "保存失败，修改仍保留，请稍后重试喵~");
       return false;
     }
   })();
-  try { return await saving; } finally { saving = null; }
+  try { return await saving; } finally { saving = null; savePending.value = false; }
 }
 
 // ── 草稿提示条动作 ──
-async function viewDraft() {
+async function readDraft(adopt: boolean) {
+  const current = currentEditor(), revision = editRevision, sequence = ++draftReadSequence;
+  if (!current() || savePending.value) return;
+  const valid = () => current() && sequence === draftReadSequence && revision === editRevision;
   try {
     const d = await getDraft(props.docId);
-    draftPreview.value = d.content;
-  } catch {
-    draftBanner.value = null; // 已过期
-  }
-}
-
-async function adoptDraft() {
-  try {
-    const d = await getDraft(props.docId);
+    if (!valid()) return;
+    if (!adopt) { draftPreview.value = d.content; return; }
+    const receipt = await draftReceipt(d.content, d.updated_at);
+    if (!valid()) return;
+    resetDraftSource();
+    consumedDraft = receipt;
     content.value = d.content;
     draftPreview.value = null;
     draftBanner.value = null;
-    await save(); // 采用 = 立刻落盘 + 清槽
-  } catch {
-    draftBanner.value = null;
+    await save(); // One body transaction consumes only the adopted slot, if known.
+  } catch (e) {
+    if (!valid()) return;
+    if (e instanceof ApiError && e.status === 404) { draftBanner.value = null; draftPreview.value = null; }
+    else toast("草稿读取失败，本地内容保留，请重试");
   }
 }
+function viewDraft() { return readDraft(false); }
+function adoptDraft() { return readDraft(true); }
 
 function dismissDraft() {
+  ++draftReadSequence;
   // 记住「这版草稿我忽略了」——下次打开不再提醒，草稿更新后重新提醒
   if (doc.value?.draft_updated_at) {
     const m = getDismissed();
@@ -872,20 +1009,17 @@ async function toggleFav() {
   useNotesStore().refreshList();
 }
 
-// ── 删除（有下挂走 NotesPage 的三选弹窗）──
-async function remove() {
+// All editor/list/tree deletion uses the same choice and scope dialog.
+function remove() {
   if (!doc.value) return;
   const store = useNotesStore();
-  if (store.childCount(doc.value.id) > 0) {
-    store.requestDelete(doc.value); // 弹窗接管，后续由 NotesPage 收尾
-  } else {
-    await store.doDelete(doc.value.id, true);
-    emit("deleted");
-  }
+  store.requestDelete(doc.value);
 }
 
 // Ctrl+S
 function onKey(e: KeyboardEvent) {
+  if (e.key === "Escape") { closeOverlays(); moreButton.value?.focus(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === "f" && reading.value) { e.preventDefault(); void openFind(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === "s") {
     e.preventDefault();
     save();
@@ -901,27 +1035,37 @@ function resumeEditor() {
   nowTick.value = Date.now();
   window.addEventListener("keydown", onKey);
   window.addEventListener("resize", onWinResize);
+  document.addEventListener("pointerdown", outsideMenu);
   tickTimer = setInterval(() => (nowTick.value = Date.now()), 30000); // 「几分钟前」自己走
   renderMermaid();
 }
 function pauseEditor() {
   editorActive = false;
+  ++editorEpoch; ++draftReadSequence;
+  invalidateDraftRequests();
   listenersActive = false;
   ++loadSequence;
   if (draftTimer) clearTimeout(draftTimer);
   draftTimer = null;
   window.removeEventListener("keydown", onKey);
   window.removeEventListener("resize", onWinResize);
+  document.removeEventListener("pointerdown", outsideMenu);
   if (tickTimer) clearInterval(tickTimer);
   tickTimer = null;
 }
+watch(() => [store.workspaceId, auth.me?.id, auth.sessionGeneration, auth.requestEpoch, auth.suspended, auth.sessionClosing], () => {
+  ++editorEpoch; ++draftReadSequence; ++loadSequence;
+  resetDraftSource();
+  if (draftTimer) clearTimeout(draftTimer);
+  draftTimer = null;
+}, {flush:"sync"});
 onMounted(resumeEditor);
 onActivated(() => {
   resumeEditor();
   if (activatedOnce && ownsSession()) void load(props.docId, true);
   activatedOnce = true;
 });
-onDeactivated(() => { versionsOpen.value=false; timelineOpen.value=false; flushDraft(); pauseEditor(); });
+onDeactivated(() => { versionsOpen.value=false; closeOverlays(); flushDraft(); pauseEditor(); });
 
 function fmtDraftTime(iso: string) {
   return new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -931,7 +1075,7 @@ function fmtDraftTime(iso: string) {
 <template>
   <div class="editor" v-if="doc">
     <VersionsPanel v-if="versionsOpen" :doc="doc" :dirty="dirty" @close="versionsOpen=false" @restored="onVersionRestored" />
-    <NoteTimelinePanel v-if="timelineOpen" :doc="doc" @close="timelineOpen=false" />
+
     <!-- 草稿提示条 -->
     <div v-if="draftBanner" class="draft-banner">
       <span>
@@ -949,46 +1093,42 @@ function fmtDraftTime(iso: string) {
 
     <!-- 面包屑：永远显示（工作区 / 祖先… / 当前），根级次级统一 -->
     <div class="breadcrumb">
-      <span class="crumb root"><Icon name="book" :size="11" /> {{ wsName }}</span>
+      <button class="crumb root directory-button" @click="emit('directory')" aria-label="笔记目录"><Icon name="book" :size="11" /> {{ wsName }} ▾</button>
       <template v-for="b in breadcrumb" :key="b.id">
         <span class="sep">/</span>
         <span class="crumb" @click="emit('open', b.id)">{{ b.title }}</span>
       </template>
-      <span class="sep">/</span>
-      <span class="crumb current">{{ doc.title }}</span>
+
     </div>
 
     <div class="toolbar">
       <span class="page-kind" :title="childDocs.length ? '目录页' : '文章页'" :aria-label="childDocs.length ? '目录页' : '文章页'"><Icon :name="childDocs.length ? 'folder' : 'note'" :size="20" /></span>
       <!-- 编辑态：活的标题输入框；阅览态：纯文本（无光标，但允许选中复制） -->
-      <input v-if="!reading" v-model="title" class="title-input" placeholder="无标题" />
-      <div v-else class="title-input title-readonly">{{ title || "无标题" }}</div>
+      <textarea v-if="!reading" ref="titleEl" v-model="title" class="title-input" rows="1" aria-label="笔记标题" placeholder="无标题" @input="onTitleInput" @compositionend="onTitleInput" @keydown="titleKey" />
+      <button v-else class="title-input title-readonly" title="展开完整标题" aria-label="展开完整标题" @click="fullTitleOpen=true">{{ title || "无标题" }}</button>
       <div class="actions">
-        <button class="mode-toggle" @click="versionsOpen = true">版本历史</button>
-        <button class="mode-toggle" @click="timelineOpen = true">关联时间线</button>
-        <button
-          class="star-btn"
-          :class="{ fav: doc.is_favorite }"
-          :title="doc.is_favorite ? '取消星标' : '设为星标'"
-          @click="toggleFav"
-        >
-          <Icon name="star" :size="15" />
-        </button>
-        <button class="star-btn" :aria-label="isTemplate ? '移出模板库' : '设为模板'" :title="isTemplate ? '移出模板库' : '设为模板'" :aria-pressed="isTemplate" :disabled="templateBusy" @click="toggleTemplate"><Icon name="book" :size="15" /></button>
-        <button class="mode-toggle" @click="toggleReading">
-          <Icon :name="reading ? 'edit' : 'eye'" :size="13" /> {{ reading ? "编辑" : "阅览" }}
-        </button>
-        <button class="mode-toggle" @click="exportWin = true">
-          <Icon name="move" :size="13" style="transform:rotate(90deg)" /> 导出
-        </button>
-        <button class="del-btn" @click="remove">删除</button>
+        <button class="mode-toggle" @click="toggleReading"><Icon :name="reading ? 'edit' : 'eye'" :size="13" /> {{ reading ? "编辑" : "阅览" }}</button>
+        <div class="more-wrap">
+          <button ref="moreButton" class="mode-toggle more-toggle" aria-label="更多" :aria-expanded="moreOpen" aria-controls="note-more-menu" @click="moreOpen=!moreOpen">•••</button>
+          <div v-if="moreOpen" id="note-more-menu" class="note-more-menu" aria-label="笔记操作">
+            <button @click="menuAction(() => emit('directory'))">笔记目录与附件</button>
+            <button :disabled="!tocItems.length" @click="menuAction(() => tocOpen=true)">大纲</button>
+            <button @click="menuAction(openFind)">文内查找</button>
+            <button @click="menuAction(() => versionsOpen=true)">版本历史</button>
+            <button @click="menuAction(toggleFav)">{{ doc.is_favorite ? '取消星标' : '设为星标' }}</button>
+            <button :disabled="templateBusy" @click="menuAction(toggleTemplate)">复制到模板目录</button>
+            <button @click="menuAction(() => exportWin=true)">导出</button>
+            <button @click="menuAction(() => infoOpen=true)">文档信息与标签</button>
+            <button class="danger" @click="menuAction(remove)">删除</button>
+          </div>
+        </div>
       </div>
     </div>
 
     <AutoDirectory :docs="store.allDocs" :doc-id="doc.id" :workspace-id="doc.workspace_id" :user-id="ownerId || ''" :has-body="!!content.trim()" @open="emit('open', $event)" @create-child="newChildPage" />
 
     <!-- 标签栏：当前笔记的标签 + 添加 -->
-    <TagBar :doc-id="docId" />
+    <div v-if="store.tagsOf(docId).length" class="tag-summary" aria-label="笔记标签"><button v-for="tag in store.tagsOf(docId)" :key="tag.id" @click="infoOpen = true">{{ tag.name }}</button></div>
 
     <!-- 工具栏（不记得语法也能写） -->
     <div v-show="!reading" class="edit-mode-tabs" role="group" aria-label="编辑方式">
@@ -1005,7 +1145,8 @@ function fmtDraftTime(iso: string) {
       >{{ t.text }}</button>
     </div>
 
-    <div class="panes" :class="reading ? 'preview-only' : (editMode === 'rich' ? 'rich-only' : (narrow ? 'edit-single' : 'split'))">
+    <div v-if="projectCopyPending" class="project-copy-status" role="status"><span>{{projectCopyBusy ? "正在独立复制图片…" : (projectCopyError || "图片复制待确认")}}</span> <button v-if="!projectCopyBusy" @click="projectCopy.retry">重试图片复制</button> <button :disabled="projectCopyBusy" @click="projectCopy.discard">取消这次插入</button><small>原项目文件不移动；取消不删除可能已经复制的附件。</small></div>
+    <div class="panes" @dragover.capture="projectDragOver" @drop.capture="projectDrop" :class="reading ? 'preview-only' : (editMode === 'rich' ? 'rich-only' : (narrow ? 'edit-single' : 'split'))">
       <RichEditor v-if="richLoaded" v-show="!reading && editMode === 'rich'" ref="richRef" :key="doc.id" :doc-id="doc.id" v-model="content" @paste="onPaste" @drop="onDrop" />
       <div v-show="!reading && editMode === 'markdown'" class="input-wrap">
         <CmEditor
@@ -1048,22 +1189,14 @@ function fmtDraftTime(iso: string) {
     </section>
 
     <!-- 常驻状态条：保存于几分钟前 · 字数 · 来源 -->
-    <div class="status-bar">
+    <div v-if="!reading || dirty || saveError || remoteUnconfirmed" class="status-bar" :class="{error:saveError}" role="status" aria-live="polite">
       <span class="state">{{ statusLeft }}</span>
       <span v-if="!reading && editMode === 'markdown' && narrow" class="narrow-hint" title="窗口较窄，已自动切换为单栏（编辑只看编辑器）">单栏</span>
-      <span class="right">{{ wordCount }} 字 · </span>
-      <span class="device" title="点击给这个来源起名" @click="renameDevice">{{ deviceLabel }}</span>
+      <button v-if="dirty || saveError" class="retry-save" @click="save">重试保存</button>
     </div>
 
-    <!-- TOC 右缘把手（默认收着，有标题才出现） -->
-    <div
-      v-if="!tocOpen && tocItems.length"
-      class="toc-strip"
-      title="展开大纲"
-      @click="tocOpen = true"
-    >‹</div>
-
     <!-- TOC 大纲面板（从右缘把手滑出；点条目跳转后保持展开，» 丝滑收回） -->
+    <div v-if="tocOpen" class="note-overlay-shade" @click="tocOpen=false" />
     <Transition name="toc">
       <div v-if="tocOpen && tocItems.length" class="toc-panel">
         <div class="toc-head">
@@ -1077,12 +1210,22 @@ function fmtDraftTime(iso: string) {
             :key="t.id"
             class="toc-item"
             :style="{ paddingLeft: 10 + (t.level - 1) * 14 + 'px' }"
-            @click="jumpTo(t.id)"
+            @click="jumpTo(t.id); tocOpen = false"
           >{{ t.text }}</div>
         </div>
       </div>
     </Transition>
 
+    <div v-if="findOpen" class="note-find"><input v-model="findQuery" aria-label="文内查找" placeholder="查找正文" @input="findIndex=-1;findResult=''" @keydown.enter="findNext" /><button @click="findNext">下一处</button><span>{{ findResult }}</span><button aria-label="关闭查找" @click="findOpen=false">×</button></div>
+    <div v-if="fullTitleOpen || infoOpen" class="note-dialog-mask" @click.self="closeOverlays">
+      <section ref="infoDialog" class="note-info-dialog" role="dialog" aria-modal="true" :aria-label="fullTitleOpen ? '完整标题' : '文档信息'" tabindex="-1">
+        <div class="note-dialog-head"><strong>{{ fullTitleOpen ? '完整标题' : '文档信息' }}</strong><button aria-label="关闭" @click="closeOverlays">×</button></div>
+        <div class="note-dialog-body">
+          <p class="full-title">{{ title || '无标题' }}</p>
+          <template v-if="infoOpen"><p>{{ wordCount }} 字 · {{ statusLeft }}</p><p>创建：{{ doc.created_at }}</p><p>更新：{{ savedAt }}</p><p>来源：{{ deviceLabel }} <button @click="renameDevice">重命名来源</button></p><h3>标签</h3><TagBar :doc-id="docId" /></template>
+        </div>
+      </section>
+    </div>
     <!-- 导出窗口：独立浮窗，左预览 / 右选格式 + 确定取消 -->
     <div v-if="exportWin" class="export-mask" @click.self="exportWin = false">
       <div class="export-window">
@@ -1777,5 +1920,60 @@ function fmtDraftTime(iso: string) {
   /* 状态条：来源标签可能很长（IP+地名），允许换行 + 截断 */
   .status-bar { flex-wrap: wrap; row-gap: 2px; padding: 8px 12px; }
   .status-bar .device { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+/* Compact chrome and bounded long-title handling. Keep actions unwrapped. */
+.editor,.panes,.input-wrap,.preview{min-width:0;min-height:0}
+.toolbar{flex:0 0 auto;flex-wrap:nowrap;gap:10px;padding:7px 16px;align-items:start}
+.toolbar .title-input{min-width:0;flex:1 1 0;width:0;font:inherit;font-size:20px;font-weight:600;line-height:1.4;letter-spacing:0;text-align:left;margin:0;padding:6px 0;overflow-wrap:anywhere;word-break:break-word}
+.toolbar textarea.title-input{resize:none;max-height:112px;overflow-y:auto;box-sizing:border-box}
+.toolbar .title-readonly{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer;padding-block:0}
+.page-kind{padding-top:10px}
+.actions{flex:0 0 auto;flex-wrap:nowrap;gap:6px}
+.actions .mode-toggle{min-height:40px;height:40px;padding:0 10px;white-space:nowrap}
+.more-wrap{position:relative}
+.note-more-menu{position:absolute;right:0;top:44px;width:224px;max-width:calc(100vw - 32px);max-height:min(70dvh,440px);overflow-y:auto;z-index:80;padding:4px;border-radius:10px;background:var(--bg-raised);border:1px solid var(--accent-dim);box-shadow:0 12px 40px #0008}
+.note-more-menu button{display:flex;justify-content:start;width:100%;min-height:44px;height:auto;border:0;background:transparent;color:var(--text-hi);font:inherit;font-size:14px;padding:10px 12px;border-radius:6px;text-align:left}
+.note-more-menu button:hover{background:var(--bg-panel)}
+.note-more-menu button:disabled{opacity:.45}
+.note-more-menu .danger{color:var(--pink);border-top:1px solid var(--text-faint)}
+.breadcrumb{flex:0 0 auto;flex-wrap:nowrap;white-space:nowrap;overflow:hidden;padding:3px 16px 0;min-width:0;height:31px;box-sizing:border-box}
+.crumb{min-width:0;overflow:hidden;text-overflow:ellipsis;flex-shrink:1}
+.crumb.root{flex-shrink:0;max-width:45%}
+.crumb.root.directory-button{border:1px solid #e4bd88;border-radius:6px;background:#efd3ab;font:inherit;padding:2px 7px;color:#49351f;cursor:pointer;min-height:24px}
+.crumb.root.directory-button:hover{background:#f5dfbf;color:#382712}
+.directory-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.preview{font-size:16px;line-height:1.8;overflow-wrap:anywhere}
+.preview :deep(table){display:block;overflow-x:auto;max-width:100%}
+.preview :deep(pre){white-space:pre;overflow-wrap:normal}
+.tag-summary{display:flex;flex:0 0 auto;gap:5px;padding:2px 16px;overflow-x:auto}
+.tag-summary button{border:0;border-radius:999px;background:var(--bg-raised);color:var(--accent);padding:3px 9px;font:inherit;font-size:11px;white-space:nowrap}
+.status-bar{flex:0 0 auto;min-height:32px;gap:8px;padding:5px 12px}
+.status-bar .state{overflow-wrap:anywhere}
+.status-bar.error .state{color:var(--pink)}
+.retry-save{flex-shrink:0;margin-left:auto;background:transparent;border:1px solid var(--accent-dim);color:var(--accent);border-radius:6px;min-height:32px}
+.note-dialog-mask{position:fixed;inset:0;z-index:110;display:grid;place-items:center;background:#0009;padding:16px}
+.note-info-dialog{width:min(600px,100%);max-height:82dvh;display:flex;flex-direction:column;min-width:0;background:var(--bg-panel);border:1px solid var(--accent-dim);border-radius:12px}
+.note-dialog-head{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;flex-shrink:0}
+.note-dialog-head button{border:0;background:transparent;color:var(--text-hi);font-size:22px;width:44px;height:44px}
+.note-dialog-body{overflow-y:auto;padding:0 16px 16px;overflow-wrap:anywhere;font-size:14px}
+.full-title{white-space:pre-wrap;user-select:text}
+.note-overlay-shade{position:absolute;inset:0;z-index:25;background:#0008}
+.toc-panel{top:0;bottom:0;transform:none;max-height:none;width:min(300px,85%);border-radius:0}
+.toc-close{min-height:40px;min-width:44px}
+.toc-item{min-height:44px;display:flex;align-items:center;white-space:normal;overflow-wrap:anywhere}
+.note-find{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--bg-raised);font-size:12px}
+.note-find input{min-width:0;width:100%;background:var(--bg-panel);color:var(--text-hi);border:1px solid var(--accent-dim);border-radius:5px;padding:7px}
+.note-find button{flex-shrink:0;min-height:36px;background:transparent;color:var(--accent);border:0;white-space:nowrap}
+.ew-title{min-width:0;overflow-wrap:anywhere}.ew-close{flex-shrink:0}
+@media(max-width:768px){
+.toolbar{flex-wrap:nowrap;padding:6px 12px;gap:6px}
+.toolbar .title-input{flex:1 1 0;font-size:17px;line-height:1.4}
+.page-kind{display:none}
+.breadcrumb{padding:2px 12px 0;flex-wrap:nowrap}
+.preview{padding:8px 16px 20px}
+.preview :deep(h1){font-size:27px}.preview :deep(h2){font-size:23px}
+.editor-toolbar{flex-wrap:nowrap;flex-shrink:0;padding:3px 12px}.tb-btn{flex-shrink:0;min-height:36px}
+.edit-mode-tabs{padding:3px 12px}.edit-mode-tabs button{min-height:36px}
+.draft-banner{flex-wrap:wrap}
 }
 </style>

@@ -6,6 +6,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
+import {createServer} from 'vite';
+import {tmpdir} from 'node:os';
 const [beforeDir, afterDir, outDir] = process.argv.slice(2);
 assert(beforeDir && afterDir && outDir, 'usage: node tests/shell-perf-browser.mjs before-dist after-dist report-dir');
 await fs.mkdir(outDir, { recursive: true });
@@ -15,7 +17,14 @@ const defaultBg = '/assets/homebg/default-bg-kimono-1920.webp';
 const me = { id: 'fixture-owner', username: 'fixture', display_name: 'Isolated Owner', is_admin: true, home_bg: defaultBg, avatar_url: '/avatar.png', email: '', email_verified: false };
 const media = { url: defaultBg, status: 'ready', thumbnail: defaultBg, variants: { original: defaultBg }, width: 100, height: 60 };
 const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><rect width="100" height="60" fill="#14171f"/></svg>');
+// Load the same product-validated DTO without starting an HTTP/proxy server.
+const preferenceCache=await fs.mkdtemp(path.join(tmpdir(),'shell-preferences-'));
+const preferenceLoader=await createServer({root:new URL('../',import.meta.url).pathname,configFile:false,cacheDir:preferenceCache,server:{proxy:{}},optimizeDeps:{entries:[]}});
+let createClientPreferencesFixture;
+try{({createClientPreferencesFixture}=await preferenceLoader.ssrLoadModule('/tests/fixtures/clientPreferences.ts'));}
+finally{await preferenceLoader.close();await fs.rm(preferenceCache,{recursive:true,force:true});}
 async function serve(dir, label) {
+ const clientPreferences=createClientPreferencesFixture({storage:{stella_live2d:'off',stella_home_particles:'off',stella_home_theme:'daybreak'}});
  const requests = [], unknown = [];
  const jsons = new Map([
   ['/auth/me', me], ['/auth/security', { enabled: true, configured: true, elevated: false, expires_at: null, single_user: true, setup_required: false }],
@@ -37,8 +46,10 @@ async function serve(dir, label) {
    Object.assign(record, { status, bytes: body.length, end: performance.now() });
   };
   try {
+   const preference=clientPreferences.respond(req.method,p+url.search);
+   if(preference)return await send(preference.status,'application/json',Buffer.from(JSON.stringify(preference.json)));
    if (req.method === 'POST' && p === '/auth/activity') return await send(200, 'application/json', Buffer.from('{"ok":true}'));
-   if (req.method !== 'GET') { unknown.push({ method: req.method, path: p }); return await send(501, 'application/json', Buffer.from('{"detail":"Unapproved write blocked"}')); }
+   if (req.method !== 'GET') { unknown.push({ method: req.method, path: p+url.search }); return await send(501, 'application/json', Buffer.from('{"detail":"Unapproved write blocked"}')); }
    if (jsons.has(p)) return await send(200, 'application/json', Buffer.from(JSON.stringify(jsons.get(p))));
    if (p === defaultBg) return await send(200, 'image/svg+xml', svg, 'public,max-age=31536000,immutable', STATIC_DELAY);
    if (routes.has(p)) return await send(200, 'text/html', await fs.readFile(path.join(dir, 'index.html')), 'no-cache', STATIC_DELAY);
@@ -47,7 +58,7 @@ async function serve(dir, label) {
     const ext = path.extname(p); const type = ({ '.js': 'application/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml' })[ext] || 'application/octet-stream';
     return await send(200, type, body, 'public,max-age=31536000,immutable', STATIC_DELAY);
    }
-   unknown.push({ method: req.method, path: p }); await send(501, 'application/json', Buffer.from('{"detail":"Unknown endpoint blocked"}'));
+   unknown.push({ method: req.method, path: p+url.search }); await send(501, 'application/json', Buffer.from('{"detail":"Unknown endpoint blocked"}'));
   } catch (error) { unknown.push({ path: p, error: String(error) }); if (!res.headersSent) res.writeHead(500); res.end(); }
  });
  server.on('upgrade', (req, socket) => {

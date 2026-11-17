@@ -1,6 +1,7 @@
 """Single-owner integrations in PostgreSQL AppConfig; no user/visibility tables."""
 import copy
 import json
+import hashlib
 from typing import Any
 from contextlib import contextmanager
 from urllib.parse import urlsplit
@@ -17,11 +18,12 @@ KEY = 'integrations_v1'
 IMMICH_HOSTS = {'immich.xiya.live', 'immich.yunxi.life'}
 BUILTINS = [
     dict(id='home', title='首页', icon='home', route='/'),
+    dict(id='nav', title='导航', icon='compass', route='/nav'),
     dict(id='notes', title='笔记', icon='file-text', route='/notes'),
     dict(id='status', title='服务器', icon='server', route='/status'),
     dict(id='settings', title='设置', icon='settings', route='/settings'),
 ]
-ICONS = {'note','drive','box','home','file-text','image','hard-drive','server','settings','globe','link','folder','book','activity','cloud','star','code','external-link','monitor','music','video','database','terminal','grid','heart','calendar','bookmark','layers','cpu','search'}
+from app.navigation_icons import NAVIGATION_ICONS as ICONS
 
 
 def browser_url(value):
@@ -102,6 +104,8 @@ class NavigationInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     entries: list[NavigationEntry] = Field(default_factory=list, max_length=200)
     reset: bool = False
+    expected_revision: int | None = Field(default=None, ge=0, strict=True)
+    mutation_id: str | None = Field(default=None, min_length=8, max_length=128, pattern=r'^[A-Za-z0-9_.:-]+$')
 
 
 def empty_state() -> dict[str, Any]:
@@ -119,8 +123,11 @@ def edit(db):
     db.execute(insert(AppConfig).values(key=KEY, value=json.dumps(empty_state())).on_conflict_do_nothing(index_elements=['key']))
     row = db.execute(select(AppConfig).where(AppConfig.key == KEY).with_for_update().execution_options(populate_existing=True)).scalar_one()
     value = json.loads(row.value)
+    previous_navigation = copy.deepcopy((value.get('navigation'), value.get('modules')))
     try:
         yield value
+        if previous_navigation != (value.get('navigation'), value.get('modules')):
+            value['navigation_revision'] = value.get('navigation_revision', 0) + 1
         row.value = json.dumps(value, ensure_ascii=False)
         db.commit()
     except BaseException:
@@ -152,22 +159,8 @@ def display_module(module, config):
 
 
 def present(module, config=None):
-    result = display_module(module,config) if config is not None else copy.deepcopy(module)
-    result.setdefault('keep_alive', False)
-    from app.services.website_connection import effective_connection, public_connection, RequestPolicy
-    result.setdefault('template_id',None)
-    target = config.get('targets',{}).get(module.get('target_id')) if config else None
-    result.setdefault('connection',public_connection(effective_connection(module,target),target.get('headers',{}) if target else {}))
-    result['connection'] = {k:v for k,v in result['connection'].items() if k not in {'token','clear_token'}}
-    result.setdefault('background','solid')
-    result.setdefault('request_policy',RequestPolicy().model_dump())
-    result.pop('migration',None)
-    result['route'] = '/apps/' + module['id']
-    adapter = module.get('adapter', 'generic')
-    managed = '/settings?section=navigation&module=' + ('drive' if adapter=='openlist' else 'gallery') if adapter in {'openlist','immich'} else None
-    result['capabilities'] = {'injection': adapter=='generic' and (module['mode']=='isolated_proxy' or (module['mode']=='iframe' and result['connection']['injection_delivery']=='loader')),
-                              'browser_status': 'unobservable', 'managed_settings': managed}
-    return result
+    from app.public_website import public_module
+    return public_module(module, config)
 
 
 def check_module(value, config):
@@ -189,7 +182,16 @@ def derived_origin(mid, value):
     if value['adapter']=='immich' and value['mode']=='isolated_proxy':
         parsed = urlsplit(value['browser_url'])
         return 'https://' + parsed.hostname
-    return f'https://app-{mid}.xiya.live'
+    import os
+    from app.services.entry_registry import _origin
+    template = os.getenv('STELLA_APP_ORIGIN_TEMPLATE', 'https://app-{id}.xiya.live')
+    try:
+        if template.count('{id}') != 1:
+            raise ValueError('Expected one module ID placeholder')
+        result = template.replace('{id}', mid)
+        return _origin(result)
+    except (ValueError, TypeError):
+        raise HTTPException(503, '网站隔离入口模板无效') from None
 
 
 def ensure_unique_origin(config, mid, origin):
@@ -257,20 +259,47 @@ def delete_module(db, mid, actor_id):
 
 
 def navigation(db):
-    config = state(db)
-    defaults = {e['id']:dict(e, visible=True,builtin=True) for e in BUILTINS}
-    defaults.update({mid:dict(id=mid,title=m['name'],icon=m['icon'],visible=m['enabled'],route='/apps/'+mid,builtin=False) for mid,m in config['modules'].items()})
-    entries = []
-    for override in config['navigation']:
-        default = defaults.pop(override['id'], None)
-        if default:
-            entries.append(default | {k:v for k,v in override.items() if v is not None})
-    entries.extend(defaults.values())
-    return dict(entries=entries, settings_route='/settings',legacy_routes={key:mid for key,mid in config.get('legacy_routes',{}).items() if mid in config['modules']})
+    return navigation_projection(state(db))
+
+
+def navigation_projection(config):
+    from app.public_website import public_navigation, public_module
+    result = public_navigation(config, BUILTINS)
+    fields = ('id','name','icon','mode','adapter','browser_url','enabled','keep_alive','template_id','route')
+    result['modules'] = []
+    runtime_fields = ('mode','adapter','browser_url','private_address','address_mode','mapping_configured','alternate_address','alternate_binding','entry_policy','access_adapter','target_id','initial_path','origin','connection','request_policy')
+    for module in config['modules'].values():
+        item=public_module(module,config)
+        summary={key:item[key] for key in fields}
+        source=module if isinstance(module,dict) else {}
+        runtime={key:source.get(key) for key in runtime_fields}
+        versions=source.get('injection')
+        runtime['active_injection']=versions.get('active') if isinstance(versions,dict) else versions
+        summary['runtime_revision']=hashlib.sha256(json.dumps(runtime,sort_keys=True,ensure_ascii=True).encode()).hexdigest()
+        if source.get('background') in ('solid','home'): summary['background']=source['background']
+        result['modules'].append(summary)
+    result['revision'] = config.get('navigation_revision', 0)
+    result['mutation_id'] = config.get('navigation_mutation_id')
+    return result
 
 
 def save_navigation(db, incoming, actor_id):
     with edit(db) as config:
+        revision = config.get('navigation_revision', 0)
+        # Legacy clients omit both fields: unconditional serialized writes remain
+        # supported, but still advance revision and invalidate modern receipts.
+        if (incoming.expected_revision is None) != (incoming.mutation_id is None):
+            raise HTTPException(422, '版本与 mutation_id 必须同时提供')
+        digest = hashlib.sha256(json.dumps(incoming.model_dump(exclude={'expected_revision','mutation_id'}),sort_keys=True).encode()).hexdigest()
+        slot = str(actor_id) + ':' + (incoming.mutation_id or '')
+        receipt = config.get('navigation_receipts', {}).get(slot) if incoming.mutation_id else None
+        if receipt:
+            if receipt['digest'] != digest or receipt['revision'] != revision:
+                raise HTTPException(409, '导航提交已被后续修改覆盖，请重新读取')
+            return navigation_projection(config)
+        if incoming.expected_revision is not None and incoming.expected_revision != revision:
+            raise HTTPException(409, '导航版本已改变，请重新读取')
+        previous = copy.deepcopy((config['navigation'], config['modules']))
         allowed = {b['id'] for b in BUILTINS} | set(config['modules'])
         ids = [e.id for e in incoming.entries]
         if len(ids)!=len(set(ids)) or not set(ids)<=allowed:
@@ -282,5 +311,12 @@ def save_navigation(db, incoming, actor_id):
                     if entry.title is not None: module['name'] = entry.title
                     if entry.icon is not None: module['icon'] = entry.icon
         config['navigation'] = [] if incoming.reset else [e.model_dump() for e in incoming.entries]
+        # A no-op is acknowledged at the current revision, not a fictitious write.
+        changed = previous != (config['navigation'], config['modules'])
+        config['navigation_mutation_id'] = incoming.mutation_id
+        if incoming.mutation_id:
+            receipts = config.setdefault('navigation_receipts', {})
+            if len(receipts) >= 128: receipts.pop(next(iter(receipts)))
+            receipts[slot] = dict(digest=digest, revision=revision + int(changed))
         record_change(db,action='navigation.update',actor_id=actor_id,changed_fields=['navigation','order','visible','title','icon'])
-    return navigation(db)
+    return navigation_projection(config)

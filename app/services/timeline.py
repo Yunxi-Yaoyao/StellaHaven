@@ -16,6 +16,7 @@ def literal_like(term):
 
 def timeline_records(db, node_id=None, workspace_id=None, limit=100, q=''):
     items = []
+    unknown_notes_present = False
     like = literal_like(q)
     def add(kind, id_, label, ts, node, path=None, state=None):
         if ts.tzinfo is None:
@@ -62,13 +63,19 @@ def timeline_records(db, node_id=None, workspace_id=None, limit=100, q=''):
         # Match canonical UUID keys in both PostgreSQL and isolated SQLite,
         # filtering valid workspace documents before applying the result budget.
         note_key = 'notenode:' + func.replace(cast(Document.id, String), '-', '')
-        notes = db.query(Document.id, Document.title, Document.updated_at).join(
+        notes = db.query(Document.id, Document.title, Document.saved_event_at).join(
             AppConfig, func.replace(AppConfig.key, '-', '') == note_key).filter(
             AppConfig.value == json.dumps({'node_id': node_id}),
             Document.workspace_id == workspace_id, Document.deleted_at.is_(None))
         if q:
             notes = notes.filter(Document.title.ilike(like, escape='\\'))
-        for note in notes.order_by(Document.updated_at.desc(), Document.id).limit(limit + 1).all():
-            add('note_updated', note.id, note.title, note.updated_at, node_id, '/notes?doc=' + str(note.id))
+        unknown_notes_present = db.query(notes.filter(Document.saved_event_at.is_(None)).exists()).scalar()
+        for note in notes.filter(Document.saved_event_at.isnot(None)).order_by(Document.saved_event_at.desc(), Document.id).limit(limit + 1).all():
+            add('note_updated', note.id, note.title, note.saved_event_at, node_id, '/notes?doc=' + str(note.id))
     items.sort(key=lambda i: (i['ts'], i['kind'], i['id']), reverse=True)
-    return {'items': items[:limit], 'has_more': len(items) > limit}
+    return {'items': items[:limit], 'has_more': len(items) > limit,
+            'unknown_notes_present': bool(unknown_notes_present),
+            # Existing workspace list/search is paginated independently of this
+            # mixed-source budget. Never pretend NULL history is chronologically
+            # after known events or let its raw wall time consume that budget.
+            'history_path': '/notes' if unknown_notes_present else None}

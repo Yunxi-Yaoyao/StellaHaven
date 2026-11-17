@@ -1,0 +1,22 @@
+import {createApp,nextTick,reactive} from 'vue';
+import {it,expect,vi,afterEach} from 'vitest';
+const m=vi.hoisted(()=>({list:vi.fn(),get:vi.fn(),create:vi.fn(),refresh:vi.fn(),store:null as any}));
+vi.mock('../../api/notes',()=>({listTemplates:m.list,getDoc:m.get,createFromTemplate:m.create}));
+vi.mock('../../stores/notes',()=>({useNotesStore:()=>m.store}));
+import NewChildDialog from './NewChildDialog.vue';
+let app:any,host:HTMLElement;
+afterEach(()=>{app?.unmount();host?.remove();document.body.innerHTML='';vi.clearAllMocks();});
+it('uses themed keyboard picker and drops a deleted recent template on list change',async()=>{
+ m.store=reactive({userId:'owner',workspaceId:'workspace',docs:[],refreshList:m.refresh,createNew:vi.fn()});
+ m.refresh.mockResolvedValue(undefined);
+ m.list.mockResolvedValue({root_id:'root',items:[{id:'t1',parent_id:'root',is_folder:false,title:'模板一'}],recent_ids:['t1']});
+ m.get.mockResolvedValue({content:'fixture'});
+ host=document.createElement('div');document.body.append(host);app=createApp(NewChildDialog,{parentId:null,parentTitle:'根目录'});app.mount(host);
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="完整模板目录"]')).not.toBeNull());
+ expect(document.querySelector('select')).toBeNull();
+ const trigger=document.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')!;expect(trigger).not.toBeNull();await vi.waitFor(()=>expect(trigger.disabled).toBe(false));trigger.click();await nextTick();
+ const options=document.querySelectorAll('[role="option"]');expect(options.length).toBe(2);
+ options[0]!.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));await nextTick();expect(document.activeElement).toBe(options[1]);
+ m.list.mockResolvedValue({root_id:'root',items:[],recent_ids:[]});m.store.docs=[{id:'root',is_folder:true}];
+ await vi.waitFor(()=>expect(document.querySelector('[role="group"]')?.textContent).not.toContain('模板一'));
+});

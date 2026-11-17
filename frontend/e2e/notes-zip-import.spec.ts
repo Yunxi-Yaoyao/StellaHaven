@@ -1,3 +1,4 @@
+import {installLegacyBoundary} from './notes-legacy-boundary';
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test';
 let browser: Browser, page: Page;
 let previews: string[], commits: string[], flat: any[], mutations: string[];
@@ -9,7 +10,7 @@ test.beforeAll(async () => { browser = await chromium.launch({ executablePath: '
 test.afterAll(async () => { await browser.close(); });
 test.beforeEach(async () => {
   previews = []; commits = []; flat = []; mutations = []; fail = false; missing = false;
-  page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  page = await browser.newPage({ viewport: { width: 390, height: 844 } }); await page.routeWebSocket('**/*',socket=>socket.close());
   await page.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname;
     if (url.hostname !== '127.0.0.1') return route.abort();
@@ -36,8 +37,8 @@ test.beforeEach(async () => {
     if (p.startsWith('/auth/') || p.startsWith('/api/')) return ok({});
     return route.continue();
   });
-  await page.addInitScript(() => { localStorage.clear(); localStorage.setItem('stella_bootstrap', JSON.stringify({userId:'user',workspaceId:'ws-a'})); });
-  await page.goto('http://127.0.0.1:5173/notes');
+  await installLegacyBoundary(page);await page.addInitScript(() => { localStorage.clear(); localStorage.setItem('stella_bootstrap', JSON.stringify({userId:'user',workspaceId:'ws-a'})); });
+  await page.goto('http://127.0.0.1:15186/notes');
   await expect(page.locator('.doc-list')).toBeAttached();
 });
 test.afterEach(async () => { await page.close(); });
@@ -55,7 +56,7 @@ test('read-only preview, hierarchy, GB18030, frozen target and idempotent retry 
   await dialog.getByRole('button', { name: 'GB18030', exact: true }).click();
   await expect.poll(() => previews.length).toBe(2);
   expect(field(previews[1]!, 'encoding')).toBe('gb18030');
-  await page.screenshot({ path: '/tmp/stella-zip-mobile.png', fullPage: true });
+  await page.screenshot({ path: process.env.NOTES_REFRESH_ARTIFACTS+'/stella-zip-mobile.png', fullPage: true });
   expect(await dialog.evaluate(el => el.getBoundingClientRect().right)).toBeLessThanOrEqual(390);
   await dialog.getByRole('button', { name: '导入此 ZIP', exact: true }).click();
   await expect(dialog).toContainText('Temporary failure');

@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { createPoller } from "./polling";
 // 服务器页：节点清单 + 添加节点（纳管）+ 移除
-import { ref, onMounted, onUnmounted, computed } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch } from "vue";
 import { useRouter } from "vue-router";
-import { machineTypeLabel, machineTypeTitle, listNodes, createNode, removeNode, getHost, installHost, getPublicHost, requestUninstall, type Node, type HostInfo } from "../../api/servers";
+import { machineTypeLabel, machineTypeTitle, listNodes, createNode, removeNode, getHost, installHost, prepareHost, getInstallCommand, requestUninstall, type Node, type HostInfo } from "../../api/servers";
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
 import NodeComponents from "./NodeComponents.vue";
+import AgentManager from './AgentManager.vue';
+import {auth} from '../home/auth';
+const showChannels = ref(false), managerVisited = ref(false);
+const managedAgents = computed(()=>nodes.value.map(({id,name,status,agent_version,last_seen_at})=>({id,name,status,agent_version,last_seen_at})));
 
 const nodes = ref<Node[]>([]);
 const listPending = ref(true);
@@ -32,40 +36,62 @@ async function refreshStatus(signal: AbortSignal) {
   } finally {
     if (!signal.aborted) listPending.value = false;
   }
+  if (!signal.aborted) await refreshHost();
 }
 
 // 宿主机「本机」检测 + 一键安装
 const host = ref<HostInfo | null>(null);
 const installing = ref(false);
-const publicHost = ref("");
-
-async function refreshHost() {
-  try { host.value = await getHost(); } catch { /* 静默 */ }
+const hostError = ref('');
+const hostBusy = computed(() => installing.value || ['queued', 'installing'].includes(host.value?.installation?.status || ''));
+function failureMessage(error: unknown, fallback: string): string {
+  const detail = (error as { detail?: unknown })?.detail;
+  if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object' && 'message' in detail) return String(detail.message);
+  return error instanceof Error && !/^API \d+$/.test(error.message) ? error.message : fallback;
 }
 
-async function loadPublicHost() {
-  try { publicHost.value = (await getPublicHost()).value; } catch { /* 静默 */ }
+// All host readback entry points share this latest-request generation.
+// getHost has no transport signal; fence both success and failure locally.
+let hostRequest = 0;
+let hostDisposed = false;
+async function refreshHost() {
+  if (hostDisposed) return;
+  const request = ++hostRequest;
+  try {
+    const fresh = await getHost();
+    if (!hostDisposed && request === hostRequest) host.value = fresh;
+  } catch (error) {
+    if (!hostDisposed && request === hostRequest) hostError.value = failureMessage(error, '宿主安装状态读取失败，请重试');
+  }
 }
 
 async function doInstallHost() {
-  installing.value = true;
+  installing.value = true; hostError.value = '';
   try {
-    const node = await installHost();
-    toast(`本机 agent 已装好，节点「${node.name}」纳管成功`);
-    await refresh();
-    await refreshHost();
-  } catch { toast("安装失败喵~"); }
-  finally { installing.value = false; }
+    await installHost();
+    toast('本站实例服务安装完成；等待 Agent 认证上报在线，不代表已正常接入');
+  } catch (error) {
+    hostError.value = failureMessage(error, '本站宿主安装失败，请检查权限与已应用安装地址');
+    toast(hostError.value);
+  } finally {
+    await refresh(); await refreshHost(); installing.value = false;
+  }
+}
+async function openHostAccess() {
+  try {
+    const node = await prepareHost();
+    await refreshHost(); await refresh(); openAgent(node);
+  } catch (error) { hostError.value = failureMessage(error, '宿主接入准备失败，请重试'); }
 }
 
 onMounted(() => {
   if (!document.hidden) statusPoll.start();
   document.addEventListener("visibilitychange", onVisibility);
   refreshHost();
-  loadPublicHost();
 
 });
-onUnmounted(() => { statusPoll.stop(); document.removeEventListener("visibilitychange", onVisibility); });
+onUnmounted(() => { hostDisposed = true; hostRequest++; statusPoll.stop(); document.removeEventListener("visibilitychange", onVisibility); });
 
 const onlineCount = computed(() => nodes.value.filter((n) => n.status === "online").length);
 
@@ -142,46 +168,34 @@ function canRemove(n: Node): boolean {
 
 // 安装命令弹窗
 const installTarget = ref<Node | null>(null);
-
-function openAgent(n: Node) {
-  installTarget.value = n;
-}
-function installCmd(n: Node): string {
-  const raw = publicHost.value || location.origin;
-  const url = raw.includes("://") ? raw : `https://${raw}`;
-  if (n.platform === "windows") {
-    return `iwr ${url}/agent/install.ps1 -UseBasicParsing | iex`;
+const command = ref(''), commandError = ref(''), commandPending = ref(false);
+let commandRequest: AbortController | undefined;
+watch([installTarget, () => host.value?.installation_url], async ([target]) => {
+  commandRequest?.abort(); command.value = ''; commandError.value = ''; commandPending.value = false;
+  if (!target) return;
+  if (!host.value?.installation_url) {
+    commandError.value = host.value?.installation_address_error || '请先在设置中应用本站安装地址';
+    return;
   }
-  return `curl -sSL ${url}/agent/install.sh | sudo bash -s -- --url ${url} --token ${n.token}`;
-}
-async function copyCmd(n: Node) {
+  const request = new AbortController(); commandRequest = request; commandPending.value = true;
   try {
-    await navigator.clipboard.writeText(installCmd(n));
-    toast("已复制");
-  } catch {
-    toast("复制失败，请手动复制");
-  }
-  installTarget.value = null;
-}
-
-function isHostNode(n: Node | null): boolean {
-  return !!n && (n.name === "Stella" || ["127.0.0.1", "localhost"].includes(n.host));
-}
-
-async function doAutoInstall() {
-  installing.value = true;
+    const result = await getInstallCommand(target.id, request.signal);
+    if (!request.signal.aborted && installTarget.value?.id === target.id) command.value = result.command;
+  } catch (error) {
+    if (!request.signal.aborted) commandError.value = failureMessage(error, '安装命令获取失败，请检查管理权限与已应用地址');
+  } finally { if (!request.signal.aborted) commandPending.value = false; }
+}, { flush: 'sync' });
+onUnmounted(() => { commandRequest?.abort(); command.value = ''; });
+function openAgent(n: Node) { installTarget.value = n; }
+async function copyCmd() {
+  if (!command.value || commandPending.value || commandError.value) return;
   try {
-    await installHost();
-    toast("本机 agent 已装好");
-    installTarget.value = null;
-    await refresh();
-    await refreshHost();
-  } catch {
-    toast("自动安装失败喵~");
-  } finally {
-    installing.value = false;
-  }
+    await navigator.clipboard.writeText(command.value);
+    toast('已复制'); installTarget.value = null;
+  } catch { toast('复制失败，请手动复制'); }
 }
+function isHostNode(n: Node | null): boolean { return !!n && n.id === host.value?.node_id; }
+async function doAutoInstall() { await doInstallHost(); }
 
 const router = useRouter();
 function goSettings() {
@@ -191,6 +205,7 @@ function goSettings() {
 
 // 点卡片 → 独立路由进详情（SPA 切换不刷新，刷新/后退行为正常）
 function goDetail(n: Node) {
+  if (n.status !== 'online') { toast('节点尚未正常在线，不能进入详情；请先完成 Agent 接入'); return; }
   router.push(`/status/${n.id}`);
 }
 
@@ -212,9 +227,10 @@ const uninstallLabel: Record<string, string> = {
         <h2>服务器</h2>
         <span v-if="listReady" class="sub">{{ nodes.length }} 台纳管 · {{ onlineCount }} 在线</span>
       </div>
-      <button v-if="nodes.length" class="add-btn" @click="showAdd = true"><Icon name="plus" :size="14" /> 添加节点</button>
+      <div class="head-actions"><button class="add-btn" @click="managerVisited = true; showChannels = true">Agent 管理</button><button v-if="nodes.length" class="add-btn" @click="showAdd = true"><Icon name="plus" :size="14" /> 添加节点</button></div>
     </div>
 
+    <AgentManager v-if="managerVisited" :key="auth.me?.id??'guest'" :open="showChannels" :nodes="managedAgents" @close="showChannels = false" />
     <!-- 节点卡片网格 -->
     <div v-if="listError" class="empty" role="alert">
       服务器加载失败{{ listReady ? '，保留上次结果' : '' }}
@@ -222,19 +238,24 @@ const uninstallLabel: Record<string, string> = {
     </div>
     <div class="grid">
       <!-- 宿主机「本机」：未装 agent 时显示安装入口 -->
-      <div v-if="host && host.local_install_supported !== false && !host.installed && !host.node_id" class="host-card">
+      <p v-if="hostError" class="hint warn" role="alert">{{ hostError }}</p>
+      <div v-if="host" class="host-card">
         <div class="host-info">
-          <span class="dot" style="background: var(--text-faint)" />
+          <span class="dot" :style="{background: host.node_status === 'online' ? 'var(--pink)' : 'var(--text-faint)'}" />
           <div>
             <div class="name">Stella（宿主机）</div>
-            <div class="plat">{{ host.os }} · 未安装 agent</div>
+            <div class="plat">{{ host.os || '宿主机系统待探测' }} · {{ host.node_status === 'online' ? '本站 Agent 已认证在线' : host.installation?.message || '尚未正常接入' }}</div>
+            <div v-if="host.local_install_supported === false" class="hint">本站运行在容器内，不能代装宿主机；请在真实宿主机执行下方接入命令。</div>
+            <div v-if="host.installation_address_error" class="hint warn">{{ host.installation_address_error }}</div>
           </div>
         </div>
-        <button class="install-btn" :disabled="installing" @click="doInstallHost">
-          <span v-if="installing" class="spin" />{{ installing ? "安装中…" : "安装" }}
+        <button v-if="!host.installation_url" class="jump-settings" @click="goSettings">去设置安装地址</button>
+        <button class="add-btn" :disabled="hostBusy" @click="openHostAccess">宿主机接入命令</button>
+        <button v-if="host.local_install_supported !== false && host.node_status !== 'online'" class="install-btn" :disabled="hostBusy || !host.installation_url" @click="doInstallHost">
+          <span v-if="hostBusy" class="spin" />{{ hostBusy ? '安装任务进行中…' : '安装本站宿主 Agent' }}
         </button>
       </div>
-      <div v-for="n in nodes" :key="n.id" class="card" @click="goDetail(n)">
+      <div v-for="n in nodes" :key="n.id" class="card" :aria-disabled="n.status !== 'online'" :title="n.status !== 'online' ? '节点正常在线后才可进入详情' : '节点详情'" @click="goDetail(n)">
         <div class="card-top">
           <span class="dot" :style="{ background: statusColor[n.status] }" />
           <span class="name">{{ n.name }}</span>
@@ -303,32 +324,23 @@ const uninstallLabel: Record<string, string> = {
       <div class="dialog">
         <div class="d-head">agent — {{ installTarget.name }}</div>
         <div class="d-body">
-          <template v-if="host?.local_install_supported !== false && isHostNode(installTarget) && installTarget.installed">
-            <p class="hint">该节点已托管 · {{ statusLabel[installTarget.status] }}{{ installTarget.agent_version ? ' · v' + installTarget.agent_version : '' }}</p>
-          </template>
-          <template v-else>
-            <p v-if="!isHostNode(installTarget) && !publicHost" class="hint warn">⚠️ 还没设置公网 IP/域名，远程节点连不上中心喵~</p>
-            <p class="hint">在目标服务器上执行（token 已内嵌，不要泄露）：</p>
-            <pre class="cmd">{{ installCmd(installTarget) }}</pre>
+          <p v-if="isHostNode(installTarget)" class="hint">本站明确绑定的宿主节点 · {{ statusLabel[installTarget.status] }}。服务安装完成后仍需等 Agent 认证在线。</p>
+          <p v-if="commandPending" class="hint" role="status">正在向本站获取安装命令…</p>
+          <p v-else-if="commandError" class="hint warn" role="alert">{{ commandError }}</p>
+          <template v-else-if="command">
+            <p class="hint">在目标服务器上以管理员执行（含节点凭证，请勿泄露）：</p>
+            <pre class="cmd">{{ command }}</pre>
           </template>
         </div>
         <div class="d-foot">
           <div class="foot-actions">
-            <template v-if="host?.local_install_supported !== false && isHostNode(installTarget) && installTarget.installed">
-              <button class="jump-settings" :disabled="installing" @click="doAutoInstall()">
-                <span v-if="installing" class="spin" />{{ installing ? "重新安装中…" : "重新安装" }}
-              </button>
-              <button v-if="installTarget.status === 'online'" class="uninstall-btn danger" @click="askUninstall(installTarget, true)">卸载 agent</button>
-              <button class="cancel" @click="installTarget = null">关闭</button>
-            </template>
-            <template v-else>
-              <button v-if="!isHostNode(installTarget) && !publicHost" class="jump-settings" @click="goSettings">去设置公网地址</button>
-              <button v-if="host?.local_install_supported !== false && isHostNode(installTarget)" class="confirm" :disabled="installing" @click="doAutoInstall">
-                <span v-if="installing" class="spin" />{{ installing ? "安装中…" : "自动安装" }}
-              </button>
-              <button v-if="installTarget.installed && installTarget.status === 'online'" class="uninstall-btn danger" @click="askUninstall(installTarget, true)">卸载 agent</button>
-              <button class="confirm" @click="copyCmd(installTarget)">复制并关闭</button>
-            </template>
+            <button v-if="commandError || !host?.installation_url" class="jump-settings" @click="goSettings">去设置安装地址</button>
+            <button v-if="host?.local_install_supported !== false && isHostNode(installTarget) && host?.installation_url" class="jump-settings" :disabled="hostBusy" @click="doAutoInstall">
+              <span v-if="hostBusy" class="spin" />{{ hostBusy ? '安装任务进行中…' : installTarget.installed ? '重新安装' : '自动安装' }}
+            </button>
+            <button v-if="installTarget.installed && installTarget.status === 'online'" class="uninstall-btn danger" @click="askUninstall(installTarget, true)">卸载 agent</button>
+            <button v-if="command && !commandError" class="confirm" :disabled="commandPending" @click="copyCmd">复制并关闭</button>
+            <button class="cancel" @click="installTarget = null">关闭</button>
           </div>
         </div>
       </div>
@@ -374,6 +386,7 @@ const uninstallLabel: Record<string, string> = {
   padding: 22px 26px;
 }
 .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 .sub { color: var(--text-faint); font-size: 12px; margin-left: 10px; }
 .add-btn {
@@ -383,9 +396,10 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
   transition: all var(--transition);
 }
 .add-btn:hover { background: var(--bg-raised); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; }
 .comp-panel { margin-top: 16px; background: var(--bg-panel); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); }
 .card {
+  min-width: 0;
   background: var(--bg-raised);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius);
@@ -396,7 +410,7 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 .card:hover { border-color: var(--accent-dim); transform: translateY(-2px); }
 .card-top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; margin-bottom: 10px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.name { font-size: 15px; font-weight: 600; }
+.name { min-width: 0; overflow-wrap: anywhere; font-size: 15px; font-weight: 600; }
 .plat { font-size: 10.5px; color: var(--text-faint); border: 1px solid var(--text-faint); padding: 1px 7px; border-radius: 999px; }
 .pub-badge { font-size: 10.5px; color: var(--accent); border: 1px solid var(--accent-dim); padding: 1px 7px; border-radius: 999px; }
 .actions { margin-left: auto; display: flex; gap: 4px; }
@@ -427,11 +441,11 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 .empty { grid-column: 1/-1; text-align: center; padding: 60px 0; color: var(--text-faint); }
 .empty p { margin-bottom: 14px; }
 .host-card {
-  display: flex; align-items: center; justify-content: space-between;
+  grid-column: 1/-1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
   background: var(--bg-raised); border: 1px dashed var(--accent-dim);
   border-radius: var(--radius); padding: 14px 16px;
 }
-.host-info { display: flex; align-items: center; gap: 9px; }
+.host-info { display: flex; align-items: center; gap: 9px; flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
 .install-btn {
   border: 1px solid var(--accent-dim); background: transparent; color: var(--accent);
   font-size: 12px; padding: 6px 16px; border-radius: 999px; cursor: pointer;
@@ -440,7 +454,8 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 .install-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .mask { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: grid; place-items: center; z-index: 100; }
-.dialog { width: 420px; background: var(--bg-panel); border: 1px solid var(--bg-raised); border-radius: var(--radius); overflow: hidden; }
+.dialog { width: min(420px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; overflow-wrap: anywhere; background: var(--bg-panel); border: 1px solid var(--bg-raised); border-radius: var(--radius); }
+.dialog input, .dialog select { min-width: 0; }
 .d-head { padding: 14px 18px; font-size: 14px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .d-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
 .d-body label { font-size: 11.5px; color: var(--text-faint); margin-top: 4px; }

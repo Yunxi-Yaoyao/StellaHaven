@@ -14,7 +14,10 @@ from app.models import Base
 from app.models.node import Node, NodeMetric, NodeSysMetric
 from app.models.monitor import Monitor, MonitorCheck
 from app.models.task import IperfTask
-from app.repositories import node as node_repo, monitor as monitor_repo, task as task_repo
+# Use the same service-first initialization as the actual HTTP entry point.
+from app.services.node import repo as node_repo
+from app.services.monitor import repo as monitor_repo
+from app.services.task import repo as task_repo
 
 @pytest.fixture
 def engine():

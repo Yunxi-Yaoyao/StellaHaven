@@ -79,8 +79,8 @@ def live(tmp_path, monkeypatch):
     app.include_router(auth_router)
     with TestClient(app) as login:
         assert login.post('/auth/login',json={'username':'cachetest','password':'cache-daily-123'}).status_code == 200
-        assert login.post('/auth/admin/setup',json={'user_password':'cache-daily-123','new_password':'cache-management-independent'}).status_code == 200
-        assert login.post('/auth/admin/unlock',json={'password':'cache-management-independent'}).status_code == 200
+        assert login.post('/auth/admin/setup',json={'user_password':'cache-daily-123','new_password':'cache-management-independent'}).status_code == 410
+        assert login.post('/auth/admin/unlock',json={'password':'cache-management-independent'}).status_code == 410
         token = login.cookies.get('stella_at')
     started, release = threading.Event(), threading.Event()
     state = {'slow':False, 'checkedout':None}

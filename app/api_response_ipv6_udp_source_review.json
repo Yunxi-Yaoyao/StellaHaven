@@ -1,0 +1,880 @@
+{
+  "sources": {
+    "agent/stella_agent.py:ipv6-udp-source-review-1c703528": {
+      "file": "agent/stella_agent.py",
+      "sha256": "681b8beb8ae11f52678ddfe51f6e1a9f9204bf0e1b5dfa6a63f42ab92b423b9e",
+      "line": 1,
+      "end_line": 4321,
+      "symbol": "agent/stella_agent.py:ipv6-udp-source-review-1c703528",
+      "symbol_sha256": "681b8beb8ae11f52678ddfe51f6e1a9f9204bf0e1b5dfa6a63f42ab92b423b9e"
+    },
+    "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528": {
+      "file": "agent/stella_agent.py",
+      "sha256": "681b8beb8ae11f52678ddfe51f6e1a9f9204bf0e1b5dfa6a63f42ab92b423b9e",
+      "line": 2636,
+      "end_line": 2671,
+      "decorator_inclusive_line": 2636,
+      "symbol": "agent.stella_agent.Agent._probe_udp",
+      "symbol_sha256": "3200b103050cd37b90f2c7a107808fb0a29878a556f44546448af8ae99621f54",
+      "exact_source_sha256": "db17fcc60d9dd538121c9ad8fcb80ad33f876d280c91389d7f9cc593f4c41bc8",
+      "review_basis": "this bounded IPv6/UDP review"
+    },
+    "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528": {
+      "file": "agent/stella_agent.py",
+      "sha256": "681b8beb8ae11f52678ddfe51f6e1a9f9204bf0e1b5dfa6a63f42ab92b423b9e",
+      "line": 2544,
+      "end_line": 2561,
+      "decorator_inclusive_line": 2543,
+      "symbol": "agent.stella_agent.Agent._split_host_port",
+      "symbol_sha256": "a3a4776d65eb210ffa09fdfd75fb3d910d9dd9a763708253fa012c4b4dc2d620",
+      "exact_source_sha256": "ad4af73d849c3c3341315be82e7a120af2b258f188709f64cc557cae25a6071e",
+      "review_basis": "this bounded IPv6/UDP review"
+    },
+    "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528": {
+      "file": "agent/stella_agent.py",
+      "sha256": "681b8beb8ae11f52678ddfe51f6e1a9f9204bf0e1b5dfa6a63f42ab92b423b9e",
+      "line": 2496,
+      "end_line": 2525,
+      "decorator_inclusive_line": 2496,
+      "symbol": "agent.stella_agent.Agent.run_due_probes",
+      "symbol_sha256": "debb39bb8dd68ea2dfe48860ae77d92bbb8f6bcea8dcf5d4403e1addb9a4ec79",
+      "exact_source_sha256": "701159f71ec79718ed068c844d1b8f9a4ad3474942b82f20c34e086b7fc4846b",
+      "review_basis": "inherited exact-byte Ping approval 232d894a4f4a42f0509642b70dcbc000f3f8d458"
+    },
+    "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528": {
+      "file": "agent/stella_agent.py",
+      "sha256": "681b8beb8ae11f52678ddfe51f6e1a9f9204bf0e1b5dfa6a63f42ab92b423b9e",
+      "line": 2527,
+      "end_line": 2541,
+      "decorator_inclusive_line": 2527,
+      "symbol": "agent.stella_agent.Agent.probe",
+      "symbol_sha256": "16f452f6824291230716edf701fa7a4ac0be7b99be2b3a6f4044b81645317a0f",
+      "exact_source_sha256": "53f85f84e0163ce9ca57eee3f3a83b1c776409221d6dedcaf337674d77e524e4",
+      "review_basis": "inherited exact-byte Ping approval 232d894a4f4a42f0509642b70dcbc000f3f8d458"
+    },
+    "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528": {
+      "file": "agent/stella_agent.py",
+      "sha256": "681b8beb8ae11f52678ddfe51f6e1a9f9204bf0e1b5dfa6a63f42ab92b423b9e",
+      "line": 2585,
+      "end_line": 2634,
+      "decorator_inclusive_line": 2585,
+      "symbol": "agent.stella_agent.Agent._probe_ping",
+      "symbol_sha256": "8043e0bf3b920464aa60cf16385efe0ebfa723cd6afac3ecc75a12838e0238b5",
+      "exact_source_sha256": "e77e2676b3f7c7301d8ca2a5e76e72be0d3f4db913511946c6c351f3401e3905",
+      "review_basis": "inherited exact-byte Ping approval 232d894a4f4a42f0509642b70dcbc000f3f8d458"
+    }
+  },
+  "source_replacements": {
+    "agent/stella_agent.py:channels-recheck-1911e745@v5-integration-6b31345": "agent/stella_agent.py:ipv6-udp-source-review-1c703528",
+    "agent/stella_agent.py:entry-scope-r1-review@v5-integration-6b31345": "agent/stella_agent.py:ipv6-udp-source-review-1c703528",
+    "agent/stella_agent.py:ping-source-review-232d894": "agent/stella_agent.py:ipv6-udp-source-review-1c703528",
+    "agent.stella_agent.Agent.run_due_probes:ping-source-review-232d894": "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+    "agent.stella_agent.Agent.probe:ping-source-review-232d894": "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+    "agent.stella_agent.Agent._probe_ping:ping-source-review-232d894": "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528"
+  },
+  "source_additions": {
+    "app.routers.monitor.agent_config": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_entry_probe": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_hardware_sensors_ps1": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_install_ps1": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_install_sh": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_map_targets": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_monitor_check": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_mtr_report": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_report": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_run_ps1": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_script": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.agent_version": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.change_ip": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.create_monitor": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.create_monitor_group": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.create_monitor_group_child": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.create_node": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.delete_monitor": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.delete_node": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.dissolve_monitor_group": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.docker_ctl": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.docker_inspect": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.docker_logs": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.docker_scan": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.entry_monitoring_summary": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.firewall_scan": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.get_host": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.install_command": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.install_host": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.latest_net_task": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.list_monitor_groups": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.list_monitors": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.list_nodes": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.monitor_checks": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.monitor_group_receipt": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.monitor_mtr_history": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.monitor_mtr_run": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.monitor_series": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.pause_node_monitoring": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.pbr_scan": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.read_map_topology": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.read_net_task": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.read_node": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.read_node_metrics": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.read_node_monitoring_policy": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.read_node_sys_metrics": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.read_report_channels": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.read_traffic_stats": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.uninstall_node": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.update_map_location": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.update_monitor": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.update_monitor_group": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.update_net_type": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.update_node": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.write_node_monitoring_policy": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.monitor.write_report_channels": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.task.create_iperf": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.task.create_mtr": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.task.get_iperf": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.task.list_iperf": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ],
+    "app.routers.task.list_mtr": [
+      "agent.stella_agent.Agent._probe_ping:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._probe_udp:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent._split_host_port:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.probe:ipv6-udp-source-review-1c703528",
+      "agent.stella_agent.Agent.run_due_probes:ipv6-udp-source-review-1c703528",
+      "agent/stella_agent.py:ipv6-udp-source-review-1c703528"
+    ]
+  },
+  "affected_endpoints": [
+    "app.routers.monitor.agent_config",
+    "app.routers.monitor.agent_entry_probe",
+    "app.routers.monitor.agent_hardware_sensors_ps1",
+    "app.routers.monitor.agent_install_ps1",
+    "app.routers.monitor.agent_install_sh",
+    "app.routers.monitor.agent_map_targets",
+    "app.routers.monitor.agent_monitor_check",
+    "app.routers.monitor.agent_mtr_report",
+    "app.routers.monitor.agent_report",
+    "app.routers.monitor.agent_run_ps1",
+    "app.routers.monitor.agent_script",
+    "app.routers.monitor.agent_version",
+    "app.routers.monitor.change_ip",
+    "app.routers.monitor.create_monitor",
+    "app.routers.monitor.create_monitor_group",
+    "app.routers.monitor.create_monitor_group_child",
+    "app.routers.monitor.create_node",
+    "app.routers.monitor.delete_monitor",
+    "app.routers.monitor.delete_node",
+    "app.routers.monitor.dissolve_monitor_group",
+    "app.routers.monitor.docker_ctl",
+    "app.routers.monitor.docker_inspect",
+    "app.routers.monitor.docker_logs",
+    "app.routers.monitor.docker_scan",
+    "app.routers.monitor.entry_monitoring_summary",
+    "app.routers.monitor.firewall_scan",
+    "app.routers.monitor.get_host",
+    "app.routers.monitor.install_command",
+    "app.routers.monitor.install_host",
+    "app.routers.monitor.latest_net_task",
+    "app.routers.monitor.list_monitor_groups",
+    "app.routers.monitor.list_monitors",
+    "app.routers.monitor.list_nodes",
+    "app.routers.monitor.monitor_checks",
+    "app.routers.monitor.monitor_group_receipt",
+    "app.routers.monitor.monitor_mtr_history",
+    "app.routers.monitor.monitor_mtr_run",
+    "app.routers.monitor.monitor_series",
+    "app.routers.monitor.pause_node_monitoring",
+    "app.routers.monitor.pbr_scan",
+    "app.routers.monitor.read_map_topology",
+    "app.routers.monitor.read_net_task",
+    "app.routers.monitor.read_node",
+    "app.routers.monitor.read_node_metrics",
+    "app.routers.monitor.read_node_monitoring_policy",
+    "app.routers.monitor.read_node_sys_metrics",
+    "app.routers.monitor.read_report_channels",
+    "app.routers.monitor.read_traffic_stats",
+    "app.routers.monitor.uninstall_node",
+    "app.routers.monitor.update_map_location",
+    "app.routers.monitor.update_monitor",
+    "app.routers.monitor.update_monitor_group",
+    "app.routers.monitor.update_net_type",
+    "app.routers.monitor.update_node",
+    "app.routers.monitor.write_node_monitoring_policy",
+    "app.routers.monitor.write_report_channels",
+    "app.routers.task.create_iperf",
+    "app.routers.task.create_mtr",
+    "app.routers.task.get_iperf",
+    "app.routers.task.list_iperf",
+    "app.routers.task.list_mtr"
+  ],
+  "source_map_union": {
+    "app.routers.monitor.list_nodes": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.create_node": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.install_command": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.read_map_topology": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.update_map_location": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.get_host": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.install_host": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.uninstall_node": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.delete_node": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.read_node_metrics": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.read_traffic_stats": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.read_node_sys_metrics": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.update_node": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.update_net_type": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.change_ip": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.firewall_scan": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.read_net_task": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.docker_scan": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.docker_ctl": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.pbr_scan": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.docker_logs": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.docker_inspect": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.latest_net_task": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.read_node": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.list_monitors": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.create_monitor": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.update_monitor": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.delete_monitor": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.monitor_mtr_history": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.monitor_mtr_run": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.monitor_checks": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.monitor_series": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_report": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_config": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_mtr_report": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_monitor_check": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_map_targets": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_script": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_version": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_install_sh": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_install_ps1": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_run_ps1": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_hardware_sensors_ps1": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.task.list_iperf": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.task.get_iperf": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.task.create_iperf": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.task.list_mtr": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.task.create_mtr": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.list_monitor_groups": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.create_monitor_group": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.update_monitor_group": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.dissolve_monitor_group": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.read_node_monitoring_policy": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.write_node_monitoring_policy": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.pause_node_monitoring": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.entry_monitoring_summary": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.create_monitor_group_child": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.monitor_group_receipt": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.read_report_channels": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.write_report_channels": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ],
+    "app.routers.monitor.agent_entry_probe": [
+      "app/api_response_ipv6_udp_source_review.json",
+      "app/api_response_v5_integration.json"
+    ]
+  },
+  "provenance": {
+    "path": "/opt/hermes-workstation/docs/Stella-第六轮核查-20261021/review-ipv6-udp/SOURCE-PROPOSAL.json",
+    "sha256": "a446bc9665ce57d20ce4c9bd6adbb43a9a6d3bafca2e6f091451116726eef81a",
+    "commit": "1c703528fc33b0877aac11c03991aa37cd02efa9"
+  },
+  "release_approval": false
+}

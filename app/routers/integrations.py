@@ -40,10 +40,12 @@ def create(data: service.ModuleInput, user=Depends(admin_user), db=Depends(get_d
     return service.create_module(db, data, user.id)
 
 @router.get('/external-modules/{mid}', dependencies=[Depends(current_user)])
-def module(mid: str, db=Depends(get_db)):
+def module(mid: str, response: Response, db=Depends(get_db)):
     config = service.state(db)
     item = config['modules'].get(mid)
     if item is None: raise HTTPException(404,'模块不存在')
+    response.headers['ETag'] = '"'+str(config.get('navigation_revision',0))+'"'
+    response.headers['Cache-Control'] = 'no-store'
     return service.present(item,config)
 
 @router.patch('/external-modules/{mid}', dependencies=[Depends(admin_user)])
@@ -68,14 +70,23 @@ def launch(mid: str, request: Request, response: Response, user=Depends(current_
         session=_presented_session(request,db)
         if not session or session.user_id!=user.id:
             raise HTTPException(401,'需要有效主站会话')
-        return sessions.issue(db,module,str(session.id),str(request.base_url).rstrip('/'))
+        from app.services.entry_registry import request_origin
+        source_origin = request_origin(request)
+        origins = request.headers.getlist('origin')
+        if origins and origins != [source_origin]:
+            raise HTTPException(403, '启动来源与请求入口不匹配')
+        return sessions.issue(db,module,str(session.id),source_origin)
     if module['mode']=='openlist':
         from app.services.drive import get_login_url
         return dict(mode='openlist',url=get_login_url(db)['url'],method='GET')
     if module['adapter']=='immich' and module['mode']!='link':
         # Preserve original domain, issuer, callbacks and account mapping.
         return dict(mode=module['mode'],url='/gallery/connect',method='GET')
-    return dict(mode=module['mode'],url=module['browser_url'],method='GET')
+    from app.services.entry_registry import browser_url, request_origin
+    url = browser_url(module, request_origin(request))
+    from urllib.parse import urlsplit
+    target = urlsplit(url)
+    return dict(mode=module['mode'],url=url,target_origin=target.scheme+'://'+target.netloc,method='GET')
 
 def require_module_injection(db, mid):
     item = service.get_module(db, mid)
@@ -120,9 +131,12 @@ def presets():
 @router.post('/external-modules/{mid}/check', dependencies=[Depends(current_user)])
 async def check(mid: str, db=Depends(get_db)):
     import asyncio, httpx
-    module=service.get_module(db,mid)
+    from app.public_website import public_module
+    module=public_module(service.get_module(db,mid))
     active=module['injection']['active']
-    result=dict(configuration_valid=True,server_reachable=None,http_status=None,browser_status='unobservable',ready=False,injection_version=active['version'] if active else None,reason='浏览器页面内部状态不可读，不能从服务器探针推断 ready')
+    result=dict(configuration_valid='projection' not in module,server_reachable=None,http_status=None,browser_status='unobservable',ready=False,injection_version=(active.get('version') or None) if active else None,reason='浏览器页面内部状态不可读，不能从服务器探针推断 ready')
+    if not result['configuration_valid']:
+        return result | dict(injection_version=None,reason='保存的网站配置不完整，请检查设置后重新保存')
     if module['mode']!='isolated_proxy':
         return result
     target=service.state(db)['targets'].get(module['target_id'])

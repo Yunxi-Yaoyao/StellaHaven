@@ -32,9 +32,9 @@ def test_real_admin_guard_and_client_projection(pg_db, pg_engine, monkeypatch):
     with TestClient(app, base_url='https://testserver') as c:
         assert c.get('/builtin-injections/gallery').status_code == 401
         assert c.post('/auth/register', json={'username':'builtin-owner','password':'builtin-daily-fixture'}).status_code == 201
-        assert c.get('/builtin-injections/gallery').status_code == 403
-        assert c.post('/auth/admin/setup', json={'user_password':'builtin-daily-fixture','new_password':'builtin-independent-admin-fixture'}).status_code == 200
-        assert c.post('/auth/admin/unlock', json={'password':'builtin-independent-admin-fixture'}).status_code == 200
+        assert c.get('/builtin-injections/gallery').status_code == 200
+        assert c.post('/auth/admin/setup', json={'user_password':'builtin-daily-fixture','new_password':'builtin-independent-admin-fixture'}).status_code == 410
+        assert c.post('/auth/admin/unlock', json={'password':'builtin-independent-admin-fixture'}).status_code == 410
         initial = c.get('/builtin-injections/gallery').json()
         assert initial['source'] == 'preset'
         assert c.post('/builtin-injections/gallery/validate',json={'headers':{'Authorization':'SYNTHETIC'}}).status_code==422
@@ -64,12 +64,14 @@ def test_real_admin_guard_and_client_projection(pg_db, pg_engine, monkeypatch):
             assert 'galleryClient' not in anonymous.get('/integration-assets/gallery.js').text
             assert anonymous.get('/integration-assets/drive.js').status_code == 404
             assert anonymous.get('/builtin-injections/gallery').status_code == 401
-        assert c.post('/auth/admin/lock').status_code == 200
-        for path in ('validate','apply','rollback'):
-            assert c.post('/builtin-injections/gallery/'+path, json=draft).status_code == 403
-        assert c.get('/builtin-injections/gallery').status_code == 403
-        assert 'galleryClient=73' in c.get('/integration-assets/gallery.js').text # daily session, not elevation
+        assert c.post('/auth/admin/lock').status_code == 410
+        assert 'galleryClient=73' in c.get('/integration-assets/gallery.js').text
         token=c.cookies.get('stella_at')
+        assert c.post('/auth/logout').status_code==200
+        for path in ('validate','apply','rollback'):
+            assert c.post('/builtin-injections/gallery/'+path, json=draft).status_code == 401
+        assert c.get('/builtin-injections/gallery').status_code == 401
+        assert 'galleryClient=73' not in c.get('/integration-assets/gallery.js').text
         assert c.post('/auth/logout').status_code==200
         c.cookies.set('stella_at',token)
         assert 'galleryClient' not in c.get('/integration-assets/gallery.js').text # revoked session

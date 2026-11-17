@@ -1,20 +1,27 @@
 <script setup lang="ts">
+import {notifyClientPreferenceChange} from '../settings/clientPreferenceEvents';
 // 总览页三区：服务器卡（状态+CPU/内存迷你条）+ 流量速览（选一台+实时开关）+ 服务监控（图表⇄简易双模式）。
 // 定位：全局健康一眼看 + 跳转入口。5s 刷状态；图表区独立节奏（静态不自动刷，实时 3s 增量）。
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, defineAsyncComponent } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import * as echarts from "./chartRuntime";
+import { metricColors } from '../../stores/appearance';
 import { overviewInterfaces, overviewDefaultInterface } from "./interfaceSelection";
 import { summarizeMonitorPoints } from "./monitorStats";
 import { createRequestLane, createPoller, mapBounded } from "./polling";
 import {
-  listNodes, getNodeDetail, getNodeMetrics, listMonitors, createMonitor, removeMonitor, getMonitorSeries,
-  type Node, type NodeDetail, type Monitor, type MetricPoint,
+  listNodes, getNodeDetail, getNodeMetrics, listMonitors, getMonitorSeries, listMonitorGroups,
+  type Node, type NodeDetail, type Monitor, type MetricPoint, type MonitorGroup,
 } from "../../api/servers";
-import { toast } from "../../composables/useToast";
+import {monitorStatusLabel,monitorStatusReason} from "./monitorStatusLabel";
 import Icon from "../../shell/Icon.vue";
 import Dropdown from "../../shell/Dropdown.vue";
+import MonitorChildPicker from './MonitorChildPicker.vue';
+import AlertIncidentList from "./AlertIncidentList.vue";
 const MonitorDetailModal = defineAsyncComponent(() => import("./MonitorDetailModal.vue"));
+const MonitorGroupEditor = defineAsyncComponent(() => import('./MonitorGroupEditor.vue'));
+const MonitorManagement = defineAsyncComponent(() => import('./MonitorManagement.vue'));
+const showMonitorManagement = ref(false);
 const ServerWorldMap = defineAsyncComponent(() => import("./ServerWorldMap.vue"));
 
 const router = useRouter();
@@ -23,6 +30,35 @@ const nodeDetails = ref<Record<number, NodeDetail>>({});
 const detailState = ref<Record<number, "loading" | "ready" | "error">>({});
 const nodesState = ref<"loading" | "ready" | "error">("loading");
 const monitors = ref<Monitor[]>([]);
+const monitorGroups = ref<MonitorGroup[]>([]);
+
+const showGroupEditor = ref(false);
+const groupEditorId = ref<number|null>(null);
+const groupEditorMonitorId=ref<number|null>(null);
+function editGroup(id:number|null=null,monitorId:number|null=null){groupEditorId.value=id;groupEditorMonitorId.value=monitorId;showGroupEditor.value=true;}
+const route=useRoute();
+watch(()=>route.hash,async hash=>{if(hash==='#service-monitors'){await nextTick();document.getElementById('service-monitors')?.scrollIntoView();}},{immediate:true,flush:'post'});
+
+const groupError = ref('');
+const chosenChildren = ref<Record<number,number>>({});
+
+type Managed = {visible?:boolean;enabled?:boolean;eligible_child_ids?:number[]};
+function eligible(item:Managed){return (item.visible??true)&&(item.enabled??true);}
+type MonitorCard = Monitor & {cardKey:string; parent?:MonitorGroup; children:Monitor[]};
+const monitorCards = computed<MonitorCard[]>(() => {
+  const grouped = new Set(monitorGroups.value.flatMap(g=>g.child_ids));
+  const cards:MonitorCard[] = [];
+  for(const group of monitorGroups.value){
+    if(!eligible(group as MonitorGroup&Managed))continue;
+    const ids=(group as MonitorGroup&Managed).eligible_child_ids??group.child_ids;
+    const children=ids.map(id=>monitors.value.find(m=>m.id===id)).filter((m):m is Monitor=>!!m&&eligible(m as Monitor&Managed));
+    const selected=children.find(m=>m.id===chosenChildren.value[group.id])||children[0];
+    if(selected)cards.push({...selected,cardKey:`g${group.id}`,parent:group,children});
+  }
+  cards.push(...monitors.value.filter(m=>!grouped.has(m.id)&&eligible(m as Monitor&Managed)).map(m=>({...m,cardKey:`m${m.id}`,children:[]})));
+  return cards;
+});
+function chooseChild(groupId:number, childId:number){chosenChildren.value[groupId]=childId;}
 
 // ═══════════ 区1：服务器卡 ═══════════
 const statusLabel: Record<string, string> = { online: "在线", offline: "离线", pending: "待报到", removed: "已移除" };
@@ -147,7 +183,9 @@ async function paintTraffic() {
   const { width, height } = el.getBoundingClientRect();
   if (width <= 0 || height <= 0) return;
   chart = chart || echarts.getInstanceByDom(el) || echarts.init(el);
-  chart.resize({ width, height });
+  // Bounds include CSS zoom/transforms; feeding them back as CSS sizes scales twice.
+  // Let ECharts measure the unscaled content box, as it does during init.
+  chart.resize();
   const pts = trafficPoints.value;
   chart.setOption({
     backgroundColor: "transparent",
@@ -173,9 +211,9 @@ async function paintTraffic() {
     },
     series: [
       { name: "↓ 下载", type: "line", smooth: true, showSymbol: false, animation: false,
-        data: pts.map((p) => Math.round(rateBps(p.rx_delta))), lineStyle: { width: 1.5 }, itemStyle: { color: "#9eb7e5" }, areaStyle: { opacity: 0.08 } },
+        data: pts.map((p) => Math.round(rateBps(p.rx_delta))), lineStyle: { width: 1.5 }, itemStyle: { color: metricColors.value.cpu }, areaStyle: { opacity: 0.08 } },
       { name: "↑ 上传", type: "line", smooth: true, showSymbol: false, animation: false,
-        data: pts.map((p) => Math.round(rateBps(p.tx_delta))), lineStyle: { width: 1.5, type: "dashed" }, itemStyle: { color: "#ff9ec7" } },
+        data: pts.map((p) => Math.round(rateBps(p.tx_delta))), lineStyle: { width: 1.5, type: "dashed" }, itemStyle: { color: metricColors.value.disk } },
     ],
   }, { notMerge: true });
 }
@@ -214,12 +252,14 @@ watch([trafficNodeId, trafficIface, trafficWindow, trafficLive], ([id, iface, wi
 const monMode = ref<"chart" | "simple">((localStorage.getItem("stella_mon_mode") as "chart" | "simple") || "chart");
 function setMonMode(m: "chart" | "simple") {
   monMode.value = m;
+  notifyClientPreferenceChange('stella_mon_mode',m);
   localStorage.setItem("stella_mon_mode", m);
   loadMonAll();
 }
-const monStatusColor: Record<string, string> = { up: "var(--pink)", down: "var(--text-faint)", unknown: "var(--accent-dim)" };
+const monStatusColor: Record<string, string> = { up: '#a9dbc6', down: '#e9a2a2', unknown: 'var(--text-lo)' };
 const sparks = ref<Record<number, { ts: string; latency_ms: number | null; success: boolean }[]>>({});
 const sparkEls = new Map<number, HTMLElement>();
+let sparkObserver: ResizeObserver | undefined;
 // 24h 逐小时桶：图表模式算可用率、简易模式画色块，一次查询喂两个模式
 const monDaily = ref<Record<number, { avail: number | null; loss: number | null; buckets: { ts: string; success: boolean; latency_ms: number | null }[] }>>({});
 
@@ -285,86 +325,41 @@ async function loadSparklines(signal: AbortSignal) {
   paintSparklines();
 }
 function setSparkEl(id: number, el: any) {
-  if (el instanceof HTMLElement) sparkEls.set(id, el);
+  if (el instanceof HTMLElement) {
+    const old=sparkEls.get(id);
+    if(old&&old!==el){sparkObserver?.unobserve(old);echarts.getInstanceByDom(old)?.dispose();}
+    if(typeof ResizeObserver!=='undefined'){
+      sparkObserver ||= new ResizeObserver(()=>{if(!disposed)paintSparklines();});
+      sparkObserver.observe(el);
+    }
+    sparkEls.set(id, el);
+    void nextTick().then(()=>{if(!disposed)paintSparklines();});
+  }
 }
 function paintSparklines() {
   for (const m of monitors.value) {
     const el = sparkEls.get(m.id);
     const pts = sparks.value[m.id];
-    if (!el || !pts?.length) continue;
+    if (!el || !el.isConnected || !pts?.length) continue;
     const c = echarts.getInstanceByDom(el) || echarts.init(el);
+    c.resize();
     const lats = pts.filter((p) => p.success && p.latency_ms != null).map((p) => p.latency_ms!);
     const max = lats.length ? Math.max(...lats) : 1;
     c.setOption({
       backgroundColor: "transparent",
-      grid: { left: 0, right: 0, top: 2, bottom: 0 },
+      grid: { left: 0, right: 0, top: 20, bottom: 0 },
       xAxis: { type: "category", show: false, data: pts.map((p) => p.ts), boundaryGap: false },
       yAxis: { type: "value", show: false, min: 0, max: max * 1.15 },
       series: [{
         type: "line", showSymbol: false, animation: false, smooth: true,
         data: pts.map((p) => (p.success && p.latency_ms != null ? p.latency_ms : null)),
-        lineStyle: { width: 1 }, itemStyle: { color: "#9eb7e5" }, areaStyle: { opacity: 0.15 },
+        lineStyle: { width: 1 }, itemStyle: { color: metricColors.value.cpu }, areaStyle: { opacity: 0.15 },
         connectNulls: false,
       }],
     }, { notMerge: true });
   }
 }
 const sparkPoll = createPoller(async () => { await loadMonAll(); }, 60000);
-
-// ── 添加监控弹窗（编辑在 MonitorDetailModal 的 tab3）──
-const showMonDialog = ref(false);
-const monName = ref("");
-const monType = ref<"ping" | "tcp" | "udp" | "http" | "https">("tcp");
-const monHost = ref("");   // 主机/IP/域名（http(s) 可带路径）
-const monPort = ref("");   // 端口单独输入，ping 无端口
-const monInterval = ref(60);
-const monNodeId = ref<number | null>(null);
-const MON_TYPES = [
-  { value: "tcp", label: "TCP 端口" }, { value: "http", label: "HTTP" }, { value: "https", label: "HTTPS" },
-  { value: "ping", label: "Ping" }, { value: "udp", label: "UDP" },
-];
-const addNodeOptions = computed(() => nodes.value.map((n) => ({ value: n.id, label: n.name })));
-const monNeedPort = computed(() => monType.value !== "ping");
-const monPortRequired = computed(() => monType.value === "tcp" || monType.value === "udp");
-const monPortPlaceholder = computed(() =>
-  monType.value === "https" ? "默认 443" : monType.value === "http" ? "默认 80" : "1-65535");
-
-// 提交拼接：全角冒号→半角、去空白，端口合法性校验
-function composeTarget(): string | null {
-  const host = monHost.value.replace(/：/g, ":").replace(/\s+/g, "").trim();
-  const port = monPort.value.replace(/\D/g, "");
-  if (!host) { toast("主机要填喵~"); return null; }
-  if (monType.value !== "ping") {
-    if (!port && monPortRequired.value) { toast("TCP/UDP 必须填端口喵~"); return null; }
-    if (port) {
-      const p = Number(port);
-      if (p < 1 || p > 65535) { toast("端口范围是 1-65535 喵~"); return null; }
-      return `${host}:${p}`;
-    }
-  }
-  return host;
-}
-
-function openAddMon() {
-  if (!nodes.value.length) { toast("还没有纳管节点，先去「服务器」页添加一台喵~"); return; }
-  monName.value = ""; monHost.value = ""; monPort.value = "";
-  monType.value = "tcp"; monInterval.value = 60;
-  monNodeId.value = nodes.value[0].id;
-  showMonDialog.value = true;
-}
-async function saveMonitor() {
-  if (!monName.value.trim()) { toast("名称要填喵~"); return; }
-  if (monNodeId.value == null) { toast("要先选探测节点喵~"); return; }
-  const target = composeTarget();
-  if (target == null) return;
-  try {
-    await createMonitor({ name: monName.value.trim(), type: monType.value, target, interval: monInterval.value, node_id: monNodeId.value });
-    toast("监控项已添加");
-    showMonDialog.value = false;
-    await refresh();
-    if (monMode.value === "chart") void loadMonAll();
-  } catch { toast("添加失败"); }
-}
 
 // ── 监控项详情浮窗（点卡片=图表 tab，点编辑=编辑 tab）──
 const detailMon = ref<Monitor | null>(null);
@@ -377,17 +372,14 @@ function nodeName(id: number): string {
   return nodes.value.find((n) => n.id === id)?.name ?? `#${id}`;
 }
 
-async function delMonitor(m: Monitor, ev: Event) {
-  ev.stopPropagation();  // 卡片本体是详情浮窗，删除不触发
-  try { await removeMonitor(m.id); toast("已删除"); await refresh(); } catch { toast("删除失败"); }
-}
-
 // ═══════════ 轮询 ═══════════
 const statusPoll = createPoller(refreshStatus, 5000);
 function refresh() { return statusPoll.run(); }
 async function refreshStatus(signal: AbortSignal) {
   try {
     const [newNodes, newMonitors] = await Promise.all([listNodes(signal), listMonitors(signal)]);
+    try { const groups=await listMonitorGroups(signal); if(!signal.aborted){monitorGroups.value=groups;groupError.value='';} }
+    catch { if(!signal.aborted)groupError.value='监控组刷新失败，保留上次结果；可重试。'; }
     if (signal.aborted) return;
     nodes.value = newNodes;
     nodesState.value = "ready";
@@ -410,6 +402,7 @@ async function refreshStatus(signal: AbortSignal) {
   } catch { if (!signal.aborted) nodesState.value = "error"; }
 }
 onMounted(() => {
+
   if (chartEl.value && typeof ResizeObserver !== "undefined") {
     trafficObserver = new ResizeObserver(() => { void paintTraffic(); });
     trafficObserver.observe(chartEl.value);
@@ -420,12 +413,14 @@ onMounted(() => {
   document.addEventListener("click", onDocClick);
 });
 onUnmounted(() => {
+
   disposed = true;
   trafficObserver?.disconnect();
   statusPoll.stop(); sparkPoll.stop(); monitorLane.reset();
   document.removeEventListener("visibilitychange", onVisibility);
   for (const el of sparkEls.values()) echarts.getInstanceByDom(el)?.dispose();
   sparkEls.clear();
+  sparkObserver?.disconnect();
   stopLive();
   window.removeEventListener("resize", onResize);
   document.removeEventListener("click", onDocClick);
@@ -442,6 +437,7 @@ function onVisibility() {
   }
 }
 function onResize() { void paintTraffic(); paintSparklines(); }
+watch(metricColors, () => { if (chart) void paintTraffic(); paintSparklines(); });
 function onDocClick() { winOpen.value = false; }
 // 监控项列表晚于 onMounted 回来，id 集合变化时（首次加载/增删）补图表数据
 watch(() => monitors.value.map((m) => m.id).join(","), (v, old) => {
@@ -515,79 +511,71 @@ watch(() => monitors.value.map((m) => m.id).join(","), (v, old) => {
     </section>
 
     <!-- 区3：服务监控（双模式） -->
-    <section class="block">
+    <section id="service-monitors" class="block">
       <div class="block-head">
         服务监控
-        <button class="mini-btn" @click="openAddMon"><Icon name="plus" :size="12" /> 添加</button>
+        <button class="mini-btn" @click="showMonitorManagement=true"><Icon name="settings" :size="12" /> 监控管理</button>
+        <button class="mini-btn" @click="editGroup()"><Icon name="plus" :size="12" /> 添加监控</button>
         <span class="flex-spacer" />
         <div class="mode-switch">
           <button class="ms-btn" :class="{ active: monMode === 'chart' }" title="图表模式：每项带 1h 延迟走势" @click="setMonMode('chart')"><Icon name="activity" :size="12" /> 图表</button>
           <button class="ms-btn" :class="{ active: monMode === 'simple' }" title="简易模式：24h 逐小时状态色块" @click="setMonMode('simple')">简易</button>
         </div>
       </div>
+      <p v-if="groupError" class="mon-group-error" role="status">{{groupError}} <button class="mini-btn" @click="refresh">重试</button></p>
       <div class="mon-grid">
-        <div v-for="m in monitors" :key="m.id" class="mon-card clickable" title="点击查看详情" @click="openDetail(m)">
-          <span class="dot" :style="{ background: monStatusColor[m.status] }" />
-          <div class="mon-info">
-            <div class="mon-name">{{ m.name }}</div>
-            <div class="mon-target">{{ m.type }} · {{ m.target }}</div>
-            <div v-if="monDaily[m.id]?.avail != null" class="mon-avail">
-              24h 可用率 {{ monDaily[m.id].avail!.toFixed(1) }}%<template v-if="monDaily[m.id]?.loss != null"> · 丢包 {{ monDaily[m.id].loss!.toFixed(1) }}%</template>
-            </div>
-            <div v-if="monMode === 'chart'" :ref="(el) => setSparkEl(m.id, el)" class="spark"></div>
-            <!-- 简易模式：uptime-kuma 式 24h 逐小时色块（实心=正常，红=故障，空心=无数据） -->
-            <div v-else class="mon-blocks">
-              <span
-                v-for="(b, i) in hourBlocks(m.id)" :key="i"
-                class="blk" :class="{ up: b?.ok, down: b && !b.ok }"
-                :title="b?.label || '无数据'"
-              />
-            </div>
-          </div>
-          <span class="mon-latency" v-if="m.last_latency_ms != null">{{ m.last_latency_ms.toFixed(1) }}ms</span>
-          <button class="mon-op" title="编辑" @click.stop="openDetail(m, 'edit')"><Icon name="edit" :size="13" /></button>
-          <button class="mon-op danger" title="删除" @click="delMonitor(m, $event)"><Icon name="trash" :size="13" /></button>
+        <div v-for="g in monitorGroups.filter(g=>g.automatic&&!g.child_ids.length&&eligible(g))" :key="`empty-${g.id}`" class="mon-card">
+          <div class="mon-heading"><span class="mon-name">{{g.name}}</span><span/><button class="mon-op" :aria-label="`设置 ${g.name}`" @click="editGroup(g.id)"><Icon name="settings" :size="16" /></button></div>
+          <p class="hint-empty">{{g.availability_reason==='entry_not_configured'?'未配置其他入口':'暂无接入节点'}}</p>
         </div>
-        <div v-if="!monitors.length" class="hint-empty">暂无监控项，点「添加」创建一个 TCP/HTTP 探测</div>
+        <div v-for="m in monitorCards" :key="m.cardKey" class="mon-card clickable" @click="openDetail(m)">
+          <div class="mon-heading">
+            <span class="mon-name" :title="m.parent?.name || m.name">{{m.parent?.name || m.name}}</span>
+            <span class="mon-counts"><span class="mon-count-down" :class="{active:(m.parent?m.children.filter(c=>c.status!=='up').length:Number(m.status!=='up'))>0}">异常 {{m.parent?m.children.filter(c=>c.status!=='up').length:Number(m.status!=='up')}}</span><span class="mon-count-up">正常 {{m.parent?m.children.filter(c=>c.status==='up').length:Number(m.status==='up')}}</span></span>
+            <button class="mon-op" :aria-label="`设置 ${m.parent?.name||m.name}`" @click.stop="editGroup(m.parent?.id??null,m.parent?null:m.id)"><Icon name="settings" :size="16" /></button>
+          </div>
+          <div class="mon-current">
+            <MonitorChildPicker v-if="m.parent" compact :model-value="m.id" :children="m.children" :seconds="m.parent.rotation_seconds || 0" :parent-name="m.parent.name" @update:model-value="chooseChild(m.parent!.id,$event)">
+              <span class="mon-target" :title="`${m.type} · ${m.target}`">{{m.type}} · {{m.target}}</span>
+            </MonitorChildPicker>
+            <span v-else class="mon-current-item"><span class="mon-current-name" :title="m.name">{{m.name}}</span><span class="mon-target" :title="`${m.type} · ${m.target}`">{{m.type}} · {{m.target}}</span></span>
+          </div>
+          <div class="mon-child-stack">
+          <Transition name="mon-child" @after-enter="paintSparklines">
+          <div :key="m.id" class="mon-child-content">
+          <div class="mon-plot">
+            <div class="mon-plot-metrics">
+            <span class="mon-latency" :style="{color:monStatusColor[m.status]}" :title="[monitorStatusLabel(m),monitorStatusReason(m)].filter(Boolean).join(' · ')" :aria-label="`${monitorStatusLabel(m)}，${monitorStatusReason(m)}`"><span v-if="m.status!=='up'" class="mon-status-dot" aria-hidden="true" />{{ m.status==='up' && m.last_latency_ms != null ? m.last_latency_ms.toFixed(1) : '—' }} <small>ms</small></span>
+            <div class="mon-metrics mon-avail"><span class="mon-availability">{{ monDaily[m.id]?.avail != null ? monDaily[m.id].avail!.toFixed(0) + '%' : '—' }}/24h</span><span aria-hidden="true"> · </span><span class="mon-loss">丢包 {{monDaily[m.id]?.loss != null ? monDaily[m.id].loss!.toFixed(1) + '%' : '暂无数据'}}</span></div>
+            </div>
+          <div v-if="monMode === 'chart'" :ref="(el) => setSparkEl(m.id, el)" class="spark"></div>
+          <div v-else class="mon-blocks">
+            <span v-for="(b, i) in hourBlocks(m.id)" :key="i" class="blk" :class="{ up: b?.ok, down: b && !b.ok }" :title="b?.label || '无数据'" />
+          </div>
+          </div>
+          </div>
+          </Transition>
+          </div>
+        </div>
+        <div v-if="!monitors.length&&!monitorGroups.length" class="hint-empty">暂无监控项，点「添加监控」创建独立监控项或监控组</div>
       </div>
     </section>
 
-    <!-- 添加监控项弹窗（编辑在详情浮窗 tab3） -->
-    <div v-if="showMonDialog" class="mask" @click.self="showMonDialog = false">
-      <div class="dialog">
-        <div class="d-head">添加服务监控</div>
-        <div class="d-body">
-          <label>名称</label>
-          <input v-model="monName" placeholder="如 官网首页" />
-          <label>类型</label>
-          <Dropdown v-model="monType" :options="MON_TYPES" />
-          <label>{{ monType.startsWith("http") ? "主机 / 域名（可带路径）" : "主机 / IP / 域名" }}</label>
-          <input v-model="monHost" :placeholder="monType.startsWith('http') ? '如 example.com/health' : '如 example.com 或 1.2.3.4'" />
-          <template v-if="monNeedPort">
-            <label>端口<span v-if="!monPortRequired" class="lbl-hint">（可空）</span></label>
-            <input v-model="monPort" inputmode="numeric" :placeholder="monPortPlaceholder" />
-          </template>
-          <label>探测节点</label>
-          <Dropdown v-model="monNodeId" :options="addNodeOptions" />
-          <label>探测间隔（秒）</label>
-          <input v-model.number="monInterval" type="number" min="10" />
-        </div>
-        <div class="d-foot">
-          <button class="cancel" @click="showMonDialog = false">取消</button>
-          <button class="confirm" @click="saveMonitor">添加</button>
-        </div>
-      </div>
-    </div>
-
+    <MonitorManagement v-if="showMonitorManagement" :open="showMonitorManagement&&!showGroupEditor" :monitors="monitors" :groups="monitorGroups" :nodes="nodes" @close="showMonitorManagement=false" @changed="refresh();loadMonAll()" @edit-monitor="id=>editGroup(null,id)" @edit-group="id=>editGroup(id)" @add="editGroup(null)" />
+    <MonitorGroupEditor v-if="showGroupEditor" :monitors="monitors" :groups="monitorGroups" :nodes="nodes" :initial-group-id="groupEditorId" :initial-monitor-id="groupEditorMonitorId" :node-name="nodeName" @close="showGroupEditor=false" @changed="refresh()" @saved="showGroupEditor=false;showMonitorManagement=true;refresh()" />
     <!-- 监控项详情浮窗（图表 / MTR 记录 / 编辑） -->
     <MonitorDetailModal
       v-if="detailMon"
+      :key="detailMon.id"
       :monitor="detailMon"
       :node-name="nodeName(detailMon.node_id)"
-      :initial-tab="detailTab"
+      :node="nodes.find(n => n.id === detailMon?.node_id)"
+      @refresh="refresh()"
+      :initial-tab="detailTab" :allow-edit="detailTab==='edit'"
       @close="detailMon = null"
       @saved="detailMon = null; refresh(); loadMonAll()"
     />
+    <AlertIncidentList mode="current" />
   </div>
 </template>
 
@@ -630,8 +618,8 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 .mini-bar { display: inline-flex; align-items: center; gap: 6px; }
 .mb-label { font-size: 10px; color: var(--text-faint); width: 26px; }
 .mb-track { width: 72px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.07); overflow: hidden; display: inline-block; }
-.mb-fill { display: block; height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.6s ease; }
-.mb-fill.mem { background: var(--pink); }
+.mb-fill { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg,var(--metric-cpu-start),var(--metric-cpu)); transition: width 0.6s ease; }
+.mb-fill.mem { background: linear-gradient(90deg,var(--metric-memory-start),var(--metric-memory)); }
 .mb-val { font-size: 10.5px; color: var(--text-lo); width: 30px; }
 
 /* 区2 流量速览 */
@@ -678,27 +666,42 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 }
 .ms-btn:hover { color: var(--text-hi); }
 .ms-btn.active { background: var(--bg-raised); color: var(--accent); }
-/* grid 等宽列：flex+min-width 会让卡片按内容自适应，同行宽度不一致 */
-.mon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
-.mon-card {
-  display: flex; align-items: flex-start; gap: 10px;
-  background: var(--bg-raised); border: 1px solid rgba(255,255,255,0.06);
-  border-radius: var(--radius-sm); padding: 10px 14px; min-width: 0;
-}
-.mon-card .dot { margin-top: 5px; }
-.mon-info { flex: 1; min-width: 0; }
-.mon-name { font-size: 13px; font-weight: 600; }
-.mon-target { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mon-avail { font-size: 10.5px; color: var(--text-lo); margin-top: 2px; }
-.spark { height: 34px; margin-top: 6px; }
-.mon-blocks { display: flex; gap: 2px; margin-top: 7px; }
-.blk { flex: 1; height: 14px; border-radius: 2px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.04); }
-.blk.up { background: var(--pink); border-color: transparent; opacity: 0.85; }
-.blk.down { background: #ff5d6c; border-color: transparent; }
-.mon-latency { font-size: 12px; color: var(--accent); }
-.mon-op { border: none; background: transparent; color: var(--text-faint); cursor: pointer; padding: 3px; }
-.mon-op:hover { color: var(--accent); }
-.mon-op.danger:hover { color: var(--pink); }
+.mon-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:10px; }
+.mon-card { container-type:inline-size; background:var(--bg-raised);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:13px 15px 9px;min-width:0; }
+.mon-card.clickable { transition:border-color 140ms ease; }
+.mon-card.clickable:hover { transform:none; }
+.mon-heading { display:grid;grid-template-columns:minmax(0,1fr) auto 24px;align-items:center;gap:10px;height:26px;min-width:0; }
+.mon-name { min-width:0;font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.mon-counts { display:flex;gap:10px;white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums; }
+.mon-count-down { color:var(--text-lo); }.mon-count-down.active { color:#e9a2a2; }.mon-count-up { color:#a9dbc6; }
+.mon-op { display:flex;align-items:center;justify-content:center;width:24px;height:26px;padding:0;border:0;background:transparent;color:var(--text-lo);cursor:pointer; }
+.mon-op:hover { color:var(--accent); }
+.mon-op:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
+.mon-current { display:flex;align-items:center;gap:12px;height:27px;margin-top:8px;min-width:0;white-space:nowrap; }
+.mon-current-item { display:flex;gap:6px;min-width:0;align-items:center; }
+.mon-current-name { flex:0 1 auto;max-width:55%;min-width:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text-hi); }
+.mon-current :deep(.mon-child-picker) { min-width:0;width:100%;align-self:center; }
+.mon-target { display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-lo); }
+.mon-latency { display:flex;align-items:baseline;gap:2px;font-size:13px;white-space:nowrap;font-variant-numeric:tabular-nums; }
+.mon-latency small { font-size:12px;color:var(--text-lo); }
+.mon-status-dot { width:5px;height:5px;background:currentColor;border-radius:50%;align-self:center;flex:none; }
+.mon-metrics { display:flex;gap:4px;font-size:11.5px;color:var(--text-lo);white-space:nowrap;font-variant-numeric:tabular-nums; }
+.mon-availability,.mon-loss { color:var(--text-lo); }
+.mon-plot{position:relative;min-width:0;width:100%}.mon-plot-metrics{position:absolute;left:0;top:0;right:0;z-index:1;display:flex;align-items:baseline;gap:10px;white-space:nowrap;pointer-events:none;line-height:19px;background:linear-gradient(90deg,var(--bg-panel) 0%,transparent 100%)}
+.mon-group-error { color:#e9a2a2;font-size:13px; }
+.mon-child-stack { display:grid;min-width:0;margin-top:8px; }
+.mon-child-content { grid-area:1/1;width:100%;min-width:0; }
+.mon-child-leave-active { pointer-events:none; }
+.mon-child-enter-active,.mon-child-leave-active { transition:opacity 180ms ease,transform 180ms ease; }
+.mon-child-enter-from { opacity:0;transform:translateX(6px); }
+.mon-child-leave-to { opacity:0;transform:translateX(-6px); }
+@media(prefers-reduced-motion:reduce) { .mon-child-enter-active,.mon-child-leave-active { transition:none; } }
+.spark { height:53px;width:100%; }
+.mon-blocks { padding-top:18px;display:flex;gap:2px;width:100%;height:53px;align-items:center; }
+.blk { flex:1;height:14px;border-radius:2px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.04); }
+.blk.up { background:var(--pink);border-color:transparent;opacity:.85; }
+.blk.down { background:#ff5d6c;border-color:transparent; }
+@media (max-width: 480px) { .overview { padding: 16px 12px; } .srv-card { min-width: 0; width: 100%; box-sizing: border-box; } .srv-bars { flex-wrap: wrap; gap: 6px; } }
 
 /* 弹窗 */
 .mask { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: grid; place-items: center; z-index: 100; }

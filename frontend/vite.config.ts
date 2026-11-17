@@ -31,6 +31,7 @@ export default defineConfig({
       "/auth": { target: "http://127.0.0.1:12031", xfwd: true },
       "/admin": { target: "http://127.0.0.1:12031", xfwd: true },
       "/nodes": { target: "http://127.0.0.1:12031", xfwd: true },
+      "/node-files": { target: "http://127.0.0.1:12031", xfwd: true },
       "/alerts": { target: "http://127.0.0.1:12031", xfwd: true },
       "/notifications": { target: "http://127.0.0.1:12031", xfwd: true },
       "/monitors": { target: "http://127.0.0.1:12031", xfwd: true },
@@ -39,6 +40,7 @@ export default defineConfig({
       "/commands": { target: "http://127.0.0.1:12031", xfwd: true },
       "/agent": { target: "http://127.0.0.1:12031", xfwd: true },
       "/config": { target: "http://127.0.0.1:12031", xfwd: true },
+      "^/nav-": { target: "http://127.0.0.1:12031", xfwd: true },
       "/navigation": { target: "http://127.0.0.1:12031", xfwd: true },
       "/website-settings": { target: "http://127.0.0.1:12031", xfwd: true },
       "/service-settings": { target: "http://127.0.0.1:12031", xfwd: true },
@@ -50,6 +52,7 @@ export default defineConfig({
       "/operations": { target: "http://127.0.0.1:12031", xfwd: true },
       "/search": { target: "http://127.0.0.1:12031", xfwd: true },
       "/timeline": { target: "http://127.0.0.1:12031", xfwd: true },
+      "/notes-preferences": { target: "http://127.0.0.1:12031", xfwd: true },
       "/notes-tools": { target: "http://127.0.0.1:12031", xfwd: true },
       "/drive": {
         target: "http://127.0.0.1:12031",

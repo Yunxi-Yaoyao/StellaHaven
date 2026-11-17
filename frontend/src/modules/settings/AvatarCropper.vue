@@ -2,6 +2,7 @@
 // 头像裁切浮窗：选图 → 拖动+缩放调方形取景 → canvas 裁出 256×256 → 上传
 import { ref, computed } from "vue";
 
+const props=defineProps<{request?:typeof fetch}>();
 const emit = defineEmits<{ done: [url: string]; close: [] }>();
 
 const imgSrc = ref("");       // 选中图的 objectURL
@@ -104,15 +105,17 @@ async function confirm() {
     if (!blob) { busy.value = false; return; }
     const fd = new FormData();
     fd.append("file", new File([blob], "avatar.png", { type: "image/png" }));
-    const r = await fetch("/auth/avatar", { method: "POST", body: fd });
-    busy.value = false;
-    if (r.ok) {
-      const u = await r.json();
-      emit("done", u.avatar_url);
-      emit("close");
-    } else {
-      error.value = (await r.json()).detail ?? "上传失败";
-    }
+    try {
+      const r = await (props.request??fetch)("/auth/avatar", { method: "POST", body: fd });
+      if (r.ok) {
+        const u = await r.json();
+        emit("done", u.avatar_url);
+        emit("close");
+      } else {
+        error.value = (await r.json()).detail ?? "上传失败";
+      }
+    } catch(e) { error.value=e instanceof Error?e.message:'上传失败，请重试'; }
+    finally { busy.value=false; }
   }, "image/png");
 }
 </script>

@@ -1,0 +1,218 @@
+[
+  {
+    "file": "app/api_response_v6_integration.json",
+    "sha256": "e163b0ba7108f9e7eda580773985b8fa095c1518399c7fb92e1b6521faccac5d",
+    "commit": "5b7caf63676d364ab68bc0fa42fd0899dc85658d",
+    "git_blob": "67f3a7e27953d8fe30d194e16936fce10c5426b1",
+    "size": 1337156,
+    "fixture": "e163b0ba7108f9e7eda580773985b8fa095c1518399c7fb92e1b6521faccac5d.gz"
+  },
+  {
+    "file": "app/routers/monitor.py",
+    "sha256": "7d3b8abbfec0bb7db25cf4a737be4423475307f5fd415247d20768d4b5612635",
+    "commit": "e143697c9e88433db006fadf667c869ebf46c408",
+    "git_blob": "99d618f30cc571090761269e0c4bf157dbd5a81b",
+    "size": 28721,
+    "fixture": "7d3b8abbfec0bb7db25cf4a737be4423475307f5fd415247d20768d4b5612635.gz"
+  },
+  {
+    "file": "app/repositories/config.py",
+    "sha256": "d7b63c0c4c2b1bac5ba9a1f014fd094d85a687eb02a086b66e6efe40be4b9762",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "445540df0ae72cc9cb2224bca80bde24c4282637",
+    "size": 1557,
+    "fixture": "d7b63c0c4c2b1bac5ba9a1f014fd094d85a687eb02a086b66e6efe40be4b9762.gz"
+  },
+  {
+    "file": "app/routers/monitor.py",
+    "sha256": "4da0017aa12c0057795221288967184d448a818c817c29594b0ee68e49aa11c6",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "a079316f8f7fd64e3774e4cebf7e9e61a06d4fb6",
+    "size": 30069,
+    "fixture": "4da0017aa12c0057795221288967184d448a818c817c29594b0ee68e49aa11c6.gz"
+  },
+  {
+    "file": "app/schemas/monitor.py",
+    "sha256": "d70caa42b46dadc2425d53f9fd31f1d6286d42a6dadacbc7b27bb22dbcdee640",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "3e7ac2f0fa4113d97b4607af6939958631dc171a",
+    "size": 14778,
+    "fixture": "d70caa42b46dadc2425d53f9fd31f1d6286d42a6dadacbc7b27bb22dbcdee640.gz"
+  },
+  {
+    "file": "app/services/alerts.py",
+    "sha256": "12ba38a56791d0622f0e134ac4ac6ae03a0c50cc0115661656f790e98c3c34b5",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "e8a7f0216d68c3434f635063b0ba57a1bc7f44b4",
+    "size": 24111,
+    "fixture": "12ba38a56791d0622f0e134ac4ac6ae03a0c50cc0115661656f790e98c3c34b5.gz"
+  },
+  {
+    "file": "app/services/entry_monitoring.py",
+    "sha256": "2f69f063709af64f9eff8cce34c7d8e0d463b2a38a1fef163a734c29026a1543",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "70fa218e1834df994dc4db989009bc38117144a2",
+    "size": 21290,
+    "fixture": "2f69f063709af64f9eff8cce34c7d8e0d463b2a38a1fef163a734c29026a1543.gz"
+  },
+  {
+    "file": "app/services/monitor.py",
+    "sha256": "cecda06cc4f1a19fd8bcb2a9d56929d6e39459c10c66d6376d31e46b67da6e7a",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "f9080c6a429040129bb0f56fcbfe5fe7147598cc",
+    "size": 8156,
+    "fixture": "cecda06cc4f1a19fd8bcb2a9d56929d6e39459c10c66d6376d31e46b67da6e7a.gz"
+  },
+  {
+    "file": "app/services/monitor_groups.py",
+    "sha256": "13dcefb9486fe36905360fdf79b391faf080ed141d4961d7f4faf2b43a2e70bb",
+    "commit": "367e6a1912a1d8ce12c99d2e5e97eebb012c8304",
+    "git_blob": "f62283c6c2ba54503a4fc12c59078b8afc9964e8",
+    "size": 10558,
+    "fixture": "13dcefb9486fe36905360fdf79b391faf080ed141d4961d7f4faf2b43a2e70bb.gz"
+  },
+  {
+    "file": "app/models/monitor.py",
+    "sha256": "870f3473c3d3ad546c53e8dcf9293a6737eeb7fdf003d54f38e0a43614ed87da",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "fb43dec9c3258e8640485d484ceccaec0bcffb48",
+    "size": 3705,
+    "fixture": "870f3473c3d3ad546c53e8dcf9293a6737eeb7fdf003d54f38e0a43614ed87da.gz"
+  },
+  {
+    "file": "app/services/node_monitor_policy.py",
+    "sha256": "24ef0aa9908dc58aa87fbb2337ff815af2677d38523b66ef59800ecc6c54d675",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "3dee5c8ac36b0aec7586c5bc6e4fa7acf9353aed",
+    "size": 9577,
+    "fixture": "24ef0aa9908dc58aa87fbb2337ff815af2677d38523b66ef59800ecc6c54d675.gz"
+  },
+  {
+    "file": "app/services/monitor_management.py",
+    "sha256": "63ae014c7ad5a9bd17aacb5992620fe297c7afec97d5f711bef1bd309ec3d0e9",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "db6896c5c4a47cf21b69abc19930cbdf301f9859",
+    "size": 676,
+    "fixture": "63ae014c7ad5a9bd17aacb5992620fe297c7afec97d5f711bef1bd309ec3d0e9.gz"
+  },
+  {
+    "file": "alembic/versions/ce20261021_monitor_management.py",
+    "sha256": "e40406221f7275f25e377a3b0dd142d08d05b14a1a44793a61074467ad460b67",
+    "commit": "9c543a91f3232c8a13abab76be792904eb17592c",
+    "git_blob": "4796e58ed0dee6b939f6ec7226b8eb7a5527bd7c",
+    "size": 1309,
+    "fixture": "e40406221f7275f25e377a3b0dd142d08d05b14a1a44793a61074467ad460b67.gz"
+  },
+  {
+    "file": "app/openapi_contract.py",
+    "sha256": "7b682fc92fdf4fa45b66fcae2dd78e080c335c647e9a6e60fd0b5bd8279aed8a",
+    "commit": "367e6a1912a1d8ce12c99d2e5e97eebb012c8304",
+    "git_blob": "8aa551d788d9e229ef3689a804634879c5d3ed20",
+    "size": 17410,
+    "fixture": "7b682fc92fdf4fa45b66fcae2dd78e080c335c647e9a6e60fd0b5bd8279aed8a.gz"
+  },
+  {
+    "file": "main.py",
+    "sha256": "f75906f793c6719659fa12ec64d504b9dbc44ed2eedcc06d8f8b6129e7317a09",
+    "commit": "ec8f969e2dee6e5b55392eaf9451dcdb8667f9a8",
+    "git_blob": "d1aae6fbcdcea717853f820408c5e4b738b5afc6",
+    "size": 9171,
+    "fixture": "f75906f793c6719659fa12ec64d504b9dbc44ed2eedcc06d8f8b6129e7317a09.gz"
+  },
+  {
+    "file": "app/services/document.py",
+    "sha256": "bef67d35ab35726ef89dea237c5629a8ceccbb9c553451fd8f1a37ea3a116af6",
+    "commit": "7790dcf6765f3ba0c0c1d3fade1766960a29bc87",
+    "git_blob": "e1d250cd0baa98c7ef22fe119b7bab03ff345370",
+    "size": 20978,
+    "fixture": "bef67d35ab35726ef89dea237c5629a8ceccbb9c553451fd8f1a37ea3a116af6.gz"
+  },
+  {
+    "file": "app/services/notes_templates.py",
+    "sha256": "1ae0b4394f2666e1e6b0a9a687a4770ac2d9d10fcc1b3dffa39213a15ccdbfed",
+    "commit": "30053728fc85169a8e6c60c91ba2fe5559dc3ec5",
+    "git_blob": "1a92e7b8a9ad549af63f00c6d37488d05b289803",
+    "size": 9575,
+    "fixture": "1ae0b4394f2666e1e6b0a9a687a4770ac2d9d10fcc1b3dffa39213a15ccdbfed.gz"
+  },
+  {
+    "file": "app/services/attachment_lifecycle.py",
+    "sha256": "33c1edddb3dac9098cc92f524daaa68e32a043f58dc7c2e930609121e87ddc30",
+    "commit": "30053728fc85169a8e6c60c91ba2fe5559dc3ec5",
+    "git_blob": "e8ba6070ea507d74459f4d83020f3791950bc1dd",
+    "size": 11029,
+    "fixture": "33c1edddb3dac9098cc92f524daaa68e32a043f58dc7c2e930609121e87ddc30.gz"
+  },
+  {
+    "file": "app/models/attachment.py",
+    "sha256": "95e5ddc6e2edd9e6cc37d8e1442eac0601bd05ad608387a65b67bfceb43205dd",
+    "commit": "30053728fc85169a8e6c60c91ba2fe5559dc3ec5",
+    "git_blob": "1992399b7fb95f6e0ed915cfd61e17b1f061c34b",
+    "size": 1286,
+    "fixture": "95e5ddc6e2edd9e6cc37d8e1442eac0601bd05ad608387a65b67bfceb43205dd.gz"
+  },
+  {
+    "file": "app/routers/attachment.py",
+    "sha256": "2e0916314a3a1255a9714b3182fc61241a16ae15aacaf6b1969cc32d4acd9a4b",
+    "commit": "30053728fc85169a8e6c60c91ba2fe5559dc3ec5",
+    "git_blob": "ec79d0acb220bb585cde8b76404b1eb47b8291b3",
+    "size": 7586,
+    "fixture": "2e0916314a3a1255a9714b3182fc61241a16ae15aacaf6b1969cc32d4acd9a4b.gz"
+  },
+  {
+    "file": "app/routers/web_projects.py",
+    "sha256": "508498f351820afa1b11116a932ac4fd9d6b5f1dcb99dc227e88c0148632ffce",
+    "commit": "ff9c329037417c97d8dbbb8008c91a464bb104bf",
+    "git_blob": "fed578020b3a995ff7b00b85bb5485c8df43181b",
+    "size": 7599,
+    "fixture": "508498f351820afa1b11116a932ac4fd9d6b5f1dcb99dc227e88c0148632ffce.gz"
+  },
+  {
+    "file": "app/services/web_project_runtime.py",
+    "sha256": "4eb5995ae7f871a2082f76ea68bb2326afa1d620783c82c10e49a1e36d44c748",
+    "commit": "7790dcf6765f3ba0c0c1d3fade1766960a29bc87",
+    "git_blob": "7f43125c40a31f2ea35604aaad475b929c88e806",
+    "size": 10044,
+    "fixture": "4eb5995ae7f871a2082f76ea68bb2326afa1d620783c82c10e49a1e36d44c748.gz"
+  },
+  {
+    "file": "app/services/web_projects.py",
+    "sha256": "7a26dea2d729629f18d13f504a9e67d0a360ce9c993456faddfba22e2bd1201c",
+    "commit": "ff9c329037417c97d8dbbb8008c91a464bb104bf",
+    "git_blob": "0bc7d1108a6f493e442d2a8ca11fc7c0056f1df3",
+    "size": 19094,
+    "fixture": "7a26dea2d729629f18d13f504a9e67d0a360ce9c993456faddfba22e2bd1201c.gz"
+  },
+  {
+    "file": "app/routers/project_files.py",
+    "sha256": "d8b40dbaa37907f1ca374f39acb06571f50185a2cb59aec0d21fc39ddf27bf82",
+    "commit": "7790dcf6765f3ba0c0c1d3fade1766960a29bc87",
+    "git_blob": "ad95aba5866b9ba0f984b4143eb530b767b2ac13",
+    "size": 989,
+    "fixture": "d8b40dbaa37907f1ca374f39acb06571f50185a2cb59aec0d21fc39ddf27bf82.gz"
+  },
+  {
+    "file": "app/routers/detached_sources.py",
+    "sha256": "0f245e9b5371ab5016c6f9fd4d49de76adc198d709889c269666c468654d151e",
+    "commit": "7790dcf6765f3ba0c0c1d3fade1766960a29bc87",
+    "git_blob": "5cf406d9bbac02facdf94e92569f1cb804109444",
+    "size": 1242,
+    "fixture": "0f245e9b5371ab5016c6f9fd4d49de76adc198d709889c269666c468654d151e.gz"
+  },
+  {
+    "file": "app/services/detached_sources.py",
+    "sha256": "e667772a1c3cf4376a3cc150c0cd8874b4b4c59ea4daca729fe0dec374fda036",
+    "commit": "7790dcf6765f3ba0c0c1d3fade1766960a29bc87",
+    "git_blob": "4f1e1402fee992c4cd8ab602185a84668d1edd1e",
+    "size": 3018,
+    "fixture": "e667772a1c3cf4376a3cc150c0cd8874b4b4c59ea4daca729fe0dec374fda036.gz"
+  },
+  {
+    "file": "app/routers/web_project_renew_limits.py",
+    "sha256": "0f9ba882ad63cb2fcbfa039c07397f5226c98295a071a81b8a6f5a9ed9f287ff",
+    "commit": "7790dcf6765f3ba0c0c1d3fade1766960a29bc87",
+    "git_blob": "71328d85b992bfc2e2b460af77c2120eb06b2a90",
+    "size": 840,
+    "fixture": "0f9ba882ad63cb2fcbfa039c07397f5226c98295a071a81b8a6f5a9ed9f287ff.gz"
+  }
+]

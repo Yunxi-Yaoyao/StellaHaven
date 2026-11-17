@@ -1,0 +1,194 @@
+{
+  "saved": {
+    "id": "legacy-id",
+    "name": "Owner website",
+    "icon": "old-custom-icon",
+    "mode": "isolated_proxy",
+    "adapter": "generic",
+    "browser_url": "https://site.test/a",
+    "private_address": null,
+    "entry_policy": "follow",
+    "access_adapter": "auto",
+    "target_id": "target",
+    "initial_path": "/a",
+    "enabled": true,
+    "keep_alive": true,
+    "origin": "https://app-legacy-id.test",
+    "injection": {
+      "draft": {
+        "enabled": true,
+        "css": "body{color:red}",
+        "js": "window.ownerCode = \"secret is legitimate code\";",
+        "timing": "dom_ready",
+        "csp_policy": "controlled",
+        "version": "old-v1",
+        "source_origin": "https://site.test"
+      },
+      "active": {
+        "enabled": true,
+        "css": "body{color:red}",
+        "js": "window.ownerCode = \"secret is legitimate code\";",
+        "timing": "dom_ready",
+        "csp_policy": "controlled",
+        "version": "old-v1",
+        "source_origin": "https://site.test"
+      },
+      "previous": {
+        "enabled": true,
+        "css": "body{color:red}",
+        "js": "window.ownerCode = \"secret is legitimate code\";",
+        "timing": "dom_ready",
+        "csp_policy": "controlled",
+        "version": "old-v1",
+        "source_origin": "https://site.test"
+      }
+    },
+    "template_id": "user_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "connection": {
+      "transport": "proxy",
+      "auth_mode": "header",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "has_token": true
+    },
+    "background": "home",
+    "request_policy": {
+      "management_prefixes": [
+        "/admin"
+      ],
+      "read_post_paths": [
+        "/api/list"
+      ],
+      "protect_other_writes": true
+    },
+    "route": "/apps/legacy-id",
+    "capabilities": {
+      "injection": true,
+      "browser_status": "unobservable",
+      "managed_settings": null
+    },
+    "check": {
+      "software": null,
+      "compatibility": null,
+      "normalized_url": "https://site.test/a",
+      "name_suggestion": "Owner website",
+      "access": {
+        "status": "reachable",
+        "http_status": 200
+      },
+      "embedding": {
+        "status": "allowed",
+        "reason_code": "no_observed_restriction",
+        "reason": "Browser unverified"
+      },
+      "injection": {
+        "status": "supported",
+        "reason": "Owner code supported"
+      },
+      "help": null,
+      "can_save": true,
+      "recommended_behavior": "embedded",
+      "issues": []
+    }
+  },
+  "malformed": {
+    "id": "legacy-id",
+    "name": "配置不完整",
+    "icon": "old-custom-icon",
+    "mode": "isolated_proxy",
+    "adapter": "generic",
+    "browser_url": "https://site.test/a",
+    "private_address": null,
+    "entry_policy": "follow",
+    "access_adapter": "auto",
+    "target_id": "target",
+    "initial_path": "/a",
+    "enabled": true,
+    "keep_alive": false,
+    "origin": "https://app-legacy-id.test",
+    "injection": {
+      "draft": {
+        "enabled": true,
+        "css": "body{color:red}",
+        "js": "window.ownerCode = \"secret is legitimate code\";",
+        "timing": "dom_ready",
+        "csp_policy": "controlled",
+        "version": "old-v1",
+        "source_origin": "https://site.test"
+      },
+      "active": {
+        "enabled": true,
+        "css": "body{color:red}",
+        "js": "window.ownerCode = \"secret is legitimate code\";",
+        "timing": "dom_ready",
+        "csp_policy": "controlled",
+        "version": "old-v1",
+        "source_origin": "https://site.test"
+      },
+      "previous": {
+        "enabled": true,
+        "css": "body{color:red}",
+        "js": "window.ownerCode = \"secret is legitimate code\";",
+        "timing": "dom_ready",
+        "csp_policy": "controlled",
+        "version": "old-v1",
+        "source_origin": "https://site.test"
+      }
+    },
+    "template_id": "user_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "connection": {
+      "transport": "proxy",
+      "auth_mode": "header",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "has_token": true
+    },
+    "background": "home",
+    "request_policy": {
+      "management_prefixes": [
+        "/admin"
+      ],
+      "read_post_paths": [
+        "/api/list"
+      ],
+      "protect_other_writes": true
+    },
+    "route": "/apps/legacy-id",
+    "capabilities": {
+      "injection": false,
+      "browser_status": "unobservable",
+      "managed_settings": null
+    },
+    "projection": {
+      "state": "incomplete",
+      "invalid_fields": [
+        "keep_alive",
+        "name"
+      ]
+    }
+  },
+  "navigation": {
+    "entries": [
+      {
+        "id": "home",
+        "title": "My Home",
+        "icon": "globe",
+        "route": "/",
+        "visible": true,
+        "builtin": true
+      },
+      {
+        "id": "legacy-id",
+        "title": "Owner website",
+        "icon": "old-custom-icon",
+        "visible": false,
+        "route": "/apps/legacy-id",
+        "builtin": false
+      }
+    ],
+    "settings_route": "/settings",
+    "legacy_routes": {
+      "drive": "legacy-id"
+    }
+  }
+}

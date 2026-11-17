@@ -1,0 +1,277 @@
+{
+  "format": 1,
+  "kind": "non-executable-deployment-preparation-example",
+  "metadata_observed_at": "2026-10-23T06:09:28.867352+00:00",
+  "metadata_source": "files-root-scope/fleet-metadata-readonly.json; BEGIN READ ONLY; SELECT explicit non-secret node metadata; ROLLBACK",
+  "scope": "all currently managed Linux nodes; on-demand browse from /; no recursive scanning",
+  "defaults": {
+    "roots": {},
+    "new_root_write": false,
+    "preserve_instance_uid_gid": true,
+    "add_machine": false,
+    "privilege_escalation": false,
+    "apply": false
+  },
+  "candidate": {
+    "base": "f7abafa615d97b9d9a32585737e7f48cb229e3f7",
+    "main_version": "0.6.18",
+    "main_changed": false,
+    "outer_package_sha256": "19551ee878a6aca6a9978d901195d1ec634f808d536804c0d525c8df3466fd25",
+    "inner_release_sha256": "05e1854f7d3e1476a997c82d8def28dbb2099b985e2544ccbe58da54e6d4b484",
+    "module_sha256": "00b1521ff5be4afbd25967fcb9e1bfb05f64afa302edc69fc955d39b9403b500",
+    "artifact_evidence": "files-root-scope/build/stella-files-root-scope.tar"
+  },
+  "linux_nodes": [
+    {
+      "id": 19,
+      "name": "Stella",
+      "platform": "linux",
+      "arch": "x86_64",
+      "os_name": "Nyarch Linux",
+      "agent_version": "0.6.15",
+      "status": "online",
+      "last_seen_at": "2026-10-23T06:09:27.166831+00:00",
+      "installed": true,
+      "effective_os_family": "linux",
+      "platform_evidence": "Nyarch Linux",
+      "heartbeat_age_seconds": 1.701,
+      "preparation_state": "scope_confirmed_runtime_preflight_pending",
+      "execution_identity": {
+        "mode": "preserve_existing_instance_uid_gid",
+        "iid": null,
+        "uid": null,
+        "gid": null,
+        "must_verify_before_deployment": true
+      },
+      "local_roots_example": {
+        "system": {
+          "path": "/",
+          "write": false
+        }
+      },
+      "center_root_example": {
+        "system": {
+          "owners": [
+            "<existing-authenticated-owner-id>"
+          ],
+          "label": "/",
+          "write": false
+        }
+      },
+      "preserve_existing_separate_write_grants": true,
+      "applied": false
+    },
+    {
+      "id": 20,
+      "name": "HK",
+      "platform": "linux",
+      "arch": "x86_64",
+      "os_name": "Ubuntu 24.04.3 LTS",
+      "agent_version": "0.6.12",
+      "status": "online",
+      "last_seen_at": "2026-10-14T14:20:00.230753+00:00",
+      "installed": true,
+      "effective_os_family": "linux",
+      "platform_evidence": "Ubuntu 24.04.3 LTS",
+      "heartbeat_age_seconds": 748168.637,
+      "preparation_state": "deferred_until_heartbeat_recovered",
+      "execution_identity": {
+        "mode": "preserve_existing_instance_uid_gid",
+        "iid": null,
+        "uid": null,
+        "gid": null,
+        "must_verify_before_deployment": true
+      },
+      "local_roots_example": {
+        "system": {
+          "path": "/",
+          "write": false
+        }
+      },
+      "center_root_example": {
+        "system": {
+          "owners": [
+            "<existing-authenticated-owner-id>"
+          ],
+          "label": "/",
+          "write": false
+        }
+      },
+      "preserve_existing_separate_write_grants": true,
+      "applied": false
+    },
+    {
+      "id": 21,
+      "name": "TYO-AWS",
+      "platform": "linux",
+      "arch": "x86_64",
+      "os_name": "Ubuntu 24.04.4 LTS",
+      "agent_version": "0.6.15",
+      "status": "online",
+      "last_seen_at": "2026-10-23T06:09:25.747965+00:00",
+      "installed": true,
+      "effective_os_family": "linux",
+      "platform_evidence": "Ubuntu 24.04.4 LTS",
+      "heartbeat_age_seconds": 3.119,
+      "preparation_state": "scope_confirmed_runtime_preflight_pending",
+      "execution_identity": {
+        "mode": "preserve_existing_instance_uid_gid",
+        "iid": null,
+        "uid": null,
+        "gid": null,
+        "must_verify_before_deployment": true
+      },
+      "local_roots_example": {
+        "system": {
+          "path": "/",
+          "write": false
+        }
+      },
+      "center_root_example": {
+        "system": {
+          "owners": [
+            "<existing-authenticated-owner-id>"
+          ],
+          "label": "/",
+          "write": false
+        }
+      },
+      "preserve_existing_separate_write_grants": true,
+      "applied": false
+    },
+    {
+      "id": 22,
+      "name": "LAX-RACK",
+      "platform": "linux",
+      "arch": "x86_64",
+      "os_name": "Ubuntu 24.04 LTS",
+      "agent_version": "0.6.15",
+      "status": "online",
+      "last_seen_at": "2026-10-23T06:09:28.558517+00:00",
+      "installed": true,
+      "effective_os_family": "linux",
+      "platform_evidence": "Ubuntu 24.04 LTS",
+      "heartbeat_age_seconds": 0.309,
+      "preparation_state": "scope_confirmed_runtime_preflight_pending",
+      "execution_identity": {
+        "mode": "preserve_existing_instance_uid_gid",
+        "iid": null,
+        "uid": null,
+        "gid": null,
+        "must_verify_before_deployment": true
+      },
+      "local_roots_example": {
+        "system": {
+          "path": "/",
+          "write": false
+        }
+      },
+      "center_root_example": {
+        "system": {
+          "owners": [
+            "<existing-authenticated-owner-id>"
+          ],
+          "label": "/",
+          "write": false
+        }
+      },
+      "preserve_existing_separate_write_grants": true,
+      "applied": false
+    },
+    {
+      "id": 55,
+      "name": "NAS",
+      "platform": "fnos",
+      "arch": "x86_64",
+      "os_name": "Debian GNU/Linux 12 (bookworm)",
+      "agent_version": "0.6.15",
+      "status": "online",
+      "last_seen_at": "2026-10-23T06:09:28.655088+00:00",
+      "installed": true,
+      "effective_os_family": "linux",
+      "platform_evidence": "Debian GNU/Linux 12 (bookworm)",
+      "heartbeat_age_seconds": 0.212,
+      "preparation_state": "scope_confirmed_runtime_preflight_pending",
+      "execution_identity": {
+        "mode": "preserve_existing_instance_uid_gid",
+        "iid": null,
+        "uid": null,
+        "gid": null,
+        "must_verify_before_deployment": true
+      },
+      "local_roots_example": {
+        "system": {
+          "path": "/",
+          "write": false
+        }
+      },
+      "center_root_example": {
+        "system": {
+          "owners": [
+            "<existing-authenticated-owner-id>"
+          ],
+          "label": "/",
+          "write": false
+        }
+      },
+      "preserve_existing_separate_write_grants": true,
+      "applied": false
+    },
+    {
+      "id": 56,
+      "name": "Shanghai",
+      "platform": "linux",
+      "arch": "x86_64",
+      "os_name": "Ubuntu 24.04.2 LTS",
+      "agent_version": "0.6.15",
+      "status": "online",
+      "last_seen_at": "2026-10-23T06:09:22.868737+00:00",
+      "installed": true,
+      "effective_os_family": "linux",
+      "platform_evidence": "Ubuntu 24.04.2 LTS",
+      "heartbeat_age_seconds": 5.999,
+      "preparation_state": "scope_confirmed_runtime_preflight_pending",
+      "execution_identity": {
+        "mode": "preserve_existing_instance_uid_gid",
+        "iid": null,
+        "uid": null,
+        "gid": null,
+        "must_verify_before_deployment": true
+      },
+      "local_roots_example": {
+        "system": {
+          "path": "/",
+          "write": false
+        }
+      },
+      "center_root_example": {
+        "system": {
+          "owners": [
+            "<existing-authenticated-owner-id>"
+          ],
+          "label": "/",
+          "write": false
+        }
+      },
+      "preserve_existing_separate_write_grants": true,
+      "applied": false
+    }
+  ],
+  "excluded_nodes": [
+    {
+      "id": 57,
+      "name": "5060",
+      "platform": "windows",
+      "reason": "windows_unsupported"
+    }
+  ],
+  "remaining_gates": [
+    "parent main-feature API/schema/ledger integration and authorized migration",
+    "per-node instance binding/uid/gid/service identity readback (not gathered in this lane)",
+    "per-node runtime Python+httpx probe as the original UID",
+    "approval and real PID1 companion lifecycle canary; none executed",
+    "OS permissions remain authoritative; EACCES/EPERM is not network failure",
+    "HK heartbeat recovery before any deployment attempt"
+  ],
+  "deployed": false
+}

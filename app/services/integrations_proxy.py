@@ -141,7 +141,8 @@ async def create_target(db,incoming,actor_id):
 
 
 def masked_target(value):
-    return {k:v for k,v in value.items() if k!='headers'} | {'credential_headers':list(value['headers'])}
+    from app.public_website import public_target
+    return public_target(value)
 
 
 class PinnedBackend(AnyIOBackend):

@@ -1,5 +1,6 @@
 """任务域 repositories：打流 / MTR / 命令 的 CRUD + agent 轮询领取 + 结果回传。"""
 import json
+from uuid import uuid4
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import or_, text
@@ -59,14 +60,41 @@ def get_iperf(db: Session, task_id: int) -> IperfTask | None:
 def create_mtr(db: Session, node_id: int, target: str, protocol: str,
                monitor_id: int | None = None, trigger: str = "manual",
                params: dict | None = None) -> MtrTask:
-    t = MtrTask(node_id=node_id, target=target, protocol=protocol,
-                monitor_id=monitor_id, trigger=trigger, params_json=params)
-    db.add(t)
-    db.commit()
-    trim_old(db, MtrTask)
-    db.commit()
-    db.refresh(t)
-    return t
+    return create_mtr_job(db, [node_id], target, protocol, params,
+                          monitor_id=monitor_id, trigger=trigger)[0]
+
+
+def create_mtr_job(db: Session, node_ids: list[int], target: str, protocol: str,
+                   params: dict | None = None, *, monitor_id: int | None = None,
+                   trigger: str = 'manual') -> list[MtrTask]:
+    """Atomic one-shot fan-out; pending means agent transport, never a user queue."""
+    if not 1 <= len(node_ids) <= 8 or len(set(node_ids)) != len(node_ids):
+        raise ValueError('请选择 1–8 个不同节点')
+    try:
+        db.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': 0x5354454C4D5452})
+        if trigger == 'manual' and db.query(MtrTask).filter(
+            MtrTask.trigger == 'manual', MtrTask.status.in_(['pending', 'running']),
+        ).count():
+            raise ValueError('已有 MTR 作业进行中，请完成后再试（不接受排队）')
+        job_id = uuid4().hex
+        rows = [MtrTask(node_id=nid, target=target, protocol=protocol,
+                        monitor_id=monitor_id, trigger=trigger, params_json=params,
+                        job_id=job_id) for nid in node_ids]
+        db.add_all(rows)
+        db.flush()
+        # Retention is source-isolated and never deletes active tasks.
+        old_ids = [row[0] for row in db.query(MtrTask.id).filter(
+            MtrTask.trigger == trigger, MtrTask.status.in_(['done', 'failed']),
+        ).order_by(MtrTask.id.desc()).offset(KEEP).all()]
+        if old_ids:
+            db.query(MtrTask).filter(MtrTask.id.in_(old_ids)).delete(synchronize_session=False)
+        db.commit()
+        for row in rows:
+            db.refresh(row)
+        return rows
+    except Exception:
+        db.rollback()
+        raise
 
 
 def update_mtr_live(db: Session, task_id: int, live: dict) -> None:
@@ -99,8 +127,11 @@ def list_mtr_for_monitor(db: Session, monitor_id: int, limit: int = 200) -> list
         .order_by(MtrTask.id.desc()).limit(limit).all()
 
 
-def list_mtr(db: Session, limit: int = 100) -> list[MtrTask]:
-    return db.query(MtrTask).order_by(MtrTask.id.desc()).limit(limit).all()
+def list_mtr(db: Session, limit: int = 100, trigger: str | None = None) -> list[MtrTask]:
+    query = db.query(MtrTask)
+    if trigger is not None:
+        query = query.filter(MtrTask.trigger == trigger)
+    return query.order_by(MtrTask.id.desc()).limit(limit).all()
 
 
 def get_mtr(db: Session, task_id: int) -> MtrTask | None:

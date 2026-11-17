@@ -1,0 +1,45 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+import {createServer} from 'vite';
+import vue from '@vitejs/plugin-vue';
+import {chromium} from 'playwright';
+const root=process.cwd(),out=path.resolve(process.env.STELLA_QA_OUTPUT||'node_modules/.cache/experience/startup-admission'),port=15932,origin=`http://127.0.0.1:${port}`;
+fs.mkdirSync(out,{recursive:true});
+const bundled=out+'/startup-browser-harness.mjs';
+await build({stdin:{contents:fs.readFileSync(root+'/e2e/experience-independent-harness.ts','utf8').replaceAll('127.0.0.1:15487',`127.0.0.1:${port}`).replace("from '@playwright/test'",'from '+JSON.stringify(import.meta.resolve('@playwright/test'))),resolveDir:root+'/e2e',loader:'ts'},bundle:true,platform:'node',format:'esm',packages:'external',outfile:bundled});
+const {setup,expected}=await import(bundled);
+const server=await createServer({root,configFile:false,envDir:out+'/empty-env',plugins:[vue()],cacheDir:out+'/browser-vite',optimizeDeps:{entries:['src/main.ts']},server:{host:'127.0.0.1',port,strictPort:true,proxy:{},hmr:false}});
+const files=['src/App.vue','src/modules/home/auth.ts','src/modules/home/Live2dWidget.vue','src/modules/home/live2dAdmission.ts','src/modules/home/BgLayer.vue','src/stores/navigation.ts','src/shell/SideBar.vue'];
+const hashes=()=>Object.fromEntries(files.map(file=>[file,createHash('sha256').update(fs.readFileSync(root+'/'+file)).digest('hex')]));
+let browser;const report={commit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),sources:hashes(),cases:[],errors:[]};
+try{
+ await server.listen();browser=await chromium.launch({executablePath:process.env.CHROME_BIN||process.env.STELLA_CHROMIUM||chromium.executablePath(),headless:true,args:['--no-sandbox']});
+ const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ const h=await setup(page,{held:['auth','navigation','modules'],storage:{stella_live2d:'on'}});
+ await page.route(origin+'/avatar.png',r=>r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"/>'}));
+ let scripts=0;let release;const gate=new Promise(r=>release=r);
+ await page.route(origin+'/live2dcubismcore.min.js',async r=>{scripts++;await gate;await r.abort();});
+ await page.goto(origin,{waitUntil:'domcontentloaded'});
+ const links=()=>page.locator('.sidebar nav a.nav-item').count();
+ assert.equal(await links(),0);h.gates.auth.release();await page.waitForTimeout(100);assert.equal(await links(),0);assert.equal(scripts,0);
+ h.gates.navigation.release();await page.locator('.sidebar nav a.nav-item').first().waitFor();
+ assert.equal(h.gates.modules.requests,0,'first complete menu cannot depend on full modules/code');
+ const rows=await page.locator('.sidebar nav a.nav-item').evaluateAll(es=>es.map(e=>({label:e.querySelector('.label')?.textContent?.trim(),href:e.getAttribute('href')})));
+ assert.deepEqual(rows,expected.map(({label,href})=>({label,href})));
+ await page.waitForFunction(()=>!!document.querySelector('script[src="/live2dcubismcore.min.js"]'));
+ await page.evaluate(()=>window.__startupRuntime=document.querySelector('script[src="/live2dcubismcore.min.js"]'));
+ assert.equal(scripts,1);await page.locator('.sidebar a[href="/apps/qa-drive"]').click();await page.locator('.external-page iframe').waitFor();await page.locator('.live2d-host').waitFor({state:'detached'});await page.locator('.sidebar a[href="/"]').click();await page.locator('.live2d-host').waitFor();await page.waitForTimeout(1100);
+ assert(await page.evaluate(()=>window.__startupRuntime===document.querySelector('script[src="/live2dcubismcore.min.js"]')),'retained home must keep its original runtime owner');
+ assert.equal(scripts,1,'hot home return must not restart runtime/model loading');
+ const timeline=await page.evaluate(()=>window.__experience);
+ for(const sample of timeline.navigation.filter(sample=>sample.rows.length))assert.deepEqual(sample.rows.map(({label,href})=>({label,href})),expected.map(({label,href})=>({label,href})),'first and every interactive sidebar must be complete');
+ report.cases.push({rows,scripts,timeline,requests:h.requests,unknown:h.unknown,pageErrors:h.errors,consoleErrors:h.consoleErrors});
+ assert.deepEqual(h.unknown,[]);assert.deepEqual(h.errors,[]);assert.deepEqual(h.consoleErrors,[]);
+ assert.deepEqual(report.sources,hashes(),'tested sources unchanged during browser run');
+ await page.screenshot({path:out+'/cold-sidebar.png'});release();
+}catch(error){report.errors.push(error.stack);process.exitCode=1;}
+finally{fs.writeFileSync(out+'/'+(process.env.STARTUP_RED?'browser-red':'browser-green')+'.json',JSON.stringify(report,null,2));await browser?.close();await server.close();}

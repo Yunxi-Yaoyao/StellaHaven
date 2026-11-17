@@ -2,6 +2,7 @@
 import {ref,onMounted,onBeforeUnmount} from 'vue';
 import {listVersions,versionDiff,restoreVersion,type Doc,type NoteVersion} from '../../api/notes';
 import {ApiError} from '../../api/client';
+import './notesModal.css';
 const props=defineProps<{doc:Doc;dirty:boolean}>();
 const emit=defineEmits<{close:[];restored:[doc:Doc]}>();
 const versions=ref<NoteVersion[]>([]),diff=ref(''),error=ref(''),loading=ref(true),busy=ref(false),confirm=ref<NoteVersion|null>(null);
@@ -23,8 +24,6 @@ async function restore(){if(!confirm.value||busy.value||props.dirty)return;busy.
  </section></div></Teleport>
 </template>
 <style>
-.notes-modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;display:grid;place-items:center;padding:20px}
-.notes-modal{background:var(--bg-panel);color:var(--text-hi);border:1px solid var(--bg-raised);border-radius:var(--radius);padding:20px;width:min(680px,95vw);max-height:85vh;overflow:auto;box-shadow:0 16px 60px #0008}
-.notes-modal header{display:flex;align-items:center;justify-content:space-between;gap:12px}.notes-modal h2{font-size:18px;margin:0}.notes-modal p{color:var(--text-lo);font-size:13px;line-height:1.6}.notes-modal button{border:1px solid var(--accent-dim);background:var(--bg-raised);color:var(--text-hi);padding:6px 10px;border-radius:var(--radius-sm);cursor:pointer}.notes-modal button:disabled{opacity:.5;cursor:not-allowed}.notes-modal button.danger{color:var(--pink);border-color:var(--pink)}
+
 .version-modal ul{padding:0;list-style:none;max-height:220px;overflow:auto}.version-modal li{display:flex;align-items:center;gap:8px;padding:8px 0}.version-modal li span{flex:1;font-size:13px}.version-diff{white-space:pre-wrap;background:var(--bg-raised);padding:12px;font-size:13px;overflow-wrap:anywhere}.version-confirm{border-top:1px solid var(--pink);padding-top:8px}.version-confirm button+button{margin-left:8px}
 </style>

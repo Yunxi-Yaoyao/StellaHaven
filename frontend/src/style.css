@@ -1,25 +1,43 @@
+@import "./modules/home/theme.css";
+@import "./shell/secondary-navigation.css";
+@import "./shell/controls.css";
+
 /* ============================================================
    Stella Design Tokens — 高级二次元 · 暗夜系
    全站只引用变量，不写死色值。改这里 = 全站换肤。
    ============================================================ */
 
 :root {
-  /* 底色：深夜蓝黑三层 */
-  --bg-base: #0d0f14;        /* 最底层 */
-  --bg-panel: #14171f;       /* 侧边栏 / 卡片 */
-  --bg-raised: #1b1f2a;      /* 悬浮 / 输入框 / hover */
+  /* 全站固定深色，与设备级主页构图独立；表格/代码/弹层复用同一层次。 */
+  color-scheme: dark;
+  --bg-base: #111216;
+  --bg-panel: #191a20;
+  --bg-raised: #252730;
+  --bg-sidebar: #121317;
 
-  /* 主色：月白银 */
-  --accent: #c9d4e8;
-  --accent-dim: #8a94ab;
+  /* Approved A defaults; the independent appearance store applies A/B. */
+  --accent: #C6B5FA;
+  --accent-dim: #504463;
+  --selected-bg: #302A43;
+  --selected-border: #504463;
+  --button-top: #77619F;
+  --button-bottom: #51416F;
+  --button-border: #9781BB;
+  --pink: #EFB3C6;
+  --warm: #EFB3C6;
+  --metric-cpu: #BAC4FA;
+  --metric-memory: #D0B9FA;
+  --metric-disk: #F1B8CA;
+  --metric-cpu-start: #747EBB;
+  --metric-memory-start: #8870BB;
+  --metric-disk-start: #AC708C;
+  --success: #9ac8ad;
+  --warning: #e5c18c;
+  --danger: #ef939d;
 
-  /* 点缀：一点樱粉（克制使用） */
-  --pink: #e8a0bf;
-
-  /* 文字 */
-  --text-hi: #e8ecf4;
-  --text-lo: #9aa3b5;
-  --text-faint: #5c6474;
+  --text-hi: #ececf3;
+  --text-lo: #b3b4c2;
+  --text-faint: #a1a2b0;
 
   /* 形状 */
   --radius: 12px;
@@ -27,7 +45,7 @@
   --blur: blur(12px);
 
   /* 字体（参考 Outline：Inter + 中文系统栈） */
-  --font-ui: "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-ui: "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "WenQuanYi Micro Hei", system-ui, sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
 
   /* 动效 */
@@ -81,4 +99,14 @@ a { color: inherit; text-decoration: none; }
 .ghost-btn:hover:not(:disabled) { border-color: var(--accent); }
 .ghost-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .ghost-btn.sm { padding: 2px 10px; font-size: 11px; }
-.ghost-btn.sm.danger:hover:not(:disabled) { color: #ff8f8f; border-color: #ff8f8f; }
+.ghost-btn.sm.danger:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+
+/* Primary actions share depth, not a bright flat slab; secondary actions remain quiet. */
+#app button:is(.primary, .confirm):not(.st-button) {
+  background: linear-gradient(170deg, var(--button-top), var(--button-bottom));
+  border: 1px solid var(--button-border);
+  color: #fff;
+  box-shadow: inset 0 1px #ffffff22, 0 3px 8px #0004;
+}
+:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+input[type="checkbox"], input[type="radio"] { accent-color:var(--accent); }

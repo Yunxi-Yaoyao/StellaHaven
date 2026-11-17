@@ -1,4 +1,5 @@
 import {test as base,expect,type Page} from '@playwright/test';
+import {createClientPreferencesFixture} from '../tests/fixtures/clientPreferences';
 
 const ROOT='http://127.0.0.1:15287';
 const workspaceId='11111111-1111-4111-8111-111111111111';
@@ -10,6 +11,7 @@ function checked(address:string){return {
  can_save:true,recommended_behavior:'embedded',issues:[],
 };}
 async function setup(page:Page){
+ const clientPreferences=createClientPreferencesFixture();
  const me={id:'cache-owner',username:'owner',display_name:'Cache owner',is_admin:true,avatar_url:'',home_bg:'',email:'',email_verified:false};
  const modules=Array.from({length:4},(_,i)=>({id:'c'+(i+1),name:i===0?'额度':'Cache '+(i+1),icon:'globe',adapter:'generic',origin:'https://c'+(i+1)+'.cache.test',mode:'iframe',browser_url:'https://cache.test/site/c'+(i+1),enabled:true,keep_alive:true,initial_path:'/',injection:{draft:null,active:null,previous:null},capabilities:{injection:false}}));
  const unknown:string[]=[],errors:string[]=[],requests:{path:string;method:string}[]=[],launches:string[]=[],frames:string[]=[];
@@ -33,6 +35,7 @@ async function setup(page:Page){
   if(u.origin!==ROOT){unknown.push(m+' '+u.href);return route.abort('blockedbyclient');}
   requests.push({path:p,method:m});
   if(holds.has(key))await holds.get(key)!.promise;
+  const preference=clientPreferences.respond(m,p+u.search);if(preference)return route.fulfill(preference);
   if(key==='GET /auth/me'||key==='POST /auth/refresh'||key==='POST /auth/login')return ok(me);
   if(key==='POST /auth/logout'||key==='POST /auth/activity')return ok({ok:true});
   if(key==='GET /auth/security')return ok({enabled:true,configured:true,elevated:false,expires_at:null,single_user:true,setup_required:false});

@@ -43,12 +43,33 @@ def test_create_monitor_bad_node(client):
     assert resp.status_code == 404
 
 
-def test_create_monitor(client):
+def test_create_monitor(client, db_session):
+    from app.models.monitor import Monitor, MonitorCheck
     n = _mk_node(client)
     m = _mk_monitor(client, n["id"])
-    assert m["status"] == "unknown"
+    # Business projection is binary; a pending source has no target result.
+    assert m["status"] == "down"
+    assert m["status_reason"] == "source_pending"
     assert m["node_id"] == n["id"]
     assert m["type"] == "tcp"
+    listed = {x["id"]: x for x in client.get("/monitors/").json()}[m["id"]]
+    assert (listed["status"], listed["status_reason"]) == ("down", "source_pending")
+    # Read projection must not synthesize a failed check or overwrite storage.
+    db_session.expire_all()
+    stored = db_session.get(Monitor, m["id"])
+    assert stored.status == "unknown" and stored.last_check_at is None
+    assert db_session.query(MonitorCheck).filter_by(monitor_id=m["id"]).count() == 0
+
+
+def test_monitor_management_requires_login_and_hides_missing_resources(client):
+    from main import app
+    from fastapi.testclient import TestClient
+    with TestClient(app, headers={"Origin": "http://testserver"}) as anon:
+        assert anon.get("/monitors/").status_code == 401
+        assert anon.post("/monitors/", json={"name": "denied", "type": "tcp",
+            "target": "1.1.1.1:80", "node_id": 999999}).status_code == 401
+    assert client.patch("/monitors/999999", json={"name": "missing"}).status_code == 404
+    assert client.get("/monitors/999999/mtr").status_code == 404
 
 
 def test_list_monitors(client):

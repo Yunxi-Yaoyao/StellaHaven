@@ -1,0 +1,20 @@
+import {createApp,nextTick} from 'vue';
+import {it,expect,vi,afterEach} from 'vitest';
+import {readFileSync} from 'node:fs';
+import {createHash,webcrypto} from 'node:crypto';
+import AgentManager from './AgentManager.vue';
+import {auth,type Me} from '../home/auth';
+let app:ReturnType<typeof createApp>|undefined;
+const tick=async()=>{for(let i=0;i<50;i++)await Promise.resolve();await nextTick();};
+afterEach(()=>{app?.unmount();document.body.replaceChildren();vi.unstubAllGlobals();auth.me=null;});
+it('separates download source, parked auto-update announcement and node runtime; verifies the actual read source',async()=>{
+ auth.me={id:'fixture-owner',username:'fixture'} as Me;auth.suspended=false;auth.sessionClosing=false;
+ HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
+ const body=readFileSync('../agent/stella_agent.py');const hash=createHash('sha256').update(body).digest('hex');
+ vi.stubGlobal('crypto',webcrypto);URL.createObjectURL=vi.fn(()=> 'blob:test');URL.revokeObjectURL=vi.fn();
+ const calls:string[]=[];vi.stubGlobal('fetch',vi.fn(async(input:string)=>{calls.push(input);if(input==='/agent/version')return new Response(JSON.stringify({version:'0.6.16'}));if(input==='/agent/release')return new Response(JSON.stringify({source_version:'0.6.18',source_sha256:hash,source_size:body.length,announcement_version:'0.6.16',rollout_policy:'pinned'}));if(input==='/agent/script')return new Response(body);throw Error('Unexpected '+input);}));
+ const root=document.createElement('div');document.body.append(root);app=createApp(AgentManager,{open:true,nodes:[{id:2,name:'测试节点',status:'online',agent_version:'0.6.18'}]});app.mount(root);await tick();
+ expect(root.textContent).toContain('下载源码版本');expect(root.textContent).toContain('自动更新公告版本');expect(root.textContent).toContain('已锁定');expect(root.textContent).toContain('0.6.16');expect(root.textContent).toContain('0.6.18');expect(root.textContent).not.toContain('与发行版本不同');expect(calls).not.toContain('/agent/script');
+ [...root.querySelectorAll('button')].find(b=>b.textContent==='源码')!.click();await tick();[...root.querySelectorAll('button')].find(b=>b.textContent==='查看源码')!.click();await vi.waitFor(()=>expect(root.querySelector('pre')?.textContent).toBe(body.toString('utf8')));
+ expect(root.textContent).toContain('与下载源码信息一致');expect(root.textContent).not.toContain('与发行公告不一致');expect(calls.every(p=>['/agent/version','/agent/release','/agent/script'].includes(p))).toBe(true);
+});

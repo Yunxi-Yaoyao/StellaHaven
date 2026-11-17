@@ -56,9 +56,10 @@ const id = ref(7);
 async function settle() { for (let i = 0; i < 50; i++) await Promise.resolve(); await nextTick(); }
 async function mount(component: Component = Detail, props: Record<string, unknown> = {}) {
   host = document.createElement('div'); document.body.append(host);
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { render: () => null } }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: ['/', '/status'].map(path => ({ path, component: { render: () => null } })) });
   await router.push('/'); await router.isReady();
   app = createApp({ render: () => h(component, { nodeId: id.value, ...props }) }); app.use(router); app.mount(host); await settle();
+  return router;
 }
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-10T08:00:00Z')); vi.resetAllMocks(); charts.length = 0; id.value = 7;
@@ -129,10 +130,23 @@ test.each([
   ['online', '2026-10-10T07:56:59Z', '数据已过期'],
   ['online', 'invalid', '采样状态未知'],
 ])('hardware is not presented as current when %s / %s', async (status, sampledAt, reason) => {
+  const sample = { ...hardware, sampled_at: sampledAt };
   vi.mocked(api.getNodeDetail).mockResolvedValue({ ...node, status,
-    sys_info: { hardware: { ...hardware, sampled_at: sampledAt } } } as any);
-  await mount();
-  const text = host.querySelector('[aria-label="硬件信息"]')!.textContent!;
+    sys_info: { hardware: sample } } as any);
+  const router = await mount();
+  if (status === 'offline') {
+    // Offline detail is intentionally rejected; keep that routing contract and
+    // exercise retained-sample freshness on the panel that owns its display.
+    expect(router.currentRoute.value.fullPath).toBe('/status?view=nodes');
+    expect(host.querySelector('[aria-label="硬件信息"]')).toBeNull();
+    expect(api.getNodeMetrics).not.toHaveBeenCalled();
+    expect(charts).toHaveLength(0);
+    app!.unmount(); host.remove();
+    await mount(HardwarePanel, { hardware: sample, status, now: Date.now() });
+  }
+  const panel = host.querySelector('[aria-label="硬件信息"]');
+  expect(panel).not.toBeNull();
+  const text = panel!.textContent!;
   expect(host.querySelectorAll('.sample-status')).toHaveLength(1);
   expect(text).toContain(reason);
   expect(text).not.toContain('最近采样');
@@ -172,8 +186,8 @@ test('hardware aging continues while an existing detail request is stuck without
 });
 
 test.each([
-  ['physical', '物理机'], ['virtual', '虚拟机'], ['container', '容器'], ['unknown', '未确定'],
-  [undefined, '未确定'], ['invalid', '未确定'],
+  ['physical', '物理机'], ['virtual', '虚拟机'], ['container', '容器'], ['unknown', '未判定'],
+  [undefined, '未判定'], ['invalid', '未判定'],
 ])('node detail and real list cards use reported machine kind %s, never node names or VBS', async (kind, label) => {
   const machine = kind === undefined ? undefined : { kind, vendor: 'ACME', model: 'Node model',
     virtualization: 'Hyper-V / VBS enabled', evidence: ['SMBIOS chassis evidence'], detected_at: hardware.sampled_at };
@@ -193,7 +207,7 @@ test.each([
   const cards = [...host.querySelectorAll('.grid > .card')];
   expect(cards).toHaveLength(2);
   expect(cards[0]!.querySelector('.machine-badge')?.textContent).toBe(label);
-  expect(cards[1]!.querySelector('.machine-badge')?.textContent).toBe('未确定');
+  expect(cards[1]!.querySelector('.machine-badge')?.textContent).toBe('未判定');
 });
 
 test.each(['physical', 'virtual', 'container', 'unknown', undefined])(

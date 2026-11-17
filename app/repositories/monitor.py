@@ -43,6 +43,8 @@ def remove(db: Session, monitor_id: int) -> None:
         # MTR history remains readable by node/target after its monitor is removed.
         db.query(MtrTask).filter(MtrTask.monitor_id == monitor_id).update({"monitor_id": None})
         db.query(MonitorCheck).filter(MonitorCheck.monitor_id == monitor_id).delete()
+        from app.models.monitor import MonitorGroupMember
+        db.query(MonitorGroupMember).filter_by(monitor_id=monitor_id).delete(synchronize_session=False)
         db.delete(monitor)
         db.commit()
     except Exception:
@@ -64,23 +66,25 @@ def update(db: Session, monitor_id: int, fields: dict) -> Monitor | None:
 
 # ── 探测结果 ──
 def insert_check(db: Session, monitor_id: int, ts: datetime, success: bool,
-                 latency_ms: float | None, loss_pct: float | None) -> int:
+                 latency_ms: float | None, loss_pct: float | None, *, commit: bool = True) -> int:
     """写一次探测结果。幂等（同 monitor 同 ts 去重）。"""
     stmt = pg_insert(MonitorCheck).values(
         monitor_id=monitor_id, ts=ts, success=success,
         latency_ms=latency_ms, loss_pct=loss_pct,
     ).on_conflict_do_nothing(constraint="uq_monitor_check")
     result = db.execute(stmt)  # type: ignore[assignment]  # CursorResult，有 rowcount
-    db.commit()
+    if commit:
+        db.commit()
     return result.rowcount
 
 
 def update_last_result(db: Session, monitor_id: int, status: str,
-                       ts: datetime, latency_ms: float | None) -> None:
+                       ts: datetime, latency_ms: float | None, *, commit: bool = True) -> None:
     db.query(Monitor).filter(Monitor.id == monitor_id).update({
         "status": status, "last_check_at": ts, "last_latency_ms": latency_ms,
     })
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def list_checks(db: Session, monitor_id: int, limit: int = 200) -> list[MonitorCheck]:

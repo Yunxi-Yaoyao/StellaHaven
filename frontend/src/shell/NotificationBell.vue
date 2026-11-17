@@ -1,14 +1,56 @@
 <script setup lang="ts">
-// 通知铃铛：挂在侧栏底行，未读角标 + 上弹出下拉面板。
+// 通知铃铛：导航顶部入口，浮层传送到 body，避免侧栏层叠与裁剪。
 // 数据源是全局 notifications store（WS 实时 + 30s 轮询兜底）。
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch, useId } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "./Icon.vue";
+import NotificationDetail from "./NotificationDetail.vue";
 import { notifications, notificationActions } from "../stores/notifications";
+import type { NotificationOrigin } from './notificationMotion';
+const origin=ref<NotificationOrigin>();
+async function detailClosed(){
+  selected.value=undefined;
+  await nextTick();
+  if(open.value&&origin.value?.element.isConnected)origin.value.element.focus();
+  else trigger.value?.focus();
+  origin.value=undefined;
+}
 
+const props = withDefaults(defineProps<{active?:boolean}>(), {active:true});
 const open = ref(false);
+const selected=ref<number>();
+watch(() => props.active, value => { if (!value) {close(false);selected.value=undefined;} });
 const root = ref<HTMLElement | null>(null);
 const router = useRouter();
+const panel = ref<HTMLElement | null>(null);
+const trigger = ref<HTMLButtonElement | null>(null);
+const panelId = useId();
+const position = ref({ left:'8px', top:'8px', maxHeight:'420px' });
+function place() {
+  if (!open.value || !trigger.value) return;
+  const rect = trigger.value.getBoundingClientRect();
+  // Hidden mobile navigation must not leave a floating notification window behind.
+  if (rect.right <= 0 || rect.left >= innerWidth) { close(false); return; }
+  const width = Math.min(360, innerWidth - 16);
+  const left = Math.max(8, Math.min(rect.left, innerWidth - width - 8));
+  const top = Math.min(rect.bottom + 8, Math.max(8, innerHeight - 160));
+  position.value = { left:`${left}px`, top:`${top}px`, maxHeight:`${Math.max(80, innerHeight - top - 8)}px` };
+}
+function close(restore = true) {
+  open.value = false;
+  if (restore) trigger.value?.focus();
+}
+function onKey(event: KeyboardEvent) {
+  if (!open.value || selected.value) return;
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
+  if (event.key === 'Tab') {
+    const buttons = [...(panel.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])];
+    const first = buttons[0], last = buttons.at(-1);
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.value)) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+}
+watch(() => router.currentRoute.value.fullPath, () => {close(false);selected.value=undefined;});
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: "#e5605c",
@@ -27,26 +69,41 @@ function relTime(ts: string): string {
 }
 
 async function toggle() {
-  open.value = !open.value;
-  if (open.value) await notificationActions.refreshList();
+  if (!props.active) return;
+  if (open.value) { close(); return; }
+  open.value = true; place();
+  await nextTick(); panel.value?.focus();
+  await notificationActions.refreshList();
 }
 
-async function openItem(id: number, link: string | null) {
-  await notificationActions.readOne(id);
-  open.value = false;
-  if (link) router.push(link);
+function openItem(id: number, event: MouseEvent) {
+  if(selected.value===id)return;
+  const element=event.currentTarget as HTMLElement;
+  origin.value=panel.value?{element,rect:element.getBoundingClientRect(),panel:panel.value}:undefined;
+  selected.value=id;
 }
 
-function onDocClick(e: MouseEvent) {
-  if (root.value && !root.value.contains(e.target as Node)) open.value = false;
+function onDocClick(e: Event) {
+  if (!selected.value && !root.value?.contains(e.target as Node) && !panel.value?.contains(e.target as Node)) close(false);
 }
-onMounted(() => document.addEventListener("pointerdown", onDocClick));
-onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocClick));
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocClick);
+  document.addEventListener('keydown', onKey);
+  window.addEventListener('resize', place);
+  window.addEventListener('scroll', place, true);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocClick);
+  document.removeEventListener('keydown', onKey);
+  window.removeEventListener('resize', place);
+  window.removeEventListener('scroll', place, true);
+});
 </script>
 
 <template>
   <div ref="root" class="bell-root">
     <button
+      ref="trigger" aria-label="通知" aria-haspopup="dialog" :aria-expanded="open" :aria-controls="panelId" :inert="!!selected"
       class="bell-btn"
       :class="{ active: open }"
       :title="notifications.unread ? `${notifications.unread} 条未读通知` : '通知'"
@@ -58,8 +115,8 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocClick));
       </span>
     </button>
 
-    <Transition name="pop">
-      <div v-if="open" class="panel">
+    <Teleport to="body"><Transition name="pop">
+      <div v-if="open" :id="panelId" ref="panel" class="panel" :style="position" :inert="!!selected" :aria-hidden="selected ? 'true' : undefined" role="dialog" aria-label="通知" tabindex="-1" data-notification-panel>
         <div class="panel-head">
           <span class="panel-title">通知</span>
           <button
@@ -69,6 +126,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocClick));
           >
             全部已读
           </button>
+          <button class="read-all" aria-label="关闭通知" @click="close()">关闭</button>
         </div>
         <div class="panel-body">
           <div v-if="!notifications.items.length" class="empty">还没有通知喵~</div>
@@ -77,7 +135,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocClick));
             :key="n.id"
             class="item"
             :class="{ unread: !n.read }"
-            @click="openItem(n.id, n.link)"
+            @click="openItem(n.id, $event)"
           >
             <span class="dot" :style="{ background: SEVERITY_COLORS[n.severity] || '#9aa3b5' }" />
             <span class="item-main">
@@ -88,7 +146,8 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocClick));
           </button>
         </div>
       </div>
-    </Transition>
+    </Transition></Teleport>
+    <NotificationDetail v-if="selected" :key="selected" :id="selected" :origin="origin" @close="detailClosed" />
   </div>
 </template>
 
@@ -131,11 +190,9 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocClick));
 }
 
 .panel {
-  position: absolute;
-  bottom: 40px;
-  left: 0;
-  width: 320px;
-  max-height: 420px;
+  position: fixed;
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(420px, calc(100dvh - 16px));
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--bg-panel, #1a1e28) 96%, transparent);
@@ -144,7 +201,8 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocClick));
   border-radius: 14px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   overflow: hidden;
-  z-index: 60;
+  /* Above navigation/content, below authentication and destructive dialogs. */
+  z-index: 200;
 }
 
 .panel-head {
@@ -207,8 +265,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocClick));
 
 .pop-enter-active, .pop-leave-active { transition: opacity 0.16s, transform 0.16s; }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(6px); }
+@media(prefers-reduced-motion:reduce){.pop-enter-active,.pop-leave-active{transition:opacity .12s}.pop-enter-from,.pop-leave-to{transform:none}.item,.bell-btn{transition:none}}
 
-@media (max-width: 720px) {
-  .panel { position: fixed; left: 12px; right: 12px; bottom: 76px; width: auto; }
-}
+button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 </style>

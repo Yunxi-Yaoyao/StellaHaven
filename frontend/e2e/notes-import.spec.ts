@@ -1,3 +1,4 @@
+import {installLegacyBoundary} from './notes-legacy-boundary';
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test';
 let browser: Browser;
 let page: Page;
@@ -12,7 +13,7 @@ test.beforeAll(async () => { browser = await chromium.launch({ executablePath: '
 test.afterAll(async () => { await browser.close(); });
 test.beforeEach(async () => {
   creates = []; finalizes = []; mutations = []; lists = 0; failSecond = false; failFinalize = false;
-  page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); await page.routeWebSocket('**/*',socket=>socket.close());
   const docs: any[] = [{ ...existing }];
   await page.route('**/*', async route => {
     const request = route.request(); const url = new URL(request.url()); const p = url.pathname;
@@ -38,8 +39,8 @@ test.beforeEach(async () => {
     if (p.startsWith('/auth/') || p.startsWith('/api/')) return ok({});
     return route.continue();
   });
-  await page.addInitScript(() => { localStorage.clear(); localStorage.setItem('stella_bootstrap', JSON.stringify({ userId:'user-a', workspaceId:'ws-a' })); });
-  await page.goto('http://127.0.0.1:5173/notes');
+  await installLegacyBoundary(page);await page.addInitScript(() => { localStorage.clear(); localStorage.setItem('stella_bootstrap', JSON.stringify({ userId:'user-a', workspaceId:'ws-a' })); });
+  await page.goto('http://127.0.0.1:15186/notes');
   await expect(page.locator('.doc-list')).toBeVisible();
 });
 test.afterEach(async () => { await page.close(); });

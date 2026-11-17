@@ -32,6 +32,7 @@ class Node(Base):
     components: Mapped[dict | None] = mapped_column(JSONB, nullable=True)          # 组件检测状态：{"iperf3": bool, "speedtest": bool}（agent 心跳上报）
     os_name: Mapped[str | None] = mapped_column(String(128), nullable=True)        # 发行版友好名（agent 采集 /etc/os-release PRETTY_NAME）
     sys_info: Mapped[dict | None] = mapped_column(JSONB, nullable=True)            # 基本信息面板：{kernel, cpu_model, cpu_cores, load1/5/15, boot_time}
+    control_channel: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # ── 标记：内网/公网 + 公网 IP 信息 ──
     net_type: Mapped[str] = mapped_column(String(16), nullable=False, default="internal")  # internal / public
     public_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)               # 公网 IP
@@ -60,6 +61,9 @@ class NodeMetric(Base):
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # 采样时间（agent 传，非入库时间）
     rx_delta: Mapped[int] = mapped_column(BigInteger, nullable=False)        # 该 5s 窗口下行字节增量
     tx_delta: Mapped[int] = mapped_column(BigInteger, nullable=False)        # 该 5s 窗口上行字节增量
+    interval_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    elapsed_seconds: Mapped[float | None] = mapped_column(nullable=True)
+    quality: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
 
 class NodeSysMetric(Base):

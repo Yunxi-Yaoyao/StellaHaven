@@ -129,16 +129,93 @@ APPLICATION_ENV_KEYS = frozenset({
 })
 
 
-def validate_application_env_overrides(overrides):
-    require(isinstance(overrides, dict) and set(overrides) == APPLICATION_ENV_KEYS,
+# The original six-field approval remains an exact, separate contract. A new
+# approval must provide BOTH additions; arbitrary env or partial upgrades fail.
+APPLICATION_ENTRY_ENV_KEYS = APPLICATION_ENV_KEYS | {'STELLA_ENTRY_REGISTRY', 'STELLA_BACKUP_DIRECTORY'}
+APPLICATION_FILE_ENV_KEYS = APPLICATION_ENTRY_ENV_KEYS | {'STELLA_NODE_FILES_ENABLED'}
+APPLICATION_PRIVATE_ORIGIN = 'https://stella.p.xiya.live'
+APPLICATION_BACKUP_DIRECTORY = '/var/cache/stella/backups'
+
+
+def validate_entry_registry(raw, main):
+    def unique_fields(pairs):
+        require(len(dict(pairs)) == len(pairs), 'application entry registry duplicate JSON fields')
+        return dict(pairs)
+
+    try:
+        rows = json.loads(raw, object_pairs_hook=unique_fields)
+    except (TypeError, ValueError):
+        raise ValueError('application entry registry invalid JSON') from None
+    require(isinstance(rows, list) and rows, 'application entry registry must be a nonempty array')
+    services, origins = set(), set()
+    fixed = {
+        'stella': {'public': main, 'private': APPLICATION_PRIVATE_ORIGIN},
+        'web-project-runtime': {'public': 'https://pages.xiya.live', 'private': 'https://pages.p.xiya.live'},
+        'gallery': {'public': 'https://immich.xiya.live', 'private': 'https://immich.p.xiya.live'},
+    }
+    for row in rows:
+        require(isinstance(row, dict) and set(row) in ({'service_id', 'public'}, {'service_id', 'public', 'private'}),
+                'application entry registry record fields invalid')
+        sid = row['service_id']
+        require(isinstance(sid, str) and re.fullmatch('[a-zA-Z0-9_-]{1,64}', sid) and sid not in services,
+                'application entry registry service ID invalid or duplicated')
+        services.add(sid)
+        if sid in fixed:
+            require('private' in row, 'application entry registry fixed service requires an explicit pair')
+            expected = fixed[sid]
+        elif row['public'] == fixed['gallery']['public']:
+            # Website migration retains the persisted module ID while replacing
+            # the legacy gallery alias with a direct iframe entry. Admit only
+            # this already-owned exact pair, not arbitrary direct-site origins.
+            require(re.fullmatch('[0-9a-f]{32}', sid) and 'private' in row,
+                    'application direct gallery requires a stable module ID and explicit pair')
+            expected = fixed['gallery']
+        else:
+            # Match integrations.derived_origin's app-<stable ID> authority.
+            # Enforce a canonical DNS label as well as the registry ID syntax;
+            # never turn an arbitrary external origin into a private hostname.
+            require(re.fullmatch('[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', 'app-' + sid),
+                    'application entry registry module hostname invalid')
+            expected = {'public': 'https://app-' + sid + '.xiya.live',
+                        'private': 'https://app-' + sid + '.p.xiya.live'}
+        for lane in ('public', 'private'):
+            if lane in row:
+                origin = row[lane]
+                require(isinstance(origin, str) and origin == expected[lane],
+                        'application entry registry must use the exact approved HTTPS pair')
+                require(origin not in origins, 'application entry registry origin duplicated')
+                origins.add(origin)
+    require('stella' in services, 'application entry registry main service missing')
+
+
+def validate_application_env_overrides(overrides, *, mounts=None):
+    require(isinstance(overrides, dict) and set(overrides) in (APPLICATION_ENV_KEYS, APPLICATION_ENTRY_ENV_KEYS, APPLICATION_FILE_ENV_KEYS),
             'application environment must contain exactly approved fields')
     require(all(isinstance(v, str) and v and not any(c in v for c in '\n\r\x00')
                 for v in overrides.values()), 'application environment values invalid')
+    if 'STELLA_NODE_FILES_ENABLED' in overrides:
+        require(overrides['STELLA_NODE_FILES_ENABLED'] in {'0', '1'},
+                'application file automation flag must be exactly zero or one')
+    extended = set(overrides) in (APPLICATION_ENTRY_ENV_KEYS, APPLICATION_FILE_ENV_KEYS)
+    private = {APPLICATION_PRIVATE_ORIGIN} if extended else set()
+    if extended:
+        validate_entry_registry(overrides['STELLA_ENTRY_REGISTRY'], overrides['STELLA_MAIN_ORIGIN'])
+        require(overrides['STELLA_BACKUP_DIRECTORY'] == APPLICATION_BACKUP_DIRECTORY,
+                'application backup directory must use the fixed persistent default')
+        # Value-only callers may omit mount context. Inventory validation and
+        # both Node constructor boundaries always provide the existing pins.
+        # Do not create a directory, add a mount, or borrow scratch/PGDATA.
+        if mounts is not None:
+            require(isinstance(mounts, list) and all(isinstance(m, dict) for m in mounts),
+                    'application backup mount inventory invalid')
+            cache = [m for m in mounts if m.get('Destination') == '/var/cache/stella']
+            require(len(cache) == 1 and cache[0].get('Source') == BASE + 'cache' and cache[0].get('RW') is True,
+                    'application backup requires the existing exact writable persistent cache mount')
     public = {'https://stella.xiya.live', 'https://stella.yunxi.life'}
     health = {'http://127.0.0.1:25131', 'http://127.0.0.1:25132'}
     origins = overrides['STELLA_TRUSTED_ORIGINS'].split(',')
-    require(len(origins) == len(set(origins)) and health <= set(origins) and
-            set(origins) <= public | health and bool(public.intersection(origins)),
+    require(len(origins) == len(set(origins)) and health | private <= set(origins) and
+            set(origins) <= public | health | private and bool(public.intersection(origins)),
             'application trusted origins must be exact owned HTTPS and loopback health authorities')
     require(overrides['STELLA_MAIN_ORIGIN'] in public.intersection(origins),
             'application main origin must be a trusted owned HTTPS origin')
@@ -146,7 +223,7 @@ def validate_application_env_overrides(overrides):
     require(re.fullmatch('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', owner)
             and uuid.UUID(owner).int != 0, 'application owner must be an exact nonzero UUID')
     require(overrides['STELLA_COOKIE_SECURE'] == 'true', 'application secure cookies required')
-    require(overrides['STELLA_AGENT_ROLLOUT_VERSION'] in {'0.6.9', '0.6.10', '0.6.11', '0.6.12'},
+    require(overrides['STELLA_AGENT_ROLLOUT_VERSION'] in {'0.6.9', '0.6.10', '0.6.11', '0.6.12', '0.6.13', '0.6.14', '0.6.15'},
             'application agent rollout version rejected')
     require(overrides['STELLA_BACKUP_RECEIPT_DIR'] == '/app/data/backup-receipts',
             'application receipts must use the existing read-only model bundle')
@@ -185,7 +262,7 @@ class Node:
             require('application_env_overrides' in self.cfg, 'application upgrade approval required')
         require('target_mounts' not in self.cfg, 'target mounts unsupported; retain exact old mount inventory')
         if 'application_env_overrides' in self.cfg:
-            validate_application_env_overrides(self.cfg['application_env_overrides'])
+            validate_application_env_overrides(self.cfg['application_env_overrides'], mounts=self.cfg.get('mounts', []))
         require(self.cfg['host'] == NODES[self.node], 'node address mismatch')
         self.name = 'stella-app-shadow-' + self.node
         self.expected = request.get('expected_roles')
@@ -297,7 +374,7 @@ class Node:
         env = dict(row.split('=', 1) for row in old['Config']['Env'])
         require(len(env) == len(old['Config']['Env']), 'duplicate environment')
         if 'application_env_overrides' in self.cfg:
-            env.update(validate_application_env_overrides(self.cfg['application_env_overrides']))
+            env.update(validate_application_env_overrides(self.cfg['application_env_overrides'], mounts=self.cfg.get('mounts', [])))
             validate_receipt_bundle(self.cfg['mounts'])
         validate_environment(env)
         return run(args, '\n'.join(k+'='+v for k,v in env.items())+'\n')

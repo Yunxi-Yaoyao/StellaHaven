@@ -239,7 +239,7 @@ defineExpose({ focus, insertText, exec, flush, scrollToHeading });
   --crepe-font-code: var(--font-mono, monospace);
   background: transparent;
 }
-.rich-host :deep(.ProseMirror) { padding: 24px 48px 120px; min-height: 320px; font-size: 15px; line-height: 1.85; outline: none; }
+.rich-host :deep(.ProseMirror) { padding: 24px 48px 120px; min-height: 320px; font-size: 16px; line-height: 1.85; outline: none; }
 .rich-host :deep(.ProseMirror img) { max-width: 100%; }
 .rich-host :deep(.stella-opaque) { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 16px; border: 1px dashed var(--text-faint); border-radius: 8px; color: var(--text-lo); font: 13px/1.7 var(--font-mono, monospace); }
 .rich-host :deep(.stella-wiki) { color: var(--accent); border-radius: 3px; }

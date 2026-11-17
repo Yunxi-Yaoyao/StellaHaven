@@ -56,8 +56,8 @@ def test_docker_json_contract_has_no_stray_query_and_reaches_service(auth_env, m
     assert r.status_code==409 and calls==[(19,'restart','synthetic-test')],r.text
     params=app.openapi()['paths']['/nodes/{node_id}/docker-ctl']['post'].get('parameters',[])
     assert not any(p['name']=='DockerContainerAction' for p in params)
-    c.post('/auth/admin/lock')
-    assert c.post('/nodes/19/docker-ctl',json={'action':'restart','container':'synthetic-test'}).status_code==403
+    c.post('/auth/logout')
+    assert c.post('/nodes/19/docker-ctl',json={'action':'restart','container':'synthetic-test'}).status_code==401
     assert len(calls)==1
 
 
@@ -99,11 +99,14 @@ def test_agent_rollout_can_hold_version_until_helpers_are_seeded(auth_env, monke
     assert c.get('/agent/version').json() == {'version': '0.6.10'}
     monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.11')
     assert c.get('/agent/version').json() == {'version': '0.6.11'}
-    monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.13')
+    for parked in ('0.6.16', '0.6.17'):
+        monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', parked)
+        assert c.get('/agent/version').json() == {'version': parked}
+    monkeypatch.setenv('STELLA_AGENT_ROLLOUT_VERSION', '0.6.99')
     assert c.get('/agent/version').status_code == 503
     monkeypatch.delenv('STELLA_AGENT_ROLLOUT_VERSION')
     announced = c.get('/agent/version').json()
-    assert announced['version'] == '0.6.12'
+    assert announced['version'] == '0.6.20'
     assert len(announced['sha256']) == 64 and announced['size'] > 0
 
 
@@ -150,10 +153,10 @@ def test_workspace_bulk_delete_requires_management_grant(auth_env, monkeypatch):
     app.include_router(routes.router)
     calls = []
     monkeypatch.setattr(routes, 'delete_workspace', lambda db,wid,force: calls.append((wid,force)) or 'not_empty')
-    c.post('/auth/admin/lock')
+    c.post('/auth/logout')
     r = c.delete('/workspaces/'+str(ws.id)+'?force=true')
-    assert r.status_code == 403 and not calls, r.text
-    c.post('/auth/admin/unlock', json={'password': ADMIN})
+    assert r.status_code == 401 and not calls, r.text
+    assert c.post('/auth/login',json={'username':'owner','password':DAILY}).status_code==200
     assert c.delete('/workspaces/'+str(ws.id)+'?force=true').status_code == 409
     assert len(calls) == 1
 

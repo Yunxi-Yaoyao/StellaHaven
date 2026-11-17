@@ -8,6 +8,7 @@ import { GeoComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 echarts.use([LinesChart, ScatterChart, GeoComponent, TooltipComponent, CanvasRenderer]);
 import Icon from '../../shell/Icon.vue';
+import {notifyClientPreferenceChange} from '../settings/clientPreferenceEvents';
 import { isAdmin } from '../home/auth';
 import { getMapTopology, updateMapLocation, type MapTopology, type MapNode, type MapLinkState } from '../../api/serverMap';
 import { escapeHtml, groupMapNodes, aggregateNodePairs, healthColors, healthLabels, linkHealth, parseLocationInput, mapReasonLabel } from './worldMapHelpers';
@@ -144,6 +145,7 @@ function visibilityChanged() {
 }
 watch(collapsed, async value => {
   try { localStorage.setItem(storageKey, value ? '1' : '0'); } catch { /* optional preference */ }
+  notifyClientPreferenceChange('stella_server_world_map_collapsed',value ? '1' : '0');
   if (!value) { await nextTick(); render(); chart?.resize(); void refresh(); }
 });
 

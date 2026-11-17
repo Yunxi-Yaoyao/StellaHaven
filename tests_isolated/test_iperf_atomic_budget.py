@@ -1,7 +1,37 @@
 """Repository orchestration unit proof; separate PG barrier test required."""
 from unittest.mock import Mock
 import pytest
+# Match the service-first application entry point; use its real repository.
+from app.services.task import repo as task
+
+@pytest.mark.parametrize('module', ['tests_isolated.test_iperf_atomic_budget', 'tests_isolated.test_monitor_performance_pg'])
+def test_module_imports_in_fresh_process_without_db_or_stub(module):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    script = """
+import importlib, sys
+from pathlib import Path
+def guard(event, args):
+    if event == 'socket.connect':
+        raise AssertionError('collection must not connect')
+sys.addaudithook(guard)
+module = importlib.import_module(sys.argv[1])
 from app.repositories import task
+assert Path(task.__file__).resolve() == Path('app/repositories/task.py').resolve()
+assert 'main' not in sys.modules
+try:
+    from app.repositories.task import deliberately_missing_repository_symbol
+except ImportError:
+    pass
+else:
+    raise AssertionError('missing exports must fail, never permissive stubs')
+"""
+    result = subprocess.run([sys.executable, '-c', script, module], cwd=Path(__file__).resolve().parents[1],
+                            env=os.environ.copy(), capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+
 
 class DB:
     def __init__(self, active=0, fail=False):

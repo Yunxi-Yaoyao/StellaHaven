@@ -4,6 +4,8 @@
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "../../shell/Icon.vue";
+import Dropdown from "../../shell/Dropdown.vue";
+import {notifyClientPreferenceChange} from '../settings/clientPreferenceEvents';
 
 const route = useRoute();
 const router = useRouter();
@@ -11,6 +13,7 @@ const router = useRouter();
 const collapsed = ref(localStorage.getItem("stella_servers_fold") === "1");
 function toggleCollapsed() {
   collapsed.value = !collapsed.value;
+  notifyClientPreferenceChange('stella_servers_fold',collapsed.value ? '1' : '0');
   localStorage.setItem("stella_servers_fold", collapsed.value ? "1" : "0");
 }
 
@@ -30,6 +33,7 @@ function goView(v: string) {
 }
 function goTool(t: string) {
   toolsOpen.value = true;
+  notifyClientPreferenceChange('stella_tools_open','1');
   localStorage.setItem("stella_tools_open", "1");
   router.push({ path: "/status", query: { view: "tools", tool: t } });
 }
@@ -40,122 +44,71 @@ function toggleTools() {
     return;
   }
   toolsOpen.value = false;
+  notifyClientPreferenceChange('stella_tools_open','0');
   localStorage.setItem("stella_tools_open", "0");
 }
+// Mobile uses the same existing routes, including the speedtest mode inside iperf.
+const mobileOptions = [
+ {value:'overview',label:'总览'},{value:'nodes',label:'服务器'},{value:'files',label:'文件管理'},{value:'docker',label:'Docker'},{value:'alerts',label:'告警'},
+ {value:'iperf',label:'打流 / 测速',desc:'工具'},{value:'mtr',label:'MTR',desc:'工具'},{value:'command',label:'命令',desc:'工具'},{value:'records',label:'记录',desc:'工具'},
+];
+const mobileValue=computed(()=>inDetail.value?'':view.value==='tools'?tool.value:view.value);
+function mobileNavigate(value:string|number|boolean){const key=String(value);if(['iperf','mtr','command','records'].includes(key))goTool(key);else goView(key);}
 </script>
 
 <template>
-  <!-- 收起窄条把手 -->
-  <div v-if="collapsed" class="list-strip" title="展开列表" @click="toggleCollapsed">»</div>
+  <div class="servers-mobile-nav st-secondary-mobile"><span>服务器</span><Dropdown :model-value="mobileValue" :options="mobileOptions" @update:model-value="mobileNavigate" /></div>
+  <div v-if="collapsed" class="servers-expand"><button type="button" class="fold-btn" aria-label="展开列表" title="展开列表" :aria-expanded="false" @click="toggleCollapsed"><Icon name="chevron" :size="16" /></button></div>
+  <aside v-show="!collapsed" class="servers-bar st-secondary-nav" aria-label="服务器导航">
+    <div class="st-secondary-heading"><h2>服务器</h2><button type="button" class="fold-btn" aria-label="收起列表" title="收起列表" :aria-expanded="true" @click="toggleCollapsed">«</button></div>
 
-  <!-- 列表栏 -->
-  <aside v-show="!collapsed" class="servers-bar">
-    <button class="fold-btn" title="收起列表" @click="toggleCollapsed">«</button>
-
-    <button class="bar-item" :class="{ active: !inDetail && view === 'overview' }" @click="goView('overview')">
+    <button type="button" class="bar-item st-secondary-item" :class="{ active: !inDetail && view === 'overview' }" @click="goView('overview')">
       <Icon name="activity" :size="15" /><span class="bi-label">总览</span>
     </button>
 
-    <button class="bar-item" :class="{ active: !inDetail && view === 'nodes' }" @click="goView('nodes')">
+    <button type="button" class="bar-item st-secondary-item" :class="{ active: !inDetail && view === 'nodes' }" @click="goView('nodes')">
       <Icon name="server" :size="15" /><span class="bi-label">服务器</span>
     </button>
 
-    <button class="bar-item" :class="{ active: !inDetail && view === 'docker' }" @click="goView('docker')">
+    <button type="button" class="bar-item st-secondary-item" :class="{ active: !inDetail && view === 'files' }" @click="goView('files')">
+      <Icon name="folder" :size="15" /><span class="bi-label">文件管理</span>
+    </button>
+
+    <button type="button" class="bar-item st-secondary-item" :class="{ active: !inDetail && view === 'docker' }" @click="goView('docker')">
       <Icon name="box" :size="15" /><span class="bi-label">Docker</span>
     </button>
 
-    <button class="bar-item" :class="{ active: !inDetail && view === 'alerts' }" @click="goView('alerts')">
+    <button type="button" class="bar-item st-secondary-item" :class="{ active: !inDetail && view === 'alerts' }" @click="goView('alerts')">
       <Icon name="bell" :size="15" /><span class="bi-label">告警</span>
     </button>
 
-    <button class="bar-item" :class="{ 'active-parent': !inDetail && view === 'tools' }" @click="toggleTools">
+    <button type="button" class="bar-item st-secondary-item" :class="{ 'active-parent': !inDetail && view === 'tools' }" :aria-expanded="toolsOpen" @click="toggleTools">
       <Icon name="zap" :size="15" /><span class="bi-label">工具</span>
       <Icon :name="toolsOpen ? 'chevron-down' : 'chevron'" :size="12" class="vi-arrow" />
     </button>
-    <template v-if="toolsOpen">
-      <button class="bar-item sub" :class="{ active: view === 'tools' && tool === 'iperf' }" @click="goTool('iperf')">
+    <div v-if="toolsOpen" class="st-secondary-subnav">
+      <button type="button" class="bar-item sub st-secondary-item is-sub" :class="{ active: view === 'tools' && tool === 'iperf' }" @click="goTool('iperf')">
         <span class="bi-label">打流</span>
       </button>
-      <button class="bar-item sub" :class="{ active: view === 'tools' && tool === 'mtr' }" @click="goTool('mtr')">
+      <button type="button" class="bar-item sub st-secondary-item is-sub" :class="{ active: view === 'tools' && tool === 'mtr' }" @click="goTool('mtr')">
         <span class="bi-label">MTR</span>
       </button>
-      <button class="bar-item sub" :class="{ active: view === 'tools' && tool === 'command' }" @click="goTool('command')">
+      <button type="button" class="bar-item sub st-secondary-item is-sub" :class="{ active: view === 'tools' && tool === 'command' }" @click="goTool('command')">
         <span class="bi-label">命令</span>
       </button>
-      <button class="bar-item sub" :class="{ active: view === 'tools' && tool === 'records' }" @click="goTool('records')">
+      <button type="button" class="bar-item sub st-secondary-item is-sub" :class="{ active: view === 'tools' && tool === 'records' }" @click="goTool('records')">
         <span class="bi-label">记录</span>
       </button>
-    </template>
+    </div>
   </aside>
 </template>
 
 <style scoped>
-/* 收起窄条把手（与笔记 list-strip 一致） */
-.list-strip {
-  width: 26px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  background: var(--bg-panel);
-  border-radius: var(--radius) 0 0 var(--radius);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
-  color: var(--text-faint);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-.list-strip:hover { color: var(--accent); background: var(--bg-raised); }
-.servers-bar {
-  width: 132px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 16px 10px;
-  gap: 4px;
-  background: var(--bg-panel);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
-}
-.fold-btn {
-  align-self: flex-end;
-  background: transparent; border: none;
-  color: var(--text-faint); font-size: 14px; cursor: pointer;
-  padding: 2px 8px 6px; transition: color var(--transition);
-}
-.fold-btn:hover { color: var(--accent); }
-.bar-head {
-  font-size: 13px; font-weight: 600; letter-spacing: 1px;
-  padding: 2px 10px 10px; color: var(--text-hi);
-}
-.bar-item {
-  display: flex; align-items: center; gap: 9px;
-  padding: 9px 12px; border: none; border-radius: var(--radius-sm);
-  background: transparent; color: var(--text-lo); font-size: 13.5px;
-  cursor: pointer; text-align: left; transition: all var(--transition);
-}
-.bar-item:hover { background: var(--bg-raised); color: var(--text-hi); }
-.bar-item.active { background: var(--bg-raised); color: var(--accent); }
-/* 父项高亮（比子项淡）：工具视图下「工具」也有位置感 */
-.bar-item.active-parent { color: var(--accent); opacity: 0.85; }
-.bi-label { flex: 1; }
-.vi-arrow { opacity: 0.6; }
-.bar-item.sub { padding-left: 30px; font-size: 12.5px; }
-
-/* 移动端：横排 tab 条。桌面折叠记忆在移动端不生效——始终展开成 tab（v-show 内联 none 用 !important 盖掉） */
-@media (max-width: 768px) {
-  .list-strip { display: none; }
-  .servers-bar {
-    display: flex !important;
-    width: auto;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    padding: 8px 10px;
-    gap: 6px;
-    border-right: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  }
-  .fold-btn { display: none; }
-  .bar-item { padding: 6px 10px; font-size: 12.5px; }
-  .bar-item.sub { padding-left: 10px; }
-  .bi-label { flex: none; }
-}
+.servers-bar { padding-top:32px; }
+.servers-expand { flex:none; align-self:flex-start; }
+.fold-btn { display:inline-flex; align-items:center; justify-content:center; flex:none; width:32px; height:32px; padding:0; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--text-lo); font-size:16px; cursor:pointer; }
+.fold-btn:hover { background:var(--control-hover,var(--bg-raised)); color:var(--accent); }
+.fold-btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.bi-label { flex:1; }.vi-arrow { flex:none; }
+@media(max-width:768px){.servers-bar,.servers-expand{display:none!important}.servers-mobile-nav{margin-bottom:0}}
 </style>

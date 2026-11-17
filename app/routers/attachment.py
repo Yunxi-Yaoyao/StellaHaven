@@ -66,45 +66,66 @@ async def upload(doc_id: UUID, file: UploadFile, db: Session = Depends(get_db), 
     if doc is None or doc.deleted_at is not None:
         raise HTTPException(status_code=404, detail="文档不存在")
 
+    owner_id = user.id
+    db.rollback()  # Upload body IO must not retain authentication's connection.
     data = await file.read(MAX_SIZE + 1)
     if len(data) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="文件超过 25MB")
 
     def persist():
-        receipt_key = None
-        fingerprint = None
-        if blob_store.enabled() and idempotency_key:
-            receipt_key = hashlib.sha256(('ha-upload:'+str(user.id)+':'+str(doc_id)+':'+idempotency_key).encode()).hexdigest()
-            fingerprint = hashlib.sha256(data).hexdigest()
-            db.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key,0))'),{'key':receipt_key})
-            old = db.get(AppConfig,receipt_key)
-            if old is not None:
-                receipt=json.loads(old.value)
-                if receipt['sha256'] != fingerprint or receipt['size'] != len(data):
-                    raise HTTPException(409,'Idempotency key reused with different content')
-                previous=db.get(Attachment,UUID(receipt['id']))
-                if previous is None:raise HTTPException(409,'Original upload was deleted')
-                return {'id':str(previous.id),'url':'/attachments/'+str(previous.id),'filename':previous.filename}
-        att = Attachment(
-            doc_id=doc_id,
-            filename=file.filename or "paste.png",
-            mime=file.content_type or "application/octet-stream",
-            size=len(data),
-        )
-        db.add(att)
-        if blob_store.enabled():
-            import io
+        import io
+        import logging
+        from app.models.workspace import Workspace
+        from app.services.notes_lifecycle import lock_document
+        from app.services.notes_tools import lock_key
+        from app.services.attachment_files import publish
+        att = None
+        published_file = False
+        try:
+            doc = lock_document(db, doc_id)
+            if doc is None or doc.deleted_at is not None:
+                raise HTTPException(404, '文档不存在')
+            workspace = db.get(Workspace, doc.workspace_id)
+            if workspace is None or workspace.user_id != owner_id:
+                raise HTTPException(404, '文档不存在')
+            receipt_key = None
+            fingerprint = None
+            if idempotency_key:
+                # Preserve the existing PG receipt key and byte-only fingerprint.
+                receipt_key = hashlib.sha256(('ha-upload:'+str(owner_id)+':'+str(doc_id)+':'+idempotency_key).encode()).hexdigest()
+                fingerprint = hashlib.sha256(data).hexdigest()
+                lock_key(db, receipt_key)
+                old = db.query(AppConfig).filter(AppConfig.key == receipt_key).populate_existing().first()
+                if old is not None:
+                    receipt = json.loads(old.value)
+                    if receipt['sha256'] != fingerprint or receipt['size'] != len(data):
+                        raise HTTPException(409, 'Idempotency key reused with different content')
+                    previous = db.get(Attachment, UUID(receipt['id']))
+                    if previous is None:
+                        raise HTTPException(409, 'Original upload was deleted')
+                    result = {'id': str(previous.id), 'url': '/attachments/' + str(previous.id), 'filename': previous.filename}
+                    db.commit()
+                    return result
+            att = Attachment(doc_id=doc_id, filename=file.filename or 'paste.png',
+                             mime=file.content_type or 'application/octet-stream', size=len(data))
+            db.add(att)
             db.flush()
-            blob_store.put(db, 'attachments/'+str(att.id), io.BytesIO(data), att.mime, MAX_SIZE)
+            object_id = str(att.id)
+            if blob_store.enabled():
+                blob_store.put(db, 'attachments/' + object_id, io.BytesIO(data), att.mime, MAX_SIZE)
+            else:
+                published_file = True  # Even a failed directory fsync may leave the final object.
+                publish(STORAGE, object_id, data)
             if receipt_key:
-                db.add(AppConfig(key=receipt_key,value=json.dumps({'id':str(att.id),'size':len(data),'sha256':fingerprint})))
+                db.add(AppConfig(key=receipt_key, value=json.dumps({'id': object_id, 'size': len(data), 'sha256': fingerprint})))
+            result = {'id': object_id, 'url': '/attachments/' + object_id, 'filename': att.filename}
             db.commit()
-            db.refresh(att)
-        else:
-            db.commit()
-            db.refresh(att)
-            (STORAGE / str(att.id)).write_bytes(data)
-        return {"id": str(att.id), "url": f"/attachments/{att.id}", "filename": att.filename}
+            return result
+        except Exception as exc:
+            db.rollback()
+            if published_file:
+                logging.getLogger(__name__).error('notes_file_upload_reconcile_required object=%s failure=%s', object_id, type(exc).__name__)
+            raise
     return await run_in_threadpool(persist)
 
 
@@ -116,7 +137,12 @@ def serve(att_id: UUID, request: Request, db: Session = Depends(get_db), user: U
         att = db.get(Attachment, att_id)
         if att is None:
             raise HTTPException(status_code=404, detail="附件不存在")
-        require_doc_owner(db, att.doc_id, user)
+        if att.owner_id is not None and att.owner_id != user.id:
+            raise HTTPException(status_code=404, detail="附件不存在")
+        if att.doc_id is not None:
+            require_doc_owner(db, att.doc_id, user)
+        elif att.owner_id != user.id:
+            raise HTTPException(status_code=404, detail="附件不存在")
         filename, mime = att.filename, att.mime
     except HTTPException as exc:
         exc.headers = {**(exc.headers or {}), **headers}
@@ -134,29 +160,4 @@ def serve(att_id: UUID, request: Request, db: Session = Depends(get_db), user: U
     return FileResponse(path, media_type=mime, filename=filename, headers=headers)
 
 
-def cleanup_unreferenced(db: Session, doc: Document, content: str) -> int:
-    """引用计数清理（老婆的规则：笔记里删了图片，存储也要删）。
-    保存正文后调用：这篇文档不再引用的附件 → 连文件带记录删。"""
-    referenced = set(ATTACH_REF_RE.findall(content or ""))
-    removed = 0
-    for att in db.query(Attachment).filter(Attachment.doc_id == doc.id).all():
-        if str(att.id) not in referenced:
-            if blob_store.enabled():
-                blob_store.delete(db, 'attachments/'+str(att.id))
-            else:
-                (STORAGE / str(att.id)).unlink(missing_ok=True)
-            db.delete(att)
-            removed += 1
-    if removed:
-        db.commit()
-    return removed
-
-
-def delete_attachments_of(db: Session, doc_id: UUID) -> None:
-    """物理删文档时连带清附件"""
-    for att in db.query(Attachment).filter(Attachment.doc_id == doc_id).all():
-        if blob_store.enabled():
-            blob_store.delete(db, 'attachments/'+str(att.id))
-        else:
-            (STORAGE / str(att.id)).unlink(missing_ok=True)
-        db.delete(att)
+from app.services.attachment_lifecycle import cleanup_unreferenced, delete_attachments_of

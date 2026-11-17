@@ -1,14 +1,14 @@
 {
   "schema": "stella-experience/v1",
   "synthetic-process": [
-    "navigation startup holds auth and both sources; navigation first",
-    "navigation startup holds auth and both sources; modules first",
-    "navigation navigation failure offers sidebar retry",
-    "navigation modules failure offers sidebar retry",
+    "navigation startup holds auth and light snapshot; navigation released first",
+    "navigation startup holds auth and light snapshot; modules released first",
+    "navigation snapshot failure offers sidebar retry",
+    "navigation snapshot retry remains complete when full modules are unavailable",
     "navigation same-session watchdog keeps menu identity and positions",
     "navigation concurrent entry single-flight /settings?section=navigation",
     "navigation concurrent entry single-flight /drive",
-    "background actual template waits hidden until transparency ACK, not load",
+    "background actual template prevents pre-document flash and verifies transparency ACK",
     "background real image composition stays continuous on resize",
     "background device preference old current image",
     "background device preference legacy-only image",
@@ -23,7 +23,11 @@
     "review: real App rejects late fetchMe after logout",
     "review: real App rejects late refreshAccess after logout",
     "background shared quality waits for selected compressed media",
-    "background shared quality preserves explicit original"
+    "background shared quality preserves explicit original",
+    "background followup negative detects a transient white flash despite correct final pixels",
+    "background followup negative detects exposed native frame before document load",
+    "background followup isolates raw invalid legacy fallback after valid account bootstrap",
+    "background followup negative detects disappearance after target first presented frame"
   ],
   "production-readback": [
     "spec-review",

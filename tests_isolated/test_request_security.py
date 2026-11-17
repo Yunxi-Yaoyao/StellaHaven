@@ -1,8 +1,31 @@
 """Main-origin, cookie, OIDC and SPA boundaries, no production DB or secrets."""
 import pytest
-from tests_isolated.test_owner_admin_security import auth_env, owner, DAILY
+from tests_isolated.test_owner_admin_security import auth_env as _auth_env, owner, DAILY
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
 from app.database import get_db
+
+
+@pytest.fixture
+def auth_env(_auth_env, monkeypatch):
+    """Bind main's request snapshot to the same private DB as auth routes."""
+    import main
+    from app.routers.integrations_host import IntegrationsHostMiddleware
+
+    _, db, _ = _auth_env
+    factory = sessionmaker(bind=db.get_bind())
+    middleware = [m for m in main.app.user_middleware
+                  if m.cls is IntegrationsHostMiddleware]
+    assert len(middleware) == 1
+    # get_db overrides do not reach ASGI middleware's constructor default.
+    # Rebuild for each fixture DB, and never retain a disposed fixture engine.
+    with monkeypatch.context() as patch:
+        patch.setitem(middleware[0].kwargs, 'db_factory', factory)
+        patch.setattr(main.app, 'middleware_stack', None)
+        try:
+            yield _auth_env
+        finally:
+            main.app.middleware_stack = None
 
 
 def test_spa_root_containment_and_symlink_escape(auth_env, monkeypatch, tmp_path):
@@ -73,9 +96,13 @@ def test_oidc_login_next_preserves_all_authorize_parameters(auth_env, monkeypatc
     from urllib.parse import urlencode, urlparse, parse_qs
     app.include_router(router)
     monkeypatch.setattr(oidc_svc,'resolve_issuer',lambda host:'http://testserver')
-    monkeypatch.setattr(oidc_svc,'_get_client',lambda id:{'id':id})
-    monkeypatch.setattr(oidc_svc,'verify_redirect_uri',lambda *args:True)
-    query = urlencode({'client_id':'fixture','redirect_uri':'https://client.fixture/cb?x=1&y=2',
+    # Exact previously registered legacy URI, not permission to register new
+    # query-bearing callbacks or a blanket redirect-validation bypass.
+    callback = 'https://client.fixture/cb?x=1&y=2'
+    registered = {'client_id': 'fixture', 'enabled': True,
+                  'redirect_uris': [callback], 'scopes': ['openid', 'email']}
+    monkeypatch.setattr(oidc_svc, '_get_client', lambda client_id: registered if client_id == 'fixture' else None)
+    query = urlencode({'response_type': 'code', 'client_id': 'fixture', 'redirect_uri': callback,
                        'state':'state&x','nonce':'nonce+space','scope':'openid email'})
     url = 'http://testserver/oauth/authorize?' + query
     response = c.get(url,follow_redirects=False)
@@ -121,6 +148,21 @@ def test_operations_routes_are_registered_once_on_main_before_spa(auth_env,monke
     c = TestClient(main.app)
     c.cookies.update(c0.cookies)
     assert c.get('/operations/backup-health').json()['status'] == 'missing'
+    audit = c.get('/operations/change-audit')
+    assert audit.status_code == 200, audit.text
+    assert audit.json()['events'] == []
+    assert audit.headers['Cache-Control'] == 'no-store'
+    # The retired elevation grant is not an authority; identity still is.
+    c.cookies.clear()
+    assert c.get('/operations/change-audit').status_code == 401
+    from app.models.user import User, AuthSession
+    from app.security import hash_password, make_access_token
+    outsider = User(username='audit-outsider', display_name='Outsider',
+                    password_hash=hash_password(DAILY), is_active=True, is_admin=True)
+    db.add(outsider); db.flush()
+    session = AuthSession(user_id=outsider.id, refresh_hash='audit-outsider-fixture', remember=True)
+    db.add(session); db.commit()
+    c.cookies.set('stella_at', make_access_token(str(outsider.id), str(session.id)))
     assert c.get('/operations/change-audit').status_code == 403
     c.close()
     main.app.dependency_overrides.clear()

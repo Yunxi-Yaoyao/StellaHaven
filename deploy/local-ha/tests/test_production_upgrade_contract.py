@@ -108,7 +108,7 @@ class UpgradeContractTests(unittest.TestCase):
     def test_inventory_accepts_explicit_read_only_hardware_agent_0612(self):
         p = load('production_release')
         inv = inventory()
-        for version in ('0.6.9', '0.6.10', '0.6.11', '0.6.12'):
+        for version in ('0.6.9', '0.6.10', '0.6.11', '0.6.12', '0.6.13', '0.6.14', '0.6.15'):
             with self.subTest(version=version):
                 for cfg in inv['nodes'].values():
                     cfg['application_env_overrides']['STELLA_AGENT_ROLLOUT_VERSION'] = version
@@ -179,7 +179,7 @@ class UpgradeContractTests(unittest.TestCase):
             'STELLA_MAIN_ORIGIN': ['https://evil.example', 'https://stella.xiya.live/', 'http://stella.xiya.live'],
             'STELLA_OWNER_ID': ['not-a-uuid', '00000000-0000-0000-0000-000000000000', ' 11111111-1111-4111-8111-111111111111'],
             'STELLA_COOKIE_SECURE': ['false', 'True', True],
-            'STELLA_AGENT_ROLLOUT_VERSION': ['0.6.8', '0.6.13', '0.6.11 ', '0.6.12 ', '0.6.011', '0.6.012', 'latest'],
+            'STELLA_AGENT_ROLLOUT_VERSION': ['0.6.8', '0.6.16', '0.6.11 ', '0.6.12 ', '0.6.011', '0.6.012', 'latest'],
             'STELLA_BACKUP_RECEIPT_DIR': ['/root/.credentials/stella-upgrade', '/data/backup-receipts', '/app/data/../secrets'],
         }
         for key, values in invalid.items():

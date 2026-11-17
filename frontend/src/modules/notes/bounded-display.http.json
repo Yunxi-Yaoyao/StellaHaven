@@ -1,0 +1,63 @@
+{
+  "created": {
+    "id": "44f8f6db-68ac-4c36-8ffb-f0eb18409ff7",
+    "title": "bounded new",
+    "file_path": "/90b54edb-5609-43b3-8ded-6398dd6cb7b0",
+    "workspace_id": "9770b895-f973-487d-b10d-2f798bb94ec8",
+    "parent_id": null,
+    "frontmatter": null,
+    "is_folder": false,
+    "visibility": "private",
+    "is_pinned": false,
+    "is_favorite": false,
+    "status": "draft",
+    "word_count": null,
+    "content_hash": "cae662172fd450bb0cd710a769079c05bfc5d8e35efa6576edc7d0377afdd4a2",
+    "created_at": "2026-10-16T06:12:41.262270",
+    "updated_at": "2026-10-16T06:12:41.262270",
+    "updated_at_display": "2026-10-16T06:12:41.267542Z",
+    "draft_updated_at": null,
+    "draft_device": null,
+    "has_draft": false,
+    "content": "base"
+  },
+  "saved": {
+    "deleted_at": null,
+    "content_hash": "a67d5f46542514f52d658493fc9405829d2922cf1647574c838b6b86f125477a",
+    "draft_content": null,
+    "frontmatter": null,
+    "created_at": "2026-10-16T06:12:41.262270",
+    "draft_updated_at": null,
+    "is_folder": false,
+    "updated_at": "2026-10-16T14:12:41.291451",
+    "draft_device": null,
+    "visibility": "private",
+    "title": "bounded new",
+    "is_pinned": false,
+    "last_viewed_at": null,
+    "id": "44f8f6db-68ac-4c36-8ffb-f0eb18409ff7",
+    "is_favorite": false,
+    "workspace_id": "9770b895-f973-487d-b10d-2f798bb94ec8",
+    "file_path": "/90b54edb-5609-43b3-8ded-6398dd6cb7b0",
+    "status": "draft",
+    "parent_id": null,
+    "content": "version two",
+    "word_count": null,
+    "updated_at_display": "2026-10-16T06:12:41.292986+00:00"
+  },
+  "versions": [
+    {
+      "id": "213665f9-5c94-44b9-8223-c943314b0f89",
+      "doc_id": "44f8f6db-68ac-4c36-8ffb-f0eb18409ff7",
+      "version_no": 2,
+      "created_at": "2026-10-16T14:12:41.290627"
+    },
+    {
+      "id": "a1c5bf89-c655-43aa-ad9a-4be04d8a5d92",
+      "doc_id": "44f8f6db-68ac-4c36-8ffb-f0eb18409ff7",
+      "version_no": 1,
+      "created_at": "2026-10-16T14:12:41.289568"
+    }
+  ],
+  "captured_epoch": 1792131161.366561
+}

@@ -3,11 +3,20 @@
 param([string]$ConfigPath = (Join-Path $PSScriptRoot 'private-config.json'))
 $ErrorActionPreference = 'Stop'
 try {
+    if ([IO.Path]::GetFullPath($ConfigPath) -ine (Join-Path $PSScriptRoot 'private-config.json')) { throw 'Foreign config path refused' }
     $config = [IO.File]::ReadAllText($ConfigPath) | ConvertFrom-Json
     if (-not $config.STELLA_URL -or -not $config.STELLA_TOKEN -or
         -not [IO.Path]::IsPathRooted($config.PythonPath) -or
         -not (Test-Path -LiteralPath $config.PythonPath -PathType Leaf)) {
         throw 'Invalid private configuration'
+    }
+    if ($config.STELLA_INSTANCE_ID) {
+        if ($config.STELLA_INSTANCE_ID -cnotmatch '^[a-f0-9]{24}$' -or
+            [IO.Path]::GetFullPath([string]$config.STELLA_INSTANCE_MANIFEST) -ine (Join-Path $PSScriptRoot 'instance.json')) { throw 'Invalid installation binding' }
+        $manifest = [IO.File]::ReadAllText($config.STELLA_INSTANCE_MANIFEST) | ConvertFrom-Json
+        if ($manifest.instance_id -cne $config.STELLA_INSTANCE_ID) { throw 'Installation binding mismatch' }
+        $env:STELLA_INSTANCE_ID = [string]$config.STELLA_INSTANCE_ID
+        $env:STELLA_INSTANCE_MANIFEST = [string]$config.STELLA_INSTANCE_MANIFEST
     }
     $env:STELLA_URL = [string]$config.STELLA_URL
     $env:STELLA_TOKEN = [string]$config.STELLA_TOKEN

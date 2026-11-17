@@ -1,0 +1,94 @@
+[
+  {
+    "id": 1,
+    "node_id": 1,
+    "label": "healthy firing",
+    "condition": {
+      "metric": "cpu",
+      "interface": null,
+      "direction": null,
+      "window": {
+        "kind": "latest"
+      },
+      "threshold": "80",
+      "capacity": null
+    },
+    "severity": "warning",
+    "debounce": 1,
+    "repeat_minutes": 0,
+    "email": false,
+    "enabled": true,
+    "revision": 1,
+    "state": "firing",
+    "preview": {
+      "value": "85",
+      "lower": null,
+      "upper": null,
+      "quality": "valid",
+      "reason": "",
+      "bad": true,
+      "unit": "%",
+      "watermark": "2026-10-16T00:00:00+00:00",
+      "normalized_condition": {
+        "metric": "cpu",
+        "interface": null,
+        "direction": null,
+        "window": {
+          "kind": "latest"
+        },
+        "threshold": "80",
+        "capacity": null
+      }
+    },
+    "evaluated_at": "2026-10-16T00:00:00+00:00"
+  },
+  {
+    "id": 2,
+    "node_id": 1,
+    "label": "invalid retained",
+    "condition": null,
+    "severity": "warning",
+    "debounce": 1,
+    "repeat_minutes": 0,
+    "email": false,
+    "enabled": true,
+    "revision": 1,
+    "state": "firing",
+    "preview": null,
+    "evaluated_at": "2026-10-16T00:00:00+00:00",
+    "projection": {
+      "state": "incomplete",
+      "invalid_fields": [
+        "condition",
+        "preview"
+      ]
+    }
+  },
+  {
+    "id": 3,
+    "node_id": 1,
+    "label": "historical window",
+    "condition": {
+      "metric": "network.volume",
+      "interface": "eth0",
+      "direction": "out",
+      "window": {
+        "kind": "fixed",
+        "start": "2001-01-01T00:00:00Z",
+        "end": "2001-01-02T00:00:00Z",
+        "timezone": "UTC"
+      },
+      "threshold": "100",
+      "capacity": null
+    },
+    "severity": "warning",
+    "debounce": 2,
+    "repeat_minutes": 0,
+    "email": false,
+    "enabled": false,
+    "revision": 1,
+    "state": "ok",
+    "preview": null,
+    "evaluated_at": null
+  }
+]

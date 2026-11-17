@@ -18,6 +18,7 @@ NOW = datetime(2026, 9, 16, 12, 0, 0, tzinfo=timezone.utc)
 def make_node(db, name="HK", *, status="online", seen=None):
     node = node_repo.create(db, name, "linux", "1.2.3.4")
     node.status = status
+    node.installed = True
     node.last_seen_at = seen if seen is not None else NOW
     db.flush()
     return node
@@ -41,10 +42,14 @@ def notifications(db, rule_id=None):
 
 
 @pytest.fixture(autouse=True)
-def no_side_effects(monkeypatch):
+def no_side_effects(monkeypatch, db_session):
     """测试里不真发邮件/WS——记录调用即可。"""
     calls = {"email": [], "ws": []}
-    monkeypatch.setattr(alerts, "_send_alert_email", lambda db, rule, event, msg: calls["email"].append((rule.id, event)))
+    from app.models.user import User
+    from uuid import uuid4
+    db_session.add(User(username='alert-test-'+uuid4().hex, display_name='Test', is_admin=True, email='alerts@example.invalid'))
+    db_session.flush()
+    monkeypatch.setattr(alerts, "_send_alert_email", lambda snapshot: calls["email"].append((snapshot['rule_id'], snapshot['event'])))
     monkeypatch.setattr(alerts, "_push_ws", lambda payload: calls["ws"].append(payload))
     return calls
 
@@ -63,7 +68,7 @@ def test_create_rule_validates_and_rejects_duplicate(db_session):
         add_rule(db_session, "node_offline", str(node.id), severity="fatal")
 
 
-def test_update_and_delete_rule_cascades_state(db_session):
+def test_update_and_delete_rule_archives_state(db_session):
     node = make_node(db_session)
     rule = add_rule(db_session, "node_offline", str(node.id), label="HK")
     alerts.evaluate_node_rules(db_session, now=NOW)
@@ -75,27 +80,30 @@ def test_update_and_delete_rule_cascades_state(db_session):
 
     alerts.delete_rule(db_session, rule.id)
     assert alerts.get_rule(db_session, rule.id) is None
-    assert db_session.get(AlertState, rule.id) is None
+    assert db_session.get(AlertState, rule.id) is not None
+    assert db_session.get(AlertRule, rule.id).archived is True
 
 
 # ── 节点离线状态机 ──
-def test_node_offline_debounce_then_fire_and_resolve(db_session, no_side_effects):
+def test_node_offline_deadline_then_own_heartbeat_resolves(db_session, no_side_effects):
     node = make_node(db_session)
-    rule = add_rule(db_session, "node_offline", str(node.id), label="HK")
+    rule = add_rule(db_session, "node_offline", str(node.id), label="HK", email=True)
 
     stale = NOW - timedelta(seconds=300)
     node.last_seen_at = stale
-    alerts.evaluate_node_rules(db_session, now=NOW)          # 第 1 次异常：防抖中
-    assert db_session.get(AlertState, rule.id).state == "ok"
-    assert fired_events(db_session, rule.id) == []
+    alerts.evaluate_node_rules(db_session, now=NOW)          # TTL 已越界：不等其它报告计数
+    assert db_session.get(AlertState, rule.id).state == "firing"
+    assert len(fired_events(db_session, rule.id)) == 1
 
-    alerts.evaluate_node_rules(db_session, now=NOW)          # 第 2 次：触发
+    alerts.evaluate_node_rules(db_session, now=NOW + timedelta(seconds=1))  # 独立评估：触发
     state = db_session.get(AlertState, rule.id)
-    assert state.state == "firing" and state.consecutive == 2
+    assert state.state == "firing" and state.consecutive == 0
     assert [e.event for e in fired_events(db_session, rule.id)] == ["fired"]
     notes = notifications(db_session, rule.id)
     assert len(notes) == 1 and notes[0].kind == "alert" and "HK" in notes[0].title
     assert notes[0].link == f"/status/{node.id}"
+    assert no_side_effects["email"] == []  # commit 之前禁止外发
+    db_session.commit()
     assert no_side_effects["email"] == [(rule.id, "fired")]
     assert len(no_side_effects["ws"]) == 1
 
@@ -103,7 +111,8 @@ def test_node_offline_debounce_then_fire_and_resolve(db_session, no_side_effects
     assert len(fired_events(db_session, rule.id)) == 1
 
     node.last_seen_at = NOW                                  # 恢复
-    alerts.evaluate_node_rules(db_session, now=NOW)
+    alerts.evaluate_node_rules(db_session, now=NOW + timedelta(seconds=2), heartbeat_node_id=node.id)
+    db_session.commit()
     state = db_session.get(AlertState, rule.id)
     assert state.state == "ok" and state.consecutive == 0
     assert [e.event for e in fired_events(db_session, rule.id)] == ["fired", "resolved"]
@@ -114,9 +123,10 @@ def test_node_offline_debounce_then_fire_and_resolve(db_session, no_side_effects
 def test_firing_repeat_reminder_respects_interval(db_session, no_side_effects):
     node = make_node(db_session, seen=NOW - timedelta(seconds=300))
     rule = add_rule(db_session, "node_offline", str(node.id), label="HK",
-                              repeat_minutes=30)
+                              repeat_minutes=30, email=True)
     alerts.evaluate_node_rules(db_session, now=NOW)
-    alerts.evaluate_node_rules(db_session, now=NOW)          # fired
+    alerts.evaluate_node_rules(db_session, now=NOW + timedelta(seconds=1))  # fired
+    db_session.commit()
     assert len(notifications(db_session, rule.id)) == 1
 
     alerts.evaluate_node_rules(db_session, now=NOW + timedelta(minutes=10))  # 未到间隔
@@ -148,34 +158,54 @@ def test_pending_or_removed_node_does_not_fire(db_session):
         assert notifications(db_session, r.id) == []
 
 
-def test_rule_on_deleted_target_resolves_and_stays_quiet(db_session):
+def test_rule_on_deleted_target_preserves_incident_and_stays_quiet(db_session):
     node = make_node(db_session, seen=NOW - timedelta(seconds=300))
     rule = add_rule(db_session, "node_offline", str(node.id), label="HK")
     alerts.evaluate_node_rules(db_session, now=NOW)
-    alerts.evaluate_node_rules(db_session, now=NOW)          # firing
+    alerts.evaluate_node_rules(db_session, now=NOW + timedelta(seconds=1))  # firing
     node_repo.remove(db_session, node.id)                    # 目标被移除
     alerts.evaluate_node_rules(db_session, now=NOW)
-    assert db_session.get(AlertState, rule.id).state == "ok"  # 静默复位，不发恢复通知
+    assert db_session.get(AlertState, rule.id).state == "firing"  # 删除不是健康恢复
     assert len(notifications(db_session, rule.id)) == 1                # 只有触发那一条
 
 
 # ── 监控项 down ──
-def test_monitor_down_fires_and_recovers(db_session):
+def test_monitor_down_fires_and_recovers(db_session, monkeypatch):
     node = make_node(db_session)
-    monitor = monitor_svc.create_monitor(db_session, "blog", "http", "https://example.com",
+    monitor = monitor_svc.create_monitor(db_session, "blog", "https", "https://example.com",
                                          node_id=node.id, interval=60, timeout=5)
     rule = add_rule(db_session, "monitor_down", str(monitor.id), label="blog",
                     link=f"/status/{node.id}")
 
-    for _ in range(2):                                       # 连续 2 次失败
-        monitor_svc.record_check(db_session, monitor.id, NOW, success=False, latency_ms=None, loss_pct=None)
+    class Clock:
+        @staticmethod
+        def now(tz): return NOW + timedelta(seconds=10)
+    monkeypatch.setattr(alerts, 'datetime', Clock)
+    assert notifications(db_session, rule.id) == []
+    for offset in (1, 2):                                    # 两个独立事件
+        monitor_svc.record_check(db_session, monitor.id, NOW + timedelta(seconds=offset), success=False, latency_ms=None, loss_pct=None)
+        if offset == 1:
+            debounced = db_session.get(AlertState, rule.id)
+            assert debounced.state == "ok" and debounced.consecutive == 1
+            assert notifications(db_session, rule.id) == []
     state = db_session.get(AlertState, rule.id)
     assert state.state == "firing"
     assert notifications(db_session, rule.id)[0].link == f"/status/{node.id}"
 
-    monitor_svc.record_check(db_session, monitor.id, NOW, success=True, latency_ms=12.0, loss_pct=0.0)
+    monitor_svc.record_check(db_session, monitor.id, NOW + timedelta(seconds=3), success=True, latency_ms=12.0, loss_pct=0.0)
     assert db_session.get(AlertState, rule.id).state == "ok"
     assert notifications(db_session, rule.id)[-1].kind == "alert_resolved"
+    assert [e.event for e in fired_events(db_session, rule.id)] == ["fired", "resolved"]
+
+
+def test_monitor_protocol_mismatch_is_rejected_without_writes(db_session):
+    from app.models.monitor import Monitor, MonitorCheck
+    node = make_node(db_session)
+    before = (db_session.query(Monitor).count(), db_session.query(MonitorCheck).count())
+    with pytest.raises(ValueError, match="协议匹配"):
+        monitor_svc.create_monitor(db_session, "invalid", "http", "https://example.com",
+                                   node_id=node.id, interval=60, timeout=5)
+    assert (db_session.query(Monitor).count(), db_session.query(MonitorCheck).count()) == before
 
 
 # ── WG 链路 ──
@@ -192,15 +222,15 @@ def test_wg_link_fires_on_failed_only_and_unknown_is_not_bad(db_session):
     alerts.evaluate_wg_rules(db_session, topology=_topology("degraded"), now=NOW)
     assert db_session.get(AlertState, rule.id).state == "ok"
 
-    alerts.evaluate_wg_rules(db_session, topology=_topology("failed"), now=NOW)
-    alerts.evaluate_wg_rules(db_session, topology=_topology("failed"), now=NOW)    # 红 ×2：触发
+    alerts.evaluate_wg_rules(db_session, topology=_topology("failed"), now=NOW + timedelta(seconds=1))
+    alerts.evaluate_wg_rules(db_session, topology=_topology("failed"), now=NOW + timedelta(seconds=2))  # 红 ×2：触发
     assert db_session.get(AlertState, rule.id).state == "firing"
     assert notifications(db_session, rule.id)[0].link == "/status"
 
-    alerts.evaluate_wg_rules(db_session, topology=_topology("unknown"), now=NOW)   # 灰：不当异常也不恢复
+    alerts.evaluate_wg_rules(db_session, topology=_topology("unknown"), now=NOW + timedelta(seconds=3))
     assert db_session.get(AlertState, rule.id).state == "firing"
 
-    alerts.evaluate_wg_rules(db_session, topology=_topology("ok"), now=NOW)        # 绿：恢复
+    alerts.evaluate_wg_rules(db_session, topology=_topology("ok"), now=NOW + timedelta(seconds=4))
     assert db_session.get(AlertState, rule.id).state == "ok"
     assert notifications(db_session, rule.id)[-1].kind == "alert_resolved"
 
@@ -236,7 +266,8 @@ def test_notifications_api_flow(client, db_session, no_side_effects):
     rule = add_rule(db_session, "node_offline", str(node.id), label="API",
                     link=f"/status/{node.id}")
     alerts.evaluate_node_rules(db_session, now=NOW)
-    alerts.evaluate_node_rules(db_session, now=NOW)          # fired → 通知落库
+    alerts.evaluate_node_rules(db_session, now=NOW + timedelta(seconds=1))  # fired → 通知落库
+    db_session.commit()
 
     mine = [n for n in client.get("/notifications").json() if n["rule_id"] == rule.id]
     assert len(mine) == 1 and mine[0]["read"] is False

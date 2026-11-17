@@ -32,7 +32,7 @@ GitLab job **local-ha-production-app** is blocking/manual, protected master only
 | `STELLA_PRODUCTION_IMAGE` | build dotenv: `gitlab-registry.xiya.live/yaoyao/stellahaven@sha256:<64 lowercase hex>`; never a tag, commit SHA or config ID |
 | `STELLA_EXPECTED_SCHEMA` | exact approved existing Alembic revision, equals inventory |
 | `STELLA_RESOURCE_MANIFEST_SHA256` | exact full approved manifest SHA256, equals inventory |
-| `STELLA_APPROVED_AGENT_ROLLOUT_VERSION` | explicit protected approval matching both nodes' `application_env_overrides.STELLA_AGENT_ROLLOUT_VERSION`; allowed exactly `0.6.9`, `0.6.10`, `0.6.11`, `0.6.12`; unset still defaults to `0.6.9` |
+| `STELLA_APPROVED_AGENT_ROLLOUT_VERSION` | explicit protected approval matching both nodes' `application_env_overrides.STELLA_AGENT_ROLLOUT_VERSION`; this validator allows `0.6.9` through `0.6.15`, unset defaults to `0.6.9`. Candidate Agent source `0.6.18` is not approved by that allowlist; changing the announcement or fleet requires separate compatibility/helper approval. |
 | `CI_REGISTRY_USER`, `CI_REGISTRY_PASSWORD` | GitLab registry pull credentials, password masked/protected; only needed for actual release |
 
 No SSH key or registry password belongs in the repository. SSH uses `-F /dev/null`, strict known-host checking and explicit host aliases, with no interactive credential fallback. The helper source, request and registry password travel over encrypted stdin. Docker login uses `--password-stdin` in a temporary DOCKER_CONFIG; existing docker credentials are not changed.
@@ -49,7 +49,7 @@ Shape is documented in `production_release.py` module docstring. Supply full rev
 
 Operator must supply complete trusted manifest/startup hashes, exact mount paths, signing fingerprint and schema; the current installation has these pinned in protected CI variables and root-owned dispatcher inventory. Original source `.env` is neither read nor modified by the release transport.
 
-Agent `0.6.12` extends read-only cross-platform storage/GPU collection; it does not change sudo or the existing root/docker helper authorization. Allowlisting the version does not authorize its rollout by default or establish fleet helper readiness: retain the existing whole-fleet privilege-helper approval/readback prerequisite, explicitly approve `0.6.12`, and supply identical complete application approvals on both nodes. Unknown versions (including `0.6.13`) remain rejected. Keep the exact old rollout environment during startup-only normalization; the subsequent ordinary app release applies the separately approved `0.6.12` environment. A parked `0.6.11` announcement (like `0.6.9`/`0.6.10`) returns only the version, never a manifest for newer script bytes.
+Agent `0.6.12` originally extended read-only cross-platform storage/GPU collection; that historical approval is not a rollout approval for every later source revision. The current validator's exact allowed versions are listed above. Retain the fleet privilege-helper approval/readback prerequisite and explicitly review any new announcement version. A parked older announcement returns only its version, never a manifest pretending that newer script bytes are the announced release.
 
 ## Current runtime contract
 
@@ -60,6 +60,30 @@ Agent `0.6.12` extends read-only cross-platform storage/GPU collection; it does 
 - Stable app port 25131; temporary candidate port 25132 must be free. `/live` = 200, `/ready-primary` = 200 on primary and 503 on replica.
 - Existing frpc is untouched: local `frpc@stella-ha`, `/opt/frpc/conf/stella-ha.toml`, proxy `stella-runtime-nyarch`; NAS existing unit/proxy `stella-runtime-nas`. Both remain pointed at stable port 25131 and `/ready-primary`; no assumed app systemd service.
 - Registry digest is pulled separately per daemon; each candidate/replacement is checked against that daemon's resolved image inspect ID and content. No cross-daemon ID equality assumption.
+
+## Exact application environment approval versions
+
+`application_env_overrides` remains a complete, non-secret, operator-owned approval, identical on both nodes. The validator accepts only these two exact key sets, not arbitrary environment keys or a partial extension:
+
+- **Legacy six fields:** `STELLA_TRUSTED_ORIGINS`, `STELLA_MAIN_ORIGIN`, `STELLA_OWNER_ID`, `STELLA_COOKIE_SECURE`, `STELLA_AGENT_ROLLOUT_VERSION`, `STELLA_BACKUP_RECEIPT_DIR`. Their existing validation and initial/rollback tolerance are unchanged; no cache mount is newly required for this version.
+- **Entry/backup eight fields:** exactly the legacy six plus **both** `STELLA_ENTRY_REGISTRY` and `STELLA_BACKUP_DIRECTORY`. All existing owner UUID, secure-cookie, explicit agent rollout and read-only receipt-bundle approvals still apply. This is not permission to override database/signing variables, use `target_mounts`, or copy a live Env into an approval.
+
+The new registry is a JSON array encoded as one environment string (no literal newlines). Each row has exactly `{service_id, public}` or `{service_id, public, private}`. Service IDs match `[a-zA-Z0-9_-]{1,64}` and are unique; JSON member names and origins must also be unique. Accepted origins are the exact canonical HTTPS authorities below: no credentials, path (including trailing `/`), query, fragment, wildcard, explicit port, uppercase/trailing-dot host or unrelated external API.
+
+| Service ID | Public | Private |
+|---|---|---|
+| `stella` (required) | exactly `STELLA_MAIN_ORIGIN`: `https://stella.xiya.live` or `https://stella.yunxi.life` | exactly `https://stella.p.xiya.live` (required) |
+| `web-project-runtime` (if present) | `https://pages.xiya.live` | `https://pages.p.xiya.live` (required when this record is present) |
+| `gallery` (if present) | `https://immich.xiya.live` | `https://immich.p.xiya.live` (required when this record is present) |
+| Other stable module ID `ID` | exactly `https://app-ID.xiya.live` | if provided, exactly `https://app-ID.p.xiya.live` |
+
+The module rule verifies the **explicit row**, matching `app/services/integrations.py::derived_origin`; it does not rewrite URLs or discover private peers. `app-ID` must itself be a canonical lowercase DNS label of at most 63 characters. IDs that cannot form that exact hostname (for example underscores, uppercase, overlong labels or trailing hyphens) are rejected rather than repaired. A module may explicitly register only public; a missing private lane is not synthesized. External/direct sites outside these owned app authorities need a separately reviewed contract, not a suffix-wide exception.
+
+The main origin must remain a trusted **public** origin. In the eight-field version, `https://stella.p.xiya.live` must be both the exact registered Stella private lane and explicitly listed in `STELLA_TRUSTED_ORIGINS`. Both loopback health origins `http://127.0.0.1:25131` and `http://127.0.0.1:25132` remain mandatory. The public Stella aliases may remain trusted. Registry entries for pages/gallery/modules do **not** grant main-site trust; they need not and must not be added to this main-site trusted-origin approval. A `.p.xiya.live` suffix alone grants nothing. The six-field version still rejects the private Stella origin.
+
+`STELLA_BACKUP_DIRECTORY` accepts only **`/var/cache/stella/backups`**, not arbitrary environment paths. Both the offline inventory validator and Node constructor/create boundary require an already approved bind with exactly `Source=/var/lib/stella-ha-app-shadow-20260916/cache`, `Destination=/var/cache/stella`, `RW=true`. The unchanged running-container validator then verifies the exact actual mount inventory. Do not add a mount, make `/app/data` writable, use its model/receipt bundle as backup output, point at the cache's `blobs` source, or borrow `/tmp`, `/scratch` or PGDATA. These checks do not create the backup directory or perform a backup. The environment supplies an application default only; a user-selected runtime directory remains an application-level choice subject to existing mounted/reachable paths and read-only-root permissions. It does not authorize a new environment path or host mount.
+
+**Compatibility is unchanged:** ordinary release still requires explicit `forward_compatible=true`, candidate-first standby/active ordering and exact old-container/Env rollback. Do not set that flag to admit a non-compatible migration. That migration still needs a separately reviewed maintenance controller/barrier; this environment extension neither implements one nor makes the old automatic rollback safe after a schema commit. Updated helper hashes and complete per-node inventories/forced-command approvals must be independently reviewed before any real use; this code change does not apply them.
 
 ## Separately approved startup-only normalization
 
@@ -80,4 +104,4 @@ Failure rolls back only containers created by that attempt and restores the exac
 
 **Boundaries:** real registry/SSH/Docker execution was validated on the current two-node installation. The deploy job does not log in as a real business user or perform document/attachment mutations; separate acceptance covers those. It does not implement distributed fencing, durable crash recovery after SSH timeout/kill, or automatic inventory/PG/frpc management. Resource hashing and remote calls are bounded, but an unknown SSH outcome still requires exact-state readback. Sampled role checks are not fencing. Concurrent candidates share approved writable cache/tmp paths. Review release startup compatibility accordingly. On unknown SSH outcome or incomplete rollback, inspect exact receipt/container IDs before retrying; never broad-prune containers.
 
-Production SSH is root on Nyarch and yaoyao on NAS; the dedicated key is forced to a root-owned dispatcher (specific sudo command on NAS). Dispatcher rejects helper hashes and inventories not pre-approved locally. Root SSH remains disabled on NAS. After the first manual deployment passes, protected STELLA_AUTO_DEPLOY=true enables on-success app releases; schema/resource changes still fail closed until approved inventory is updated.
+Production SSH is root on Nyarch and yaoyao on NAS; the dedicated key is forced to a root-owned dispatcher (specific sudo command on NAS). Dispatcher rejects helper hashes and inventories not pre-approved locally. Root SSH remains disabled on NAS. The current CI deployment job is manual: `STELLA_AUTO_DEPLOY=true` does not override its `when: manual` rule. Re-read the target commit's complete CI rules before any push or deployment. After maintenance releases, reconcile the exact approved schema and complete environment with both running nodes before a new release; never modify inventory merely to make a failing guard pass. Schema/resource changes still require explicit review and the appropriate maintenance procedure.

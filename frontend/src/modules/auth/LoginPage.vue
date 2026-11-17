@@ -2,10 +2,12 @@
 // Reused login/initialization form, shown above the current page.
 // 形态自动检测：未初始化 → 「还没初始化哦，点击开始喵~」引导进初始化表单；
 // 已初始化 → 单用户纯登录；初始化只创建唯一 owner。
-import { ref, onMounted, onUnmounted, nextTick, watch } from "vue";
+import { ref, onMounted, onUnmounted, nextTick, watch, computed } from "vue";
 import { login, register, acceptLogin } from "../home/auth";
+import { getBrowserId } from './browserId';
 import {consumeLoginFocus} from "./loginPrompt";
-const emit=defineEmits<{success:[];close:[]}>();
+import { loginStatus, refreshLoginStatus, confirmLoginInitialized } from "./loginStatus";
+const emit=defineEmits<{success:[firstRegistration?:boolean];close:[]}>();
 const dialog=ref<HTMLElement>();
 let previousFocus:HTMLElement|null=null;
 const focusFirst=()=>{const input=dialog.value?.querySelector<HTMLElement>('input:not([type="checkbox"]), .submit');(input||dialog.value)?.focus();};
@@ -13,13 +15,14 @@ function keyboard(event:KeyboardEvent){
  if(event.key==='Escape'){event.preventDefault();if(!busy.value)emit('close');}
  if(event.key!=='Tab')return;
  const items=Array.from(dialog.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href], [tabindex="0"]')||[]);
- const first=items[0],last=items.at(-1);
+ const first=items[0],last=items[items.length-1];
  if(!first){event.preventDefault();dialog.value?.focus();return;}
  if(event.shiftKey&&(document.activeElement===first||document.activeElement===dialog.value)){event.preventDefault();last?.focus();}
  else if(!event.shiftKey&&(document.activeElement===last||document.activeElement===dialog.value)){event.preventDefault();first.focus();}
 }
 
 onUnmounted(()=>{
+ active=false;
  const rect=previousFocus?.getBoundingClientRect();
  if(previousFocus!==document.body&&previousFocus!==document.documentElement&&previousFocus?.isConnected&&rect&&rect.width>0&&rect.right>0&&rect.left<innerWidth&&rect.bottom>0&&rect.top<innerHeight)previousFocus.focus();
  else {
@@ -27,8 +30,10 @@ onUnmounted(()=>{
   target?.focus();
  }
 });
-const phase = ref<"loading" | "init-guide" | "init-form" | "login" | "forgot" | "forgot-code" | "code-login" | "code-login-verify">("loading");
-const emailEnabled = ref(false);
+let active=true;
+const edited=ref(false);
+const phase = ref<"init-guide" | "init-form" | "login" | "forgot" | "forgot-code" | "code-login" | "code-login-verify">(loginStatus.initialized === false ? "init-guide" : "login");
+const emailEnabled = computed(() => loginStatus.emailEnabled);
 watch(()=>phase.value,async()=>{await nextTick();focusFirst();});
 
 const username = ref("");
@@ -48,18 +53,15 @@ const newPassword = ref("");
 const codeLoginEmail = ref("");
 const codeLoginCode = ref("");
 
-onMounted(async () => {
-  previousFocus=consumeLoginFocus()||document.activeElement as HTMLElement;dialog.value?.focus();
-  try {
-    const r = await formFetch("/auth/status");
-    if(!r.ok)throw new Error('status unavailable');
-    const s = await r.json();
-    emailEnabled.value = !!s.email_enabled;
-    phase.value = s.initialized ? "login" : "init-guide";
-  } catch {
-    error.value = "登录状态加载失败，请关闭后重试";
-    phase.value = "login";
-  }
+// Reconcile only untouched entry phases; capability refreshes never own a draft/sub-flow.
+watch(()=>loginStatus.initialized,initialized=>{
+  if(!active || edited.value || username.value || password.value || busy.value)return;
+  if(initialized === false && phase.value === 'login')phase.value='init-guide';
+  else if(initialized === true && phase.value === 'init-guide')phase.value='login';
+});
+onMounted(() => {
+  previousFocus=consumeLoginFocus()||document.activeElement as HTMLElement;focusFirst();
+  void refreshLoginStatus();
 });
 
 async function submit() {
@@ -71,7 +73,7 @@ async function submit() {
     const err=phase.value === 'init-form'
       ? await register(username.value,password.value,displayName.value||undefined)
       : await login(username.value,password.value,remember.value);
-    if(err)error.value=err;else emit('success');
+    if(err)error.value=err;else {confirmLoginInitialized();emit('success',phase.value==='init-form');}
   } catch {error.value='连接失败，请重试';}
   finally {busy.value=false;}
 }
@@ -143,11 +145,12 @@ async function doLoginCode() {
   const r = await formFetch("/auth/login-code", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: codeLoginEmail.value.trim(), code: codeLoginCode.value.trim(), remember: remember.value }),
+    body: JSON.stringify({ email: codeLoginEmail.value.trim(), code: codeLoginCode.value.trim(), remember: remember.value, browser_id: getBrowserId(), entry_origin: window.location.origin }),
   });
   busy.value = false;
   if (r.ok) {
     acceptLogin(await r.json());
+    confirmLoginInitialized();
     emit("success");
   } else {
     error.value = (await r.json()).detail ?? "登录失败";
@@ -175,23 +178,17 @@ async function resendCode(email: string, purpose: "login" | "reset") {
 
 <template>
   <div class="auth" @click.self="!busy && emit('close')">
-    <div ref="dialog" class="card" role="dialog" aria-modal="true" aria-label="Stella 登录" tabindex="-1" @keydown="keyboard">
+    <div ref="dialog" class="card" role="dialog" aria-modal="true" aria-label="Stella 登录" tabindex="-1" @keydown="keyboard" @input="edited = true">
       <button class="close-login" aria-label="关闭登录" :disabled="busy" @click="emit('close')">×</button>
       <div class="logo">✦</div>
 
-      <!-- 加载中 -->
-      <template v-if="phase === 'loading'">
-        <div class="site">StellaHaven</div>
-        <div class="sub">看港口的灯亮没亮…</div>
-      </template>
-
       <!-- 未初始化：引导 -->
-      <template v-else-if="phase === 'init-guide'">
+      <template v-if="phase === 'init-guide'">
         <div class="site"> StellaHaven </div>
         <div class="sub">港湾还没有主人哦</div>
         <div class="init-hint">
           检测到系统还没初始化喵~<br />
-          <span>创建唯一账号，日常登录不会直接解锁管理权限。</span>
+          <span>创建唯一账号，使用用户密码登录后即可管理。</span>
         </div>
         <button class="submit" @click="phase = 'init-form'">开始初始化</button>
       </template>
@@ -199,7 +196,7 @@ async function resendCode(email: string, purpose: "login" | "reset") {
       <!-- 初始化表单 -->
       <template v-else-if="phase === 'init-form'">
         <div class="site">创建唯一账号</div>
-        <div class="sub">初始化只此一次；登录后在设置中创建独立管理密码。</div>
+        <div class="sub">初始化只此一次；只需保管这一份用户密码。</div>
         <div class="field">
           <span class="f-label">用户名</span>
           <input v-model="username" class="input" autocomplete="username" @keydown.enter="submit" />
@@ -241,6 +238,7 @@ async function resendCode(email: string, purpose: "login" | "reset") {
         <div v-if="notice" class="notice">{{ notice }}</div>
         <div v-if="error" class="err" role="alert">{{ error }}</div>
         <button class="submit" :disabled="busy" @click="submit">{{ busy ? "…" : "回港" }}</button>
+        <button v-if="loginStatus.initialized === false" class="forgot init-link" :disabled="busy" @click="phase = 'init-form'">开始初始化</button>
       </template>
 
       <!-- 忘记密码：输邮箱发码 -->
@@ -337,12 +335,26 @@ async function resendCode(email: string, purpose: "login" | "reset") {
   border-radius: 20px;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
   text-align: center;
-  animation: card-in 500ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-@keyframes card-in {
-  from { opacity: 0; transform: translateY(16px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+.login-modal-enter-active,
+.login-modal-leave-active {
+  transition: opacity 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+.login-modal-enter-active .card,
+.login-modal-leave-active .card {
+  transition: opacity 260ms cubic-bezier(0.22, 1, 0.36, 1), transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.login-modal-leave-active,
+.login-modal-leave-active .card { transition-duration: 180ms; }
+.login-modal-enter-from,
+.login-modal-leave-to { opacity: 0; }
+.login-modal-enter-from .card,
+.login-modal-leave-to .card { opacity: 0; transform: translateY(10px) scale(.985); }
+@media (prefers-reduced-motion: reduce) {
+  .login-modal-enter-active, .login-modal-leave-active,
+  .login-modal-enter-active .card, .login-modal-leave-active .card { transition: none; }
+}
+.init-link { display: block; margin: 14px auto 0; border: 0; background: transparent; }
 .logo { font-size: 30px; color: var(--accent); text-shadow: 0 0 18px rgba(201, 212, 232, 0.5); }
 .site { margin-top: 12px; font-size: 20px; font-weight: 600; color: var(--text-hi); letter-spacing: 3px; }
 .sub { margin-top: 8px; font-size: 12.5px; color: var(--text-lo); letter-spacing: 1px; }
@@ -376,7 +388,7 @@ async function resendCode(email: string, purpose: "login" | "reset") {
 .remember input { accent-color: var(--accent); }
 .row-line {
   margin-top: 14px;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
 }
 .row-line .remember { margin-top: 0; }
 .row-links { display: flex; gap: 14px; }

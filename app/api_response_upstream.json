@@ -1,0 +1,137 @@
+[
+  {
+    "method": "GET",
+    "path": "/website-templates",
+    "endpoint": "app.routers.website_settings.templates",
+    "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+    "auth": "cookie-access",
+    "elevation": "none",
+    "sources": [
+      {
+        "file": "app/routers/website_settings.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "0bdb6b2e52347675de7e4250ba7ebdcecbef1a4774e5372fad8ce786aae8d809",
+        "line": 34,
+        "end_line": 37
+      },
+      {
+        "file": "app/services/saved_website_templates.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "550db754d81329958aac7bf032746f9fd6ea3c9008890b88c55caf10203a4efe",
+        "line": 1,
+        "end_line": 118
+      },
+      {
+        "file": "app/services/website_settings.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "d06000745488a269b324030deb15842aaf80ca64bae8943249a5e6a269a14cce",
+        "line": 1,
+        "end_line": 272
+      },
+      {
+        "file": "app/services/website_connection.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "6cac66a7c09921ca59239945e0e0df4960446305b4b3fdeff3a60b8ce0e3d852",
+        "line": 1,
+        "end_line": 89
+      },
+      {
+        "file": "app/services/website_templates.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "58b6206748807c42a908d2f8e57ea743cebb27e3a323e860c955ea2ab1270d05",
+        "line": 1,
+        "end_line": 37
+      }
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/website-templates",
+    "endpoint": "app.routers.website_settings.create_template",
+    "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+    "auth": "cookie-access",
+    "elevation": "management-policy",
+    "sources": [
+      {
+        "file": "app/routers/website_settings.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "0bdb6b2e52347675de7e4250ba7ebdcecbef1a4774e5372fad8ce786aae8d809",
+        "line": 40,
+        "end_line": 46
+      },
+      {
+        "file": "app/services/saved_website_templates.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "550db754d81329958aac7bf032746f9fd6ea3c9008890b88c55caf10203a4efe",
+        "line": 1,
+        "end_line": 118
+      },
+      {
+        "file": "app/services/website_settings.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "d06000745488a269b324030deb15842aaf80ca64bae8943249a5e6a269a14cce",
+        "line": 1,
+        "end_line": 272
+      },
+      {
+        "file": "app/services/website_connection.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "6cac66a7c09921ca59239945e0e0df4960446305b4b3fdeff3a60b8ce0e3d852",
+        "line": 1,
+        "end_line": 89
+      },
+      {
+        "file": "app/services/website_templates.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "58b6206748807c42a908d2f8e57ea743cebb27e3a323e860c955ea2ab1270d05",
+        "line": 1,
+        "end_line": 37
+      }
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/website-templates/{tid}",
+    "endpoint": "app.routers.website_settings.remove_template",
+    "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+    "auth": "cookie-access",
+    "elevation": "management-policy",
+    "sources": [
+      {
+        "file": "app/routers/website_settings.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "0bdb6b2e52347675de7e4250ba7ebdcecbef1a4774e5372fad8ce786aae8d809",
+        "line": 49,
+        "end_line": 52
+      },
+      {
+        "file": "app/services/saved_website_templates.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "550db754d81329958aac7bf032746f9fd6ea3c9008890b88c55caf10203a4efe",
+        "line": 1,
+        "end_line": 118
+      },
+      {
+        "file": "app/services/website_settings.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "d06000745488a269b324030deb15842aaf80ca64bae8943249a5e6a269a14cce",
+        "line": 1,
+        "end_line": 272
+      },
+      {
+        "file": "app/services/website_connection.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "6cac66a7c09921ca59239945e0e0df4960446305b4b3fdeff3a60b8ce0e3d852",
+        "line": 1,
+        "end_line": 89
+      },
+      {
+        "file": "app/services/website_templates.py",
+        "revision": "050100278b153983694d83cf1209a6b157fe5a82",
+        "sha256": "58b6206748807c42a908d2f8e57ea743cebb27e3a323e860c955ea2ab1270d05",
+        "line": 1,
+        "end_line": 37
+      }
+    ]
+  }
+]

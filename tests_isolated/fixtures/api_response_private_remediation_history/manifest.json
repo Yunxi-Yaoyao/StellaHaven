@@ -1,0 +1,101 @@
+{
+  "baseline": "7e042a4e15cb3d3e4c07150c1c8cb984254c92d8",
+  "files": [
+    {
+      "file": "app/routers/integrations.py",
+      "commit": "efb5857d15c1e39c45cab526dfe23dcabfa568ed",
+      "fixture": "app__routers__integrations.py.gz",
+      "size": 8318,
+      "sha256": "0dc1d6b8005d89eeffbdce4622241ac857d0b9e3cdbfcb3515cebd4ad17860eb",
+      "git_blob": "bbb42a95e1d0f24e4eaa0ee9e0a6f7276a09bf72"
+    },
+    {
+      "file": "app/routers/website_settings.py",
+      "commit": "c5a8b98f1cd96cb13217050ffff22d51e39d4831",
+      "fixture": "app__routers__website_settings.py.gz",
+      "size": 5077,
+      "sha256": "b599028eaaf3bc3ce5f821c5af0625699f1228e805b5ffd306cc972394e2208f",
+      "git_blob": "694d8262988e7a33a5bf050a46f95960df3e093c"
+    },
+    {
+      "file": "app/services/access_entries.py",
+      "commit": "ba11051c01751745d4edc245cc3d99c891395d78",
+      "fixture": "app__services__access_entries.py.gz",
+      "size": 7943,
+      "sha256": "614966ee2d5186be1b63895e5befbd9e0bf930bfca232e6ef89beec6f2c6c9df",
+      "git_blob": "75aa862f9998592ed266f0de75255d9f3569435d"
+    },
+    {
+      "file": "app/services/ha_readiness.py",
+      "commit": "3b548d850ba6cd26c78c962002710c15c88cb3fb",
+      "fixture": "app__services__ha_readiness.py.gz",
+      "size": 2588,
+      "sha256": "204b81f1d4410e01d38172304e218ec6d9b00946ce4ec563620d173da62ca75a",
+      "git_blob": "0e3cf156dce4f740e76854bd2212292a0a73b861"
+    },
+    {
+      "file": "app/services/integrations.py",
+      "commit": "87fcf0189187be90572584c65eb6118068ff8599",
+      "fixture": "app__services__integrations.py.gz",
+      "size": 11579,
+      "sha256": "17344ea02a09ffa4628d32a5a044a1cb0874dca21477c48d0ef6b42851e41d65",
+      "git_blob": "818df4115c46e668b860e04b1fd94f48874675e5"
+    },
+    {
+      "file": "app/services/openlist_compat.py",
+      "commit": "9039486b6604419ba5e78361a1048e87d53b8da4",
+      "fixture": "app__services__openlist_compat.py.gz",
+      "size": 9724,
+      "sha256": "443988acb6832eec4ebfca94d924133f7bb60836b50a90bfebafa8a249dcaab2",
+      "git_blob": "7a139ac1afccb00732cfb29cb1308de46ff236c9"
+    },
+    {
+      "file": "app/services/website_settings.py",
+      "commit": "d6d59970eb1e21c159ab090c17896e78382e86ab",
+      "fixture": "app__services__website_settings.py.gz",
+      "size": 27793,
+      "sha256": "7f9e77b88a11c6a7304906db4ce713e2a2719483458359c03ec3c7dc86d808f7",
+      "git_blob": "9eb34a592248876e7e9a0af6cc7d020e50e0c054"
+    },
+    {
+      "file": "frontend/src/api/websiteSettings.ts",
+      "commit": "d6d59970eb1e21c159ab090c17896e78382e86ab",
+      "fixture": "frontend__src__api__websiteSettings.ts.gz",
+      "size": 3472,
+      "sha256": "4635d44a9ae45d0e1c22247e1249dcc464d0451fd8d29df1e448b21c79c0e176",
+      "git_blob": "a600ddb0a1715a1e1ad0bdfafd77e6ef02cd5673"
+    },
+    {
+      "file": "frontend/src/modules/settings/WebsiteSettings.vue",
+      "commit": "62fb6dea60f8daf77eab31f1a3abe3d1a72748ce",
+      "fixture": "frontend__src__modules__settings__WebsiteSettings.vue.gz",
+      "size": 35253,
+      "sha256": "5006f5f47f3d85a2bd22255a91cd7c3bb624b8b1cbb6e44524c63450db05a04f",
+      "git_blob": "b43d3d7377a1328008a094a45d5912bdd5350a19"
+    },
+    {
+      "file": "frontend/src/shell/ExternalModuleCache.vue",
+      "commit": "d6d59970eb1e21c159ab090c17896e78382e86ab",
+      "fixture": "frontend__src__shell__ExternalModuleCache.vue.gz",
+      "size": 2915,
+      "sha256": "78d60f0c34c4752242413df260a6c66c2958dbacae21c73f275203433e2169ea",
+      "git_blob": "2ab29ae9216bc5c1a39deb6eb6ae0807672214ae"
+    },
+    {
+      "file": "frontend/src/stores/navigation.ts",
+      "commit": "87fcf0189187be90572584c65eb6118068ff8599",
+      "fixture": "frontend__src__stores__navigation.ts.gz",
+      "size": 5741,
+      "sha256": "96a35a48d9c8c0ed6f561253ae50901b77f71365cfc9561125ce95f0864fc501",
+      "git_blob": "5f21bd9dadd8e75ef17a8cf7868a27ff46f3203e"
+    },
+    {
+      "file": "app/api_response_contracts.py",
+      "commit": "3766f65612e86632048449400de41a4bd425cee5",
+      "fixture": "app__api_response_contracts.py.gz",
+      "size": 104093,
+      "sha256": "73164f9ab7ae2a76cce0d500b6a4ff7b626996a923307befe1bbb7980307bfc2",
+      "git_blob": "dade1955e4600aa1644213987b2e1da2dd09dfd4"
+    }
+  ]
+}

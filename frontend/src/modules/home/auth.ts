@@ -1,6 +1,7 @@
 // 认证 store：当前用户、登录态、登录/登出/refresh 动作。
 // access token 在 httpOnly cookie（30min），401 时静默 refresh 续命。
 import { reactive, ref, computed } from "vue";
+import { getBrowserId } from '../auth/browserId';
 import { homeSettings, siteBackground, DEFAULT_HOME_BG } from "./settings";
 
 export interface Me {
@@ -35,21 +36,21 @@ export function acceptLogin(me:Me){
  auth.sessionClosing=false;auth.suspended=false;auth.error='';auth.logoutError='';auth.me=me;auth.checked=true;
 }
 export interface SecurityState { enabled:boolean; configured:boolean; elevated:boolean; expires_at:string|null; single_user:boolean; setup_required:boolean }
-export const security = reactive<SecurityState>({enabled:true,configured:false,elevated:false,expires_at:null,single_user:true,setup_required:true});
+export const security = reactive<SecurityState>({enabled:false,configured:true,elevated:false,expires_at:null,single_user:true,setup_required:false});
 export const securityChecked = ref(false);
-export const isAdmin = computed(() => !!auth.me && securityChecked.value && (!security.enabled || security.elevated && (!security.expires_at || Date.parse(security.expires_at)>Date.now())));
-let securityExpiry:ReturnType<typeof setTimeout>|undefined;
+// Compatibility name used throughout the UI. Only server-confirmed owner login
+// enables it; legacy is_admin metadata and management state are not authority.
+export const isAdmin = computed(() => loggedIn.value);
 let securityGeneration=0;
 export async function loadSecurity() {
-  const owner=auth.me?.id,sequence=++securityGeneration;
+  const owner=auth.me?.id,epoch=auth.requestEpoch,sequence=++securityGeneration;
+  if(!loggedIn.value){clearSecurity();return;}
   const r = await fetch('/auth/security');
   if (!r.ok) { securityChecked.value=false; throw new Error('安全状态加载失败'); }
-  const state=await r.json();if(sequence!==securityGeneration||owner!==auth.me?.id)return;
+  const state=await r.json();if(sequence!==securityGeneration||owner!==auth.me?.id||epoch!==auth.requestEpoch||!loggedIn.value)return;
   Object.assign(security, state); securityChecked.value=true;
-  clearTimeout(securityExpiry);
-  if(security.enabled && security.elevated && security.expires_at)securityExpiry=setTimeout(()=>{security.elevated=false;},Math.max(0,Date.parse(security.expires_at)-Date.now()));
 }
-export function clearSecurity() { securityGeneration++;clearTimeout(securityExpiry);securityChecked.value=false; Object.assign(security,{enabled:true,configured:false,elevated:false,expires_at:null,setup_required:true}); }
+export function clearSecurity() { securityGeneration++;securityChecked.value=false; Object.assign(security,{enabled:false,configured:true,elevated:false,expires_at:null,setup_required:false}); }
 /** 系统是否已初始化（有管理员）。未初始化访客看默认壁纸；初始化后看管理员站点背景 */
 export const initialized = ref(true);
 
@@ -107,7 +108,14 @@ export function refreshAccess(): Promise<boolean> {
           if(r.ok){const me=await r.json();if(!sessionCurrent(generation,epoch))return false;auth.me=me;auth.error='';return true;}
           if(r.status!==401&&r.status!==403){auth.error='身份确认失败，请重试';return false;}
           rejected=true;
-          if(attempt===0)await new Promise(resolve=>setTimeout(resolve,300));
+          // A missing refresh cookie / 403 is final. An already-rotated token
+          // has the same server rejection as expiry; retain one bounded recovery
+          // even on a cold tab with no in-memory identity. Never persist identity.
+          const detail=r.status===401?(await r.json().catch(()=>null))?.detail:null;
+          const rotationRace=r.status===401 && detail!=='无刷新令牌' && (!!auth.me || detail==='会话已失效');
+          if(!sessionCurrent(generation,epoch))return false;
+          if(attempt===0 && rotationRace)await new Promise(resolve=>setTimeout(resolve,300));
+          else break;
         } catch {if(sessionCurrent(generation,epoch))auth.error='身份确认失败，请重试';return false;}
       }
       if(rejected&&sessionCurrent(generation,epoch)){
@@ -120,7 +128,16 @@ export function refreshAccess(): Promise<boolean> {
   return flight.promise;
 }
 
-export async function fetchMe(): Promise<boolean> {
+let identityFlight: {generation:number;epoch:number;promise:Promise<boolean>} | null = null;
+export function fetchMe(): Promise<boolean> {
+  const generation=auth.sessionGeneration,epoch=auth.requestEpoch;
+  if(identityFlight?.generation===generation&&identityFlight.epoch===epoch)return identityFlight.promise;
+  const flight={generation,epoch,promise:Promise.resolve(false)};
+  identityFlight=flight;
+  flight.promise=fetchMeRequest().finally(()=>{if(identityFlight===flight)identityFlight=null;});
+  return flight.promise;
+}
+async function fetchMeRequest(): Promise<boolean> {
   const generation=auth.sessionGeneration,epoch=auth.requestEpoch;
   if(!sessionCurrent(generation,epoch)||auth.suspended)return false;
   try {
@@ -140,16 +157,26 @@ export async function fetchMe(): Promise<boolean> {
   return false;
 }
 
-/** 未登录访客：拉初始化状态 + 站点背景，决定主页背景显示哪张 */
-export async function loadSiteConfig(): Promise<void> {
-  try {
-    const [st, bg] = await Promise.all([
-      fetch("/auth/status").then((r) => (r.ok ? r.json() : null)),
-      fetch("/config/site-background").then((r) => (r.ok ? r.json() : null)),
-    ]);
-    if (st) initialized.value = !!st.initialized;
-    if (bg) siteBackground.value = bg.value || "";
-  } catch { /* 后端不在就保持默认 */ }
+/** Public config is coalesced only within the current identity epoch. */
+let siteConfigFlight: {generation:number;epoch:number;owner:string|undefined;promise:Promise<void>} | null = null;
+export function loadSiteConfig(): Promise<void> {
+  const generation=auth.sessionGeneration,epoch=auth.requestEpoch,owner=auth.me?.id;
+  if(siteConfigFlight?.generation===generation && siteConfigFlight.epoch===epoch && siteConfigFlight.owner===owner)return siteConfigFlight.promise;
+  const flight={generation,epoch,owner,promise:Promise.resolve()};
+  siteConfigFlight=flight;
+  flight.promise=(async()=>{
+    try {
+      const [st, bg] = await Promise.all([
+        fetch("/auth/status").then((r) => (r.ok ? r.json() : null)),
+        fetch("/config/site-background").then((r) => (r.ok ? r.json() : null)),
+      ]);
+      if(!sessionCurrent(generation,epoch)||auth.me?.id!==owner)return;
+      if (st) initialized.value = !!st.initialized;
+      if (bg) siteBackground.value = bg.value || "";
+    } catch { /* 后端不在就保持默认 */ }
+    finally {if(siteConfigFlight===flight)siteConfigFlight=null;}
+  })();
+  return flight.promise;
 }
 
 /** 背景从 localStorage 迁到账号级 home_bg：登录后若 home_bg 空，把旧 localStorage 背景迁过去（一次性） */
@@ -173,7 +200,7 @@ export async function login(username: string, password: string, remember: boolea
   const r = await fetch("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, remember, device }),
+    body: JSON.stringify({ username, password, remember, device, browser_id: getBrowserId(), entry_origin: window.location.origin }),
   });
   if (!r.ok) return (await r.json()).detail ?? "登录失败";
   acceptLogin(await r.json());
@@ -185,7 +212,7 @@ export async function register(username: string, password: string, displayName?:
   const r = await fetch("/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, display_name: displayName }),
+    body: JSON.stringify({ username, password, display_name: displayName, browser_id: getBrowserId(), entry_origin: window.location.origin }),
   });
   if (!r.ok) return (await r.json()).detail ?? "注册失败";
   acceptLogin(await r.json());

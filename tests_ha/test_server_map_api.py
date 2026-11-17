@@ -20,19 +20,68 @@ from test_server_map import node, snapshot, NOW
 def db():
     from sqlalchemy.pool import StaticPool
     engine = create_engine('sqlite://',connect_args={'check_same_thread':False,'autocommit':False},poolclass=StaticPool)
+    from sqlalchemy import Integer, JSON, MetaData
     from app.models.user import User, AuthSession
-    User.__table__.create(engine); AuthSession.__table__.create(engine)
-    AppConfig.__table__.create(engine)
-    # handle_report 会惰性评估告警规则——需要告警域表（空表即可，无规则早退）
-    from app.models.alert import AlertEvent, AlertRule, AlertState, Notification
-    for t in (AlertRule.__table__, AlertState.__table__, AlertEvent.__table__, Notification.__table__):
-        t.create(engine)
-    with Session(engine) as session:
-        yield session
-    engine.dispose()
+    from app.models.alert import AlertRule, Notification
+    from app.models.node import Node
+    from app.models.monitor import Monitor, MonitorGroup, MonitorGroupMember
+    from sqlalchemy.dialects.postgresql import JSONB
+    # Report evaluation only reads empty rules. Retain the original notification
+    # table as SQLite-compatible fixture support, but no state/event or JSONB
+    # operator behavior is exercised here.
+    # Copy only these tables so SQLite DDL never mutates shared model metadata or
+    # installs a process-global JSONB compiler that could hide other test errors.
+    metadata = MetaData()
+    for model in (User, AuthSession, AppConfig, AlertRule, Notification,
+                  Node, Monitor, MonitorGroup, MonitorGroupMember):
+        table = model.__table__.to_metadata(metadata)
+        for column in table.columns:
+            if isinstance(column.type, JSONB):
+                column.type = JSON()
+    metadata.tables['alert_rules'].c.condition.type = JSON()
+    metadata.tables['notifications'].c.id.type = Integer()
+    # Alerts history added this JSONB column; keep this copied SQLite fixture
+    # portable without changing product model types or a global type compiler.
+    metadata.tables['notifications'].c.context.type = JSON()
+    def assert_model_types_unchanged():
+        from sqlalchemy import BigInteger
+        from sqlalchemy.dialects import sqlite
+        from sqlalchemy.exc import CompileError
+        from sqlalchemy.schema import CreateTable
+        assert isinstance(Node.__table__.c.interfaces.type, JSONB)
+        assert isinstance(AlertRule.__table__.c.condition.type, JSONB)
+        assert isinstance(Notification.__table__.c.context.type, JSONB)
+        assert isinstance(Notification.__table__.c.id.type, BigInteger)
+        with pytest.raises(CompileError):
+            str(CreateTable(Node.__table__).compile(dialect=sqlite.dialect()))
+    assert_model_types_unchanged()
+    try:
+        metadata.create_all(engine)
+        with Session(engine) as session:
+            yield session
+    finally:
+        engine.dispose()
+        assert_model_types_unchanged()
 
 
-def test_report_persistence_is_separate_from_manual_and_clear(db, monkeypatch):
+@pytest.fixture
+def report_node(db):
+    # handle_report now locks/reloads the authenticated row and reconciles its
+    # entry monitors. A SimpleNamespace returned by get_by_token is not that row.
+    from app.models.node import Node
+    persisted = Node(id=1, name='Tokyo-1', platform='linux', host='192.0.2.1',
+                     token='token', status='online', last_seen_at=NOW)
+    db.add(persisted)
+    db.commit()
+    yield persisted
+    with Session(db.get_bind()) as fresh:
+        assert fresh.query(Node).count() == 1
+        assert fresh.get(Node, persisted.id).token == 'token'
+        assert json.loads(config_repo.get(fresh, 'node_map_manual:1')) is None
+        assert json.loads(config_repo.get(fresh, 'node_map_snapshot:1')) is None
+
+
+def test_report_persistence_is_separate_from_manual_and_clear(db, monkeypatch, report_node):
     assert hasattr(server_map, "save_snapshot")
     n = node()
     monkeypatch.setattr(node_svc.repo, "get_by_token", lambda *a: n)
@@ -101,14 +150,15 @@ def test_get_topology_reads_only_and_routes_auth(db, monkeypatch):
     monkeypatch.setattr(server_map, "get_topology", lambda db: result)
     save = Mock(return_value=result["nodes"][0])
     monkeypatch.setattr(server_map, "set_manual_location", save)
-    client = TestClient(app)
+    client = TestClient(app, base_url='https://testserver')
     assert client.post('/auth/register',json={'username':'mapowner','password':'map-daily-123'}).status_code == 201
-    assert client.post('/auth/admin/setup',json={'user_password':'map-daily-123','new_password':'map-management-independent'}).status_code == 200
+    assert client.post('/auth/admin/setup',json={'user_password':'map-daily-123','new_password':'map-management-independent'}).status_code == 410
     assert client.get("/nodes/map-topology").status_code == 200
     body = dict(latitude=0, longitude=0, label="Origin")
-    assert client.patch("/nodes/1/map-location", json=body).status_code == 403
+    with TestClient(app, base_url='https://testserver') as anonymous:
+        assert anonymous.patch("/nodes/1/map-location", json=body).status_code == 401
     save.assert_not_called()
-    assert client.post('/auth/admin/unlock',json={'password':'map-management-independent'}).status_code == 200
+    assert client.post('/auth/admin/unlock',json={'password':'map-management-independent'}).status_code == 410
     assert client.patch("/nodes/1/map-location", json=body).status_code == 200
     assert client.patch("/nodes/1/map-location", json=dict(latitude=0, longitude=None)).status_code == 422
     assert client.post('/auth/logout').status_code == 200

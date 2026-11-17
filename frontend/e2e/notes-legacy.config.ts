@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:/notes-(editor|import|directory|templates|id-links|zip-import)\.spec\.ts/,workers:1,outputDir:process.env.NOTES_REFRESH_ARTIFACTS+'/traces',reporter:[['list'],['json'],['junit']],use:{baseURL:'http://127.0.0.1:15186',trace:'retain-on-failure',screenshot:'only-on-failure'},webServer:{command:'node e2e/notes-refresh-server.mjs',cwd:new URL('..',import.meta.url).pathname,port:15186,reuseExistingServer:false}});

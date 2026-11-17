@@ -49,8 +49,8 @@ def snapshot(factory):
 
 
 def elevate(client):
-    assert client.post('/auth/admin/setup', json={'user_password':'daily-synthetic-123','new_password':'admin-synthetic-456'}).status_code == 200
-    assert client.post('/auth/admin/unlock', json={'password':'admin-synthetic-456'}).status_code == 200
+    assert client.post('/auth/admin/setup', json={'user_password':'daily-synthetic-123','new_password':'admin-synthetic-456'}).status_code == 410
+    assert client.post('/auth/admin/unlock', json={'password':'admin-synthetic-456'}).status_code == 410
 
 
 def payload(site='drive'):
@@ -100,7 +100,8 @@ def test_atomic_put_readback_keeps_registry_and_custom_versions(api, monkeypatch
     from app.models.config import AppConfig
     from app.services import integrations as store, builtin_injection as injection
     before=snapshot(factory)
-    assert client.put('/service-settings/drive',json=payload()).status_code==403
+    with TestClient(client.app,base_url='https://testserver') as anonymous:
+        assert anonymous.put('/service-settings/drive',json=payload()).status_code==401
     assert snapshot(factory)==before
     elevate(client)
     registry=store.empty_state()

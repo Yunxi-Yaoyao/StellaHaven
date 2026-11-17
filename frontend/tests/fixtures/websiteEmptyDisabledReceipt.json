@@ -1,0 +1,196 @@
+{
+  "before": {
+    "id": "154b942af99449359ce96a8f091a6223",
+    "name": "现有网站",
+    "icon": "globe",
+    "mode": "iframe",
+    "adapter": "generic",
+    "browser_url": "http://127.0.0.1:35805/",
+    "private_address": null,
+    "entry_policy": "follow",
+    "access_adapter": "auto",
+    "target_id": null,
+    "initial_path": "/",
+    "enabled": true,
+    "keep_alive": false,
+    "origin": "https://app-154b942af99449359ce96a8f091a6223.xiya.live",
+    "injection": {
+      "draft": {
+        "enabled": true,
+        "css": "/* 独立历史草稿 */body{color:orange}",
+        "js": "",
+        "timing": "dom_ready",
+        "csp_policy": "reject"
+      },
+      "active": null,
+      "previous": null
+    },
+    "template_id": null,
+    "connection": {
+      "transport": "auto",
+      "auth_mode": "original",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "has_token": false
+    },
+    "background": "solid",
+    "request_policy": {
+      "management_prefixes": [],
+      "read_post_paths": [],
+      "protect_other_writes": false
+    },
+    "route": "/apps/154b942af99449359ce96a8f091a6223",
+    "capabilities": {
+      "injection": false,
+      "browser_status": "unobservable",
+      "managed_settings": null
+    }
+  },
+  "request": {
+    "address": "http://127.0.0.1:35805/",
+    "name": "现有网站",
+    "icon": "globe",
+    "custom": {
+      "enabled": false,
+      "css": "",
+      "js": "",
+      "timing": "document_start"
+    },
+    "preserve_saved_draft": true,
+    "idempotency_key": "empty-disabled-commit"
+  },
+  "response": {
+    "id": "154b942af99449359ce96a8f091a6223",
+    "name": "现有网站",
+    "icon": "globe",
+    "mode": "iframe",
+    "adapter": "generic",
+    "browser_url": "http://127.0.0.1:35805/",
+    "private_address": null,
+    "entry_policy": "follow",
+    "access_adapter": "auto",
+    "target_id": null,
+    "initial_path": "/",
+    "enabled": true,
+    "keep_alive": false,
+    "origin": "https://app-154b942af99449359ce96a8f091a6223.xiya.live",
+    "injection": {
+      "draft": {
+        "enabled": true,
+        "css": "/* 独立历史草稿 */body{color:orange}",
+        "js": "",
+        "timing": "dom_ready",
+        "csp_policy": "reject"
+      },
+      "active": {
+        "enabled": false,
+        "css": "",
+        "js": "",
+        "timing": "document_start",
+        "csp_policy": "reject",
+        "version": "1da927973bbb4004974ed2e9f2dd2b51"
+      },
+      "previous": null
+    },
+    "template_id": null,
+    "connection": {
+      "transport": "auto",
+      "auth_mode": "original",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "has_token": false
+    },
+    "background": "solid",
+    "request_policy": {
+      "management_prefixes": [],
+      "read_post_paths": [],
+      "protect_other_writes": false
+    },
+    "route": "/apps/154b942af99449359ce96a8f091a6223",
+    "capabilities": {
+      "injection": false,
+      "browser_status": "unobservable",
+      "managed_settings": null
+    },
+    "check": {
+      "software": {
+        "type": "unknown",
+        "source": null
+      },
+      "compatibility": null,
+      "normalized_url": "http://127.0.0.1:35805/",
+      "name_suggestion": "Fixture title",
+      "access": {
+        "status": "reachable",
+        "http_status": 200
+      },
+      "embedding": {
+        "status": "allowed",
+        "reason_code": "no_observed_restriction",
+        "reason": "未发现响应策略阻断，浏览器内容及登录仍需验证"
+      },
+      "injection": {
+        "status": "supported",
+        "reason": "匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"
+      },
+      "help": null,
+      "can_save": true,
+      "recommended_behavior": "embedded",
+      "issues": []
+    }
+  },
+  "after": {
+    "id": "154b942af99449359ce96a8f091a6223",
+    "name": "现有网站",
+    "icon": "globe",
+    "mode": "iframe",
+    "adapter": "generic",
+    "browser_url": "http://127.0.0.1:35805/",
+    "private_address": null,
+    "entry_policy": "follow",
+    "access_adapter": "auto",
+    "target_id": null,
+    "initial_path": "/",
+    "enabled": true,
+    "keep_alive": false,
+    "origin": "https://app-154b942af99449359ce96a8f091a6223.xiya.live",
+    "injection": {
+      "draft": {
+        "enabled": true,
+        "css": "/* 独立历史草稿 */body{color:orange}",
+        "js": "",
+        "timing": "dom_ready",
+        "csp_policy": "reject"
+      },
+      "active": {
+        "enabled": false,
+        "css": "",
+        "js": "",
+        "timing": "document_start",
+        "csp_policy": "reject",
+        "version": "1da927973bbb4004974ed2e9f2dd2b51"
+      },
+      "previous": null
+    },
+    "template_id": null,
+    "connection": {
+      "transport": "auto",
+      "auth_mode": "original",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "has_token": false
+    },
+    "background": "solid",
+    "request_policy": {
+      "management_prefixes": [],
+      "read_post_paths": [],
+      "protect_other_writes": false
+    },
+    "route": "/apps/154b942af99449359ce96a8f091a6223",
+    "capabilities": {
+      "injection": false,
+      "browser_status": "unobservable",
+      "managed_settings": null
+    }
+  }
+}

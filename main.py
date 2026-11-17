@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
+from fastapi.exceptions import RequestValidationError
+from app.validation_errors import validation_exception_handler
 from app.routers import (
     workspace_router, user_router, tag_router, document_router,
     doc_tag_router, document_link_router, document_version_router,
@@ -20,12 +22,19 @@ from app.routers.metrics_source import router as metrics_source_router
 from app.routers.drive import router as drive_router
 from app.routers.gallery import router as gallery_router
 from app.routers.oidc import router as oidc_router
+from app.routers.auth_provider import router as auth_provider_router
 from app.routers.integrations import router as integrations_router
 from app.routers.website_settings import router as website_settings_router, assets_router as website_assets_router
 from app.routers.integrations_host import IntegrationsHostMiddleware
 from app.routers.notes_tools import router as notes_tools_router
+from app.routers.notes_preferences import router as notes_preferences_router
+from app.routers.web_projects import router as web_projects_router
+from app.routers.project_files import router as project_files_router
+from app.routers.detached_sources import router as detached_sources_router
 from app.routers.unified_search import router as unified_search_router
 from app.routers.timeline import router as timeline_router
+from app.routers.native_nav import router as native_nav_router
+from app.routers.node_files import router as node_files_router, agent_router as file_agent_router
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -36,17 +45,58 @@ ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 # 前端 SPA（生产部署）
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend" / "dist"
 API_PREFIXES = (
-    "/auth", "/nodes", "/monitors", "/agent", "/config", "/workspaces",
-    "/documents", "/tags", "/doc-tags", "/document-links",
-    "/document-versions", "/attachments", "/homebg", "/iperf-tasks",
-    "/mtr-tasks", "/commands", "/ws", "/assets", "/drive", "/gallery",
+    "/auth", "/nodes", "/node-files", "/monitors", "/agent", "/config", "/workspaces",
+    "/documents", "/tags", "/doc-tags", "/document-links", "/notes-preferences",
+    "/document-versions", "/attachments", "/homebg", "/web-projects", "/web-project-files", "/detached-sources", "/iperf-tasks",
+    "/mtr-tasks", "/mtr-jobs", "/commands", "/ws", "/assets", "/drive", "/gallery",
     "/.well-known", "/oauth", "/users", "/alerts", "/notifications",
     "/component-installs", "/external-modules", "/navigation", "/audit", "/backup-health",
     "/operations", "/admin", "/integration-targets", "/integration-presets",
+    "/nav-data", "/nav-assets", "/nav-export", "/nav-import-preview",
     "/website-templates", "/website-assets", "/notes-tools", "/search", "/timeline", "/builtin-injections", "/integration-assets", "/website-settings", "/service-settings",
 )
 
-app = FastAPI(title="StellaHaven")
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def backup_lifespan(app):
+    import os
+    from app.database import engine
+    from app.security import SECRET_KEY
+    from app.services.backup_center import BackupCenter
+    from starlette.concurrency import run_in_threadpool
+    from app.database import sessionLocal
+    from app.services.entry_monitor_groups import bootstrap as bootstrap_entry_groups
+    from sqlalchemy import text
+    with sessionLocal() as db:
+        # Passive replicas must remain read-only; promotion/restart runs the hook.
+        if db.get_bind().dialect.name != 'postgresql' or not db.scalar(text('SELECT pg_is_in_recovery()')):
+            bootstrap_entry_groups(db)
+            db.commit()
+    instance = BackupCenter(
+        engine, Path(os.getenv('STELLA_BACKUP_DATA_ROOT', str(Path(__file__).resolve().parent / 'data'))),
+        key=SECRET_KEY, default_directory=os.getenv('STELLA_BACKUP_DIRECTORY') or None)
+    app.state.backup_center = instance
+    from app.services.node_deadlines import NodeDeadlineWatcher
+    deadlines = NodeDeadlineWatcher.from_url(engine.url)
+    app.state.node_deadlines = deadlines
+    try:
+        deadlines.start()  # independent of backup enabled/long-running work
+        instance.start()
+        yield
+    finally:
+        try:
+            await run_in_threadpool(deadlines.stop)
+        finally:
+            await run_in_threadpool(instance.stop)
+
+
+app = FastAPI(title="StellaHaven", lifespan=backup_lifespan)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+# Documentation only: no router, URL or request-handler changes.
+from app.openapi_contract import install_openapi_contract
+install_openapi_contract(app)
 
 # Opt-in only: passive nodes may run processes but must not serve business.
 # This gate never elects a leader; PostgreSQL/Patroni remains the write fence.
@@ -60,6 +110,8 @@ app.add_middleware(MediaLimitsMiddleware, enabled=os.getenv('STELLA_BLOB_STORAGE
 from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 from app.services.request_security import MainSiteSecurityMiddleware, contained_spa_path
+from app.services.native_nav_limits import NativeNavLimitsMiddleware
+app.add_middleware(NativeNavLimitsMiddleware)
 app.add_middleware(MainSiteSecurityMiddleware)
 # Integration host middleware MUST be registered after this (outermost dispatch).
 # Unrecognized app-ID origins are never allowed to reach the main site's SPA/API.
@@ -92,6 +144,8 @@ app.include_router(homebg_router)
 app.include_router(auth_router)
 app.include_router(admin_email_router)
 app.include_router(operations_status_router)
+from app.routers.backups import router as backups_router
+app.include_router(backups_router)
 app.include_router(node_router)
 app.include_router(monitor_router)
 app.include_router(alerts_router)
@@ -104,12 +158,22 @@ app.include_router(metrics_source_router)
 app.include_router(drive_router)
 app.include_router(gallery_router)
 app.include_router(oidc_router)
+app.include_router(auth_provider_router)
 app.include_router(integrations_router)
 app.include_router(website_settings_router)
 app.include_router(website_assets_router)
 app.include_router(notes_tools_router)
+app.include_router(notes_preferences_router)
+app.include_router(web_projects_router)
+app.include_router(project_files_router)
+app.include_router(detached_sources_router)
 app.include_router(unified_search_router)
 app.include_router(timeline_router)
+app.include_router(native_nav_router)
+from app.routers.native_nav import events_router as native_nav_events_router
+app.include_router(native_nav_events_router)
+app.include_router(node_files_router)
+app.include_router(file_agent_router)
 # Exact media routes must precede StaticFiles; other packaged assets still fall through.
 from app.routers.dynamic_assets import router as dynamic_assets_router
 app.include_router(dynamic_assets_router)
@@ -138,5 +202,8 @@ async def spa_fallback(full_path: str, request: Request):
 # Host dispatch must precede main-site origin/auth/SPA, but never bypass HA role.
 app.add_middleware(IntegrationsHostMiddleware,
                    main_origin=os.getenv("STELLA_MAIN_ORIGIN", "https://stella.xiya.live"))
+from app.routers.web_project_host import WebProjectHostMiddleware
+from app.database import sessionLocal
+app.add_middleware(WebProjectHostMiddleware, db_factory=sessionLocal)
 app.add_middleware(PrimaryOnlyMiddleware, enabled=os.getenv("STELLA_HA_MODE") == "primary-only")
 

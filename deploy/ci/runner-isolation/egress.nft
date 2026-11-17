@@ -1,0 +1,38 @@
+# PROPOSAL ONLY. Never `flush ruleset`. Install only after explicit approval.
+# This private table covers only the three NEW bridges; existing traffic untouched.
+# Remove ONLY this table on rollback, after disabling new managers/networks.
+table inet stella_ci_isolation {
+  set lanes { type ifname; elements = { "stci-test", "stci-build", "stci-deploy" }; }
+  set private_v4 {
+    type ipv4_addr; flags interval;
+    elements = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8,
+                 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 };
+  }
+  chain host_input {
+    type filter hook input priority -20; policy accept;
+    iifname @lanes meta nfproto ipv6 drop
+    iifname @lanes ip daddr 10.66.0.2 tcp dport 443 accept
+    iifname "stci-deploy" ip daddr 10.66.0.2 tcp dport 22 accept
+    iifname @lanes drop
+  }
+  chain forward {
+    type filter hook forward priority -20; policy accept;
+    iifname @lanes meta nfproto ipv6 drop
+    oifname @lanes meta nfproto ipv6 drop
+    iifname "stci-test" oifname "stci-test" accept
+    iifname "stci-build" oifname "stci-build" accept
+    iifname "stci-deploy" oifname "stci-deploy" accept
+    iifname @lanes jump egress
+    oifname @lanes ct state established,related accept
+    oifname @lanes drop
+  }
+  chain egress {
+    ip daddr 10.66.0.2 tcp dport 443 accept
+    iifname "stci-deploy" ip daddr { 10.66.0.2, 10.66.0.3 } tcp dport 22 accept
+    ip daddr { 223.5.5.5, 119.29.29.29 } udp dport 53 accept
+    ip daddr { 223.5.5.5, 119.29.29.29 } tcp dport 53 accept
+    ip daddr @private_v4 drop
+    tcp dport { 80,443 } accept
+    drop
+  }
+}

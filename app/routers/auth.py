@@ -1,21 +1,22 @@
-"""Single pinned owner, daily authentication and independent session-bound elevation.
+"""Single pinned owner, authenticated revocable sessions and one user password.
 
 Legacy user UUIDs and ownership guards remain; invitations/user CRUD are gone.
 Multiple devices retain separate revocable AuthSessions. is_admin is legacy
-metadata only; privileged operations use PostgreSQL-backed management grants.
+metadata only; management uses the same authenticated owner boundary.
 """
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, UploadFile, Query
 from sqlalchemy import and_, or_
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services.session_policy import expired, expires_at, utc
+from app.services.browser_sessions import detect_user_agent, session_metadata
 from app.models.user import User, AuthSession
 from app.security import (
     ACCESS_MINUTES, REFRESH_DAYS,
@@ -174,6 +175,8 @@ class RegisterIn(BaseModel):
     username: str
     password: str
     display_name: str | None = None
+    browser_id: UUID | None = None
+    entry_origin: str | None = Field(default=None, max_length=512)
 
 
 class LoginIn(BaseModel):
@@ -181,6 +184,10 @@ class LoginIn(BaseModel):
     password: str
     remember: bool = False
     device: str | None = None
+    browser_id: UUID | None = None
+    entry_origin: str | None = Field(default=None, max_length=512)
+    browser_name: str | None = Field(default=None, max_length=80)
+    os_name: str | None = Field(default=None, max_length=80)
 
 
 def _find_by_identifier(db: Session, ident: str) -> User | None:
@@ -224,7 +231,7 @@ def status(db: Session = Depends(get_db)):
 
 
 @router.post("/register", status_code=201)
-def register(data: RegisterIn, response: Response, request: Request, db: Session = Depends(get_db)):
+def register(data: RegisterIn, response: Response, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Initialize a genuinely empty installation; never claim existing accounts."""
     from app.services.admin_security import locked_state
     locked_state(db)  # PostgreSQL transaction lock fences simultaneous initialization.
@@ -241,10 +248,17 @@ def register(data: RegisterIn, response: Response, request: Request, db: Session
         password_hash=hash_password(data.password),
         is_admin=True,  # 初始化注册者 = admin
     )
-    db.add(user)
-    db.flush()
-    _create_session(db, user, request, response, remember=True)  # 注册即登录
-    db.commit()
+    try:
+        db.add(user)
+        db.flush()
+        _create_session(db, user, request, response, remember=True, browser_id=data.browser_id,
+                        entry_origin=data.entry_origin, owner_commit=False)  # 注册即登录
+        db.commit()  # User, owner pin and first AuthSession are atomic.
+    except Exception:
+        db.rollback()
+        raise
+    from app.services.node import initialize_host_install
+    initialize_host_install(db, background_tasks)  # own instance, after durable owner/session
     return _user_out(user)
 
 
@@ -256,27 +270,43 @@ def login(data: LoginIn, request: Request, response: Response, db: Session = Dep
         raise HTTPException(401, "账号或密码错误")
     if not user.is_active:
         raise HTTPException(403, "账号已被禁用")
-    _create_session(db, user, request, response, remember=data.remember, device=data.device)
+    _create_session(db, user, request, response, remember=data.remember, device=data.device, browser_id=data.browser_id, entry_origin=data.entry_origin)
     db.commit()
     return _user_out(user)
 
 
 def _create_session(db: Session, user: User, request: Request, response: Response,
-                    remember: bool, device: str | None = None) -> AuthSession:
-    from app.services.admin_security import require_owner
-    require_owner(db, user)
+                    remember: bool, device: str | None = None, browser_id: UUID | None = None,
+                    entry_origin: str | None = None, owner_commit: bool = True) -> AuthSession:
+    from app.services.admin_security import require_owner, locked_state
+    from app.services.browser_sessions import resolve_display_entry
+    require_owner(db, user, commit=owner_commit)
+    origin = resolve_display_entry(request, entry_origin)
+    if browser_id is not None and origin is not None:
+        # Serialize even the first group login, after any legacy owner bootstrap commit.
+        locked_state(db)
+        for old in db.query(AuthSession).filter(AuthSession.user_id == user.id,
+                AuthSession.browser_id == browser_id, AuthSession.login_origin == origin,
+                _active_sessions()).populate_existing().all():
+            old.revoked = True
     previous = _presented_session(request, db)
-    if previous and previous.user_id == user.id and not previous.revoked and not expired(previous):
+    if previous and previous.user_id == user.id and not previous.revoked and not expired(previous) and (
+            previous.login_origin is None or previous.login_origin == origin):
         previous.revoked = True
     rt_raw, rt_hash = make_refresh_token()
     # The ASGI server may trust an explicitly configured proxy peer; do not
     # consume arbitrary client-supplied X-Forwarded-For here.
     ip = request.client.host if request.client else ""
+    browser_name, os_name = detect_user_agent(request.headers.get('user-agent', ''))
     session = AuthSession(
         user_id=user.id,
         refresh_hash=rt_hash,
         device=device or _device_label(request.headers.get("user-agent", "")),
         ip=ip,
+        browser_id=browser_id,
+        browser_name=browser_name,
+        os_name=os_name,
+        login_origin=origin,
         remember=remember,
     )
     session._rt_raw = rt_raw  # type: ignore[attr-defined]  # 只活这一次，不落库
@@ -308,6 +338,7 @@ def rotate_refresh(request: Request, response: Response, db: Session) -> User:
     session._rt_raw = rt_raw  # type: ignore[attr-defined]
     _issue_cookies(response, user, session, session.remember)
     db.commit()
+    request.state.auth_session = session
     return user
 
 
@@ -317,7 +348,7 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
 
 
 def _presented_session(request: Request, db: Session):
-    # Elevation is access-SID bound. Prefer that exact session even when a
+    # Logout is access-SID bound. Prefer that exact session even when a
     # stale/mixed refresh cookie names another device's session.
     claims = read_access_token(request.cookies.get(AT_COOKIE, "")) or {}
     try:
@@ -337,8 +368,10 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     session = _presented_session(request, db)
     if session:
         session.revoked = True
-        from app.services.admin_security import lock
-        lock(db, session)
+        from app.services.backup_health import record_change
+        record_change(db, action='security.logout', actor_id=session.user_id,
+                      resource_id=str(session.id), changed_fields=['session'], payload=None)
+        db.commit()  # Revoke this session; dormant legacy grants are not used.
     response.delete_cookie(AT_COOKIE, path="/")
     response.delete_cookie(RT_COOKIE, path="/")
     return {"ok": True}
@@ -360,11 +393,13 @@ def activity(request: Request, user: User = Depends(current_user), db: Session =
     if not session or session.user_id != user.id or session.revoked or expired(session):
         raise HTTPException(401, "会话已失效")
     session.last_seen = datetime.now(timezone.utc)
+    session.ip = request.client.host if request.client else ""
     db.commit()
     return {"ok": True, "expires_at": expires_at(session).isoformat()}
 
 
 class ProfileIn(BaseModel):
+    username: str | None = Field(default=None, max_length=254)
     display_name: str | None = None
     email: str | None = None
     home_bg: str | None = None
@@ -372,24 +407,45 @@ class ProfileIn(BaseModel):
 
 @router.patch("/me")
 def update_profile(data: ProfileIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """改昵称/邮箱"""
-    if data.email is not None:
-        mail = data.email.strip()
-        if mail and "@" not in mail:
-            raise HTTPException(400, "邮箱格式不对喵~")
-        _assert_identifiers_free(db, email=mail, exclude=user.id)
-        if mail != user.email:
-            user.email_verified = False  # 换邮箱=回到未验证
-        user.email = mail
-    if data.display_name is not None:
-        name = data.display_name.strip()
-        if not name:
-            raise HTTPException(400, "昵称不能为空")
-        _assert_identifiers_free(db, display_name=name, exclude=user.id)
-        user.display_name = name
+    """Update login identifiers without changing the owner UUID or sessions."""
+    from app.services.homebg_references import lock_library, validate_new
     if data.home_bg is not None:
+        lock_library(db)  # shared media -> user; held through profile commit
+    # Serialize same-owner edits before checking the combined resulting values.
+    user = db.query(User).filter(User.id == user.id).with_for_update().populate_existing().one()
+    username = data.username.strip() if data.username is not None else user.username
+    name = data.display_name.strip() if data.display_name is not None else user.display_name
+    mail = data.email.strip() if data.email is not None else user.email
+    if (data.username is not None and not username) or (data.display_name is not None and not name):
+        raise HTTPException(400, "用户名和昵称不能为空")
+    if data.email is not None and mail and "@" not in mail:
+        raise HTTPException(400, "邮箱格式不对喵~")
+    _assert_identifiers_free(
+        db, username=username if data.username is not None else "",
+        display_name=name if data.display_name is not None else "",
+        email=mail if data.email is not None else "", exclude=user.id,
+    )
+    # Preserve historical same-value identifiers, but do not introduce new aliases
+    # which would silently keep a retired username usable as a nickname/email.
+    before = (user.username, user.display_name, user.email)
+    after = (username, name, mail)
+    for i, value in enumerate(after):
+        if value and value != before[i] and any(value == other for j, other in enumerate(after) if j != i):
+            raise HTTPException(409, "用户名、昵称和邮箱不能使用相同的标识")
+    user.username = username
+    user.display_name = name
+    if mail != user.email:
+        user.email_verified = False
+    user.email = mail
+    if data.home_bg is not None:
+        validate_new(db, data.home_bg, user.home_bg)
         user.home_bg = data.home_bg.strip()
-    db.commit()
+    from sqlalchemy.exc import IntegrityError
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "用户名已被使用，请换一个") from None
     return _user_out(user)
 
 
@@ -486,14 +542,11 @@ def _upload_avatar_pg(db, user, file, ext):
     return _user_out(user)
 
 
-@router.get("/avatars")
+@router.get("/avatars", response_model=list[str])
 def avatar_history(user: User = Depends(current_user)):
     """近 5 个历史头像（当前在队首）"""
-    import json as _json
-    try:
-        return _json.loads(user.avatar_history or "[]")
-    except Exception:
-        return []
+    from app.services.small_public_outputs import public_avatar_history
+    return public_avatar_history(user.avatar_history)
 
 
 # ---------- 邮箱验证码（绑定/换绑验证） ----------
@@ -615,6 +668,10 @@ class LoginCodeIn(BaseModel):
     code: str = Field(max_length=64)
     remember: bool = False
     device: str | None = None
+    browser_id: UUID | None = None
+    entry_origin: str | None = Field(default=None, max_length=512)
+    browser_name: str | None = Field(default=None, max_length=80)
+    os_name: str | None = Field(default=None, max_length=80)
 
 
 @router.post("/login-code")
@@ -622,7 +679,7 @@ def login_by_code(data: LoginCodeIn, request: Request, response: Response, db: S
     from app.services.email_attempts import consume_code
     user = _verified_email_owner(db, data.email.strip())
     consume_code(db, data.email.strip(), "login", data.code)
-    _create_session(db, user, request, response, remember=data.remember, device=data.device)
+    _create_session(db, user, request, response, remember=data.remember, device=data.device, browser_id=data.browser_id, entry_origin=data.entry_origin)
     db.commit()
     return _user_out(user)
 
@@ -708,24 +765,34 @@ def retired_invitation_api():
 
 @router.get("/sessions")
 def my_sessions(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db),
-                page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
-    """登录记录：普通用户看自己的；admin 看所有人的（带归属）"""
-    raw = request.cookies.get(RT_COOKIE)
-    current_hash = hash_refresh(raw) if raw else None
+                page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                current_only: bool = Query(False), exclude_current: bool = Query(False)):
+    """Own active sessions; opt-in current lookup is independent of list pages."""
+    # The authenticated access SID is authoritative, as for authorization and
+    # logout. A missing/stale/mixed refresh cookie must not relabel a device.
+    current_sid = request.state.auth_session.id
     q = db.query(AuthSession).filter(_active_sessions())
     q = q.filter(AuthSession.user_id == user.id)
-    rows = q.order_by(AuthSession.last_seen.desc(), AuthSession.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    if current_only:
+        # Deliberately bypass page offset for the independently pinned current row.
+        rows = q.filter(AuthSession.id == current_sid).all()
+    else:
+        if exclude_current:
+            q = q.filter(AuthSession.id != current_sid)
+        rows = q.order_by(AuthSession.last_seen.desc(), AuthSession.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     out = []
     for s in rows:
         owner = db.get(User, s.user_id)
         out.append({
+            **session_metadata(s),
             "id": str(s.id),
             "device": s.device,
             "ip": s.ip,
             "remember": s.remember,
             "created_at": utc(s.created_at).isoformat(),
             "last_seen": utc(s.last_seen).isoformat(),
-            "current": s.refresh_hash == current_hash,
+            "expires_at": expires_at(s).isoformat(),
+            "current": s.id == current_sid,
             "owner": owner.display_name if owner else "?",
             "mine": s.user_id == user.id,
         })
@@ -746,12 +813,29 @@ def session_history(user: User = Depends(current_user), db: Session = Depends(ge
     q = q.filter(AuthSession.user_id == user.id)
     total = q.count()
     rows = q.order_by(AuthSession.created_at.desc(), AuthSession.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return {"items": [{"id": str(s.id), "device": s.device, "ip": s.ip,
+    return {"items": [{**session_metadata(s), "id": str(s.id), "device": s.device, "ip": s.ip,
         "remember": s.remember, "created_at": utc(s.created_at).isoformat(),
         "last_seen": utc(s.last_seen).isoformat(), "expires_at": expires_at(s).isoformat(),
         "state": "revoked" if s.revoked else "expired", "mine": s.user_id == user.id,
         "owner": s.user.display_name, "current": False} for s in rows],
         "total": total, "page": page, "page_size": page_size}
+
+
+def _session_location_ip(session_id: UUID, user: User = Depends(current_user), db: Session = Depends(get_db)) -> str:
+    # FastAPI runs this complete synchronous DB segment in its worker pool.
+    session = db.get(AuthSession, session_id)
+    if not session or session.user_id != user.id:
+        raise HTTPException(404, '会话不存在')
+    ip = session.ip
+    # Release the transaction before external I/O; only a scalar escapes.
+    db.rollback()
+    return ip
+
+
+@router.get('/sessions/{session_id}/location')
+async def session_location(ip: str = Depends(_session_location_ip)):
+    from app.services.session_location import lookup_location
+    return {'ip': ip, 'ip_location': await lookup_location(ip)}
 
 
 @router.delete("/sessions/{session_id}")

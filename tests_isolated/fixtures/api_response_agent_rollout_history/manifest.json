@@ -1,0 +1,8 @@
+{
+  "commit": "0622e44ecb8c8b2d5afb1381161eb974eda25831",
+  "file": "app/routers/monitor.py",
+  "fixture": "monitor.py.gz",
+  "sha256": "3a9041dd6c30cd785f4bec464a27def52f0a0b5972bccacddc2dfdd8e50a25fe",
+  "size": 33876,
+  "git_blob": "ef047a5694c5bcfd07cb0c730da49c20c9f721ee"
+}

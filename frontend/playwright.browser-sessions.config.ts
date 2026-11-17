@@ -1,0 +1,3 @@
+import {defineConfig} from '@playwright/test';
+const out=process.env.STELLA_SESSION_QA_OUTPUT||'node_modules/.cache/browser-sessions';
+export default defineConfig({testDir:'./e2e',testMatch:'session-browser.spec.ts',workers:1,timeout:30000,outputDir:out+'/artifacts',reporter:[['list'],['json',{outputFile:out+'/session-browser-results.json'}]],use:{baseURL:'http://127.0.0.1:15274',launchOptions:{executablePath:process.env.STELLA_CHROMIUM||'/usr/sbin/google-chrome-stable',args:['--no-sandbox']}},webServer:{command:'node e2e/login-modal/server.mjs',url:'http://127.0.0.1:15274',reuseExistingServer:false}});

@@ -9,12 +9,13 @@ const out=resolve(process.env.STELLA_SERVICE_ARTIFACTS||'test-results/services')
 test('central settings exposes distinct passwords without a normal-login admin badge',async({page})=>{
  const m=await mock(page);
  await page.goto('/settings');
- await expect(page.getByRole('button',{name:'资料与安全',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'我的资料',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'认证与安全',exact:true}).click();
  await expect(page.getByText('管理保护已开启',{exact:true})).toBeVisible();
  await expect(page.getByText('管理权限未解锁',{exact:true})).toBeVisible();
  await expect(page.getByText('用户列表',{exact:true})).toHaveCount(0);
  await expect(page.getByText('邀请新用户',{exact:true})).toHaveCount(0);
- await expect(page.getByText('当前会话',{exact:true})).toBeVisible();
+ await expect(page.locator('.sess-group').filter({hasText:/^当前会话$/})).toBeVisible();
  expect(m.requests.filter(r=>r.path==='/auth/sessions/history')).toHaveLength(0);
  await page.screenshot({path:out+'/settings-desktop.png',fullPage:true,animations:'disabled'});
  expect(m.unknown).toEqual([]);

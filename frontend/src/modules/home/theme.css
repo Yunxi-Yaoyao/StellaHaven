@@ -1,0 +1,27 @@
+/* Home appearance is device-local; never attach this attribute to :root/body.
+   Teleported settings explicitly carries the same palette, not a second store. */
+[data-home-theme="nightfall"] {
+  /* Moon-silver surfaces stay local; retain legible secondary text. */
+  --bg-base: #0d0f14;
+  --bg-panel: #14171f;
+  --bg-raised: #1b1f2a;
+  --text-hi: #e8ecf4;
+  --text-lo: #b4bfd2;
+  --text-faint: #9aa3b5;
+  --accent: #c9d4e8;
+  --accent-dim: #8a94ab;
+  --home-warm: #e8a0bf;
+  --home-page: linear-gradient(168deg, #12151e 0%, #0d1017 46%, #090c12 100%);
+}
+[data-home-theme="classic"] {
+  --bg-base: #17151e;
+  --bg-panel: #24212e;
+  --bg-raised: #302c3c;
+  --text-hi: #efeaf7;
+  --text-lo: #c5bdd2;
+  --text-faint: #b8aec8;
+  --accent: #c3a9ed;
+  --accent-dim: #c3a9ed;
+  --home-warm: #efc27f;
+  --home-page: linear-gradient(155deg, #292237 0%, #17151e 58%, #201b2b 100%);
+}

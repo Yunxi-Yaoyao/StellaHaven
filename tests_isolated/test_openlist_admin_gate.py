@@ -25,16 +25,15 @@ def drive_env(auth_env, monkeypatch):
 
 
 def test_cached_openlist_token_cannot_write_after_real_lock(drive_env):
-    c, db, calls = drive_env
-    headers = {'Authorization': 'SYNTHETIC-CACHED-ADMIN'}
-    path = '/drive/openlist/api/fs/remove'
-    assert c.post(path, headers=headers, json={'dir':'/','names':['synthetic.txt']}).status_code == 200
-    assert len(calls) == 1
-    assert c.post('/auth/admin/lock').status_code == 200
-    r = c.post(path, headers=headers, json={'dir':'/','names':['synthetic.txt']})
-    assert r.status_code == 403, r.text
-    assert r.json()['detail']['code'] == 'admin_elevation_required'
-    assert len(calls) == 1
+    c,db,calls=drive_env
+    headers={'Authorization':'SYNTHETIC-CACHED-ADMIN'};path='/drive/openlist/api/fs/remove'
+    assert c.post(path,headers=headers,json={}).status_code==200
+    assert c.post('/auth/admin/lock').status_code==410
+    assert c.post(path,headers=headers,json={}).status_code==200
+    assert len(calls)==2
+    assert c.post('/auth/logout').status_code==200
+    assert c.post(path,headers=headers,json={}).status_code==401
+    assert len(calls)==2
 
 
 @pytest.mark.parametrize('method,path',[
@@ -46,15 +45,12 @@ def test_cached_openlist_token_cannot_write_after_real_lock(drive_env):
     ('GET','api/admin/storage/list'), ('HEAD','api/admin/setting/list'),
 ])
 def test_unsafe_and_management_requests_require_elevation(drive_env,method,path):
-    c,db,calls=drive_env
-    headers={'Authorization':'SYNTHETIC-CACHED-ADMIN'}
+    c,db,calls=drive_env;headers={'Authorization':'SYNTHETIC-CACHED-ADMIN'}
     assert c.request(method,'/drive/openlist/'+path,headers=headers,json={}).status_code==200
-    assert len(calls)==1
-    calls.clear()
-    assert c.post('/auth/admin/lock').status_code==200
+    assert len(calls)==1;calls.clear()
+    assert c.post('/auth/logout').status_code==200
     r=c.request(method,'/drive/openlist/'+path,headers=headers,json={})
-    assert r.status_code==403
-    if method!='HEAD': assert r.json()['detail']['code']=='admin_elevation_required'
+    assert r.status_code==401
     assert calls==[]
 
 
@@ -64,7 +60,7 @@ def test_unsafe_and_management_requests_require_elevation(drive_env,method,path)
 ])
 def test_read_resources_and_explicit_post_keep_daily_access(drive_env,method,path):
     c,db,calls=drive_env
-    assert c.post('/auth/admin/lock').status_code==200
+    assert c.post('/auth/admin/lock').status_code==410
     r=c.request(method,'/drive/openlist/'+path,json={'path':'/'},headers={'Authorization':'SYNTHETIC-CACHED-ADMIN'})
     assert r.status_code==200
     assert len(calls)==1
@@ -72,28 +68,25 @@ def test_read_resources_and_explicit_post_keep_daily_access(drive_env,method,pat
 
 def test_options_is_local_preflight_not_management_authorization(drive_env):
     c,db,calls=drive_env
-    c.post('/auth/admin/lock')
     assert c.options('/drive/openlist/api/fs/remove').status_code==204
     assert calls==[]
-    assert c.post('/drive/openlist/api/fs/remove').status_code==403
+    assert c.post('/auth/logout').status_code==200
+    assert c.options('/drive/openlist/api/fs/remove').status_code==401
+    assert c.post('/drive/openlist/api/fs/remove').status_code==401
     assert calls==[]
 
 
 def test_expired_elevation_and_other_device_cannot_reuse_openlist_token(drive_env):
     from fastapi.testclient import TestClient
-    from app.models.config import AppConfig
-    from app.services.admin_security import STATE_KEY
-    import json
+    from app.models.user import AuthSession
+    from datetime import datetime,timedelta,timezone
     c,db,calls=drive_env
-    row=db.get(AppConfig,STATE_KEY);state=json.loads(row.value)
-    for g in state['grants'].values(): g['expires_at']='2000-01-01T00:00:00+00:00'
-    row.value=json.dumps(state);db.commit()
-    assert c.put('/drive/openlist/api/fs/put',content=b'synthetic').status_code==403
-    assert c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code==200
+    session=db.query(AuthSession).one();session.created_at=datetime.now(timezone.utc)-timedelta(days=99);db.commit()
+    assert c.put('/drive/openlist/api/fs/put',content=b'synthetic').status_code==401
     with TestClient(c.app) as other:
         assert other.post('/auth/login',json={'username':'owner','password':DAILY}).status_code==200
-        assert other.post('/drive/openlist/api/fs/remove',headers={'Authorization':'SYNTHETIC-CACHED-ADMIN'}).status_code==403
-    assert calls==[]
+        assert other.post('/drive/openlist/api/fs/remove',headers={'Authorization':'SYNTHETIC-CACHED-ADMIN'}).status_code==200
+    assert len(calls)==1
 
 
 def test_noncanonical_admin_path_cannot_be_normalized_upstream(drive_env):

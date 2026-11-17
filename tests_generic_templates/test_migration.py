@@ -54,10 +54,60 @@ def test_migration_preserves_nav_quota_credentials_and_versions_atomically(api_e
             if key != store.KEY: assert json.loads(db.get(AppConfig,key).value) == value
         assert migrate_legacy(db,approved_ips=['127.0.0.1'],actor_id='00000000-0000-4000-8000-000000000001',main_origin='https://stella.test') == result
         assert store.navigation(db)['legacy_routes'] == result
+        migrated_revision = state.get('navigation_revision', 0)  # legacy absence is revision zero
+        assert migrated_revision == 0
         rollback_legacy(db)
-        assert store.state(db) == rows[store.KEY]
+        # Roll back all user data exactly, but never roll the CAS clock backward.
+        expected = copy.deepcopy(rows[store.KEY]) | {'navigation_revision': 1}
+        rolled = store.state(db)
+        assert rolled == expected
+        assert rolled['navigation_revision'] > migrated_revision
+        assert {key: rolled[key] for key in rows[store.KEY]} == rows[store.KEY]
+        for key, value in rows.items():
+            if key != store.KEY:
+                assert json.loads(db.get(AppConfig, key).value) == value
         migrated = migrate_legacy(db,approved_ips=['127.0.0.1'],actor_id='00000000-0000-4000-8000-000000000001',main_origin='https://stella.test')
+        assert store.state(db)['navigation_revision'] == 1
         store.delete_module(db,migrated['drive'],'00000000-0000-4000-8000-000000000001')
         assert 'drive' not in store.navigation(db)['legacy_routes']
         migrate_legacy(db,approved_ips=['127.0.0.1'],actor_id='00000000-0000-4000-8000-000000000001',main_origin='https://stella.test')
         assert migrated['drive'] not in store.state(db)['modules']
+
+
+def test_rollback_preserves_complete_payload_and_advances_existing_revision(api_env):
+    from app.models.config import AppConfig
+    from app.services import integrations as store
+    from app.services.website_migration import migrate_legacy, rollback_legacy
+    _, factory, _, _ = api_env
+    rows = seed(factory)
+    before = copy.deepcopy(rows[store.KEY]) | {'navigation_revision':7}
+    with factory() as db:
+        db.get(AppConfig,store.KEY).value = json.dumps(before)
+        db.commit()
+        migrate_legacy(db,approved_ips=['127.0.0.1'],actor_id='00000000-0000-4000-8000-000000000001',main_origin='https://stella.test')
+        assert store.state(db)['navigation_revision'] == 7
+        rollback_legacy(db)
+    with factory() as db:
+        # Closed full payload equality catches field loss/addition as well as old CAS reuse.
+        assert store.state(db) == before | {'navigation_revision':8}
+        for key, value in rows.items():
+            if key != store.KEY:
+                assert json.loads(db.get(AppConfig,key).value) == value
+
+
+def test_rollback_refuses_intervening_edit_without_losing_user_state(api_env):
+    from fastapi import HTTPException
+    from app.services import integrations as store
+    from app.services.website_migration import migrate_legacy, rollback_legacy
+    _, factory, _, _ = api_env
+    seed(factory)
+    with factory() as db:
+        migrate_legacy(db,approved_ips=['127.0.0.1'],actor_id='00000000-0000-4000-8000-000000000001',main_origin='https://stella.test')
+        with store.edit(db) as state:
+            state['modules']['a'*32]['name'] = 'Owner edit after migration'
+        before = copy.deepcopy(store.state(db))
+        with pytest.raises(HTTPException) as exc:
+            rollback_legacy(db)
+        assert exc.value.status_code == 409
+    with factory() as db:
+        assert store.state(db) == before

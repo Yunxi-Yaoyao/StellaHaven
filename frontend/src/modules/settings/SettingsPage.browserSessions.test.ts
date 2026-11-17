@@ -1,0 +1,72 @@
+import {createApp,nextTick,type App} from 'vue';
+import {createRouter,createMemoryHistory} from 'vue-router';
+import {it,expect,vi,afterEach,beforeEach} from 'vitest';
+vi.mock('./AvatarCropper.vue',()=>({default:{template:'<div />'}}));
+vi.mock('./NavigationSettings.vue',()=>({default:{template:'<div />'}}));
+vi.mock('../../shell/SettingsPanel.vue',()=>({default:{template:'<div />'}}));
+vi.mock('./PerformanceSettings.vue',()=>({default:{template:'<div />'}}));
+vi.mock('./SecuritySettings.vue',()=>({default:{template:'<div />'}}));
+vi.mock('./AuthProviderSettings.vue',()=>({default:{template:'<div />'}}));
+vi.mock('../home/auth',async()=>{const {reactive,ref}=await import('vue');return {auth:reactive({me:{id:'owner',display_name:'云曦',username:'owner'}}),isAdmin:ref(true),currentAvatar:ref(''),logout:vi.fn()};});
+vi.mock('../../api/servers',()=>({getPublicHost:vi.fn().mockResolvedValue({value:''}),setPublicHost:vi.fn()}));
+import SettingsPage from './SettingsPage.vue';
+let app:App|undefined;
+beforeEach(()=>{vi.spyOn(document,'hasFocus').mockReturnValue(true);Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});});
+const notice='查询归属地会将该会话的 IP 发送给 IPinfo；地点可能是代理出口';
+async function mountSessions(location:()=>Promise<{ip:string;ip_location:string}>=async()=>({ip:'203.0.113.8',ip_location:'测试归属地'})) {
+ const base={ip:'203.0.113.8',remember:false,created_at:'2026-10-16T00:00:00Z',last_seen:'2026-10-16T00:00:00Z',owner:'owner',mine:true};
+ const fetchMock=vi.fn(async(url:string)=>{
+  if(url.includes('page_size=1&'))return {ok:true,json:async()=>[]};
+  if(url==='/auth/sessions?current_only=true')return {ok:true,json:async()=>[{...base,id:'current',device:'Linux',current:true}]};
+  if(url==='/auth/sessions?page=1&page_size=20&exclude_current=true')return {ok:true,json:async()=>[{...base,id:'old',device:'旧设备',current:false},{...base,id:'current',device:'Linux',current:true}]};
+  if(url==='/auth/avatars')return {ok:true,json:async()=>[]};
+  if(url==='/auth/sessions/history?page=1&page_size=20')return {ok:true,json:async()=>({items:[{...base,id:'historic',device:'旧设备',current:false,state:'revoked'}],total:1,page:1,page_size:20})};
+  if(url==='/auth/sessions/current/location')return {ok:true,json:location};
+  throw new Error(`Unexpected fixture request: ${url}`);
+ });
+ vi.stubGlobal('fetch',fetchMock);
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/settings',component:SettingsPage},{path:'/:pathMatch(.*)*',component:{template:'<div />'}}]});
+ await router.push('/settings?section=authentication');await router.isReady();
+ const root=document.createElement('div');document.body.append(root);app=createApp(SettingsPage);app.use(router);app.mount(root);
+ await new Promise(r=>setTimeout(r,0));await nextTick();
+ return {root,fetchMock,locationCalls:()=>fetchMock.mock.calls.filter(([url])=>url.endsWith('/location'))};
+}
+it('discloses IPinfo once before lookup and sends nothing on mount or expanding session groups',async()=>{
+ const {root,locationCalls}=await mountSessions();
+ const disclosure=root.querySelector('[data-session-location-notice]');
+ expect(disclosure?.textContent).toContain(notice);
+ expect(root.querySelectorAll('[data-session-location-notice]')).toHaveLength(1);
+ expect(root.textContent).not.toContain('当前会话独立读取，换页仍保留');
+ root.querySelector<HTMLButtonElement>('[aria-label="登录记录说明"]')!.click();await nextTick();
+ expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('当前会话独立读取，换页仍保留');
+ expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('后台轮询不续期');
+ const current=root.querySelector('.sess-row')!;
+ expect(disclosure!.compareDocumentPosition(current)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(locationCalls()).toHaveLength(0);
+ expect(root.querySelector('[data-other-sessions]')).not.toBeNull();
+ const history=[...root.querySelectorAll('details')].find(el=>el.querySelector('summary')?.textContent?.includes('历史登录记录'))!;
+ history.open=true;history.dispatchEvent(new Event('toggle'));await new Promise(r=>setTimeout(r,0));await nextTick();
+ expect(root.querySelectorAll('.sess-row')).toHaveLength(3);expect(locationCalls()).toHaveLength(0);
+ current.querySelector<HTMLButtonElement>('button.session-location')!.click();await new Promise(r=>setTimeout(r,0));await nextTick();
+ expect(locationCalls()).toEqual([['/auth/sessions/current/location']]);
+ expect(current.textContent).toContain('测试归属地');expect(root.querySelector('[role="dialog"]')).toBeNull();
+});
+it('ignores a late location answer for a different IP without retrying automatically',async()=>{
+ let resolve!:(value:{ip:string;ip_location:string})=>void;
+ const pending=new Promise<{ip:string;ip_location:string}>(r=>{resolve=r;});
+ const {root,locationCalls}=await mountSessions(()=>pending);
+ const current=root.querySelector('.sess-row')!;current.querySelector<HTMLButtonElement>('button.session-location')!.click();await nextTick();
+ expect(locationCalls()).toHaveLength(1);expect(current.querySelector<HTMLButtonElement>('button.session-location')?.disabled).toBe(true);
+ resolve({ip:'198.51.100.44',ip_location:'过时归属地'});await new Promise(r=>setTimeout(r,0));await nextTick();
+ expect(current.textContent).not.toContain('过时归属地');expect(current.textContent).toContain('地点未知');
+ expect(current.querySelector<HTMLButtonElement>('button.session-location')?.disabled).toBe(false);expect(locationCalls()).toHaveLength(1);
+});
+afterEach(()=>{app?.unmount();document.body.innerHTML='';vi.unstubAllGlobals();vi.restoreAllMocks();});
+it('shows current browser first, shows other valid sessions without claiming a paginated total, and preserves legacy unknowns',async()=>{
+ const base={ip:'203.0.113.8',remember:false,created_at:'2026-10-16T00:00:00Z',last_seen:'2026-10-16T00:00:00Z',owner:'owner',mine:true};
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>url.includes('page_size=1&')?[]:url.startsWith('/auth/sessions?')?[{...base,id:'old',device:'旧设备',current:false},{...base,id:'current',device:'Linux',current:true,browser_name:'Chrome',os_name:'Windows',login_origin:'https://stella.test',ip_location:'测试地区'}]:[]})));
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/settings',component:SettingsPage},{path:'/:pathMatch(.*)*',component:{template:'<div />'}}]});await router.push('/settings?section=authentication');await router.isReady();const root=document.createElement('div');document.body.append(root);app=createApp(SettingsPage);app.use(router);app.mount(root);await new Promise(r=>setTimeout(r,0));await nextTick();
+ expect(root.querySelector('.sess-device')?.textContent).toBe('Chrome · Windows');expect(root.querySelector('.session-origin')?.textContent).toBe('https://stella.test');
+ const others=root.querySelector('[data-other-sessions]')!;expect(others).not.toBeNull();expect(others.querySelector('details')).toBeNull();expect(root.querySelector('[data-active-pagination]')).toBeNull();
+ expect(root.textContent).toContain('旧设备 · 系统未知');expect(root.textContent).toContain('入口未知');expect(root.textContent).toContain('203.0.113.8测试地区');expect(root.textContent).toContain('并非实际位置');expect(root.textContent).not.toContain('在线');
+});

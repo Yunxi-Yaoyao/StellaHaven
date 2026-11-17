@@ -31,6 +31,7 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
 from collections import deque
 from datetime import datetime, timezone
 
@@ -45,7 +46,583 @@ except ImportError:
     httpx = None
 
 
-AGENT_VERSION = "0.6.12"
+AGENT_VERSION = "0.6.21"
+
+
+class _FilePackage:
+    """Stdlib bootstrap for old single-script installs; immutable whole packages.
+
+    TLS authenticates the manifest; SHA256 is integrity, not a signature. Never
+    import adjacent modules until every byte and the actual interpreter probe pass.
+    The owning supervisor serializes installs. Keep the previous generation.
+    """
+    names = ('stella_agent.py', 'node_files.py')
+    limit = 2 * 1024 * 1024
+
+    def __init__(self, root):
+        from pathlib import Path
+        self.root = Path(os.path.abspath(root))
+        for part in reversed([self.root, *self.root.parents]):
+            if part.is_symlink():
+                raise ValueError('unsafe file package path')
+            if part.exists():
+                self._safe(part, True)
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._safe(self.root, True)
+
+    @staticmethod
+    def _safe(path, directory=False):
+        import stat
+        st = path.lstat()
+        if (path.is_symlink() or st.st_uid != os.geteuid() or st.st_mode & 0o022
+                or not (stat.S_ISDIR(st.st_mode) if directory else stat.S_ISREG(st.st_mode) and st.st_nlink == 1)):
+            raise ValueError('unsafe file package')
+
+    @staticmethod
+    def canonical(value):
+        return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode('ascii')
+
+    @classmethod
+    def manifest(cls, value):
+        value = json.loads(cls.canonical(value))
+        if (not isinstance(value, dict) or set(value) != {'format', 'version', 'files'}
+                or type(value['format']) is not int or value['format'] != 1
+                or not isinstance(value['version'], str) or not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', value['version'])
+                or not isinstance(value['files'], dict) or set(value['files']) != set(cls.names)):
+            raise ValueError('invalid file manifest')
+        for name in cls.names:
+            info = value['files'][name]
+            keys = {'size', 'sha256', 'version'} | ({'protocol', 'platforms'} if name == 'node_files.py' else set())
+            if (not isinstance(info, dict) or set(info) != keys or type(info['size']) is not int
+                    or not 0 < info['size'] <= cls.limit or not isinstance(info['sha256'], str)
+                    or not re.fullmatch('[a-f0-9]{64}', info['sha256']) or not isinstance(info['version'], str)
+                    or not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', info['version'])):
+                raise ValueError('invalid file metadata')
+        if value['files']['stella_agent.py']['version'] != value['version']:
+            raise ValueError('inconsistent file version')
+        info = value['files']['node_files.py']
+        if type(info['protocol']) is not int or info['protocol'] != 1 or info['platforms'] != ['linux']:
+            raise ValueError('unsupported file protocol')
+        return value
+
+    @staticmethod
+    def _body(name, info, body):
+        import ast
+        import hashlib
+        if len(body) != info['size'] or hashlib.sha256(body).hexdigest() != info['sha256']:
+            raise ValueError('file package size/hash mismatch')
+        tree = ast.parse(body)
+        compile(tree, name, 'exec')
+        symbol = 'AGENT_VERSION' if name == 'stella_agent.py' else 'FILE_MODULE_VERSION'
+        def declarations(key):
+            return [n.value.value for n in tree.body if isinstance(n, ast.Assign)
+                    and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)
+                    and n.targets[0].id == key and isinstance(n.value, ast.Constant)]
+        if declarations(symbol) != [info['version']] or (name == 'node_files.py' and declarations('FILE_PROTOCOL') != [1]):
+            raise ValueError('file package declaration mismatch')
+
+    def verify(self, path, manifest):
+        self._safe(path, True)
+        if {p.name for p in path.iterdir()} != set(self.names) | {'manifest.json'}:
+            raise ValueError('incomplete file package')
+        for name in (*self.names, 'manifest.json'):
+            self._safe(path / name)
+        if (path / 'manifest.json').read_bytes() != self.canonical(manifest):
+            raise ValueError('file manifest changed')
+        for name in self.names:
+            with (path / name).open('rb') as source:
+                self._body(name, manifest['files'][name], source.read(self.limit + 1))
+
+    @staticmethod
+    def _sync(path):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+    def install(self, manifest, fetch, cancelled=lambda: False):
+        import hashlib
+        import shutil
+        import tempfile
+        from pathlib import Path
+        manifest = self.manifest(manifest)
+        identity = hashlib.sha256(self.canonical(manifest)).hexdigest()
+        target = self.root / identity
+        stage = None
+        try:
+            if not target.exists():
+                stage = Path(tempfile.mkdtemp(prefix='.stage-', dir=self.root))
+                for name in self.names:
+                    if cancelled():
+                        raise ValueError('file install cancelled')
+                    info = manifest['files'][name]
+                    body = fetch('/agent/files/release/' + identity + '/' + name, info['size'])
+                    self._body(name, info, body)
+                    with (stage / name).open('xb') as out:
+                        os.chmod(out.name, 0o600)
+                        out.write(body); out.flush(); os.fsync(out.fileno())
+                with (stage / 'manifest.json').open('xb') as out:
+                    out.write(self.canonical(manifest)); out.flush(); os.fsync(out.fileno())
+                self.verify(stage, manifest)
+                # Explicit status, no asserts (works under PYTHONOPTIMIZE too).
+                probe = ('import os,signal,sys,ctypes; '
+                         'guard=ctypes.CDLL(None,use_errno=True).prctl(1,signal.SIGKILL,0,0,0); '
+                         'sys.exit(1) if guard!=0 or os.getppid()!=int(sys.argv[4]) else None; '
+                         'sys.path.insert(0,sys.argv[1]); import stella_agent,node_files; '
+                         'sys.exit(73 if stella_agent.AGENT_VERSION==sys.argv[2] and '
+                         'node_files.FILE_MODULE_VERSION==sys.argv[3] and node_files.FILE_PROTOCOL==1 and '
+                         'callable(node_files.FileWorker) and callable(stella_agent.main) else 1)')
+                result = subprocess.run([sys.executable, '-I', '-B', '-c', probe, str(stage), manifest['version'], manifest['files']['node_files.py']['version'], str(os.getpid())],
+                                        env={'PATH': '/usr/bin:/bin'}, cwd=stage, stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+                if result.returncode != 73:
+                    raise ValueError('file package load failed')
+                self._sync(stage)
+                os.rename(stage, target); stage = None
+                self._sync(self.root)
+            self.verify(target, manifest)
+            if cancelled():
+                raise ValueError('file install cancelled')
+            pointer = self.root / 'current.json'
+            if pointer.exists():
+                self._safe(pointer)
+            body = self.canonical({'release': identity})
+            if not pointer.exists() or pointer.read_bytes() != body:
+                fd, temporary = tempfile.mkstemp(prefix='.pointer-', dir=self.root)
+                try:
+                    with os.fdopen(fd, 'wb') as out:
+                        out.write(body); out.flush(); os.fsync(out.fileno())
+                    os.replace(temporary, pointer); self._sync(self.root)
+                finally:
+                    Path(temporary).unlink(missing_ok=True)
+            return target
+        finally:
+            if stage is not None:
+                shutil.rmtree(stage)
+
+
+
+def _file_roots(config, legacy=None):
+    """Only the center's closed explicit grant, or explicit legacy local roots."""
+    if legacy is not None:
+        value = json.loads(legacy)
+        if not isinstance(value, dict):
+            raise ValueError('invalid legacy roots')
+        for key, root in value.items():
+            if (not isinstance(key, str) or not re.fullmatch('[a-zA-Z0-9_-]{1,64}', key)
+                    or not isinstance(root, dict) or set(root) != {'path', 'write'}
+                    or not isinstance(root['path'], str) or not root['path'].startswith('/')
+                    or type(root['write']) is not bool):
+                raise ValueError('invalid legacy root')
+        return value
+    if (isinstance(config, dict) and set(config) == {'enabled', 'roots', 'revision'}
+            and config['enabled'] is True and isinstance(config['revision'], str)
+            and re.fullmatch('[a-f0-9]{64}', config['revision'])
+            and config['roots'] == {'system': {'path': '/', 'write': True}}
+            and type(config['roots']['system']['write']) is bool):
+        return {'system': {'path': '/', 'write': True}}
+    return {}
+
+
+class _FileSupervisor:
+    """Nonblocking main-loop control. Network/bootstrap runs in a killable child.
+
+    No service is created. Children retain the Agent's systemd cgroup; separate
+    process groups allow bounded owned cleanup without signalling foreign PIDs.
+    Tokens/config travel over stdin, never argv or the child's environment.
+    """
+    def __init__(self, snapshot, *, allow_loopback=False, refresh=5, backoff=1):
+        self.snapshot = snapshot
+        self.allow_loopback = allow_loopback
+        self.refresh, self.backoff = refresh, backoff
+        self.worker = self.preparing = None
+        self.spec = self.key = self.worker_key = None
+        self.bound_identity = None
+        self.next_prepare = self.next_worker = 0
+        self.failures = 0
+        self.closed = False
+
+    @staticmethod
+    def _notice(event):
+        print('[files] ' + event, file=sys.stderr, flush=True)
+
+    def _spawn(self, script, action, spec, output=False):
+        r, w = os.pipe()
+        try:
+            child = subprocess.Popen([sys.executable, '-I', '-B', str(script), action, str(r), str(os.getpid())],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE if output else subprocess.DEVNULL,
+                stderr=None, env={'PATH': '/usr/bin:/bin', 'PYTHONDONTWRITEBYTECODE': '1'},
+                cwd='/', pass_fds=(r,), start_new_session=True)
+            child._file_guard = w
+            child._file_started = time.monotonic()
+            child.stdin.write(_FilePackage.canonical(spec)); child.stdin.close()
+            return child
+        except BaseException:
+            os.close(w)
+            if 'child' in locals():
+                self._stop(child)
+            raise
+        finally:
+            os.close(r)
+
+    @staticmethod
+    def _stop(child):
+        import signal
+        if child is None:
+            return
+        # Reap even a previously crashed child before releasing its parent pipe.
+        try:
+            if child.poll() is None:
+                os.killpg(child.pid, signal.SIGTERM)
+                try:
+                    child.wait(timeout=.3)
+                except subprocess.TimeoutExpired:
+                    os.killpg(child.pid, signal.SIGKILL)
+            child.wait(timeout=1)
+        except ProcessLookupError:
+            child.wait(timeout=1)
+        finally:
+            if child.stdout is not None:
+                child.stdout.close()
+            guard = getattr(child, '_file_guard', None)
+            if guard is not None:
+                os.close(guard); child._file_guard = None
+
+    def close(self):
+        self.closed = True
+        for field in ('worker', 'preparing'):
+            self._stop(getattr(self, field)); setattr(self, field, None)
+
+    def tick(self):
+        from pathlib import Path
+        if self.closed:
+            return
+        now = time.monotonic()
+        try:
+            spec = self.snapshot()
+            key = _FilePackage.canonical(spec)
+        except Exception:
+            self._stop(self.worker); self.worker = None
+            self._stop(self.preparing); self.preparing = None
+            self._notice('local binding refused')
+            return
+        if key != self.key:
+            self._stop(self.worker); self.worker = None
+            self._stop(self.preparing); self.preparing = None
+            self.spec, self.key = spec, key
+            self.worker_key = self.bound_identity = None
+            self.next_prepare = self.next_worker = 0
+            self.failures = 0
+        if self.worker is not None and self.worker.poll() is not None:
+            self._notice('worker exited; bounded restart backoff')
+            self._stop(self.worker); self.worker = None
+            self.failures = min(self.failures + 1, 6)
+            self.next_worker = now + min(30, self.backoff * 2 ** (self.failures - 1))
+        if self.worker is not None and now - self.worker._file_started > 60:
+            self.failures = 0
+        if self.preparing is not None:
+            if now - self.preparing._file_started > 20:
+                self._notice('configuration/package deadline exceeded')
+                self._stop(self.preparing); self.preparing = None
+                self._stop(self.worker); self.worker = None
+                self.next_prepare = now + self.refresh
+            elif self.preparing.poll() is not None:
+                try:
+                    if (self.preparing.returncode == 75 and self.worker is not None
+                            and self.worker_key is not None):
+                        # The local spec key was checked above. This is only a
+                        # socket timeout from bootstrap, not a new grant: the
+                        # existing worker still uses live claim/status/admit
+                        # owner/session/token/policy fences at the center.
+                        self._notice('temporary configuration network timeout; verified worker retained')
+                        return  # finally reaps prepare and bounds the retry.
+                    if self.preparing.returncode != 0:
+                        raise ValueError('file preparation failed')
+                    body = self.preparing.stdout.read(16385)
+                    if len(body) > 16384:
+                        raise ValueError('file preparation response limit')
+                    ready = json.loads(body)
+                    self.bound_identity = ready['identity']
+                    worker_key = _FilePackage.canonical(ready)
+                    if not ready['roots']:
+                        self._stop(self.worker); self.worker = None
+                        self.worker_key = None
+                    elif worker_key != self.worker_key or self.worker is None:
+                        self._stop(self.worker); self.worker = None
+                        if now >= self.next_worker:
+                            self.worker = self._spawn(Path(ready['path']) / 'stella_agent.py', '--file-child',
+                                dict(self.spec, **ready, allow_loopback=self.allow_loopback))
+                            self.worker_key = worker_key
+                            self._notice('managed worker started')
+                except Exception:
+                    self._notice('configuration/package refused')
+                    self._stop(self.worker); self.worker = None
+                finally:
+                    self._stop(self.preparing); self.preparing = None
+                    self.next_prepare = now + self.refresh
+        if self.preparing is None and now >= self.next_prepare:
+            self.preparing = self._spawn(Path(__file__).absolute(), '--file-prepare',
+                dict(self.spec, binding=self.spec.get('binding') or self.bound_identity,
+                     allow_loopback=self.allow_loopback), output=True)
+
+
+def _file_parent_guard(fd, parent):
+    """Linux parent-death SIGKILL plus pipe EOF guard closes startup/exec races."""
+    import ctypes
+    import signal
+    if sys.platform != 'linux' or os.geteuid() != 0:
+        raise ValueError('root Linux file subprocess required')
+    if ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL, 0, 0, 0) != 0 or os.getppid() != parent:
+        raise ValueError('file parent disappeared')
+    def watch():
+        try:
+            while os.read(fd, 1):
+                pass
+        finally:
+            os._exit(70)
+    threading.Thread(target=watch, name='file-parent-guard', daemon=True).start()
+
+
+class _FileNetworkTimeout(TimeoutError):
+    """Only a bootstrap network timeout; never HTTP/TLS/package/load refusal."""
+
+
+def _file_fetcher(spec):
+    from urllib.parse import urlsplit
+    from urllib.error import HTTPError, URLError
+    import urllib.request
+    origin, token = spec['origin'], spec['token']
+    p = urlsplit(origin)
+    if (p.scheme not in ('https', 'http') or not p.hostname or p.username or p.password
+            or p.path not in ('', '/') or p.query or p.fragment
+            or (p.scheme != 'https' and not (spec.get('allow_loopback') is True and p.hostname in ('127.0.0.1', '::1')))
+            or not isinstance(token, str) or not token or any(c in token for c in '\r\n\x00')):
+        raise ValueError('file transport refused')
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+    def fetch(path, limit):
+        request = urllib.request.Request(origin.rstrip('/') + path,
+            headers={'Authorization': 'Bearer ' + token, 'Accept-Encoding': 'identity'})
+        try:
+            with opener.open(request, timeout=3) as response:
+                if response.status != 200 or response.headers.get('Content-Encoding', 'identity').lower() != 'identity':
+                    raise ValueError('file HTTP refused')
+                body = response.read(limit + 1)
+                if len(body) > limit:
+                    raise ValueError('file HTTP size exceeded')
+                return body
+        except HTTPError:
+            raise  # Includes 401/403, never a temporary authorization failure.
+        except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise _FileNetworkTimeout() from exc
+            raise  # In particular certificate validation and DNS/refused errors.
+        except TimeoutError as exc:
+            raise _FileNetworkTimeout() from exc
+    return fetch
+
+
+def _file_prepare(spec):
+    from urllib.error import HTTPError
+    from pathlib import Path
+    fetch = _file_fetcher(spec)
+    identity = json.loads(fetch('/agent/identity', 8192))
+    identity = {k: identity[k] for k in ('center_id', 'node_id')}
+    if (not isinstance(identity['center_id'], str) or not re.fullmatch('[a-f0-9]{64}', identity['center_id'])
+            or type(identity['node_id']) is not int or identity['node_id'] <= 0):
+        raise ValueError('invalid file identity')
+    binding = spec.get('binding')
+    if binding and any(identity[k] != binding[k] for k in identity):
+        raise ValueError('file identity changed')
+    try:
+        config = json.loads(fetch('/agent/files/config', 8192))
+    except HTTPError as exc:
+        if exc.code != 404:
+            raise
+        config = None  # Old centers never imply a root grant.
+    roots = _file_roots(config, spec.get('legacy'))
+    ready = {'identity': identity, 'roots': roots, 'revision': config.get('revision') if isinstance(config, dict) else None, 'path': None}
+    if roots:
+        manifest = _FilePackage.manifest(json.loads(fetch('/agent/files/release', 8192)))
+        if tuple(map(int, manifest['version'].split('.'))) < tuple(map(int, AGENT_VERSION.split('.'))):
+            raise ValueError('file package downgrade refused')
+        # Same Agent version is immutable; modules have their own explicit version.
+        import hashlib
+        if manifest['version'] == AGENT_VERSION and manifest['files']['stella_agent.py']['sha256'] != hashlib.sha256(Path(__file__).read_bytes()).hexdigest():
+            raise ValueError('same version file Agent changed')
+        ready['path'] = str(_FilePackage(spec['store']).install(manifest, fetch))
+    return ready
+
+
+class _FileHTTPClient:
+    """Small stdlib streaming transport for the existing file protocol only."""
+    def __init__(self, spec):
+        import urllib.request
+        _file_fetcher(spec)  # Same strict origin/token validation as bootstrap.
+        self.origin, self.token = spec['origin'].rstrip('/'), spec['token']
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+
+    class Response:
+        def __init__(self, raw):
+            self.raw = raw
+        def raise_for_status(self):
+            if self.raw.status != 200:
+                raise ValueError('file protocol HTTP refused')
+        def json(self):
+            try:
+                body = self.raw.read(2 * 1024 * 1024 + 1)
+                if len(body) > 2 * 1024 * 1024:
+                    raise ValueError('file protocol response limit')
+                return json.loads(body)
+            finally:
+                self.raw.close()
+        def iter_bytes(self, size):
+            while True:
+                body = self.raw.read(size)
+                if not body:
+                    break
+                yield body
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            self.raw.close()
+
+    def stream(self, method, path, *, params=None, json=None, content=None, headers=None):
+        from urllib.parse import urlencode
+        import urllib.request
+        if not path.startswith('/agent/files/') or '?' in path or '#' in path:
+            raise ValueError('file protocol path refused')
+        url = self.origin + path + ('?' + urlencode(params) if params else '')
+        hdr = {'Authorization': 'Bearer ' + self.token, 'Accept-Encoding': 'identity'}
+        hdr.update(headers or {})
+        if json is not None:
+            content = _FilePackage.canonical(json); hdr['Content-Type'] = 'application/json'
+        request = urllib.request.Request(url, data=content, headers=hdr, method=method)
+        raw = self.opener.open(request, timeout=10)
+        if raw.headers.get('Content-Encoding', 'identity').lower() != 'identity':
+            raw.close(); raise ValueError('file protocol encoding refused')
+        return self.Response(raw)
+
+    def get(self, path, **kwargs):
+        return self.stream('GET', path, **kwargs)
+    def post(self, path, **kwargs):
+        return self.stream('POST', path, **kwargs)
+    def put(self, path, **kwargs):
+        return self.stream('PUT', path, **kwargs)
+    def close(self):
+        pass  # urllib responses own and close their connections.
+
+
+def _file_child(spec):
+    import signal
+    import types
+    from pathlib import Path
+    path = Path(__file__).absolute().parent
+    if str(path) != spec['path']:
+        raise ValueError('file child package mismatch')
+    package = _FilePackage(spec['store'])
+    manifest = package.manifest(json.loads((path / 'manifest.json').read_bytes()))
+    import hashlib
+    if path.parent != package.root or path.name != hashlib.sha256(package.canonical(manifest)).hexdigest():
+        raise ValueError('file child release mismatch')
+    package.verify(path, manifest)
+    # Verify identity again immediately before claim, never fallback across nodes.
+    identity = json.loads(_file_fetcher(spec)('/agent/identity', 8192))
+    if any(identity[k] != spec['identity'][k] for k in ('center_id', 'node_id')):
+        raise ValueError('file child identity mismatch')
+    module = types.ModuleType('_stella_owned_files')
+    module.__file__ = str(path / 'node_files.py')
+    exec(compile((path / 'node_files.py').read_bytes(), module.__file__, 'exec'), module.__dict__)
+    worker = module.FileWorker(spec['origin'], spec['token'], module.Sandbox(spec['roots']), client=_FileHTTPClient(spec))
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    try:
+        while not stop.is_set():
+            try:
+                worker.tick()
+            except Exception as exc:
+                # URLs, lease IDs, roots and tokens are deliberately not logged.
+                print('[files] worker error: ' + type(exc).__name__, file=sys.stderr, flush=True)
+            stop.wait(.5)
+    finally:
+        worker.client.close()
+
+
+def _file_internal_main():
+    try:
+        _file_parent_guard(int(sys.argv[2]), int(sys.argv[3]))
+        body = sys.stdin.buffer.read(32769)
+        if len(body) > 32768:
+            raise ValueError('file stdin limit')
+        spec = json.loads(body)
+        if sys.argv[1] == '--file-prepare':
+            print(json.dumps(_file_prepare(spec)), flush=True)
+        else:
+            _file_child(spec)
+    except Exception as exc:
+        print('[files] child refused: ' + type(exc).__name__, file=sys.stderr, flush=True)
+        raise SystemExit(75 if sys.argv[1] == '--file-prepare' and isinstance(exc, _FileNetworkTimeout) else 1)
+
+
+def _parse_entry_scope(targets, ranges):
+    """Parse the entire bounded scope before membership; None means trusted absence."""
+    import ipaddress
+    if targets is not None and (not isinstance(targets, list) or len(targets) > 64):
+        raise ValueError('invalid entry targets')
+    if not isinstance(ranges, list) or len(ranges) > 16:
+        raise ValueError('invalid entry ranges')
+    exact = []
+    for value in targets if targets is not None else []:
+        if not isinstance(value, str) or not 1 <= len(value) <= 64 or '%' in value:
+            raise ValueError('invalid entry target')
+        ipaddress.ip_address(value)
+        exact.append(value)  # Preserve the existing canonical-string exact match.
+    networks = []
+    for value in ranges:
+        if not isinstance(value, str) or not 1 <= len(value) <= 64 or '%' in value:
+            raise ValueError('invalid entry range')
+        networks.append(ipaddress.ip_network(value, strict=True))
+    return None if targets is None else exact, networks
+
+
+def _entry_scope(scope):
+    """Raw envelopes distinguish absent targets from explicit invalid null."""
+    if not isinstance(scope, dict) or ('targets' in scope and scope['targets'] is None):
+        raise ValueError('invalid raw entry scope')
+    return _parse_entry_scope(scope.get('targets'), scope.get('approved_ranges', []))
+
+
+def _entry_ip_allowed(value, targets, ranges):
+    """Numeric-only pinning. Never permit metadata/special-purpose destinations."""
+    import ipaddress
+    try:
+        exact_targets, networks = _parse_entry_scope(targets, ranges)
+        if not isinstance(value, str) or not 1 <= len(value) <= 64 or '%' in value:
+            return False
+        ip = ipaddress.ip_address(value)
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if (ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast
+                or ip.is_reserved or str(ip) in {'100.100.100.200', '168.63.129.16', 'fd00:ec2::254'}):
+            return False
+        exact = exact_targets is not None and str(ip) in exact_targets
+        approved = any(ip in network for network in networks if network.version == ip.version)
+        if exact_targets is not None and not (exact or approved):
+            return False
+        private = ip in ipaddress.ip_network('10.0.0.0/8') if ip.version == 4 else ip in ipaddress.ip_network('fc00::/7')
+        if ip.version == 4:
+            private = private or ip in ipaddress.ip_network('172.16.0.0/12') or ip in ipaddress.ip_network('192.168.0.0/16')
+        return (ip.is_global or private) and (not private or exact or approved)
+    except (ValueError, TypeError):
+        return False
+
 STORAGE_INTERVAL = 60
 HARDWARE_INTERVAL = 30    # Cached background hardware collection, never heartbeat IO
 REPORT_INTERVAL = 5       # 流量上报间隔（秒）
@@ -57,12 +634,15 @@ UPDATE_CHECK_INTERVAL = 300  # 版本自更新检查间隔（秒）
 QUEUE_MAX = 24 * 3600 // REPORT_INTERVAL  # 队列上限 = 24h 的采样点数
 
 
-def _agent_urlopen(request, timeout):
+def _agent_urlopen(request, timeout, context=None):
     import urllib.request
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
-    return urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout)
+    handlers = [NoRedirect(), urllib.request.ProxyHandler({})]
+    if context is not None:
+        handlers.append(urllib.request.HTTPSHandler(context=context))
+    return urllib.request.build_opener(*handlers).open(request, timeout=timeout)
 
 
 class _BackgroundScheduler:
@@ -346,6 +926,23 @@ def _collect_map_location():
         return unknown
 
 
+def _valid_manual_map_target(wg, iface, item, address):
+    """Configuration can select existing private WG routes, never create them."""
+    if (set(item) != {'interface', 'interface_key_id', 'peer_key_id', 'target', 'manual'}
+            or item['interface_key_id'] != iface['public_key_id']
+            or not re.fullmatch(r'[0-9a-f]{64}', item['peer_key_id'])
+            or not any(address in ipaddress.ip_network(p) for p in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))):
+        return False
+    locals_ = [ipaddress.ip_interface(p) for i in wg['interfaces'] for p in i['addresses']]
+    if (any(p.ip == address for p in locals_)
+            or not any(ipaddress.ip_interface(p).version == 4 for p in iface['addresses'])):
+        return False
+    prefixes = [ipaddress.ip_network(p, strict=False) for p in iface['addresses']]
+    prefixes += [ipaddress.ip_network(p, strict=False) for peer in iface['peers']
+                 if peer['public_key_id'] == item['peer_key_id'] for p in peer['allowed_ips']]
+    return not any(p.version == 4 and p.prefixlen < 31 and address in (p.network_address, p.broadcast_address) for p in prefixes)
+
+
 def _probe_map_targets(wg, targets, deadline=None):
     """Two workers, eight targets, hard admission deadline; no sudo or shell."""
     from concurrent.futures import ThreadPoolExecutor
@@ -361,8 +958,14 @@ def _probe_map_targets(wg, targets, deadline=None):
                     or address.version != 4 or address.is_unspecified or address.is_multicast
                     or address.is_loopback or address.is_reserved or int(address) == 0xffffffff):
                 continue
+            if ('manual' in item and item['manual'] is not True) or ('interface_key_id' in item and 'manual' not in item):
+                continue
+            manual = item.get('manual') is True
+            identity = (name, key, str(address)) if manual else (name, key)
             interfaces = [i for i in wg['interfaces'] if i['name'] == name]
-            if len(interfaces) != 1 or (name, key) in seen:
+            if len(interfaces) != 1 or identity in seen:
+                continue
+            if manual and not _valid_manual_map_target(wg, interfaces[0], item, address):
                 continue
             candidates = []
             for peer in interfaces[0]['peers']:
@@ -374,13 +977,13 @@ def _probe_map_targets(wg, targets, deadline=None):
             owners = [p for n, p in candidates if n == best]
             if len(owners) != 1 or owners[0]['public_key_id'] != key:
                 continue
-            jobs.append((name, str(address), owners[0]))
-            seen.add((name, key))
+            jobs.append((name, str(address), owners[0], manual, interfaces[0]))
+            seen.add(identity)
         except (ValueError, KeyError, TypeError):
             continue
     binary = shutil.which('ping') if platform.system() == 'Linux' else None
     def work(job):
-        name, target, peer = job
+        name, target, peer, manual, iface = job
         result = dict(checked_at=datetime.now(timezone.utc).isoformat(), status='unknown',
                       sent=0, received=0, loss_pct=None, rtt_ms=None, target=target, reason='ping_unavailable')
         try:
@@ -390,6 +993,22 @@ def _probe_map_targets(wg, targets, deadline=None):
             if remaining < .1:
                 result['reason'] = 'probe_budget_exhausted'
                 return result
+            if manual:
+                result['reason'] = 'kernel_route_unverified'
+                ip_binary = shutil.which('ip')
+                if not ip_binary:
+                    return result
+                routes = json.loads(_map_command([ip_binary, '-j', '-4', 'route', 'get', target],
+                    timeout=min(2, remaining)))
+                sources = {str(ipaddress.ip_interface(a).ip) for a in iface['addresses']}
+                if (not isinstance(routes, list) or len(routes) != 1
+                        or routes[0].get('dev') != name or routes[0].get('type', 'unicast') != 'unicast'
+                        or routes[0].get('prefsrc', routes[0].get('src')) not in sources):
+                    return result
+                remaining = deadline - time.monotonic()
+                if remaining < .1:
+                    result['reason'] = 'probe_budget_exhausted'
+                    return result
             result['reason'] = 'ping_failed_or_unparseable'
             text = _map_command([binary, '-n', '-I', name, '-c', '5', '-i', '0.2', '-W', '1', target],
                                 timeout=min(5, remaining), allowed_returncodes=(0, 1))
@@ -413,7 +1032,10 @@ def _probe_map_targets(wg, targets, deadline=None):
         return result
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix='wg-probe') as pool:
         for job, result in zip(jobs, pool.map(work, jobs)):
-            job[2]['probe'] = result
+            if job[3]:
+                job[2].setdefault('manual_probes', []).append(result)
+            else:
+                job[2]['probe'] = result
 
 
 def _hardware_number(value):
@@ -517,6 +1139,66 @@ def _classify_machine(vendor=None, model=None, container=None, vm=None, virt_non
 
 
 class Agent:
+    def _installation_binding(self):
+        """Only installer-owned metadata can select lifecycle targets."""
+        from pathlib import Path
+        iid = os.environ.get('STELLA_INSTANCE_ID')
+        raw = os.environ.get('STELLA_INSTANCE_MANIFEST')
+        source = Path(os.path.abspath(__file__))
+        windows = platform.system() == 'Windows'
+        if not iid and not raw:
+            if '/stella-agents/' in source.as_posix():
+                raise ValueError('instance metadata missing')
+            return None  # Legacy collection/update stays compatible, no migration.
+        if not iid or not re.fullmatch('[a-f0-9]{24}', iid) or not raw:
+            raise ValueError('invalid installation metadata')
+        path = Path(raw)
+        if windows:
+            if path != source.with_name('instance.json'):
+                raise ValueError('foreign installation manifest')
+        else:
+            if path != Path('/etc/stella-agents') / iid / 'instance.json' or source.parent != Path('/opt/stella-agents') / iid:
+                raise ValueError('foreign installation paths')
+            for part in [*reversed(path.parents), path]:
+                st = part.lstat()
+                if part.is_symlink() or st.st_uid != 0 or st.st_mode & 0o022:
+                    raise ValueError('untrusted installation manifest')
+        if path.is_symlink() or source.is_symlink() or len(path.read_bytes()) > 4096:
+            raise ValueError('untrusted installation files')
+        value = json.loads(path.read_text())
+        if not isinstance(value, dict) or set(value) != {'format','center_id','node_id','instance_id','service','slot'}:
+            raise ValueError('invalid installation manifest')
+        slot = value['slot']
+        if (value['format'] != 1 or not isinstance(slot, str) or (slot and not re.fullmatch('[a-z0-9][a-z0-9-]{0,31}', slot))
+                or not re.fullmatch('[a-f0-9]{64}', str(value['center_id'])) or type(value['node_id']) is not int or value['node_id'] <= 0):
+            raise ValueError('invalid installation binding')
+        derived = hashlib.sha256(('stella-instance-v1:' + value['center_id'] + (':slot:' + slot if slot else '')).encode()).hexdigest()[:24]
+        service = ('StellaAgent-' if windows else 'stella-agent-') + iid
+        if derived != iid or value['instance_id'] != iid or value['service'] != service:
+            raise ValueError('installation binding mismatch')
+        return value
+
+    def _assert_instance_identity(self):
+        binding = getattr(self, '_installation', None)
+        if binding is None:
+            return
+        identity = self._get('/agent/identity', token=self.token)
+        if identity.get('center_id') != binding['center_id'] or identity.get('node_id') != binding['node_id']:
+            raise ValueError('center/node does not own this installed instance')
+
+    def _instance_uninstall_argv(self):
+        from pathlib import Path
+        binding = self._installation_binding()
+        if binding is None:
+            # Unknown/manual source copies must never remove the production unit.
+            if platform.system() == 'Linux' and Path(os.path.abspath(__file__)) == Path('/opt/stella-agent/stella_agent.py'):
+                return None  # Exact legacy lifecycle retained below, never adopted.
+            raise ValueError('unscoped uninstall refused')
+        if platform.system() == 'Windows':
+            powershell = str(Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
+            return [powershell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', str(Path(__file__).with_name('uninstall-instance.ps1'))]
+        return ['sudo', '-n', str(Path('/usr/local/libexec') / binding['service']), '--schedule']
+
     def __init__(self, url: str, token: str):
         if "://" not in url:
             url = "https://" + url
@@ -530,6 +1212,13 @@ class Agent:
             raise ValueError('invalid agent token')
         self.url = url.rstrip("/")
         self.token = token
+        self._installation = self._installation_binding()
+        # Preserve 0.6.14's verified CA store reuse, not connections/cookies.
+        self._ssl_context = httpx.create_ssl_context() if httpx else None
+        if self._ssl_context is None:
+            import ssl
+            self._ssl_context = ssl.create_default_context()
+        self._channel_init()
         self.queue = deque(maxlen=QUEUE_MAX)  # 内存队列：补传用
         self.last_net = None  # 上次网卡累计字节 {iface: (rx, tx)}
         self.monitored_ifaces = None  # 兼容中心显示偏好，不过滤流量采集
@@ -554,9 +1243,12 @@ class Agent:
             except Exception:
                 location = {'status': 'unknown', 'source': 'unknown', 'reason': 'location_collection_failed'}
             self._map_location_cache = (now + (900 if location['status'] == 'located' else 60), location)
+        wireguard = _collect_map_wireguard()
+        if wireguard.get('status') == 'ok':
+            wireguard['manual_probe_version'] = 1
         return {'observed_at': datetime.now(timezone.utc).isoformat(),
                 'location': dict(self._map_location_cache[1]),
-                'wireguard': _collect_map_wireguard()}
+                'wireguard': wireguard}
 
     def _get_map_targets(self):
         # A separate bounded read, not the generic unbounded JSON helper.
@@ -566,7 +1258,7 @@ class Agent:
         headers = {**self._auth_headers({}), 'Accept-Encoding': 'identity'}
         if httpx:
             with httpx.stream('GET', url, timeout=2, follow_redirects=False,
-                              headers=headers) as response:
+                              headers=headers, verify=self._ssl_context, trust_env=False) as response:
                 response.raise_for_status()
                 raw = bytearray()
                 deadline = time.monotonic() + 3
@@ -623,15 +1315,29 @@ class Agent:
         """检测打流相关组件 + 防火墙是否安装（前端显示绿/红，未装可代装）。
         0.6.2 起简单布尔升级为 {installed, version}（前端显示版本号），防火墙/ docker 维持旧结构。"""
         iperf3_bin = shutil.which("iperf3")
-        st_bin = next((shutil.which(x) for x in ("speedtest-go", "speedtest", "speedtest-cli") if shutil.which(x)), None) \
-            or (os.path.join(self._agent_bin(), "speedtest-go")
-                if os.path.exists(os.path.join(self._agent_bin(), "speedtest-go")) else None)
+        st_bin = self._throughput_speedtest_exe()
         mtr_bin = shutil.which("mtr")
         return {"iperf3": {"installed": bool(iperf3_bin), "version": self._comp_version(iperf3_bin, ["--version"])},
                 "speedtest": {"installed": bool(st_bin), "version": self._comp_version(st_bin, ["--version"])},
+                "monitoring": self._monitoring_capability(),
                 "firewall": self._check_firewall(),
                 "docker": self._check_docker(),
                 "mtr": {"installed": bool(mtr_bin), "version": self._comp_version(mtr_bin, ["--version"])}}
+
+    def _monitoring_capability(self) -> dict:
+        """Only advertise ICMP after a real local check; no remote discovery."""
+        types = ['tcp']
+        ping = shutil.which('ping')
+        if ping:
+            try:
+                flags = ['-n','1','-w','1000'] if platform.system() == 'Windows' else ['-c','1','-W','1']
+                result = subprocess.run([ping, *flags, '127.0.0.1'],
+                                        capture_output=True, timeout=2)
+                if result.returncode == 0:
+                    types.append('ping')
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return {'ready': True, 'types': types}
 
     @staticmethod
     def _comp_version(binary: str | None, args: list) -> str:
@@ -695,7 +1401,7 @@ class Agent:
         # 主：ip-api.com（lang=zh-CN 直接返回中文）
         try:
             if httpx:
-                d = httpx.get("http://ip-api.com/json/?lang=zh-CN&fields=status,country,regionName,city,query", timeout=5, headers=UA).json()
+                d = httpx.get("http://ip-api.com/json/?lang=zh-CN&fields=status,country,regionName,city,query", timeout=5, headers=UA, verify=self._ssl_context).json()
             else:
                 import urllib.request
                 req = urllib.request.Request("http://ip-api.com/json/?lang=zh-CN&fields=status,country,regionName,city,query", headers=UA)
@@ -709,7 +1415,7 @@ class Agent:
         # 备：ipinfo.io（英文 region/country）
         try:
             if httpx:
-                d = httpx.get("https://ipinfo.io/json", timeout=5, headers=UA).json()
+                d = httpx.get("https://ipinfo.io/json", timeout=5, headers=UA, verify=self._ssl_context).json()
             else:
                 import urllib.request
                 req = urllib.request.Request("https://ipinfo.io/json", headers=UA)
@@ -722,6 +1428,288 @@ class Agent:
             pass
         return None
 
+    # ── Report channels: installed origin remains authoritative at bootstrap ──
+    def _channel_init(self, load_cache=True):
+        self._channel_lock = threading.RLock()
+        self._channel_probe_lock = threading.Lock()
+        self._installed_url = self.url
+        self._channel_policy = None
+        self._channel_sequence = 0
+        self._channel_state = 'pending'
+        self._channel_error = None
+        self._channel_next_probe = 0
+        self._channel_switched_at = time.monotonic()
+        self._channel_samples = {}
+        self._channel_streaks = {}
+        self._channel_failures = 0
+        self._report_not_before = 0
+        self._channel_report_failures = 0
+        if load_cache:
+            self._channel_load()
+
+    @staticmethod
+    def _channel_origin(value):
+        from urllib.parse import urlsplit
+        if not isinstance(value, str) or len(value) > 256:
+            raise ValueError('invalid channel origin')
+        p = urlsplit(value)
+        if (p.scheme != 'https' or not p.hostname or p.username is not None or p.password is not None
+                or p.path or p.query or p.fragment or value != 'https://' + p.netloc
+                or any(c.isspace() for c in value) or p.port == 443):
+            raise ValueError('exact HTTPS channel origin required')
+        return value
+
+    def _channel_validate(self, cfg):
+        if not isinstance(cfg, dict) or set(cfg) != {'revision','epoch','nonce','center_id','token_binding','node_id','mode','selected_entry_id','entries'}:
+            raise ValueError('invalid channel configuration')
+        if (type(cfg['revision']) is not int or cfg['revision'] < 0 or
+                type(cfg['node_id']) is not int or cfg['node_id'] < 1 or
+                not isinstance(cfg['epoch'], str) or not 1 <= len(cfg['epoch']) <= 64 or
+                cfg['mode'] not in ('default','fixed','auto') or cfg['selected_entry_id'] not in ('public','private')):
+            raise ValueError('invalid channel selection')
+        for key in ('center_id','token_binding','nonce'):
+            if not isinstance(cfg[key], str) or not re.fullmatch('[a-f0-9]{64}', cfg[key]):
+                raise ValueError('invalid channel binding')
+        if not isinstance(cfg['entries'],list) or not 1 <= len(cfg['entries']) <= 2:
+            raise ValueError('channel entry budget')
+        ids, origins = set(), set()
+        for entry in cfg['entries']:
+            if not isinstance(entry, dict) or set(entry) != {'entry_id','origin'} or entry['entry_id'] not in ('public','private'):
+                raise ValueError('invalid channel entry')
+            origin = self._channel_origin(entry['origin'])
+            if origin in origins or entry['entry_id'] in ids:
+                raise ValueError('duplicate channel entry')
+            ids.add(entry['entry_id']); origins.add(origin)
+        if 'public' not in ids or cfg['selected_entry_id'] not in ids or (cfg['mode']=='auto' and len(ids)<2):
+            raise ValueError('missing channel entry')
+        binding = getattr(self, '_installation', None)
+        if binding and (cfg['center_id'] != binding['center_id'] or cfg['node_id'] != binding['node_id']):
+            raise ValueError('channel differs from installation binding')
+        old = self._channel_policy
+        if old and (cfg['center_id']!=old['center_id'] or cfg['token_binding']!=old['token_binding'] or cfg['node_id']!=old['node_id'] or cfg['revision']<old['revision']):
+            raise ValueError('channel identity changed')
+        return json.loads(json.dumps(cfg))
+
+    def _channel_probe(self, origin, cfg):
+        # OS getaddrinfo is not guaranteed to obey socket timeouts. Bound caller
+        # admission and allow only one outstanding resolver/HTTP worker. A late
+        # result cannot switch anything; it only fills its abandoned local queue.
+        import queue
+        self._channel_origin(origin)
+        started = time.monotonic()
+        def failed():
+            return dict(ok=False,duration_ms=(time.monotonic()-started)*1000,
+                        sampled_at=datetime.now(timezone.utc).isoformat())
+        if not self._channel_probe_lock.acquire(blocking=False):
+            return failed()
+        result = queue.Queue(maxsize=1)
+        def work():
+            try:
+                sample = self._channel_probe_transaction(origin,cfg)
+            except Exception:
+                sample = failed()
+            finally:
+                self._channel_probe_lock.release()
+            result.put(sample)
+        try:
+            threading.Thread(target=work,daemon=True).start()
+        except RuntimeError:
+            self._channel_probe_lock.release()
+            return failed()
+        try:
+            return result.get(timeout=4)
+        except queue.Empty:
+            return failed()
+
+    def _channel_probe_transaction(self, origin, cfg):
+        # Full new DNS/TCP/TLS/HTTP transaction, NOT ping, connection pooling or
+        # a second metric report. No redirects, proxy env, cookies or CA bypass.
+        import urllib.request
+        from datetime import datetime, timezone
+        self._channel_origin(origin)
+        started = time.monotonic()
+        try:
+            if httpx:
+                with httpx.Client(verify=self._ssl_context, timeout=2, follow_redirects=False, trust_env=False) as client:
+                    with client.stream('GET', origin + '/agent/entry-probe', headers=self._auth_headers({})) as r:
+                        r.raise_for_status()
+                        raw = bytearray()
+                        for chunk in r.iter_bytes():
+                            raw.extend(chunk)
+                            if len(raw)>4096 or time.monotonic()-started>3:
+                                raise ValueError('probe response budget')
+            else:
+                request = urllib.request.Request(origin+'/agent/entry-probe',headers=self._auth_headers({}))
+                with _agent_urlopen(request, timeout=2, context=self._ssl_context) as r:
+                    raw = bytearray()
+                    while True:
+                        chunk = r.read1(4097 - len(raw))
+                        raw.extend(chunk)
+                        if len(raw)>4096 or time.monotonic()-started>3:
+                            raise ValueError('probe response budget')
+                        if not chunk:
+                            break
+            value = json.loads(raw)
+            if value != dict(center_id=cfg['center_id'],node_id=cfg['node_id'],token_binding=cfg['token_binding'],origin=origin):
+                raise ValueError('probe identity mismatch')
+            ok = True
+        except Exception:
+            ok = False
+        return dict(ok=ok,duration_ms=(time.monotonic()-started)*1000,
+                    sampled_at=datetime.now(timezone.utc).isoformat())
+
+    def _channel_apply(self, cfg):
+        if cfg is None:
+            return  # old centers must not reset the installed URL or cached policy
+        with self._channel_lock:
+            cfg = self._channel_validate(cfg)
+            if self._channel_policy == cfg:
+                return
+            # Only a TLS-authenticated installed/already-approved origin may
+            # delegate token trust. An old HTTP install stays pinned, not upgraded.
+            self._channel_origin(self.url)
+            if self._channel_policy and self.url not in ({e['origin'] for e in self._channel_policy['entries']} | {self._installed_url}):
+                raise ValueError('unapproved configuration source')
+            if self._channel_policy is None and self.url != self._installed_url:
+                raise ValueError('unapproved bootstrap source')
+            selected = next(e['origin'] for e in cfg['entries'] if e['entry_id']==cfg['selected_entry_id'])
+            target = self.url if cfg['mode']=='auto' and self.url in {e['origin'] for e in cfg['entries']} else selected
+            sample = self._channel_probe(target,cfg)
+            self._channel_policy = cfg
+            self._channel_streaks = {}
+            self._channel_failures = 0
+            self._channel_state = 'applied' if sample['ok'] else 'failed'
+            self._channel_error = None if sample['ok'] else 'probe_failed'
+            if sample['ok']:
+                self.url = target
+                self._channel_switched_at = time.monotonic()
+            # Failed default/fixed remains at its old endpoint only to fetch
+            # config/report failure; never silently calls this the selected entry.
+            self._channel_save()
+
+    def _channel_tick(self, now=None):
+        if not hasattr(self, '_channel_lock'):
+            return
+        now = time.monotonic() if now is None else now
+        with self._channel_lock:
+            cfg = self._channel_policy
+            if cfg is None or now < self._channel_next_probe:
+                return
+            self._channel_next_probe = now + 30  # initial conservative defaults
+            observed_origin = self.url
+            retry = self._channel_state == 'failed'
+        # Readiness must not hold the heartbeat/task origin lock while DNS/TLS
+        # stalls. Admit the result only if this exact policy + origin still own it.
+        if cfg['mode'] != 'auto':
+            if retry:
+                self._channel_apply_retry(cfg)
+            return
+        samples = {e['origin']:self._channel_probe(e['origin'],cfg) for e in cfg['entries']}
+        with self._channel_lock:
+            if self._channel_policy != cfg or self.url != observed_origin:
+                return
+            self._channel_samples = samples  # readiness timing, not report latency
+            current = samples.get(self.url, {'ok':False})
+            if current['ok'] and (self._channel_state != 'applied' or self._channel_error is not None):
+                # Confirmation can recover at the same origin; dwell only gates
+                # switching. The full policy/origin fence above owns this result.
+                self._channel_state,self._channel_error = 'applied',None
+                self._channel_save()
+            self._channel_failures = 0 if current['ok'] else self._channel_failures + 1
+            for origin,sample in samples.items():
+                faster = (sample['ok'] and origin!=self.url and current['ok'] and
+                          current['duration_ms']-sample['duration_ms']>=20 and
+                          sample['duration_ms']<=current['duration_ms']*.8)
+                self._channel_streaks[origin] = self._channel_streaks.get(origin,0)+1 if faster else 0
+            if now-self._channel_switched_at < 60:
+                return
+            alternatives = [(s['duration_ms'],o) for o,s in samples.items() if o!=self.url and s['ok'] and
+                            (self._channel_failures>=3 or self._channel_report_failures>=3 or self._channel_streaks[o]>=3)]
+            if alternatives:
+                self.url = min(alternatives)[1]
+                self._channel_state,self._channel_error = 'applied',None
+                self._channel_switched_at = now
+                self._channel_streaks = {}; self._channel_failures=0
+                self._channel_report_failures = 0
+                self._channel_save()
+            elif not any(s['ok'] for s in samples.values()):
+                # Retain the current entry and queue, with bounded probe backoff.
+                self._channel_next_probe = now + min(300,30*2**min(self._channel_failures,3))
+
+    def _channel_apply_retry(self, cfg):
+        target = next(e['origin'] for e in cfg['entries'] if e['entry_id']==cfg['selected_entry_id'])
+        sample = self._channel_probe(target,cfg)
+        with self._channel_lock:
+            if self._channel_policy != cfg or not sample['ok']:
+                return
+            self.url = target
+            self._channel_state,self._channel_error = 'applied',None
+            self._channel_switched_at = time.monotonic()
+            self._channel_save()
+
+    def _channel_receipt(self):
+        cfg = self._channel_policy
+        if cfg is None or self.url not in {e['origin'] for e in cfg['entries']}:
+            return None
+        self._channel_sequence += 1
+        self._channel_save()
+        return dict(revision=cfg['revision'],epoch=cfg['epoch'],nonce=cfg['nonce'],center_id=cfg['center_id'],
+                    sequence=self._channel_sequence,origin=self.url,state=self._channel_state,error=self._channel_error)
+
+    def _channel_cache_path(self):
+        from pathlib import Path
+        # Fixed install-owned location, never a server/config-supplied path.
+        return Path(__file__).resolve().with_name('report-channel-cache.json')
+
+    def _channel_save(self):
+        import hashlib, hmac
+        try:
+            body=json.dumps(dict(installed=self._installed_url,policy=self._channel_policy,current=self.url,
+                sequence=self._channel_sequence,state=self._channel_state,error=self._channel_error),sort_keys=True,separators=(',',':'))
+            value=json.dumps(dict(body=body,mac=hmac.new(self.token.encode(),body.encode(),hashlib.sha256).hexdigest()))
+            path=self._channel_cache_path()
+            # Exclusive no-follow temporary write; atomic rename, no secret CA/key export.
+            temp=path.with_name(path.name+'.'+str(os.getpid())+'.new')
+            fd=os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            try:
+                with os.fdopen(fd,'w') as f:
+                    f.write(value);f.flush();os.fsync(f.fileno())
+                os.replace(temp,path)
+            finally:
+                if temp.exists():temp.unlink()
+        except OSError:
+            pass  # in-memory approved cache still permits outage switching
+
+    def _channel_load(self):
+        import hashlib, hmac, stat
+        try:
+            path=self._channel_cache_path()
+            fd=os.open(path,os.O_RDONLY|getattr(os,'O_NOFOLLOW',0))
+            with os.fdopen(fd) as f:
+                info=os.fstat(f.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size>16384 or (os.name!='nt' and (info.st_uid!=os.getuid() or info.st_mode&0o077)):
+                    return
+                value=json.loads(f.read(16385))
+            body=value['body']
+            if not hmac.compare_digest(value['mac'],hmac.new(self.token.encode(),body.encode(),hashlib.sha256).hexdigest()):
+                return
+            cached=json.loads(body)
+            cfg=self._channel_validate(cached['policy'])
+            if cached['installed']!=self._installed_url or cached['current'] not in ({e['origin'] for e in cfg['entries']} | {self._installed_url}):
+                return
+            if cached['state'] not in ('applied','failed') or cached['error'] not in (None,'probe_failed','invalid_config'):
+                return
+            target = next(e['origin'] for e in cfg['entries'] if e['entry_id']==cfg['selected_entry_id'])
+            if cached['state']=='applied' and cfg['mode']!='auto' and cached['current']!=target:
+                return
+            self._channel_policy=cfg
+            self.url=cached['current']
+            self._channel_sequence=int(cached['sequence'])
+            self._channel_state=cached['state']
+            self._channel_error=cached['error']
+        except (OSError,ValueError,TypeError,KeyError):
+            return
+
     # ── HTTP 基础 ──
     def _auth_headers(self, params):
         # Keep existing call sites compatible, but never serialize token in URLs.
@@ -729,22 +1717,34 @@ class Agent:
         return {'Authorization': 'Bearer ' + self.token}
 
     def _get(self, path: str, **params):
+        from contextlib import nullcontext
+        with getattr(self, '_channel_lock', nullcontext()):
+            return self._get_current(path, **params)
+
+    def _get_current(self, path: str, **params):
         headers = self._auth_headers(params)
         if httpx:
-            r = httpx.get(self.url + path, params=params, headers=headers, timeout=10)
+            r = httpx.get(self.url + path, params=params, headers=headers, timeout=10, verify=self._ssl_context, follow_redirects=False, trust_env=False)
             r.raise_for_status()
             return r.json()
         import urllib.request
         import urllib.parse
         q = urllib.parse.urlencode(params)
         req = urllib.request.Request(self.url + path + ("?" + q if q else ""), headers=headers)
-        with _agent_urlopen(req, timeout=10) as resp:
+        with _agent_urlopen(req, timeout=10, context=self._ssl_context) as resp:
             return json.loads(resp.read())
 
     def _post(self, path: str, json_body=None, **params):
+        from contextlib import nullcontext
+        with getattr(self, '_channel_lock', nullcontext()):
+            return self._post_current(path, json_body=json_body, **params)
+
+    def _post_current(self, path: str, json_body=None, **params):
+        if path == '/agent/report':
+            return self._post_report_transaction(json_body)
         headers = self._auth_headers(params)
         if httpx:
-            r = httpx.post(self.url + path, json=json_body, params=params, headers=headers, timeout=10)
+            r = httpx.post(self.url + path, json=json_body, params=params, headers=headers, timeout=10, verify=self._ssl_context, follow_redirects=False, trust_env=False)
             r.raise_for_status()
             return r.json()
         import urllib.request
@@ -756,8 +1756,66 @@ class Agent:
             data=data,
             headers={**headers, "Content-Type": "application/json"},
         )
-        with _agent_urlopen(req, timeout=10) as resp:
+        with _agent_urlopen(req, timeout=10, context=self._ssl_context) as resp:
             return json.loads(resp.read())
+
+    def _post_report_transaction(self, body):
+        from contextlib import nullcontext
+        with getattr(self, '_channel_lock', nullcontext()):
+            return self._post_report_current(body)
+
+    def _post_report_current(self, body):
+        """Exactly one normal report, timed after preparation through JSON parse."""
+        import urllib.request
+        import urllib.error
+        from urllib.parse import urlsplit
+        url = self.url + '/agent/report'
+        p = urlsplit(self.url)
+        origin = p.scheme + '://' + p.netloc
+        if getattr(self, '_channel_policy', None):
+            body = {**body, 'channel_receipt': self._channel_receipt()}
+        measurement_entries = getattr(self, '_channel_policy', None) or getattr(self, '_entry_manifest', {})
+        entry = next((e['entry_id'] for e in measurement_entries.get('entries', [])
+                      if e['origin'] == origin), None)
+        headers = self._auth_headers({})
+        status, error, client = None, None, None
+        if httpx:
+            client = httpx.Client(verify=self._ssl_context, timeout=10, follow_redirects=False, trust_env=False)
+            request = client.build_request('POST', url, json=body, headers=headers)
+        else:
+            request = urllib.request.Request(url, data=json.dumps(body).encode(),
+                headers={**headers, 'Content-Type':'application/json'})
+        started = time.monotonic()
+        try:
+            if client:
+                response = client.send(request)
+                status = response.status_code
+                response.raise_for_status()
+                result = response.json()
+            else:
+                with _agent_urlopen(request, timeout=10, context=self._ssl_context) as response:
+                    status = response.status
+                    result = json.loads(response.read())
+            if not isinstance(result, dict) or result.get('ok') is not True:
+                error = 'invalid_response'
+                raise ValueError('invalid report acknowledgement')
+            self._channel_report_failures = 0
+            return result
+        except Exception as exc:
+            self._channel_report_failures = getattr(self, '_channel_report_failures', 0) + 1
+            status = status or getattr(exc, 'code', None)
+            if error is None:
+                error = ('invalid_response' if isinstance(exc, ValueError) else
+                         'http' if status is not None and not 200 <= status < 300 else
+                         'timeout' if isinstance(exc, TimeoutError) or (httpx and isinstance(exc, httpx.TimeoutException))
+                         else 'transport')
+            raise
+        finally:
+            self._last_report_transaction = dict(entry_id=entry, origin=origin,
+                duration_ms=(time.monotonic()-started)*1000, status='error' if error else 'ok',
+                http_status=status, error=error, sampled_at=datetime.now(timezone.utc).isoformat())
+            if client:
+                client.close()
 
     # ── 采集 ──
     def detect_default_iface(self) -> str | None:
@@ -855,6 +1913,11 @@ class Agent:
         """上报所有网卡的流量增量；monitored_ifaces 仅为中心图表显示偏好。"""
         now_net = self.read_net_bytes()
         now = datetime.now(timezone.utc)
+        tick = time.monotonic()
+        previous_wall = getattr(self, "last_net_wall", None)
+        previous_tick = getattr(self, "last_net_tick", None)
+        self.last_net_wall, self.last_net_tick = now, tick
+        elapsed = tick - previous_tick if previous_tick is not None else None
         points = []
         if self.last_net is None:
             self.last_net = now_net
@@ -872,6 +1935,11 @@ class Agent:
                 "ts": now.isoformat(),
                 "rx_delta": rx_delta,
                 "tx_delta": tx_delta,
+                "interval_start": previous_wall.isoformat() if previous_wall else None,
+                "elapsed_seconds": elapsed,
+                "quality": "valid" if previous_wall and elapsed and 0 < elapsed <= 300
+                    and abs((now - previous_wall).total_seconds() - elapsed) <= max(0.1, elapsed * 0.02)
+                    else "clock_skew",
             })
         self.last_net = now_net
         return points
@@ -931,7 +1999,8 @@ class Agent:
         except (OSError, AttributeError):
             info["load1"] = info["load5"] = info["load15"] = None
         info["boot_time"] = psutil.boot_time() if psutil else None
-        info["hardware"] = self._hardware_info()
+        info["hardware"] = dict(self._hardware_info())
+        info["hardware"]["memory"] = self._system_memory((info["hardware"].get('machine') or {}).get('kind'))
         info["storage_status"] = dict(self._storage_status)
         if info["hardware"]["cpu"].get("model"):
             info["cpu_model"] = info["hardware"]["cpu"]["model"]
@@ -939,6 +2008,111 @@ class Agent:
             if info["hardware"]["cpu"].get(field) is not None:
                 info[key] = info["hardware"]["cpu"][field]
         return info
+
+    def _system_memory(self, kind=None) -> dict:
+        """Cheap OS memory sample, independent of slow inventory and mem_pct time."""
+        scope = 'host_visible' if kind == 'container' else 'os_visible'
+        total, available, used, source = None, None, None, None
+        def valid(value, positive=False):
+            number = _hardware_number(value)
+            return int(number) if number is not None and number.is_integer() and (number > 0 if positive else number >= 0) else None
+        try:
+            if psutil:
+                sample = psutil.virtual_memory()
+                total = valid(sample.total, True)
+                available, used = valid(sample.available), valid(sample.used)
+                source = 'psutil.virtual_memory'
+        except Exception:
+            pass
+        if total is None and platform.system() == 'Linux':
+            text = _hardware_read('/proc/meminfo', limit=32768) or ''
+            fields = {key: int(value) * 1024 for key, value in re.findall(
+                r'^(MemTotal|MemAvailable):\s+(\d+) kB\s*$', text, re.M)}
+            total, available = valid(fields.get('MemTotal'), True), valid(fields.get('MemAvailable'))
+            used = total - available if total is not None and available is not None and available <= total else None
+            source = '/proc/meminfo'
+        completed = datetime.now(timezone.utc).isoformat()
+        if total is None:
+            previous = getattr(self, '_memory_sample', None)
+            result = dict(previous) if previous and previous['scope'] == scope else {
+                'total_bytes': None, 'available_bytes': None, 'used_bytes': None,
+                'source': None, 'scope': scope, 'sampled_at': None}
+            result.update(state='query_failed', attempted_at=completed)
+            if kind == 'container' and platform.system() == 'Linux':
+                result['cgroup'] = self._cgroup_memory()
+            return result
+        result = {'total_bytes': total,
+                  'available_bytes': available if available is not None and available <= total else None,
+                  'used_bytes': used if used is not None and used <= total else None,
+                  'source': source, 'scope': scope, 'state': 'available',
+                  'sampled_at': completed, 'attempted_at': completed}
+        self._memory_sample = dict(result)
+        if kind == 'container' and platform.system() == 'Linux':
+            result['cgroup'] = self._cgroup_memory()
+        return result
+
+    def _cgroup_memory(self) -> dict:
+        """Visible cgroup hierarchy limit, not host capacity or exclusive quota.
+
+        Read only the current membership under a verified mount. All visible
+        ancestors must be readable; hidden ancestors cannot be claimed unlimited.
+        The usage belongs to the limiting group (possibly shared with siblings).
+        """
+        result = {'total_bytes': None, 'used_bytes': None, 'available_bytes': None,
+                  'source': None, 'scope': 'cgroup', 'state': 'query_failed', 'sampled_at': None}
+        try:
+            memberships = (line.split(':', 2) for line in (_hardware_read('/proc/self/cgroup', limit=32768) or '').splitlines())
+            groups = {('v2' if not row[1] else 'v1'): row[2] for row in memberships
+                      if len(row) == 3 and (not row[1] or 'memory' in row[1].split(','))}
+            mounts = (_hardware_read('/proc/self/mountinfo', limit=65536) or '').splitlines()
+            for line in mounts[:512]:
+                before, after = line.split(' - ', 1)
+                left, right = before.split(), after.split()
+                version = 'v2' if right[0] == 'cgroup2' else 'v1' if right[0] == 'cgroup' and 'memory' in right[2].split(',') else None
+                if version not in groups:
+                    continue
+                root, mount, group = left[3], left[4], groups[version]
+                if any('\\' in p or '..' in p.split('/') or not p.startswith('/') for p in (root, mount, group)):
+                    continue
+                if root != '/' and group != root and not group.startswith(root.rstrip('/') + '/'):
+                    continue
+                relative = group[len(root):].lstrip('/') if root != '/' else group.lstrip('/')
+                if len(relative.split('/')) > 32:
+                    continue
+                path = os.path.join(mount, relative).rstrip('/')
+                candidates = []
+                limit_file, used_file = ('memory.max', 'memory.current') if version == 'v2' else ('memory.limit_in_bytes', 'memory.usage_in_bytes')
+                while True:
+                    raw = _hardware_read(path + '/' + limit_file, limit=128)
+                    if raw is None:
+                        raise ValueError('unreadable hierarchy')
+                    raw = raw.strip()
+                    unlimited = raw == 'max' if version == 'v2' else raw.isdigit() and int(raw) >= 2 ** 60
+                    if not unlimited:
+                        if not raw.isdigit():
+                            raise ValueError('invalid limit')
+                        usage = _hardware_read(path + '/' + used_file, limit=128)
+                        used = int(usage.strip()) if usage and usage.strip().isdigit() else None
+                        candidates.append((int(raw), used))
+                    if path == mount.rstrip('/'):
+                        break
+                    path = os.path.dirname(path)
+                result.update(source='cgroup.' + version, state='unlimited' if root == '/' else 'unknown')
+                if candidates:
+                    total, used = min(candidates, key=lambda row: row[0])
+                    result.update(total_bytes=total, used_bytes=used,
+                                  available_bytes=max(0, total - used) if used is not None else None,
+                                  state='available')
+                result['sampled_at'] = datetime.now(timezone.utc).isoformat()
+                self._cgroup_memory_sample = dict(result)
+                break
+        except (ValueError, IndexError, OSError):
+            pass
+        if result['state'] == 'query_failed':
+            result = dict(getattr(self, '_cgroup_memory_sample', result))
+            result['state'] = 'query_failed'
+        result['attempted_at'] = datetime.now(timezone.utc).isoformat()
+        return result
 
     def _machine_static_info(self) -> dict:
         """Worker-only static inventory, including failures, cached for five minutes."""
@@ -1024,7 +2198,16 @@ class Agent:
                     physical['disks'] = disks
                 except Exception:
                     pass
-        return {'machine': machine, 'physical_inventory': physical, 'processors': []}
+        dmi.update({key: _hardware_text(_hardware_read('/sys/class/dmi/id/' + key))
+                    for key in ('board_vendor', 'board_name', 'bios_vendor', 'bios_version')})
+        public = {'board': {'vendor': dmi['board_vendor'], 'model': dmi['board_name']},
+                  'bios': {'vendor': dmi['bios_vendor'], 'version': dmi['bios_version']},
+                  'memory_modules': None, 'disks': None, 'source': 'sysfs.dmi',
+                  'scope': 'host_visible' if machine['kind'] == 'container' else 'platform_reported',
+                  'state': 'available', 'sampled_at': datetime.now(timezone.utc).isoformat()}
+        return {'machine': machine, 'physical_inventory': physical,
+                'platform_inventory': public if any(dmi[key] for key in ('board_vendor', 'board_name', 'bios_vendor', 'bios_version')) else None,
+                'processors': []}
 
     def _windows_machine_static(self) -> dict:
         # One process, one three-second wall-clock budget for all CIM branches.
@@ -1322,6 +2505,7 @@ class Agent:
         static = self._machine_static_info()
         hardware['machine'] = static['machine']
         hardware['physical_inventory'] = static['physical_inventory']
+        hardware['platform_inventory'] = static.get('platform_inventory')
         cpu = hardware['cpu']
         if psutil:
             for logical, key in ((False, 'physical_cores'), (True, 'logical_cores')):
@@ -1525,6 +2709,8 @@ class Agent:
             hardware['availability']['gpu'] = 'collection_failed'
         if hardware['gpus']:
             hardware['availability']['gpu_presence'] = 'present'
+        for sensor in hardware['sensors']:
+            sensor['scope'] = 'host_visible' if hardware['machine']['kind'] == 'container' else 'os_visible'
         return hardware
 
     def _storage_info(self):
@@ -1700,30 +2886,63 @@ class Agent:
     def report(self, metrics: list, sys_metrics: list):
         """上报流量 + 系统指标。失败时压入队列，成功时先补传队列再发当前。"""
         # 当前数据也进队列（发送成功才出队，保证不丢）；带组件检测状态（which 很便宜）
-        self.queue.append({
+        self.queue.append(zlib.compress(json.dumps({
             "metrics": metrics, "sys_metrics": sys_metrics,
             "components": self._check_components(),
             "os_info": self._os_info(),
             "storage": self._storage_info(),
-        })
+        }, separators=(',', ':'), ensure_ascii=False).encode('utf-8')))
 
-        # 尝试把队列里的所有数据按顺序补传
-        while self.queue:
-            batch = self.queue[0]
+        # One POST per round, up to twelve queued samples in that transaction.
+        # Unknown outcomes are never immediately retried at another entry.
+        if self.queue and time.monotonic() >= getattr(self, '_report_not_before', 0):
+            count = min(len(self.queue), 12)
+            pending = [json.loads(zlib.decompress(self.queue[i])) for i in range(count)]
+            batch = {**pending[-1], 'metrics': [m for p in pending for m in p['metrics']],
+                     'sys_metrics': [m for p in pending for m in p['sys_metrics']]}
+            # Send the previous completed transaction, not a queued historical copy.
+            previous = getattr(self, "_last_report_transaction", None)
+            icmp = getattr(self, "_entry_samples", [])
+            if previous is not None or icmp:
+                batch["control_channel"] = {"report": previous, "icmp": icmp}
             try:
                 resp = self._post("/agent/report", json_body=batch, token=self.token)
-                self.queue.popleft()  # 发送成功才出队
+                for _ in range(count):
+                    self.queue.popleft()  # only the explicitly acknowledged batch
+                self._report_failures = 0
                 # 心跳响应带版本号：变了就拉配置 diff
                 ver = resp.get("monitors_version")
                 if ver is not None and ver != self.monitors_version:
                     self.refresh_config()
+                channel_ver = resp.get('channel_revision')
+                if channel_ver is not None and channel_ver != (getattr(self, '_channel_policy', None) or {}).get('revision'):
+                    self.refresh_config()
             except Exception:
-                break  # 失败：留着队列，下次再补
+                self._report_failures = getattr(self, '_report_failures', 0) + 1
+                self._report_not_before = time.monotonic() + min(60, 5 * 2**min(self._report_failures-1,4))
+
+    def _file_tick(self):
+        """One managed Linux/root child, never the historical inline worker."""
+        if sys.platform != 'linux' or os.geteuid() != 0:
+            return  # Windows/nonroot collectors retain their existing behavior.
+        if not hasattr(self, '_file_supervisor'):
+            self._file_supervisor = _FileSupervisor(self._file_snapshot)
+        self._file_supervisor.tick()
+
+    def _file_snapshot(self):
+        from pathlib import Path
+        binding = self._installation_binding()
+        if binding != getattr(self, '_installation', None):
+            raise ValueError('file instance binding changed')
+        return {'origin': self.url, 'token': self.token, 'binding': binding,
+                'legacy': os.environ.get('STELLA_FILE_ROOTS'),
+                'store': str(Path(__file__).absolute().parent / '.file-releases')}
 
     # ── 任务执行 ──
     def poll_and_execute(self):
         """轮询待办任务，执行并回传结果。"""
         try:
+            self._assert_instance_identity()
             tasks = self._get("/agent/tasks", token=self.token)
         except Exception:
             return
@@ -1748,6 +2967,13 @@ class Agent:
         """卸载自己：后台脚本停服务 + 删文件，先回传结果再自删。"""
         print("[uninstall] 收到卸载指令", file=sys.stderr, flush=True)
         try:
+            argv = self._instance_uninstall_argv()
+            if argv is not None:
+                # The root-owned helper validates exact binding and detaches from
+                # this service/task before deleting only its own installation.
+                subprocess.run(argv, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+                self._post('/agent/uninstall/result', token=self.token, status='done')
+                return
             # 后台脚本：sleep 留时间回传结果，再停服务删文件（停了服务 agent 就没法回传了）
             script = (
                 "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
@@ -1770,9 +2996,115 @@ class Agent:
             except Exception:
                 pass
 
+    def _entry_resolve(self, hostname, timeout):
+        """At most one outstanding OS resolver per Agent, even on DNS hangs."""
+        import queue
+        if not hasattr(self, '_entry_dns_lock'):
+            self._entry_dns_lock = threading.Lock()
+        if not self._entry_dns_lock.acquire(blocking=False):
+            raise TimeoutError('resolver busy')
+        result = queue.Queue(maxsize=1)
+        def resolve():
+            try:
+                records = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_DGRAM)
+                result.put(sorted({r[4][0] for r in records}))
+            except Exception as exc:
+                result.put(exc)
+            finally:
+                self._entry_dns_lock.release()
+        threading.Thread(target=resolve, daemon=True).start()
+        try:
+            value = result.get(timeout=max(.001, timeout))
+        except queue.Empty:
+            raise TimeoutError('resolver deadline') from None
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    def _entry_ping(self, ip, budget):
+        import ipaddress
+        family = ipaddress.ip_address(ip).version
+        windows = platform.system() == 'Windows'
+        argv = ['ping', '-'+str(family)] + (['-n','1','-w','1000'] if windows else ['-n','-c','1','-W','1']) + [ip]
+        value = dict(ip=ip, family=family, status='unavailable', latency_ms=None, loss_pct=None)
+        try:
+            run = subprocess.run(argv, capture_output=True, text=True,
+                timeout=min(1.5, budget), env={**os.environ, 'LC_ALL':'C'})
+            out = run.stdout + run.stderr
+            loss = re.search(r'(\d+(?:\.\d+)?)%\s*(?:packet\s*)?loss', out)
+            rtt = re.search(r'(?:rtt|round-trip).*?=\s*[\d.]+/([\d.]+)/', out)
+            if windows:
+                rtt = re.search(r'(?:Average|平均)\s*=\s*(\d+)\s*ms', out)
+            value['loss_pct'] = float(loss.group(1)) if loss else None
+            value['latency_ms'] = float(rtt.group(1)) if rtt else None
+            if value['loss_pct'] is not None:
+                value['status'] = 'up' if run.returncode == 0 and value['latency_ms'] is not None and value['loss_pct'] < 100 else 'down' if value['loss_pct'] == 100 else 'unavailable'
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        return value
+
+    def run_entry_probes(self):
+        """Automatic management ICMP; separate from manual probes and report IO."""
+        now = time.monotonic()
+        if now < getattr(self, '_next_entry_probe', 0):
+            return
+        self._next_entry_probe = now + 60
+        manifest = getattr(self, '_entry_manifest', {})
+        try:
+            _entry_scope(manifest)
+            scope_valid = True
+        except (ValueError, TypeError):
+            scope_valid = False
+        if not isinstance(manifest, dict):
+            self._entry_samples = []
+            return
+        entries = manifest.get('entries', [])
+        if not isinstance(entries, list) or len(entries) > 4:
+            self._entry_samples = []
+            return
+        deadline, samples, cache = now + 12, [], {}
+        for entry in entries:
+            sample = dict(entry_id=entry['entry_id'], version=entry['version'],
+                hostname=entry['hostname'], sampled_at=datetime.now(timezone.utc).isoformat(),
+                status='complete', results=[])
+            try:
+                remaining = deadline - time.monotonic()
+                if not scope_valid:
+                    sample['status'] = 'outside_scope'
+                elif manifest.get('icmp_available') is not True:
+                    sample['status'] = 'unavailable'
+                elif remaining <= 0:
+                    sample['status'] = 'budget_exceeded'
+                else:
+                    ips = self._entry_resolve(entry['hostname'], min(2, remaining))
+                    if len(ips) > 4:
+                        sample['status'] = 'too_many_ips'
+                    elif not ips:
+                        sample['status'] = 'dns_error'
+                    elif not all(_entry_ip_allowed(ip, manifest.get('targets'), manifest.get('approved_ranges', [])) for ip in ips):
+                        sample['status'] = 'outside_scope'
+                    else:
+                        for ip in ips:
+                            remaining = deadline - time.monotonic()
+                            if remaining <= .05:
+                                sample['status'] = 'budget_exceeded'
+                                break
+                            if ip not in cache:
+                                cache[ip] = self._entry_ping(ip, remaining)
+                            sample['results'].append(cache[ip])
+                        if sample['status']=='complete' and any(r['status']=='unavailable' for r in sample['results']):
+                            sample['status']='unavailable'
+            except TimeoutError:
+                sample['status'] = 'dns_timeout'
+            except (OSError, ValueError, KeyError, TypeError):
+                sample['status'] = 'dns_error'
+            samples.append(sample)
+        self._entry_samples = samples
+
     # ── 监控项探测（agent 自探测）──
     def run_due_probes(self):
         """到点的监控项执行探测，结果上报中心。"""
+        self.run_entry_probes()
         now = time.time()
         # Config refresh may add/remove monitors on the heartbeat thread.
         for mid, m in list(self.monitors.items()):
@@ -1784,6 +3116,10 @@ class Agent:
                 continue
             m["next_run"] = now + m["interval"]  # 先排下次，避免探测慢堆积
             success, latency, loss = self.probe(m["type"], m["target"], m["timeout"])
+            # Unknown ping source is not a remote failure or a fresh check.
+            # next_run and the independent periodic MTR were already advanced.
+            if success is None:
+                continue
             # 失败触发 MTR（防抖 10 分钟，挂了立刻有路径快照）
             if not success and now - m.get("last_fail_mtr", 0) > MTR_FAIL_DEBOUNCE:
                 m["last_fail_mtr"] = now
@@ -1798,7 +3134,7 @@ class Agent:
                 pass
 
     def probe(self, mtype: str, target: str, timeout: int):
-        """执行一次探测，返回 (success, latency_ms, loss_pct)。"""
+        """执行一次探测；ping 源不可验证时 success=None，不上报普通 check。"""
         try:
             if mtype == "tcp":
                 return self._probe_tcp(target, timeout)
@@ -1809,13 +3145,25 @@ class Agent:
             if mtype == "udp":
                 return self._probe_udp(target, timeout)
         except Exception:
-            return (False, None, None)
+            # A broken local ping source is not evidence of remote packet loss.
+            return (None, None, None) if mtype == "ping" else (False, None, None)
         return (False, None, None)
 
     @staticmethod
     def _split_host_port(target: str):
         # 输入容错：全角冒号/空白（后端已规范化，这里是存量配置的兜底）
         target = target.replace("：", ":").strip()
+        if "[" in target or "]" in target:
+            # Brackets delimit an IPv6 literal, but are not part of a socket host.
+            import ipaddress
+            match = re.fullmatch(r"\[([^\[\]]+)\]:([0-9]+)", target)
+            if not match or "%" in match[1]:
+                raise ValueError("invalid bracketed IPv6 target")
+            host, port = match[1], int(match[2])
+            ipaddress.IPv6Address(host)
+            if not 1 <= port <= 65535:
+                raise ValueError("invalid IPv6 target port")
+            return host, port
         if ":" in target:
             host, port = target.rsplit(":", 1)
             return host, int(port)
@@ -1832,6 +3180,7 @@ class Agent:
             return (False, (time.time() - start) * 1000, None)
 
     def _probe_http(self, target, timeout, scheme):
+        import urllib.error
         target = target.replace("：", ":").strip()  # 全角冒号兜底
         url = target if target.startswith("http") else f"{scheme}://{target}"
         start = time.time()
@@ -1840,45 +3189,111 @@ class Agent:
             with urllib.request.urlopen(url, timeout=timeout) as resp:
                 latency = (time.time() - start) * 1000
                 return (resp.status < 500, latency, None)
+        except urllib.error.HTTPError as exc:
+            # urlopen raises for 4xx too. A received HTTP response follows the
+            # same availability contract as the non-exception path, not 2xx-only.
+            exc.close()
+            return (exc.code < 500, (time.time() - start) * 1000, None)
         except Exception:
             return (False, (time.time() - start) * 1000, None)
 
     def _probe_ping(self, target, timeout):
-        """10 包探测：拿真实丢包率（-c 1 只有 0/100 两个值）+ 平均延迟。"""
-        n = "-n" if platform.system() == "Windows" else "-c"
+        """10 packets; None success means no trustworthy sample (never post it)."""
+        unknown = (None, None, None)
+        windows = platform.system() == "Windows"
+        cmd = (["ping", "-n", "10", "-w", str(int(timeout * 1000)), target] if windows
+               else ["ping", "-c", "10", "-W", str(timeout), target])
         try:
-            r = subprocess.run(["ping", n, "10", "-W", str(timeout), target],
-                               capture_output=True, text=True, timeout=timeout * 10 + 5)
-            out = r.stdout + r.stderr
-            loss_m = re.search(r"(\d+(?:\.\d+)?)%\s*packet\s*loss", out)
-            rtt_m = re.search(r"(?:rtt|round-trip).*?=\s*[\d.]+/([\d.]+)/", out)
-            loss = float(loss_m.group(1)) if loss_m else (0.0 if r.returncode == 0 else 100.0)
-            latency = float(rtt_m.group(1)) if rtt_m else None
-            return (r.returncode == 0 and loss < 100, latency, loss)
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return (False, None, None)
+            # POSIX ping honors LC_ALL; Windows uses its own localized output.
+            env = dict(os.environ)
+            if not windows:
+                env['LC_ALL'] = 'C'
+            r = subprocess.run(cmd, capture_output=True, text=True, env=env,
+                               timeout=timeout * 10 + 5)
+            out = r.stdout + '\n' + r.stderr
+            if windows:
+                summaries = re.findall(
+                    r'(?:Packets|数据包)\s*:\s*(?:Sent|已发送)\s*=\s*(\d+)\s*[,，]\s*'
+                    r'(?:Received|已接收)\s*=\s*(\d+)\s*[,，]\s*'
+                    r'(?:Lost|丢失)\s*=\s*(\d+)\s*\(([^%\s]+)%\s*(?:loss|丢失)\)', out)
+                rtts = re.findall(r'(?:Average|平均)\s*=\s*([^\s,，]+)\s*ms', out)
+            else:
+                summaries = re.findall(
+                    r'^\s*(\d+) packets transmitted,\s*(\d+)(?: packets)? received,\s*'
+                    r'(?:\+\d+ errors,\s*)?([^%\s]+)%\s*packet loss', out, re.M)
+                rtts = re.findall(r'(?:rtt|round-trip)[^\n]*?=\s*[^/\s]+/([^/\s]+)/', out)
+            if len(summaries) != 1 or len(rtts) > 1:
+                return unknown
+            summary = summaries[0]
+            sent, received = int(summary[0]), int(summary[1])
+            loss = float(summary[-1])
+            if (not 0 < sent <= 10 or not 0 <= received <= sent
+                    or not math.isfinite(loss) or not 0 <= loss <= 100
+                    or (received == 0) != (loss == 100)
+                    or (received == sent) != (loss == 0)
+                    or not math.isclose(loss, (sent - received) * 100 / sent, abs_tol=.5)):
+                return unknown
+            if windows and int(summary[2]) != sent - received:
+                return unknown
+            latency = float(rtts[0]) if rtts else None
+            if latency is not None and (not math.isfinite(latency) or latency < 0):
+                return unknown
+            # Exit errors or contradictory stats cannot become a remote down.
+            # Windows may count ICMP errors as received; require echo RTT for up.
+            if r.returncode == 0 and loss < 100 and latency is not None:
+                return (True, latency, loss)
+            if r.returncode == 1 and loss == 100:
+                return (False, latency, loss)
+            return unknown
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return unknown
 
     def _probe_udp(self, target, timeout):
         host, port = self._split_host_port(target)
-        start = time.time()
+        start = time.monotonic()
+        deadline = start + timeout
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(timeout)
-            s.sendto(b"\x00", (host, port))
-            try:
-                s.recvfrom(1024)
-            except socket.timeout:
-                pass  # UDP 无响应不算 down（很多服务不回包），保守判 up
-            finally:
-                s.close()
-            return (True, (time.time() - start) * 1000, None)
+            addresses = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_DGRAM)
         except OSError:
             return (False, None, None)
+        # Bound multi-A/AAAA retries; all socket I/O shares one remaining budget.
+        # System getaddrinfo itself has no portable timeout; charge its elapsed time.
+        for family, socktype, proto, _, address in addresses[:8]:
+            if time.monotonic() >= deadline:
+                break
+            if family not in (socket.AF_INET, socket.AF_INET6) or socktype != socket.SOCK_DGRAM:
+                continue
+            try:
+                s = socket.socket(family, socktype, proto)
+                try:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return (False, None, None)
+                    s.settimeout(remaining)
+                    s.sendto(b"\x00", address)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return (False, None, None)
+                    s.settimeout(remaining)
+                    try:
+                        s.recvfrom(1024)
+                    except socket.timeout:
+                        # No application reply is not evidence of availability.
+                        # Keep loss unknown: one UDP probe is not packet-loss sampling.
+                        return (False, None, None)
+                finally:
+                    s.close()
+                return (True, (time.monotonic() - start) * 1000, None)
+            except OSError:
+                continue  # Explicit local/send/receive errors may try the next address.
+        return (False, None, None)
 
     def _run_iperf(self, task):
         """执行 iperf3 打流。role=server 起 -s，role=client 起 -c（流式回传进度）。"""
         tid = task["id"]
         try:
+            if self._throughput_terminal(tid):
+                return
             if task["mode"] == "speedtest":
                 result = self._run_speedtest(task)
             elif task["role"] == "server":
@@ -1890,10 +3305,16 @@ class Agent:
                 attempt = 0
                 while (isinstance(result, dict) and result.get("error")
                        and self._is_retryable_error(result["error"]) and attempt < 2):
+                    if self._throughput_terminal(tid):
+                        return
                     attempt += 1
                     self._emit_retry_event(tid, attempt, result["error"])
                     time.sleep(2)  # 给 server 端时间从 reset 恢复回监听，再重试
+                    if self._throughput_terminal(tid):
+                        return
                     result = self._iperf_client(task)
+            if self._throughput_terminal(tid):
+                return
             if isinstance(result, dict): result["role"] = task.get("role", "client")
             if isinstance(result, dict) and result.get("error"):
                 self._post(f"/agent/iperf-tasks/{tid}/result",
@@ -1902,77 +3323,67 @@ class Agent:
                 self._post(f"/agent/iperf-tasks/{tid}/result",
                            json_body=result, token=self.token, status="done")
         except Exception as e:
+            if self._throughput_terminal(tid):
+                return
             self._post(f"/agent/iperf-tasks/{tid}/result",
                        json_body={"error": str(e), "role": task.get("role", "client")}, token=self.token, status="failed")
 
     def _iperf_server(self, task) -> dict:
-        """起 iperf3 server（-s），流式读 stdout，服务完一个 client 立即退出释放端口。
+        """Own one server child, stream receiver data, stop on task terminal/budget.
 
-        - 不用 -1（单次）：client 的 TCP 探测连接会误触 -1 退出。
-        - 不用 -J：结果前端不用，且 -J 写 stdout 没人读会塞满阻塞 server。
-        - 逐行读 stdout（不累积，避免 PIPE 满）：-s 持续模式服务完一个 client 会输出
-          汇总行（末尾 receiver/sender 标记），此时立即 terminate。否则遗留 server
-          长时间占端口（数据量模式 + 低速率跑几十秒），后续任务 client 会连到旧 server，
-          再被 _kill_stale_server 误杀 → "server has terminated"。
-        - 兜底 Timer：client 一直不来时防止 server 永久挂起。"""
-        port = task.get("port", 5201)
-        # 先清掉可能遗留的旧 iperf3 -s（上一个任务已 done，安全清理，避免端口冲突）
-        self._kill_stale_server(port)
-        # 注意：-u 是 client-only 选项，server 端不能用；iperf3 -s 监听 TCP 控制端口，
-        # client 用 -c -u 连上后 server 自动切换 UDP 数据，无需显式指定。
-        # --forceflush：让 iperf3 每秒立即 flush interval 行（否则 stdout 块缓冲，
-        # 测试结束才一次性吐出，server 端实时丢包率就变成"完成后才有"）。
-        proc = subprocess.Popen(["iperf3", "-s", "-p", str(port), "--forceflush"],
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        No port-pattern pkill: another centre may own the listener. Bind failure is
+        surfaced instead. Persistent -s survives harmless readiness TCP probes.
+        """
+        proc = subprocess.Popen(["iperf3", "-s", "-p", str(task.get("port", 5201)), "--forceflush"],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, bufsize=1)
-
-        # 检测中止：前端点中止 → terminate server 释放端口
-        threading.Thread(target=self._watch_cancel, args=(task["id"], proc), daemon=True).start()
+        budget = 3900 if task.get("bytes") else task["duration"] + task.get("omit", 0) + 360
+        threading.Thread(target=self._watch_cancel, args=(task["id"], proc, budget), daemon=True).start()
 
         def _watch():
+            diagnostic = ""
             try:
-                if proc.stdout is None:
-                    return
                 accepted = False
-                for line in proc.stdout:
-                    # 探测连接（client 的 TCP connect 探测）只会输出 "unable to receive cookie"
-                    # 并回到监听，不会输出 "Accepted connection"（那是真 client 的 iperf3 握手成功标志）。
-                    # 所以两阶段检测：先等到真 client 连上，再等到它服务完回到监听，才退出释放端口。
-                    if "Accepted connection" in line:
-                        accepted = True
-                    elif accepted and "Server listening" in line:
-                        # 服务完一个 client 回到监听。不能盲目退出：跨海 UDP 偶发「控制连接 reset」
-                        # （协商失败），client 端会重试，需要 server 还活着。所以查任务状态：
-                        # client 已回传 done/failed/cancelled 才退出，否则继续监听等重试。
-                        try:
-                            st = self._get(f"/agent/iperf-tasks/{task['id']}/status", token=self.token)
-                            if st.get("status") in ("done", "failed", "cancelled"):
-                                self._terminate_proc(proc)
+                if proc.stdout is None:
+                    diagnostic = "无法读取 iperf3 server 输出"
+                else:
+                    for line in proc.stdout:
+                        # Probe cookie errors are not real-client failures.
+                        if "error" in line.lower() and "cookie" not in line.lower():
+                            diagnostic = (diagnostic + line.strip())[-500:]
+                        if "Accepted connection" in line:
+                            accepted = True
+                        elif "Server listening" in line:
+                            accepted = False
+                            if self._throughput_terminal(task["id"]):
                                 break
-                            accepted = False  # 任务还在跑，继续监听等 client 重试
-                        except Exception:
-                            self._terminate_proc(proc)
-                            break
-                    # server 是接收端，每秒 interval 行带真实接收速率/丢包/抖动（正向时 client 是
-                    # 发送端，sender 统计可能虚高），实时回传 role=server，前端用接收端数据画吞吐。
-                    elif accepted:
-                        self._emit_server_progress(task["id"], line)
-            except Exception:
-                pass
-
+                        elif accepted:
+                            self._emit_server_progress(task["id"], line, task.get("parallel", 1))
+            except Exception as e:
+                diagnostic = str(e)[-500:]
+            finally:
+                self._terminate_proc(proc)
+                if not self._throughput_terminal(task["id"]):
+                    # Auxiliary success must not finish a task; real server failure must.
+                    try:
+                        self._post(f"/agent/iperf-tasks/{task['id']}/result", token=self.token, status="failed",
+                                   json_body={"role": "server", "error": diagnostic or "iperf3 server 已提前退出或超时"})
+                    except Exception:
+                        pass
         threading.Thread(target=_watch, daemon=True).start()
-        # 兜底：client 一直不来（领不到任务/探测失败）时，防止 server 永久占端口
-        wait = (task["duration"] + 30) if not task.get("bytes") else 180
-        threading.Timer(wait, self._terminate_proc, args=(proc,)).start()
         return {"role": "server"}
 
-    def _emit_server_progress(self, task_id: int, line: str) -> None:
+    def _emit_server_progress(self, task_id: int, line: str, parallel: int = 1) -> None:
         """server 端（接收端）每秒回传接收速率 + 真实丢包/抖动（正向 UDP 实时丢包）。
 
         server 的 receiver interval 行：`1.22 MBytes  10.2 Mbits/sec  0.023 ms  0/39 (0%)`，
         带真实 jitter + lost/total（client 端是 sender 视角，看不到丢包）。"""
         # 过滤汇总行（末尾带 receiver/sender 标记，是 0-N 秒的汇总，不是每秒 interval）
         if "receiver" in line or "sender" in line:
+            return
+        if parallel > 1 and "[SUM]" not in line:
+            return
+        if "(omitted)" in line:
             return
         # 过滤末尾不完整秒行：跨海延迟导致结束瞬间多吐一行（interval 不足 1 秒）。
         # 正向接收端是 "20.00-20.00"（起始==结束），反向发送端是 "10.00-10.05"（起始≠结束），
@@ -1989,7 +3400,7 @@ class Agent:
         jm = re.search(r'(\d+(?:\.\d+)?)\s*ms', line)
         jitter = float(jm.group(1)) if jm else None
         lm = re.search(r'(\d+)/(\d+)\s*\(', line)
-        lost = (int(lm.group(1)) / int(lm.group(2)) * 100.0) if lm else None
+        lost = (int(lm.group(1)) / int(lm.group(2)) * 100.0) if lm and int(lm.group(2)) else None
         ts = datetime.now(timezone.utc).isoformat()
         params = {"ts": ts, "bitrate": bits, "role": "server", "token": self.token}
         if lost is not None:
@@ -2001,43 +3412,41 @@ class Agent:
         except Exception:
             pass  # 进度回传失败不致命
 
-    def _kill_stale_server(self, port: int) -> None:
-        """kill 掉占用端口的遗留 iperf3 -s 进程，并等它真正退出（避免端口没释放就起新 server）。"""
+
+    def _throughput_terminal(self, task_id: int) -> bool:
         try:
-            subprocess.run(["pkill", "-f", f"iperf3 -s -p {port}"], timeout=5)
-            time.sleep(0.8)  # 等旧进程释放端口
+            return self._get(f"/agent/iperf-tasks/{task_id}/status", token=self.token).get("status") in ("done", "failed", "cancelled")
         except Exception:
-            pass
+            return False  # transient control-plane loss does not fabricate cancellation
 
     def _terminate_proc(self, proc) -> None:
-        """后台定时器回调：terminate 服务进程。"""
+        """Terminate only the owned child; kill if needed, and always reap it."""
         try:
             if proc.poll() is None:
                 proc.terminate()
-                proc.wait(timeout=5)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+        except OSError:
+            pass
 
-    def _watch_cancel(self, task_id: int, proc) -> None:
+    def _watch_cancel(self, task_id: int, proc, timeout: float = 3600) -> None:
         """后台线程：检测任务被中止（前端点中止 → status=cancelled），则 terminate iperf3 进程。
 
         iperf3 client/server 进程在跑时主线程阻塞在流式读 stdout，没法轮询任务状态，
         所以用独立线程每 2s 查一次，cancel 了就把 iperf3 杀掉，让主线程读 stdout 到 EOF 退出。"""
+        deadline = time.monotonic() + timeout
         while proc.poll() is None:
-            try:
-                t = self._get(f"/agent/iperf-tasks/{task_id}/status", token=self.token)
-                if t.get("status") == "cancelled":
-                    self._terminate_proc(proc)
-                    break
-            except Exception:
-                pass
+            if self._throughput_terminal(task_id) or time.monotonic() >= deadline:
+                self._terminate_proc(proc)
+                break
             time.sleep(2)
 
     def _iperf_client(self, task) -> dict:
         """iperf3 client（流式）：--interval 1 --forceflush 逐行读 stdout，每秒解析吞吐回传 progress，结束返回汇总。"""
+        if self._throughput_terminal(task["id"]):
+            return {"error": "测速任务已结束或已取消"}
         server = task.get("server_host")
         if not server:
             return {"error": "无 server host"}
@@ -2046,8 +3455,10 @@ class Agent:
         port = task.get("port", 5201)
         # 先等 server 的 iperf3 端口就绪（server agent 可能还在轮询领取，没起 -s）
         # server 端 iperf3 -s 监听 TCP 控制端口（UDP 模式也一样，控制连接走 TCP），探测通用
-        if not self._wait_server_ready(server, port=port):
+        if not self._wait_server_ready(server, port=port, task_id=task["id"]):
             return {"error": f"等待 server {server}:{port} 就绪超时（server 未起 iperf3）"}
+        if self._throughput_terminal(task["id"]):
+            return {"error": "测速任务已结束或已取消"}
         cmd = ["iperf3", "-c", server, "--interval", "1", "--forceflush",
                "-p", str(port), "-P", str(task["parallel"])]
         # 数据量（-n）与时长（-t）二选一：bytes 有值按数据量，否则按时长
@@ -2073,14 +3484,20 @@ class Agent:
         if task.get("zerocopy"):
             cmd.append("-Z")
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                     text=True, bufsize=1)
         except FileNotFoundError:
             return {"error": "iperf3 未安装"}
 
         # 检测中止：前端点中止 → terminate iperf3 client，读 stdout 到 EOF 退出
-        threading.Thread(target=self._watch_cancel, args=(task["id"], proc), daemon=True).start()
+        budget = 3600 if task.get("bytes") else task["duration"] + task.get("omit", 0) + 60
+        try:
+            threading.Thread(target=self._watch_cancel, args=(task["id"], proc, budget), daemon=True).start()
+            return self._iperf_client_stream(task, proc)
+        finally:
+            self._terminate_proc(proc)
 
+    def _iperf_client_stream(self, task, proc) -> dict:
         points: list = []
         if proc.stdout is None:
             return {"error": "无法读取 iperf3 输出"}
@@ -2096,6 +3513,7 @@ class Agent:
         cur_jitter_n = 0
         sender_line = ""    # 发送端汇总（TCP 重传在这）
         receiver_line = ""  # 接收端汇总（UDP 真实丢包/抖动/接收速率在这）
+        diagnostic = ""
 
         def emit(bits: float, lost_pct=None, jitter_ms=None):
             ts = datetime.now(timezone.utc).isoformat()
@@ -2115,6 +3533,10 @@ class Agent:
 
         for line in proc.stdout:
             line = line.strip()
+            if "error" in line.lower():
+                diagnostic = (diagnostic + line)[-500:]
+            if "(omitted)" in line or (task["parallel"] > 1 and "[SUM]" not in line):
+                continue
             if "sender" in line:
                 sender_line = line  # 发送端汇总（最后一条是最终 SUM）
                 continue
@@ -2156,49 +3578,25 @@ class Agent:
             jit = (cur_jitter_sum / cur_jitter_n) if cur_jitter_n else None
             emit(cur_bits, lost, jit)
 
-        proc.wait()
-        err = (proc.stderr.read() or "") if proc.stderr else ""
+        proc.wait(timeout=5)
+        err = diagnostic
         if proc.returncode != 0:
             return {"error": err[-500:] or "iperf3 连接失败"}
+        interval = re.search(r'(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*sec', receiver_line)
+        if diagnostic or not interval:
+            return {"error": diagnostic or "iperf3 未返回接收端汇总，无法确认测速结果"}
 
-        avg = sum(p["bitrate"] for p in points) / len(points) if points else 0.0
-        peak = max((p["bitrate"] for p in points), default=0.0)
-        if task.get("udp"):
-            # UDP：真实丢包/抖动/接收速率在 receiver 汇总行
-            recv = self._parse_receiver_line(receiver_line)
-            total_bytes = recv.get("total_bytes")
-            lost_pct = recv.get("lost_pct")
-            jitter_ms = recv.get("jitter_ms")
-            retransmits = None
-            if task.get("direction") == "reverse":
-                # 反向(-R)：client 是接收端，每秒 interval 行已是接收端真实速率，
-                # avg/peak 直接用 points（真实每秒），不用 receiver 汇总覆盖（否则峰值被抹平成平均）。
-                pass
-            else:
-                # 正向：client 是发送端，每秒 interval 行是发送速率（恒 -b 目标带宽，无意义），
-                # 用 receiver 汇总的接收速率覆盖 avg/peak。
-                recv_bitrate = recv.get("recv_bitrate")
-                if recv_bitrate is not None:
-                    avg = recv_bitrate
-                    peak = recv_bitrate
-        else:
-            # TCP：sender 统计可能虚高（iperf3 3.21/3.16 兼容偶发 bug，报的发送字节数远超网卡实际），
-            # 用 receiver 汇总行（接收端真实接收）代替 sender 行。
-            recv = self._parse_receiver_line(receiver_line)
-            total_bytes = recv.get("total_bytes")
-            lost_pct = None
-            jitter_ms = None
-            # 重传在 sender 行（只有发送端知道重传了多少），仍从 sender 行取
-            retransmits = self._parse_sender_line(sender_line).get("retransmits")
-            if task.get("direction") == "reverse":
-                # 反向(-R)：client 是接收端，points 已是接收端真实速率，avg/peak 用 points
-                pass
-            else:
-                # 正向：client 是发送端，points 是发送速率（可能虚高），用 receiver 汇总的接收速率覆盖
-                recv_bitrate = recv.get("recv_bitrate")
-                if recv_bitrate is not None:
-                    avg = recv_bitrate
-                    peak = recv_bitrate
+        # Final receiver summary is duration-weighted and also works for subsecond
+        # byte-limited runs with no full-second intervals. Peak is independent.
+        recv = self._parse_receiver_line(receiver_line)
+        avg = recv.get("recv_bitrate")
+        total_bytes = recv.get("total_bytes")
+        if avg is None or total_bytes is None:
+            return {"error": "iperf3 接收端汇总缺少速率或数据量"}
+        peak = max((p["bitrate"] for p in points), default=None) if task.get("direction") == "reverse" else None
+        lost_pct = recv.get("lost_pct") if task.get("udp") else None
+        jitter_ms = recv.get("jitter_ms") if task.get("udp") else None
+        retransmits = None if task.get("udp") else self._parse_sender_line(sender_line).get("retransmits")
         # 发送端平均速率（基准虚线）：sender 汇总行的 bitrate（sender 永远是发送端）
         send_avg = self._parse_sender_line(sender_line).get("bitrate")
         result = {
@@ -2210,17 +3608,12 @@ class Agent:
             "lost_pct": lost_pct,
             "jitter_ms": jitter_ms,
             "retransmits": retransmits,
-            "duration": task["duration"],
+            "duration": float(interval.group(2)) - float(interval.group(1)),
             "parallel": task["parallel"],
             "direction": task.get("direction", "forward"),
             "udp": bool(task.get("udp")),
         }
-        # 合理性校验：跨海家宽物理上不可能 > 1 Gbps，超过说明 iperf3 统计虚高
-        # （3.16/3.21 兼容偶发 bug，两端计数器都虚高，物理网卡实际只有几十 Mbps）。
-        # 标记 suspicious，前端提示数据异常，避免误把 20 Gbps 当真实带宽。
-        # 但同机 loopback（Stella→Stella）走内存回环，几十 Gbps 是真实的，不套这个阈值。
-        if not task.get("same_host") and (avg > 1e9 or peak > 1e9):
-            result["suspicious"] = True
+        # An arbitrary 1Gbps ceiling is not evidence of corrupted counters.
         return result
 
     @staticmethod
@@ -2256,27 +3649,22 @@ class Agent:
 
     @staticmethod
     def _norm_units(val, default_unit: str = "M") -> str | None:
-        """规范化速率/数据量输入：'100' → '100M'，'1G' → '1000M'，'10M' → '10M'。
+        """Bare product values default to M; retain explicit CLI suffixes.
 
-        统一成 iperf3 的 M 单位（-b 是 Mbps，-n 是 MB），让命令明确无歧义。
-        前端让用户填纯数字（速率默认 Mbps，数据量默认 MB），这里自动拼后缀。"""
+        iperf3 uses base 1000 for -b and base 1024 for -n. Converting 1G
+        to 1000M changes a byte budget, so never normalize across suffixes.
+        """
         if not val:
             return None
         val = str(val).strip().upper()
         m = re.match(r'^(\d+(?:\.\d+)?)\s*(K|M|G)?$', val)
         if not m:
             return val  # 非标准格式，原样交给 iperf3 报错
-        num = float(m.group(1))
-        unit = m.group(2) or default_unit
-        factor = {"K": 0.001, "M": 1.0, "G": 1000.0}.get(unit, 1.0)
-        result = num * factor
-        if result == int(result):
-            result = int(result)
-        return f"{result}M"
+        return m.group(1) + (m.group(2) or default_unit)
 
     @staticmethod
     def _to_bytes(val: float, unit: str) -> float:
-        return val * {"Bytes": 1.0, "KBytes": 1e3, "MBytes": 1e6, "GBytes": 1e9}.get(unit, 1.0)
+        return val * {"Bytes": 1.0, "KBytes": 1024.0, "MBytes": 1024.0**2, "GBytes": 1024.0**3}.get(unit, 1.0)
 
     @staticmethod
     def _parse_sender_line(line: str) -> dict:
@@ -2295,9 +3683,10 @@ class Agent:
             j = re.search(r'(\d+(?:\.\d+)?)\s*ms', line)
             if j:
                 r["jitter_ms"] = float(j.group(1))
-            l = re.search(r'\((\d+(?:\.\d+)?)%\)', line)
-            if l:
-                r["lost_pct"] = float(l.group(1))
+            packets = re.search(r'(\d+)\s*/\s*(\d+)\s*\(', line)
+            if packets:
+                lost, total = map(int, packets.groups())
+                r["lost_pct"] = lost / total * 100.0 if total > 0 and lost <= total else None
         else:
             # TCP：重传次数（sender 前一个字段）
             rt = re.search(r'(\d+)\s+sender', line)
@@ -2321,15 +3710,18 @@ class Agent:
             j = re.search(r'(\d+(?:\.\d+)?)\s*ms', line)
             if j:
                 r["jitter_ms"] = float(j.group(1))
-            l = re.search(r'\((\d+(?:\.\d+)?)%\)', line)
-            if l:
-                r["lost_pct"] = float(l.group(1))
+            packets = re.search(r'(\d+)\s*/\s*(\d+)\s*\(', line)
+            if packets:
+                lost, total = map(int, packets.groups())
+                r["lost_pct"] = lost / total * 100.0 if total > 0 and lost <= total else None
         return r
 
-    def _wait_server_ready(self, server: str, port: int = 5201, timeout: float = 30.0) -> bool:
+    def _wait_server_ready(self, server: str, port: int = 5201, timeout: float = 30.0, task_id: int | None = None) -> bool:
         """等 server 的 iperf3 端口就绪（TCP connect），最多 timeout 秒。server agent 可能还没起 -s。"""
-        deadline = time.time() + timeout
-        while time.time() < deadline:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if task_id is not None and self._throughput_terminal(task_id):
+                return False
             try:
                 with socket.create_connection((server, port), timeout=2):
                     return True
@@ -2342,7 +3734,7 @@ class Agent:
         try:
             self._post(f"/agent/iperf-tasks/{task_id}/progress", token=self.token,
                        ts=datetime.now(timezone.utc).isoformat(), bitrate=0,
-                       role="stage", note=note)
+                       role="client", note=note)
         except Exception:
             pass
 
@@ -2356,78 +3748,98 @@ class Agent:
         except Exception:
             return False
 
-    def _run_speedtest_once(self, exe: str, task, proxy: str | None) -> dict | None:
-        """跑一轮 speedtest；返回结果 dict，或 {"error": ...}。proxy 非 None 时走代理。"""
+    def _run_speedtest_once(self, exe: str, task, proxy: str | None) -> dict:
+        """speedtest-go JSON is final-only; drain both pipes while polling cancellation."""
         cmd = [exe, "--json"]
-        # -s 只有 speedtest-go 支持；speedtest-cli 用 --server
-        st_server = task.get("speedtest_server")
-        if st_server:
-            cmd += ["-s", str(st_server)] if "speedtest-go" in exe else ["--server", str(st_server)]
-        env = None
+        if task.get("speedtest_server"):
+            cmd += ["-s", str(task["speedtest_server"])]
         if proxy:
-            if "speedtest-go" in exe:
-                cmd += ["--proxy", proxy]
-            else:
-                # speedtest-cli 没有 --proxy，用标准环境变量
-                env = dict(os.environ, HTTPS_PROXY=proxy, HTTP_PROXY=proxy)
-        # 完整测速含 ping + 下载 + 上传 + 丢包分析，可能 ~60s，留足超时
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
-        # 阶段心跳：子进程跑期间每 15s 报一次「测速中」，前端不再黑屏干等
-        waited = 0
-        while proc.poll() is None:
-            time.sleep(5)
-            waited += 5
-            if waited % 15 == 0:
-                self._emit_stage_note(task["id"], f"测速中（ping → 下载 → 上传）… 已进行 {waited}s")
-            if waited >= 90:
-                proc.kill()
-                raise subprocess.TimeoutExpired(cmd, 90)
-        out, err_out = proc.communicate()
-        if proc.returncode == 0:
-            try:
-                return json.loads(out)
-            except json.JSONDecodeError:
-                return {"raw": out[-2000:]}
-        # 非零退出：带上 stderr 真实原因（如网络不可达），别再误报「未安装」
-        return {"error": f"speedtest 失败：{(err_out or out).strip()[-300:] or f'exit {proc.returncode}'}"}
-
-    def _run_speedtest(self, task) -> dict:
-        """公共 speedtest（用 speedtest-go 或 speedtest-cli，都没有则报错）。
-        task.speedtest_server 指定测速服务器 ID（speedtest-go 的 -s 参数），None=自动。
-        直连失败且本机有 xray 代理（127.0.0.1:1080 可达）时自动走代理重试——
-        PBR 让 agent 直连物理网卡，家宽直连 Cloudflare(speedtest.net) 会被墙。"""
-        exes = ["speedtest-go", "speedtest", "speedtest-cli"]
-        bin_st = os.path.join(self._agent_bin(), "speedtest-go")
-        if os.path.exists(bin_st):
-            exes.insert(0, bin_st)  # 优先 agent bin 里代装的
-        st_server = task.get("speedtest_server")
-        self._emit_stage_note(task["id"], "选择测速服务器…" if not st_server else f"连接指定服务器 #{st_server}…")
-        last_err = "未安装 speedtest-go / speedtest-cli"
-        proxy = "socks5://127.0.0.1:1080"
-        use_proxy = False
-        for exe in exes:
-            for attempt in range(2):  # 0=直连, 1=代理重试（仅代理可达时）
-                if attempt == 1:
-                    if not self._proxy_reachable(proxy):
-                        break
-                    use_proxy = True
-                    self._emit_stage_note(task["id"], "直连失败，切换代理通道重试…")
+            cmd += ["--proxy", proxy]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        start = time.monotonic()
+        next_note = 15
+        try:
+            while True:
+                # communicate(timeout) drains BOTH pipes, unlike poll()+sleep().
                 try:
-                    r = self._run_speedtest_once(exe, task, proxy if use_proxy else None)
-                    if r is not None and "error" not in r:
-                        if use_proxy:
-                            r["via_proxy"] = True  # 标记走的代理，结果页可区分
-                        return r
-                    last_err = (r or {}).get("error", last_err)
-                    # 直连失败才有下一轮（代理重试）；代理也失败就换下一个 exe
-                    if use_proxy:
-                        break
-                except FileNotFoundError:
+                    out, err_out = proc.communicate(timeout=1)
                     break
                 except subprocess.TimeoutExpired:
-                    last_err = "speedtest 超时（90s）"
-                    continue
-        return {"error": last_err}
+                    pass
+                if self._throughput_terminal(task["id"]):
+                    return {"error": "测速任务已结束或已取消"}
+                elapsed = time.monotonic() - start
+                if elapsed >= 90:
+                    return {"error": "speedtest 超时（90s）"}
+                if elapsed >= next_note:
+                    self._emit_stage_note(task["id"], f"测速运行中（CLI 尚未返回阶段数据），已进行 {int(elapsed)}s")
+                    next_note += 15
+            if proc.returncode != 0:
+                return {"error": f"speedtest 失败：{(err_out or out).strip()[-300:] or f'exit {proc.returncode}'}"}
+            try:
+                result = json.loads(out)
+            except (json.JSONDecodeError, ValueError):
+                return {"error": "speedtest 输出不是有效 JSON"}
+            servers = result.get("servers") if isinstance(result, dict) else None
+            if not isinstance(result, dict) or 'error' in result:
+                return {"error": (result.get('error') if isinstance(result, dict) else None) or "speedtest 返回错误结果"}
+            if not isinstance(servers, list) or not servers:
+                return {"error": "speedtest 未返回有效服务器测速结果"}
+            def valid_number(value):
+                try:
+                    return (not isinstance(value, bool) and isinstance(value, (float, int))
+                            and math.isfinite(value) and value >= 0)
+                except OverflowError:
+                    return False
+
+            def valid_duration(value):
+                if isinstance(value, dict):
+                    # Pinned Go struct: four non-omitempty *time.Duration
+                    # fields, numeric nanoseconds or null. Never flatten it.
+                    return (set(value) == {'ping', 'download', 'upload', 'total'}
+                            and all(v is None or valid_number(v) for v in value.values()))
+                # Preserve the pre-existing optional/scalar contract.
+                return value is None or valid_number(value)
+
+            if not valid_duration(result.get('test_duration')):
+                return {"error": "speedtest 未返回有效 test_duration"}
+            for server in servers:
+                if not isinstance(server, dict) or 'error' in server:
+                    return {"error": "speedtest 返回无效服务器结果"}
+                for key in ("dl_speed", "ul_speed", "latency", "jitter"):
+                    value = server.get(key)
+                    if key not in ("dl_speed", "ul_speed") and value is None:
+                        continue
+                    if not valid_number(value):
+                        return {"error": f"speedtest 未返回有效 {key}"}
+                if not valid_duration(server.get('test_duration')):
+                    return {"error": "speedtest 未返回有效 test_duration"}
+                if task.get('speedtest_server') is not None and str(server.get('id')) != str(task['speedtest_server']):
+                    return {"error": "speedtest 返回服务器与指定 ID 不一致"}
+            return result
+        finally:
+            self._terminate_proc(proc)
+
+    def _throughput_speedtest_exe(self) -> str | None:
+        """One capability, one executable preference for inventory and execution."""
+        local = os.path.join(self._agent_bin(), "speedtest-go")
+        if os.path.isfile(local) and os.access(local, os.X_OK):
+            return local
+        return shutil.which("speedtest-go")
+
+    def _run_speedtest(self, task) -> dict:
+        """Only speedtest-go has this CLI/JSON contract. Never silently change path/vendor."""
+        exe = self._throughput_speedtest_exe()
+        if not exe:
+            return {"error": "未安装 speedtest-go（其他同名测速工具不兼容此参数/结果契约）"}
+        if self._throughput_terminal(task["id"]):
+            return {"error": "测速任务已结束或已取消"}
+        server = task.get("speedtest_server")
+        self._emit_stage_note(task["id"], "选择测速服务器…" if not server else f"连接指定服务器 #{server}…")
+        try:
+            return self._run_speedtest_once(exe, task, None)
+        except OSError as e:
+            return {"error": f"无法执行 speedtest-go：{e}"}
 
     def _run_component_install(self, task):
         """代装组件：iperf3 用 sudo 包管理器；speedtest 下载 speedtest-go 单文件。"""
@@ -2750,13 +4162,13 @@ class Agent:
 
     def _run_mtr_for_monitor(self, mid: int, m: dict, trigger: str):
         """监控项的定时/失败触发 MTR：单独线程跑（10 包 ~15s，不阻塞探测循环），结果走 mtr-report。"""
-        if shutil.which("mtr") is None:
-            return  # 未装 mtr 就跳过（前端组件检测会提示可代装）
         target = f"{m['mtr_host']}:{m['mtr_port']}" if m.get("mtr_port") else m["mtr_host"]
         proto = m.get("mtr_proto", "icmp")
 
         def _job():
             try:
+                if shutil.which("mtr") is None:
+                    raise RuntimeError("未安装 MTR，请在探测节点下发 MTR 组件安装")
                 result = self._mtr_stream(target, proto)
                 self._post("/agent/mtr-report", json_body={
                     "monitor_id": mid, "trigger": trigger, "ok": True, "result_json": result},
@@ -2775,8 +4187,13 @@ class Agent:
         """执行命令，回传 stdout/stderr/exit_code。"""
         cid = task["id"]
         cmd = task["command"]
+        # Per-command instance context (no configuration writes): use the trusted
+        # __file__-relative selector shared by inventory/throughput. Never accept a
+        # task-supplied path/env or inherit a stale selector; empty means unavailable.
+        env = os.environ.copy()
+        env["STELLA_SPEEDTEST_GO"] = self._throughput_speedtest_exe() or ""
         try:
-            out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+            out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30, env=env)
             self._post(f"/agent/commands/{cid}/result",
                        json_body={"status": "done", "stdout": out.stdout[-5000:],
                                   "stderr": out.stderr[-5000:], "exit_code": out.returncode})
@@ -3227,12 +4644,23 @@ class Agent:
 
     # ── 拉配置 ──
     def refresh_config(self):
+        from contextlib import nullcontext
+        with getattr(self, '_channel_lock', nullcontext()):
+            return self._refresh_config_current()
+
+    def _refresh_config_current(self):
         """拉中心下发的配置：监控网卡 + 负责的监控项 + 版本号。"""
         try:
+            self._assert_instance_identity()
             cfg = self._get("/agent/config", token=self.token)
+            if getattr(self, '_installation', None) and cfg.get('node_id') != self._installation['node_id']:
+                raise ValueError('config binding mismatch')
             self.monitored_ifaces = cfg.get("monitored_ifaces")
             self.monitors_version = cfg.get("monitors_version", 0)
             self._apply_monitors(cfg.get("monitors", []))
+            self._entry_manifest = cfg.get("entry_monitoring") or {}
+            if hasattr(self, '_channel_lock'):
+                self._channel_apply(cfg.get('report_channel'))
         except Exception:
             pass
 
@@ -3276,6 +4704,7 @@ class Agent:
     def check_update(self):
         """Only strictly newer canonical numeric releases may replace this agent."""
         try:
+            self._assert_instance_identity()
             info = self._get("/agent/version")
             latest = info.get("version", "")
             target = self._release_version(latest)
@@ -3288,6 +4717,41 @@ class Agent:
             print(f"[update] 版本检查失败：{e!r}", file=sys.stderr)
 
     def _download_and_restart(self, info):
+        """Serialize only this instance with its installer; preserve legacy updater."""
+        binding = getattr(self, '_installation', None)
+        if binding is None:
+            return self._download_and_restart_owned(info)
+        lock = handle = None
+        try:
+            if platform.system() == 'Windows':
+                import ctypes
+                from ctypes import wintypes
+                api = ctypes.WinDLL('kernel32', use_last_error=True)
+                api.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+                api.CreateMutexW.restype = wintypes.HANDLE
+                api.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+                api.ReleaseMutex.argtypes = [wintypes.HANDLE]
+                api.CloseHandle.argtypes = [wintypes.HANDLE]
+                handle = api.CreateMutexW(None, False, 'Global\\StellaInstall-' + binding['instance_id'])
+                if not handle or api.WaitForSingleObject(handle, 0) != 0:
+                    if handle: api.CloseHandle(handle)
+                    handle = None
+                    return
+            else:
+                import fcntl
+                from pathlib import Path
+                path = Path(__file__).with_name('.update.lock')
+                lock = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return self._download_and_restart_owned(info)
+        except (OSError, ValueError):
+            return  # installer/update in flight; existing process remains intact
+        finally:
+            if lock is not None: os.close(lock)
+            if handle is not None:
+                api.ReleaseMutex(handle); api.CloseHandle(handle)
+
+    def _download_and_restart_owned(self, info):
         import ast
         me = os.path.abspath(__file__)
         try:
@@ -3312,7 +4776,7 @@ class Agent:
 
             if httpx:
                 with httpx.stream('GET', self.url + '/agent/script', headers=headers,
-                                  timeout=30, follow_redirects=False) as resp:
+                                  timeout=30, follow_redirects=False, verify=self._ssl_context, trust_env=False) as resp:
                     resp.raise_for_status()
                     if resp.status_code != 200:
                         raise ValueError('unexpected update HTTP status')
@@ -3372,7 +4836,7 @@ class Agent:
             shutil.copy2(me, backup)
             if hasattr(os, 'chown'):
                 os.chown(backup, original.st_uid, original.st_gid)
-            with open(backup, 'rb') as f:
+            with open(backup, 'r+b') as f:
                 os.fsync(f.fileno())
             # Backup reads may legitimately advance atime on relatime mounts.
             # Keep inode/ownership/mode/size and nanosecond edit timestamps pinned.
@@ -3426,6 +4890,7 @@ class Agent:
 
     # ── 主循环 ──
     def run(self, stop_event=None):
+        self._assert_instance_identity()  # no heartbeat/control before owning identity
         print(f"[stella-agent {AGENT_VERSION}] 启动，中心 {self.url}", file=sys.stderr)
         # 首次上报网卡清单（含默认出口）+ 存储视图 + 拉配置
         try:
@@ -3445,6 +4910,7 @@ class Agent:
         stop_event = stop_event or threading.Event()
         scheduler = _BackgroundScheduler(max_workers=2)
         map_scheduler = _BackgroundScheduler(max_workers=1)
+        channel_scheduler = _BackgroundScheduler(max_workers=1)
         last_map = None
         last_sys = 0
         last_refresh = 0
@@ -3456,6 +4922,8 @@ class Agent:
                     now = time.time()
 
                     map_now = time.monotonic()
+                    channel_scheduler.submit('channels', self._channel_tick)
+                    self._file_tick()  # nonblocking; all file/network work is owned child IO
                     if last_map is None or map_now - last_map >= 60:
                         if map_scheduler.submit('map', self._report_map_snapshot):
                             last_map = map_now
@@ -3494,11 +4962,17 @@ class Agent:
         finally:
             scheduler.close()
             map_scheduler.close()
+            channel_scheduler.close()
+            if hasattr(self, '_file_supervisor'):
+                self._file_supervisor.close()
             self._hardware_scheduler.close()
             self._storage_scheduler.close()
 
 
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] in ('--file-prepare', '--file-child'):
+        _file_internal_main()
+        return
     parser = argparse.ArgumentParser(description="Stella Agent")
     parser.add_argument("--url", default=os.environ.get("STELLA_URL", "http://127.0.0.1:12031"))
     parser.add_argument("--token", default=os.environ.get("STELLA_TOKEN", ""))

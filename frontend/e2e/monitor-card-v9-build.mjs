@@ -1,0 +1,1 @@
+import {build} from 'vite';import vue from '@vitejs/plugin-vue';await build({configFile:false,envDir:false,cacheDir:'.cache/v9-card',plugins:[vue()],build:{outDir:'.cache/v9-dist',assetsDir:'static',cssTarget:'chrome90'}});

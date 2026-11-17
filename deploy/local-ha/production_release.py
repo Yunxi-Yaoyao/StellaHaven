@@ -12,9 +12,13 @@ _KNOWN_HOSTS. Inventory JSON is operator-owned (NEVER generated from inspect):
 Mounts must describe the complete existing bind set, not PGDATA. The schema
 revision and resource manifest are checked only; no migration/copy is allowed.
 Actual release/dry-run also requires nodes.<node>.application_env_overrides:
-exactly STELLA_TRUSTED_ORIGINS, STELLA_MAIN_ORIGIN, STELLA_OWNER_ID (UUID),
-STELLA_COOKIE_SECURE=true, STELLA_AGENT_ROLLOUT_VERSION=0.6.9 or explicitly
-approved 0.6.10/0.6.11/0.6.12, STELLA_BACKUP_RECEIPT_DIR=/app/data/backup-receipts.
+Legacy approval contains exactly STELLA_TRUSTED_ORIGINS, STELLA_MAIN_ORIGIN,
+STELLA_OWNER_ID (UUID), STELLA_COOKIE_SECURE=true, approved
+STELLA_AGENT_ROLLOUT_VERSION, STELLA_BACKUP_RECEIPT_DIR=/app/data/backup-receipts.
+The opt-in entry/backup version contains exactly those six fields plus
+STELLA_ENTRY_REGISTRY (explicit owned HTTPS pairs) and
+STELLA_BACKUP_DIRECTORY=/var/cache/stella/backups, requiring the existing RW
+/var/cache/stella cache bind. Neither version changes compatibility approval.
 Legacy initial/rollback containers may lack these fields; candidates may not.
 Both nodes require identical application approvals. target_mounts is rejected.
 Optional previous_manifest_sha256 only permits old/rollback bundle readback;
@@ -76,7 +80,7 @@ def validate_inventory(inv):
             assert spec is not None and spec.loader is not None
             contract = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(contract)
-            contract.validate_application_env_overrides(item['application_env_overrides'])
+            contract.validate_application_env_overrides(item['application_env_overrides'], mounts=item.get('mounts', []))
         mounts = item.get('mounts', [])
         destinations = set()
         for mount in mounts:
@@ -96,7 +100,7 @@ def validate_release_approval(inv, approved_agent_version='0.6.9'):
     # agent until operators have installed/read back the root helper on ALL
     # monitored servers (not just the two HA app hosts).
     # 0.6.11/0.6.12 add read-only hardware collection, not root/docker authority.
-    require(approved_agent_version in {'0.6.9', '0.6.10', '0.6.11', '0.6.12'}, 'agent rollout approval invalid')
+    require(approved_agent_version in {'0.6.9', '0.6.10', '0.6.11', '0.6.12', '0.6.13', '0.6.14', '0.6.15'}, 'agent rollout approval invalid')
     require(all('application_env_overrides' in item for item in inv['nodes'].values()),
             'application upgrade approval required')
     for item in inv['nodes'].values():

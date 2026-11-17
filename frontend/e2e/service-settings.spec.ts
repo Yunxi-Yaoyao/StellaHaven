@@ -4,7 +4,7 @@ import {mock} from './settings-mocks';
 test('session history stays folded and pagination is visible only after expansion',async({page})=>{
  const m=await mock(page);let calls=0;
  await page.route('**/auth/sessions/history?*',route=>{calls++;return route.fulfill({json:{items:[{id:'old',device:'Old session',state:'expired',created_at:'2026-08-01T00:00:00Z',last_seen:'2026-08-01T00:00:00Z'}],total:21,page:1,page_size:20}});});
- await page.goto('/settings');await expect(page.getByText('当前会话',{exact:true})).toBeVisible();expect(calls).toBe(0);
+ await page.goto('/settings?section=authentication');await expect(page.locator('.sess-group').filter({hasText:/^当前会话$/})).toBeVisible();expect(calls).toBe(0);
  await page.locator('details summary').click();await expect(page.getByText('Old session',{exact:false})).toBeVisible();expect(calls).toBe(1);
  await expect(page.getByText('邀请新用户',{exact:true})).toHaveCount(0);expect(m.unknown).toEqual([]);
 });

@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:'review-lifecycle.spec.ts',workers:1,timeout:30000,reporter:'list',outputDir:process.env.NOTES_ARTIFACTS+'/review-traces',use:{baseURL:'http://127.0.0.1:15316',launchOptions:{executablePath:'/usr/sbin/google-chrome-stable',args:['--no-sandbox']},trace:'retain-on-failure'},webServer:{command:'node e2e/notes-preferences-server.mjs',cwd:new URL('..',import.meta.url).pathname,port:15316,reuseExistingServer:false}});

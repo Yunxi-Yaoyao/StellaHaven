@@ -1,0 +1,51 @@
+/* Settings scenes share a compact surface; business forms keep their own state. */
+.settings-layout #settings-content {
+  --settings-line: var(--control-border,var(--accent-dim));
+  --settings-muted: var(--text-lo);
+  --settings-text: var(--text-hi);
+  min-width: 0;
+  font-size: 14px;
+}
+.settings-layout #settings-content > :is(.card,.appearance-settings,.nav-settings,.node-policy,.access-settings,.security-card,.provider-card,.performance-card) {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0 0 24px;
+  margin: 0 0 24px;
+  box-shadow: none;
+  min-width: 0;
+}
+.settings-layout #settings-content > :is(.card,.security-card,.provider-card) + :is(.card,.security-card,.provider-card) {
+  padding-top: 24px;
+  border-top: 1px solid var(--settings-line);
+}
+.settings-layout #settings-content :is(h2,.sec-t) {font-size:16px;font-weight:550;line-height:1.5;margin-top:0;}
+.settings-layout #settings-content :is(h3,.f-label) {font-size:14px;font-weight:500;}
+.settings-layout #settings-content :is(p,.hint,.field-help) {line-height:1.7;}
+.settings-layout #settings-content :is(input:not([type=checkbox],[type=radio],[type=range]),select) {
+  min-height:38px;
+  box-sizing:border-box;
+  border-radius:6px;
+  font-size:14px;
+  max-width:100%;
+}
+.settings-layout #settings-content :is(input,textarea,button,a,select):focus-visible {outline:2px solid var(--accent);outline-offset:3px;}
+.settings-layout #settings-content :is(input,textarea)::placeholder {color:var(--text-lo);opacity:1;}
+.settings-layout #settings-content :is(.field-row,.actions,.form-row,.btn-row) {min-width:0;}
+.settings-layout #settings-content .card .sec-t {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.settings-layout #settings-content .hint {color:var(--text-lo);font-size:13px;}
+.settings-layout #settings-content .nav-row {gap:10px;}
+.settings-layout #settings-content .backup-center .panel {border:0;border-radius:0;background:transparent;padding:20px 0;margin:0;border-top:1px solid var(--settings-line);}
+.settings-layout #settings-content .backup-center .scope-card {background:var(--bg-panel);border-radius:8px;}
+.settings-layout #settings-content :is(.nav-settings,.backup-center,.provider-card,.access-settings,.performance-card) header {flex-wrap:wrap;}
+.settings-layout #settings-content .setting-doc-link {display:inline-flex;align-items:center;min-height:36px;color:var(--text-lo);font-size:13px;text-underline-offset:4px;}
+@media(max-width:700px){
+ .settings-layout #settings-content :is(input:not([type=checkbox],[type=radio],[type=range]),select){min-height:44px;}
+ .settings-layout #settings-content :is(.btn-row,.field-row,.form-row,.actions){flex-wrap:wrap;}
+ .settings-layout #settings-content .field-row .f-label{flex:0 0 100%;}
+ .settings-layout #settings-content > :is(.card,.appearance-settings,.nav-settings,.node-policy,.access-settings,.security-card,.provider-card,.performance-card){margin-bottom:20px;padding-bottom:20px;}
+ .settings-layout #settings-content .sess-row{align-items:flex-start;}
+ .settings-layout #settings-content .sess-content{overflow-wrap:anywhere;}
+ .settings-layout #settings-content .choices button{flex-wrap:wrap;gap:10px;}
+}
+@media(prefers-reduced-motion:reduce){.settings-layout *, .settings-layout *::before,.settings-layout *::after{transition:none!important;animation:none!important;scroll-behavior:auto!important;}}

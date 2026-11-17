@@ -1,14 +1,15 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import {
   ensureWorkspace, saveBootstrap, listDocs, searchDocs, listTrash, listRecent,
   listWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace,
-  createDoc, deleteDoc, restoreDoc, updateDoc, emptyTrash as emptyTrashApi,
+  createDoc, restoreDoc, updateDoc,
   clearAllDocs as clearAllDocsApi,
   type Doc, type Bootstrap,
 } from "../api/notes";
 import { toast } from "../composables/useToast";
 import { ApiError } from "../api/client";
+import { workspaceDeletionContext } from '../modules/notes/workspaceDeletion';
 
 // 树节点：Doc + 子节点数组（客户端从平铺列表建树，个人规模 200 篇全量构建无压力）
 export interface TreeNode extends Doc {
@@ -68,6 +69,8 @@ export function collectDescendants(roots: TreeNode[], id: string): Set<string> {
 
 export const useNotesStore = defineStore("notes", () => {
   const workspaceId = ref<string>("");
+  let workspaceEpoch = 0, workspaceDeleteBusy = false;
+  watch(workspaceId, () => ++workspaceEpoch, {flush:'sync'});
   const userId = ref<string>("");
   const workspaces = ref<{ id: string; name: string; user_id: string }[]>([]);
   const docs = ref<Doc[]>([]);
@@ -87,8 +90,9 @@ export const useNotesStore = defineStore("notes", () => {
   const docTags = ref<{ doc_id: string; tag_id: string }[]>([]);
   const filterTagId = ref<string | null>(null); // 列表按标签筛选
 
-  // 删除确认弹窗状态（有下挂时由 NotesPage 弹三选框）
-  const pendingDelete = ref<{ doc: Doc; childCount: number } | null>(null);
+  const templateRootId = ref<string | null>(null);
+  const hideProtectedId = ref<string | null>(null);
+  const pendingDelete = ref<{kind:'note'|'trash'|'empty'|'batch'; doc:Doc|null; docs?:Doc[]; childCount:number|null; count:number; workspaceId:string} | null>(null);
 
   let sessionEpoch = 0;
   function resetSession() {
@@ -96,7 +100,7 @@ export const useNotesStore = defineStore("notes", () => {
     userId.value = ''; workspaceId.value = ''; workspaces.value = [];
     allDocs.value = []; docs.value = []; trash.value = []; recent.value = []; tags.value = []; docTags.value = [];
     searchQuery.value = ''; searching.value = false; filterTagId.value = null;
-    draggingId.value = null; pendingDelete.value = null; docsCache.clear();
+    draggingId.value = null; pendingDelete.value = null; templateRootId.value = null; hideProtectedId.value = null; docsCache.clear();
   }
   async function bootstrap() {
     const epoch = sessionEpoch;
@@ -184,6 +188,55 @@ export const useNotesStore = defineStore("notes", () => {
     toast("已重命名 ✓");
   }
 
+  function workspaceDeletionAdmission(admitted: () => boolean) {
+    const epoch = sessionEpoch, navigation = workspaceEpoch;
+    const current = workspaceDeletionContext({get userId(){return userId.value;}, get workspaceId(){return workspaceId.value;}});
+    return () => epoch === sessionEpoch && navigation === workspaceEpoch && current() && admitted();
+  }
+
+  /** Reconcile without replaying DELETE; prove acknowledged IDs absent first. */
+  async function reconcileWorkspaceDeletions(deletedIds: string[], admitted: () => boolean = () => true) {
+    const valid = workspaceDeletionAdmission(admitted);
+    if (!valid()) return false;
+    try {
+      const inventory = await listWorkspaces(userId.value);
+      if (!valid() || inventory.some(w => deletedIds.includes(w.id) || w.user_id !== userId.value)) return false;
+      workspaces.value = inventory;
+      if (deletedIds.includes(workspaceId.value)) {
+        const next = inventory[0];
+        if (next) await switchWorkspace(next.id);
+        else {
+          // ensureWorkspace writes its cache internally before admission can be
+          // checked. Reuse owner creation + switchWorkspace so only this still-
+          // current operation may save a replacement bootstrap selection.
+          const replacement = await createWorkspace(userId.value, '云曦的笔记本');
+          if (!valid()) return false;
+          workspaces.value = [replacement];
+          await switchWorkspace(replacement.id);
+        }
+      }
+      return true;
+    } catch { return false; }
+  }
+
+  /** One explicit confirmation admits one sequential pass; never retry a DELETE. */
+  async function deleteWorkspaceBatch(ids: string[], admitted: () => boolean = () => true) {
+    const valid = workspaceDeletionAdmission(admitted);
+    const results: {id:string; status:'deleted'|'failed'|'unknown'|'skipped'}[] = [];
+    if (workspaceDeleteBusy) return {results:[...new Set(ids)].map(id => ({id,status:'skipped' as const})), refreshFailed:false};
+    workspaceDeleteBusy = true;
+    try {
+      for (const id of new Set(ids)) {
+        if (!valid() || !workspaces.value.some(w => w.id === id && w.user_id === userId.value)) { results.push({id,status:'skipped'}); continue; }
+        try { await deleteWorkspace(id, true, valid); results.push({id, status:'deleted'}); }
+        catch (error) { results.push({id, status:error instanceof ApiError && error.status < 500 ? 'failed' : 'unknown'}); }
+      }
+      if (!valid()) return {results, refreshFailed:false};
+      const verified = await reconcileWorkspaceDeletions(results.filter(r=>r.status==='deleted').map(r=>r.id),valid);
+      return {results, refreshFailed:!verified};
+    } finally { workspaceDeleteBusy = false; }
+  }
+
   /** 删除当前工作区：返回结果码让 UI 决定弹什么（deleted / not_empty / has_trash） */
   async function deleteCurrentWorkspace(force = false): Promise<string> {
     try {
@@ -206,7 +259,7 @@ export const useNotesStore = defineStore("notes", () => {
     return "deleted";
   }
 
-  let listSequence = 0;
+  let listSequence = 0, trashSequence = 0;
   async function refreshList() {
     const sequence = ++listSequence;
     if (!workspaceId.value) return;
@@ -225,9 +278,18 @@ export const useNotesStore = defineStore("notes", () => {
 
   async function refreshTrash() {
     if (!workspaceId.value) return;
-    const epoch = sessionEpoch, ws = workspaceId.value;
+    const epoch = sessionEpoch, ws = workspaceId.value, sequence = ++trashSequence;
     const result = await listTrash(workspaceId.value);
-    if (epoch === sessionEpoch && ws === workspaceId.value) trash.value = result;
+    if (sequence === trashSequence && epoch === sessionEpoch && ws === workspaceId.value) trash.value = result;
+  }
+
+  function acceptDeletionReadback(ws: string, inventory: Doc[], deletedDocs: Doc[]) {
+    if (ws !== workspaceId.value) return;
+    ++listSequence; ++trashSequence;
+    allDocs.value = inventory; trash.value = deletedDocs;
+    const ids = new Set(inventory.map(d=>d.id));
+    docs.value = searchQuery.value ? docs.value.filter(d=>ids.has(d.id)) : inventory;
+    docsCache.clear(); cacheDocs(inventory);
   }
 
   async function refreshRecent() {
@@ -253,20 +315,24 @@ export const useNotesStore = defineStore("notes", () => {
     return doc;
   }
 
-  /** 点删除：有下挂 → 弹三选框；没有 → 直接删 */
+  /** All note deletion entry points are mediated by DeleteNoteDialog. */
   function requestDelete(doc: Doc) {
-    const n = childCount(doc.id);
-    if (n > 0) {
-      pendingDelete.value = { doc, childCount: n };
-    } else {
-      doDelete(doc.id, true);
-    }
+    if (doc.id === templateRootId.value) { hideProtectedId.value = doc.id; return; }
+    if (!pendingDelete.value) pendingDelete.value = {kind:'note',doc,childCount:null,count:1,workspaceId:workspaceId.value};
   }
 
-  async function doDelete(id: string, cascade: boolean) {
-    pendingDelete.value = null;
-    await deleteDoc(id, cascade);
-    await Promise.all([refreshList(), refreshTrash()]);
+  function requestDeleteBatch(selected: Doc[]) {
+    if (pendingDelete.value) return;
+    const unique = [...new Map(selected.filter(d => d.workspace_id === workspaceId.value && d.id !== templateRootId.value && allDocs.value.some(row => row.id === d.id)).map(d => [d.id, {...d}])).values()];
+    if (unique.length) pendingDelete.value = {kind:'batch',doc:null,docs:unique,childCount:null,count:unique.length,workspaceId:workspaceId.value};
+  }
+
+  // Descendant counts come only from the complete server delete preview.
+  function requestPurge(doc: Doc) {
+    if (!pendingDelete.value) pendingDelete.value = {kind:'trash',doc,childCount:null,count:1,workspaceId:workspaceId.value};
+  }
+  function requestEmptyTrash() {
+    if (!pendingDelete.value && trash.value.length) pendingDelete.value = {kind:'empty',doc:null,childCount:0,count:trash.value.length,workspaceId:workspaceId.value};
   }
 
   async function restore(id: string, cascade: boolean) {
@@ -276,17 +342,6 @@ export const useNotesStore = defineStore("notes", () => {
     else if (r.restored > 1) toast(`已还原 ${r.restored} 篇（含下挂）`);
   }
 
-  async function purge(id: string) {
-    await deleteDoc(id); // 回收站里的再删 = 物理删除
-    await refreshTrash();
-  }
-
-  /** 一键清空回收站，返回清了几篇 */
-  async function emptyAllTrash(): Promise<number> {
-    const r = await emptyTrashApi(workspaceId.value);
-    await refreshTrash();
-    return r.purged;
-  }
 
   /** 清空笔记：全部移入回收站（可还原），返回篇数 */
   async function clearAll(): Promise<number> {
@@ -303,7 +358,7 @@ export const useNotesStore = defineStore("notes", () => {
       toast("已移动 ✓");
       return true;
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) toast("不能移动到它自己或它的子页面下面");
+      if (e instanceof ApiError && e.status === 409) toast(typeof e.detail === "string" ? e.detail : "移动未完成，请刷新目录核对目标与版本喵~");
       return false;
     }
   }
@@ -311,9 +366,10 @@ export const useNotesStore = defineStore("notes", () => {
   return {
     workspaceId, userId, workspaces, docs, allDocs, trash, recent, searchQuery, searching, pendingDelete,
     tags, docTags, filterTagId, draggingId,
-    resetSession, bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces, refreshTags,
+    templateRootId, hideProtectedId,
+    acceptDeletionReadback, resetSession, bootstrap, refreshList, refreshTrash, refreshRecent, refreshWorkspaces, refreshTags,
     tagsOf, tagDoc, untagDoc, pathOf,
-    switchWorkspace, addWorkspace, renameCurrentWorkspace, deleteCurrentWorkspace,
-    childCount, createNew, requestDelete, doDelete, restore, purge, emptyAllTrash, clearAll, moveTo,
+    switchWorkspace, addWorkspace, renameCurrentWorkspace, deleteCurrentWorkspace, deleteWorkspaceBatch, reconcileWorkspaceDeletions,
+    childCount, createNew, requestDelete, requestDeleteBatch, requestPurge, requestEmptyTrash, restore, clearAll, moveTo,
   };
 });

@@ -1,0 +1,41 @@
+import {createApp,nextTick,h,type App} from 'vue';
+import {createRouter,createMemoryHistory,RouterView} from 'vue-router';
+import {it,expect,vi,afterEach} from 'vitest';
+vi.mock('./NavigationSettings.vue',()=>({default:{template:'<div data-navigation />'}}));
+vi.mock('./AppearanceSettings.vue',()=>({default:{template:'<div data-appearance />'}}));
+vi.mock('./SecuritySettings.vue',()=>({default:{template:'<div data-security />'}}));
+vi.mock('./AuthProviderSettings.vue',()=>({default:{template:'<div data-providers />'}}));
+vi.mock('./BackupCenter.vue',()=>({default:{template:'<div data-backups />'}}));
+vi.mock('./AccessEntrySettings.vue',()=>({default:{template:'<div data-access />'}}));
+vi.mock('./NodeMonitoringPolicySettings.vue',()=>({default:{template:'<div data-servers />'}}));
+vi.mock('./PerformanceSettings.vue',()=>({default:{template:'<div data-performance />'}}));
+vi.mock('../../shell/SettingsPanel.vue',()=>({default:{template:'<div />'}}));
+vi.mock('../home/auth',async()=>{const {reactive,ref}=await import('vue');return {auth:reactive({me:{id:'owner',display_name:'云曦',username:'owner',email:'',avatar_url:''},sessionGeneration:0,requestEpoch:0,suspended:false,sessionClosing:false}),isAdmin:ref(false),currentAvatar:ref(''),logout:vi.fn()};});
+vi.mock('../../api/servers',()=>({getPublicHost:vi.fn().mockResolvedValue({value:''}),setPublicHost:vi.fn()}));
+import SettingsPage from './SettingsPage.vue';
+let app:App|undefined;
+const flush=async()=>{await new Promise(r=>setTimeout(r,0));await nextTick();};
+afterEach(()=>{app?.unmount();document.body.innerHTML='';vi.unstubAllGlobals();});
+it('groups all real sections in one scene and uses the shared dropdown instead of native select',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>[]})));
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/settings',component:SettingsPage},{path:'/notes',component:{template:'<div />'}}]});await router.push('/settings?section=profile');await router.isReady();
+ const root=document.createElement('div');document.body.append(root);app=createApp(SettingsPage).use(router);app.mount(root);await flush();
+ expect([...root.querySelectorAll('nav[aria-label="设置分组"] h2')].map(e=>e.textContent)).toEqual(['个人','站点','维护']);
+ expect(root.querySelector('a[href="/settings?section=access"]')).toBeNull();
+ expect(root.querySelector('select')).toBeNull();expect(root.querySelector('.settings-mobile-nav .dd')).not.toBeNull();
+ for(const [key,marker] of [['appearance','appearance'],['navigation','navigation'],['access','access'],['services','access'],['authentication','providers'],['backups','backups'],['performance','performance']]){await router.replace('/settings?section='+key);await flush();expect(root.querySelector('[data-'+marker+']'),key).not.toBeNull();}
+ expect(root.querySelector('a[href="/settings?section=servers"]')).toBeNull();expect(root.querySelector('[data-servers]')).toBeNull();
+ await router.replace('/settings?tab=admin');await flush();expect(root.textContent).toContain('Stella 邮箱服务');
+ await router.replace('/settings?tab=misc');await flush();expect(root.querySelector('[data-performance]')).not.toBeNull();
+ await router.replace('/settings?section=notes');await flush();expect(router.currentRoute.value.fullPath).toBe('/notes?settings=open');
+});
+it.each(['#profile-name','#profile-username'].flatMap(selector=>['/settings?section=appearance','/settings?section=servers','/settings?tab=servers'].map(destination=>({selector,destination}))))('keeps unsaved real profile $selector behind the guard for $destination',async({selector,destination})=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>[]})));
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/settings',component:SettingsPage},{path:'/notes',component:{template:'<div />'}}]});await router.push('/settings?section=profile');await router.isReady();
+ const root=document.createElement('div');document.body.append(root);app=createApp({render:()=>h(RouterView)}).use(router);app.mount(root);await flush();
+ root.querySelector<HTMLButtonElement>(selector==='#profile-name'?'[aria-label=编辑昵称]':'[aria-label=编辑用户名]')!.click();await flush();const input=root.querySelector<HTMLInputElement>(selector)!;input.value='未保存的名称';input.dispatchEvent(new Event('input',{bubbles:true}));await flush();input.focus();
+ let nav=router.replace(destination);await flush();
+ const dialog=document.querySelector('[role=alertdialog]')!;expect(dialog).not.toBeNull();expect(document.activeElement?.textContent).toBe('继续编辑');
+ (dialog.querySelector('button') as HTMLButtonElement).click();await nav;await flush();expect(input.value).toBe('未保存的名称');expect(router.currentRoute.value.query.section).toBe('profile');expect(document.activeElement).toBe(input);
+ nav=router.replace('/notes');await flush();(document.querySelector('[role=alertdialog] button:last-child') as HTMLButtonElement).click();await nav;await flush();expect(router.currentRoute.value.path).toBe('/notes');
+});

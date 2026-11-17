@@ -1,0 +1,42 @@
+[
+  {
+    "file": "app/api_response_contracts.py",
+    "sha256": "a9afff1f9ceaeef98a45da9a689fa4b79063bda1238c4238da233acf0d3b1363",
+    "commit": "726f88cc61c0a8dbe3ee65dddae1fb176bcd84d7",
+    "git_blob": "7957f43a38b8c0b4bca70dd1c89f7101f2f95cde",
+    "fixture": "a9afff1f9ceaeef98a45da9a689fa4b79063bda1238c4238da233acf0d3b1363.gz",
+    "size": 58787
+  },
+  {
+    "file": "app/api_response_contracts.py",
+    "sha256": "8e40b54210dca347abd9dd119428426d75562d0efe28c5f04af9a033b003489b",
+    "commit": "367e6a1912a1d8ce12c99d2e5e97eebb012c8304",
+    "git_blob": "2b8919c55231293abd648fa8698db631a593480d",
+    "fixture": "8e40b54210dca347abd9dd119428426d75562d0efe28c5f04af9a033b003489b.gz",
+    "size": 60450
+  },
+  {
+    "file": "app/openapi_contract.py",
+    "sha256": "39306f64033d01eb820da1a9d3be1e0ee77ae9d5aceb80de39372dac26b971b9",
+    "commit": "42495ded30272880b16988b5ac8db254dcc22e78",
+    "git_blob": "019117a3d6936829f8bb5983df3d0f52b744992c",
+    "fixture": "39306f64033d01eb820da1a9d3be1e0ee77ae9d5aceb80de39372dac26b971b9.gz",
+    "size": 17243
+  },
+  {
+    "file": "app/routers/auth.py",
+    "sha256": "b31ea8d1c47e1fe0ecd85c234841a34ee11b14aad12591a3d72d5c1ea60f0ffb",
+    "commit": "42495ded30272880b16988b5ac8db254dcc22e78",
+    "git_blob": "3e50a45f1e3b950cde045dd79f59247be9d68c8d",
+    "fixture": "b31ea8d1c47e1fe0ecd85c234841a34ee11b14aad12591a3d72d5c1ea60f0ffb.gz",
+    "size": 36569
+  },
+  {
+    "file": "app/services/admin_security.py",
+    "sha256": "a1a4bcd4fa5e29f12ceb653b6a2c54fd2f444398ec8dd75f6211a8721fc1043b",
+    "commit": "42495ded30272880b16988b5ac8db254dcc22e78",
+    "git_blob": "83cc5d592c9a1238d0ad5334e6a1c942bafc6c3a",
+    "fixture": "a1a4bcd4fa5e29f12ceb653b6a2c54fd2f444398ec8dd75f6211a8721fc1043b.gz",
+    "size": 5602
+  }
+]

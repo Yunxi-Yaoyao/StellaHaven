@@ -9,7 +9,7 @@ export const bgManagerOpen = ref(false);
 
 export const DEFAULT_HOME_BG = "/assets/homebg/default-bg-kimono-1920.webp";
 
-/** 站点背景（管理员设置，未登录访客看到这个；登录后各用各的 localStorage 背景） */
+/** 站点背景（管理员设置）；有效账号背景由 auth.displayBg 按账号→站点→默认解析。 */
 export const siteBackground = ref("");
 
 /** 粒子氛围：星空点点（夜色）/ 浮尘微粒（白日）/ 樱花飘落 / off=关闭 */
@@ -37,7 +37,7 @@ function loadParticles(): Particles {
 }
 
 export const homeSettings = reactive<HomeSettings>({
-  theme: localStorage.getItem("stella_home_theme") || "daybreak",
+  theme: ['daybreak', 'nightfall', 'classic'].includes(localStorage.getItem('stella_home_theme') || '') ? localStorage.getItem('stella_home_theme')! : 'daybreak',
   particles: loadParticles(),
   bgImage: migrateBg(localStorage.getItem("stella_home_bg")),
   bgCrop: loadCrop(),
@@ -62,12 +62,27 @@ function loadCrop(): BgCrop {
   return { cx: 0.5, cy: 0.5, w: 1, h: 1 };
 }
 
-watch(() => homeSettings.theme, (v) => localStorage.setItem("stella_home_theme", v));
-watch(() => homeSettings.particles, (v) => localStorage.setItem("stella_home_particles", v));
-watch(() => homeSettings.bgImage, (v) => localStorage.setItem("stella_home_bg", v));
-watch(() => homeSettings.bgCrop, (v) => localStorage.setItem("stella_home_bgcrop", JSON.stringify(v)), { deep: true });
-watch(() => homeSettings.siteTitle, (v) => localStorage.setItem("stella_site_title", v));
-watch(() => homeSettings.signature, (v) => localStorage.setItem("stella_signature", v));
-watch(() => homeSettings.meetDate, (v) => localStorage.setItem("stella_meet_date", v));
-watch(() => homeSettings.live2d, (v) => localStorage.setItem("stella_live2d", v ? "on" : "off"));
-watch(() => homeSettings.avatar, (v) => localStorage.setItem("stella_avatar", v));
+// Failed fields stay in memory and remain visible until their own write/readback succeeds.
+export const homeSaveErrors = reactive<Record<string, string>>({});
+export const homeSaved = ref(false);
+const localFields = [
+  ['theme', 'stella_home_theme', '主题'], ['particles', 'stella_home_particles', '氛围粒子'],
+  ['bgImage', 'stella_home_bg', '背景'], ['bgCrop', 'stella_home_bgcrop', '背景取景'],
+  ['siteTitle', 'stella_site_title', '大标题'], ['signature', 'stella_signature', '签名'],
+  ['meetDate', 'stella_meet_date', '相识起点'], ['live2d', 'stella_live2d', '挂件'],
+  ['avatar', 'stella_avatar', '头像'],
+] as const;
+function persistHomeField([field,key,label]: typeof localFields[number]) {
+  const value = field === 'bgCrop' ? JSON.stringify(homeSettings[field]) : field === 'live2d' ? (homeSettings[field] ? 'on' : 'off') : String(homeSettings[field]);
+  try {
+    localStorage.setItem(key, value);
+    if (localStorage.getItem(key) !== value) throw new Error('readback mismatch');
+    delete homeSaveErrors[field]; homeSaved.value = true;
+  } catch {
+    homeSaveErrors[field] = `${label}未保存到当前设备，输入已保留。请检查浏览器存储后重试。`;
+  }
+}
+export function retryHomeSave() {
+  for (const entry of localFields) if (homeSaveErrors[entry[0]]) persistHomeField(entry);
+}
+for (const entry of localFields) watch(() => homeSettings[entry[0]], () => persistHomeField(entry), {deep:true});

@@ -198,7 +198,8 @@ def test_regular_report_exposes_storage_failure_by_next_heartbeat():
         obj.report([], [])
     assert bodies[-1]['os_info']['storage_status']['state'] == 'query_failed'
     assert bodies[-1]['os_info']['storage_status']['sampled_at'] is None
-    assert all(body['storage'] is sample for body in bodies)
+    assert all(body['storage'] == sample for body in bodies)
+    assert all(body['storage'] is not sample for body in bodies)  # immutable queued snapshots
 
 
 def test_gpu_presence_without_tool_distinguishes_unknown_none_and_inventory():

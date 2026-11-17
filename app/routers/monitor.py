@@ -8,19 +8,24 @@ from app.security import agent_token
 from app.database import get_db
 from app.models.user import User
 from app.routers.auth import current_user, admin_user
-from app.services import server_map
+from app.services import server_map, entry_monitoring
+from app.schemas.control_channel import EntryDefinition
+from app.schemas.channel import ChannelRead, ChannelWrite, ChannelProbe, ChannelReportAck
+from app.services import agent_channels
 from app.services.server_map import MapLocationUpdate
 from app.schemas.monitor import (
     NodeCreate, NodeRead, NodeDetail, NodeUpdate, NetTypeUpdate, IpChangeCreate, NetTaskRead, DockerCtlCreate, DockerContainerAction, MetricPoint, SysMetricPoint,
     AgentReport, AgentConfig, MonitorForAgent,
     MonitorCreate, MonitorUpdate, MonitorRead, MonitorCheckRead, MonitorCheckReport, MonitorCheckPoint,
-    MtrReport, MtrTaskRead,
+    MtrReport, MtrTaskRead, MonitorGroupWrite, MonitorGroupRead,
 )
 from app.services import node as node_svc
 from app.services import monitor as monitor_svc
 from app.services import host as host_svc
 from app.services import task as task_svc
 from app.repositories import config as config_repo
+from app.services import node_monitor_policy as policy_svc
+from app.schemas.node_monitor_policy import NodeMonitoringPolicyWrite, NodeMonitoringPolicyRead, NodeMonitoringPause
 
 # 节点管理走登录鉴权
 node_router = APIRouter(dependencies=[Depends(current_user)], prefix="/nodes", tags=["nodes"])
@@ -36,27 +41,47 @@ def create_node(data: NodeCreate, user: User = Depends(admin_user), db: Session 
     return node_svc.create_node(db, data.name, data.platform, data.host)
 
 
+@node_router.get('/entry-monitoring', response_model=list[EntryDefinition])
+def entry_monitoring_summary(user: User = Depends(current_user)):
+    return entry_monitoring.manifest()['entries']
+
+
+@node_router.get('/monitoring-policy', response_model=NodeMonitoringPolicyRead)
+def read_node_monitoring_policy(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return policy_svc.read(db)
+
+
+@node_router.get('/report-channels', response_model=ChannelRead)
+def read_report_channels(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return agent_channels.read(db)
+
+
+@node_router.put('/report-channels', response_model=ChannelRead)
+def write_report_channels(data: ChannelWrite, user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return agent_channels.update(db, data.model_dump())
+
+
+@node_router.put('/monitoring-policy', response_model=NodeMonitoringPolicyRead)
+def write_node_monitoring_policy(data: NodeMonitoringPolicyWrite, user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return policy_svc.update(db, data.model_dump())
+
+
+@node_router.patch('/monitoring-policy/targets/{target_node_id}', response_model=NodeMonitoringPolicyRead)
+def pause_node_monitoring(target_node_id: int, data: NodeMonitoringPause,
+                          user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return policy_svc.suppress(db, target_node_id, data.suppressed)
+
+
 @node_router.post('/{node_id}/install-command')
 def install_command(node_id: int, request: Request, user: User = Depends(admin_user), db: Session = Depends(get_db)):
     """Explicit, no-store credential retrieval; never piggyback on node lists."""
     import shlex
     from fastapi.responses import JSONResponse
     from app.repositories import node as node_repo
-    from app.services.request_security import canonical_origin, trusted_origins
-    from urllib.parse import urlsplit
     node = node_repo.get_by_id(db, node_id)
     if node is None or node.status == 'removed' or not node.token:
         raise HTTPException(404, '节点不存在或凭证已移除')
-    configured = config_repo.get(db, 'public_host', '') or ''
-    if configured:
-        url = canonical_origin(configured if '://' in configured else 'https://' + configured)
-        if url not in trusted_origins():
-            raise HTTPException(400, '安装地址必须为已批准的主站origin')
-    else:
-        matches = [o for o in trusted_origins() if urlsplit(o).netloc == request.headers.get('host', '').lower()]
-        if len(matches) != 1:
-            raise HTTPException(503, '请配置唯一可信安装地址')
-        url = matches[0]
+    url = node_svc.installation_url(db)
     if node.platform == 'windows':
         quote = lambda s: "'" + s.replace("'", "''") + "'"
         command = ('& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing -Uri ' +
@@ -64,6 +89,12 @@ def install_command(node_id: int, request: Request, user: User = Depends(admin_u
     else:
         command = ('curl -fsSL ' + shlex.quote(url + '/agent/install.sh') +
                    ' | sudo bash -s -- --url ' + shlex.quote(url) + ' --token ' + shlex.quote(node.token))
+    role = node_svc.get_host_node(db)
+    if role is not None and role.id == node.id:
+        # Same explicit center-scoped slot as automatic host installation. Other
+        # inventory nodes retain their original default/explicit-slot contract.
+        command += (' -Instance ' + quote(host_svc.HOST_INSTANCE) if node.platform == 'windows'
+                    else ' --instance ' + shlex.quote(host_svc.HOST_INSTANCE))
     return JSONResponse({'url': url, 'token': node.token, 'command': command},
                         headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
 
@@ -89,15 +120,28 @@ def get_host(user: User = Depends(current_user), db: Session = Depends(get_db)):
     """本机：OS 用节点存的 platform（探一次存），agent 运行状态动态查。"""
     node = node_svc.get_host_node(db)
     local_install = host_svc.supports_local_install()
-    installed = bool(node.installed) if node else (host_svc.is_agent_installed() if local_install else False)
+    installed = bool(node.installed) if node else False
+    try:
+        install_url, address_error = node_svc.installation_url(db), None
+    except HTTPException as exc:
+        install_url, address_error = None, str(exc.detail)
     return {
+        "installation_url": install_url,
+        "installation_address_error": address_error,
         # OS 显示名：优先 agent 采集的发行版友好名，退化为 platform/本机探测
-        "os": (node.os_name if node and node.os_name else (node.platform if node else host_svc.detect_os())),
+        "os": (node.os_name or node.platform) if node else (host_svc.detect_os() if local_install else ""),
         "installed": installed,
         "local_install_supported": local_install,
         "node_id": node.id if node else None,
-        "node_status": node.status if node else None,
+        "node_status": node_svc.node_status(node) if node else None,
+        "installation": node_svc.host_installation(db),
     }
+
+
+@node_router.post('/host/prepare', response_model=NodeRead, status_code=201, response_model_exclude={'token'})
+def prepare_host(user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    """Explicit real-host role for container/manual access; no service discovery."""
+    return node_svc.ensure_host_node(db)
 
 
 @node_router.post("/host/install", response_model=NodeRead, status_code=201, response_model_exclude={"token"})
@@ -105,7 +149,12 @@ def install_host(user: User = Depends(admin_user), db: Session = Depends(get_db)
     """仅裸机运行时提供本机安装，容器不能安装宿主 agent。"""
     if not host_svc.supports_local_install():
         raise HTTPException(409, "Stella 运行在容器内，请在目标服务器执行节点安装命令")
-    return node_svc.install_host_node(db)
+    # The instance installer authenticates center+node ownership before touching
+    # scoped paths. A legacy/foreign process is not a reason to block this center.
+    try:
+        return node_svc.install_host_node(db)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
 
 
 @node_router.post("/{node_id}/uninstall", response_model=NodeRead, response_model_exclude={"token"})
@@ -168,7 +217,7 @@ def update_net_type(node_id: int, data: NetTypeUpdate,
         raise HTTPException(404, "节点不存在")
 
 
-@node_router.post("/{node_id}/ip-change", status_code=201)
+@node_router.post("/{node_id}/ip-change", response_model=NetTaskRead, status_code=201)
 def change_ip(node_id: int, data: IpChangeCreate,
               user: User = Depends(admin_user), db: Session = Depends(get_db)):
     """下发改 IP 任务（高危：agent 本地执行临时改 → ping 测试 → 通写持久化 / 不通回退）。"""
@@ -265,10 +314,16 @@ def read_node(node_id: int, user: User = Depends(current_user), db: Session = De
 agent_router = APIRouter(prefix="/agent", tags=["agent"])
 
 
-@agent_router.post("/report")
-def agent_report(token: Annotated[str, Depends(agent_token)], report: AgentReport, db: Session = Depends(get_db)):
+@agent_router.post("/report", response_model=ChannelReportAck)
+def agent_report(request: Request, token: Annotated[str, Depends(agent_token)], report: AgentReport, db: Session = Depends(get_db)):
     """agent 上报流量/系统指标。token 在 query 里。幂等：重复补传自动丢弃。"""
     try:
+        if report.channel_receipt is not None:
+            from app.repositories import node as node_repo
+            authenticated = node_repo.get_by_token(db, token)
+            if authenticated is None or authenticated.status == 'removed':
+                raise ValueError('invalid token')
+            agent_channels.receipt(db, authenticated, report.channel_receipt, str(request.base_url).rstrip('/'))
         node = node_svc.handle_report(db, token, report)
     except ValueError:
         raise HTTPException(401, "无效的 agent token")
@@ -277,10 +332,11 @@ def agent_report(token: Annotated[str, Depends(agent_token)], report: AgentRepor
         "node_id": node.id,
         "status": node.status,
         "monitors_version": config_repo.get_monitors_version(db),
+        "channel_revision": agent_channels.assignment(agent_channels._load(db), node.id)['revision'],
     }
 
 
-@agent_router.get("/config", response_model=AgentConfig)
+@agent_router.get("/config", response_model=AgentConfig, response_model_exclude_none=True)
 def agent_config(token: Annotated[str, Depends(agent_token)], db: Session = Depends(get_db)):
     """agent 拉配置：监控网卡 + 负责的监控项 + 配置版本号。"""
     try:
@@ -293,13 +349,28 @@ def agent_config(token: Annotated[str, Depends(agent_token)], db: Session = Depe
         monitored_ifaces=node.monitored_ifaces,
         monitors_version=config_repo.get_monitors_version(db),
         monitors=[_monitor_for_agent(m) for m in monitors],
+        entry_monitoring=entry_monitoring.manifest(node, db=db),
+        report_channel=agent_channels.optional_config(db, node),
     )
+
+
+@agent_router.get('/entry-probe', response_model=ChannelProbe)
+def agent_entry_probe(request: Request, token: Annotated[str, Depends(agent_token)], db: Session = Depends(get_db)):
+    # Normal node Bearer, read-only, no tasks/heartbeat/duplicate metric writes.
+    from app.repositories import node as node_repo
+    node = node_repo.get_by_token(db, token)
+    if node is None or node.status == 'removed':
+        raise HTTPException(401, '无效的 agent token')
+    from fastapi.responses import JSONResponse
+    return JSONResponse(agent_channels.probe(node, str(request.base_url).rstrip('/')),
+                        headers={'Cache-Control':'no-store'})
 
 
 def _monitor_for_agent(m) -> MonitorForAgent:
     """ORM → 下发模型，附带预计算的 MTR 规格（agent 不做协议映射，只执行）。"""
+    from app.monitor_targets import parse_stored_target
     host, proto, port = monitor_svc.mtr_spec(m.type, m.target)
-    return MonitorForAgent(id=m.id, type=m.type, target=m.target, interval=m.interval,
+    return MonitorForAgent(id=m.id, type=m.type, target=parse_stored_target(m.type, m.target).value, interval=m.interval,
                            timeout=m.timeout, mtr_host=host, mtr_proto=proto, mtr_port=port)
 
 
@@ -359,13 +430,84 @@ def agent_version():
     available = m.group(1) if m else "0.0.0"
     import os
     rollout = os.getenv('STELLA_AGENT_ROLLOUT_VERSION', available)
-    if rollout not in {'0.6.9', '0.6.10', '0.6.11', available}:
+    if (rollout not in {'0.6.9', '0.6.10', '0.6.11', '0.6.15', '0.6.16', '0.6.17', '0.6.18', '0.6.19', '0.6.20', available}
+            or not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', available)
+            or tuple(map(int, rollout.split('.'))) > tuple(map(int, available.split('.')))):
         raise HTTPException(503, 'Agent 滚动版本配置无效')
     if rollout == available:
         import hashlib
         return {'version': rollout, 'sha256': hashlib.sha256(body).hexdigest(), 'size': len(body)}
     # The parked legacy announcement is not a manifest for the newer script.
     return {"version": rollout}
+
+
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+from app.repositories import node as identity_node_repo
+from app.services import agent_install as identity_install_svc
+
+
+class AgentIdentityRead(BaseModel):
+    """Authenticated install binding and exact source, never writable paths."""
+    model_config = ConfigDict(extra='forbid')
+    center_id: str = Field(pattern=r'^[a-f0-9]{64}$')
+    node_id: int = Field(gt=0)
+    source_version: str = Field(pattern=r'^\d+\.\d+\.\d+$')
+    source_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    source_size: int = Field(gt=0, le=8 * 1024 * 1024)
+
+
+@agent_router.get('/identity', response_model=AgentIdentityRead)
+def agent_identity(token: Annotated[str, Depends(agent_token)], db: Session = Depends(get_db)):
+    from pathlib import Path
+    import hashlib
+    import re
+    from fastapi.responses import JSONResponse
+    node = identity_node_repo.get_by_token(db, token)
+    if node is None or node.status == 'removed':
+        raise HTTPException(401, '无效的 agent token')
+    try:
+        center = identity_install_svc.installation_center_id()
+    except (RuntimeError, OSError, ValueError, KeyError, IndexError):
+        raise HTTPException(503, '中心签名身份不可用；拒绝无归属安装') from None
+    body = (Path(__file__).resolve().parents[2] / 'agent' / 'stella_agent.py').read_bytes()
+    match = re.search(rb'AGENT_VERSION\s*=\s*"([^"]+)"', body)
+    if not match:
+        raise HTTPException(503, 'Agent 源码版本无法读取')
+    result = AgentIdentityRead(center_id=center, node_id=node.id,
+        source_version=match.group(1).decode('utf-8'), source_sha256=hashlib.sha256(body).hexdigest(), source_size=len(body))
+    return JSONResponse(result.model_dump(), headers={'Cache-Control': 'no-store'})
+
+
+class AgentReleaseRead(BaseModel):
+    """Public artifact metadata, separate from the legacy updater decision."""
+    model_config = ConfigDict(extra='forbid')
+    source_version: str
+    source_sha256: str
+    source_size: int
+    announcement_version: str
+    rollout_policy: Literal['pinned', 'source']
+
+
+@agent_router.get('/release', response_model=AgentReleaseRead)
+def agent_release():
+    """Read-only source fingerprint; never an instruction to update a node."""
+    import hashlib
+    import re
+    from pathlib import Path
+    from fastapi.responses import JSONResponse
+    announcement = agent_version()
+    body = (Path(__file__).resolve().parents[2] / 'agent' / 'stella_agent.py').read_bytes()
+    match = re.search(rb'AGENT_VERSION\s*=\s*"([^"]+)"', body)
+    if not match:
+        raise HTTPException(503, 'Agent 源码版本无法读取')
+    version = match.group(1).decode('utf-8')
+    metadata = AgentReleaseRead(
+        source_version=version, source_sha256=hashlib.sha256(body).hexdigest(),
+        source_size=len(body), announcement_version=announcement['version'],
+        rollout_policy='source' if announcement['version'] == version else 'pinned',
+    )
+    return JSONResponse(metadata.model_dump(), headers={'Cache-Control': 'no-store'})
 
 
 @agent_router.get("/install.sh")
@@ -410,6 +552,100 @@ def agent_hardware_sensors_ps1():
 monitor_router = APIRouter(dependencies=[Depends(current_user)], prefix="/monitors", tags=["monitors"])
 
 
+from app.schemas.monitor import MonitorBatchCreate, MonitorBatchReceipt
+
+
+@monitor_router.get('/batches/receipts/{request_key}', response_model=MonitorBatchReceipt)
+def monitor_batch_receipt(request_key: str, request: Request, db: Session = Depends(get_db)):
+    from app.services.monitor_batches import receipt
+    result = receipt(db, request_key, request.state.auth_session.id)
+    if result is None:
+        raise HTTPException(404, '创建结果尚未确认；请勿重复创建')
+    return result
+
+
+@monitor_router.post('/batches', response_model=MonitorBatchReceipt, status_code=201)
+def create_monitor_batch(data: MonitorBatchCreate, request: Request, user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    from app.services.monitor_batches import create, BatchConflict
+    try:
+        return create(db, data, session_id=request.state.auth_session.id)
+    except BatchConflict as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@monitor_router.get('/groups', response_model=list[MonitorGroupRead])
+def list_monitor_groups(include_empty: bool = False, db: Session = Depends(get_db)):
+    from app.services.monitor_groups import list_groups
+    return list_groups(db, include_empty=include_empty)
+
+
+from app.schemas.monitor import MonitorGroupCreate, MonitorGroupReceipt, MonitorGroupDelete, MonitorGroupDeletionState, GroupStableUUID
+
+
+@monitor_router.get('/groups/{group_id}/deletion-state', response_model=MonitorGroupDeletionState)
+def monitor_group_deletion_state(group_id: int, expected_child_ids: list[int] = Query(default=[], max_length=12), expected_stable_uuid: GroupStableUUID | None = Query(default=None), db: Session = Depends(get_db)):
+    from app.services.monitor_groups import deletion_state
+    return deletion_state(db, group_id, expected_child_ids, expected_stable_uuid)
+
+
+@monitor_router.post('/groups/{group_id}/delete', status_code=204)
+def delete_monitor_group(group_id: int, data: MonitorGroupDelete, user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    from app.services.monitor_groups import delete_group, GroupScopeConflict
+    try:
+        delete_group(db, group_id, data.expected_child_ids, data.expected_stable_uuid)
+    except GroupScopeConflict as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@monitor_router.get('/groups/receipts/{request_key}', response_model=MonitorGroupReceipt)
+def monitor_group_receipt(request_key: str, request: Request, db: Session = Depends(get_db)):
+    from app.services.monitor_groups import creation_receipt
+    result = creation_receipt(db, request_key, request.state.auth_session.id)
+    if result is None:
+        raise HTTPException(404, '创建结果尚未确认；请勿重复创建')
+    return result
+
+
+@monitor_router.post('/groups', response_model=MonitorGroupRead, status_code=201)
+def create_monitor_group(data: MonitorGroupCreate, request: Request, user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    from app.services.monitor_groups import create_group
+    try:
+        return create_group(db, data, session_id=request.state.auth_session.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@monitor_router.post('/groups/{group_id}/children', response_model=MonitorRead, status_code=201)
+def create_monitor_group_child(group_id: int, data: MonitorCreate, user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    from app.services.monitor_groups import create_child
+    try:
+        return monitor_svc.present_monitor(db, create_child(db, group_id, data))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@monitor_router.put('/groups/{group_id}', response_model=MonitorGroupRead)
+def update_monitor_group(group_id: int, data: MonitorGroupWrite, user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    from app.services.monitor_groups import save_group
+    try:
+        return save_group(db, group_id, **data.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@monitor_router.delete('/groups/{group_id}', status_code=204)
+def dissolve_monitor_group(group_id: int, user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    from app.services.monitor_groups import remove_group
+    try:
+        remove_group(db, group_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @monitor_router.get("/", response_model=list[MonitorRead])
 def list_monitors(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return monitor_svc.list_monitors(db)
@@ -417,24 +653,33 @@ def list_monitors(user: User = Depends(current_user), db: Session = Depends(get_
 
 @monitor_router.post("/", response_model=MonitorRead, status_code=201)
 def create_monitor(data: MonitorCreate, user: User = Depends(admin_user), db: Session = Depends(get_db)):
-    try:
-        return monitor_svc.create_monitor(db, data.name, data.type, data.target,
-                                          data.interval, data.timeout, data.node_id)
-    except ValueError:
+    node = node_svc.get_node(db, data.node_id)
+    if node is None or node.status == "removed":
         raise HTTPException(404, "探测节点不存在")
+    try:
+        monitor = monitor_svc.create_monitor(db, data.name, data.type, data.target,
+                                             data.interval, data.timeout, data.node_id)
+        return monitor_svc.present_monitor(db, monitor)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @monitor_router.patch("/{monitor_id}", response_model=MonitorRead)
 def update_monitor(monitor_id: int, data: MonitorUpdate, user: User = Depends(admin_user), db: Session = Depends(get_db)):
     try:
-        return monitor_svc.update_monitor(db, monitor_id, data.model_dump(exclude_none=True))
+        monitor = monitor_svc.update_monitor(db, monitor_id, data.model_dump(exclude_none=True))
+        return monitor_svc.present_monitor(db, monitor)
     except ValueError as e:
-        raise HTTPException(404, str(e))
+        raise HTTPException(404 if monitor_svc.get_monitor(db, monitor_id) is None else 400, str(e))
 
 
 @monitor_router.delete("/{monitor_id}", status_code=204)
 def delete_monitor(monitor_id: int, user: User = Depends(admin_user), db: Session = Depends(get_db)):
-    monitor_svc.remove_monitor(db, monitor_id)
+    try:
+        monitor_svc.remove_monitor(db, monitor_id)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(400, str(e))
 
 
 @monitor_router.get("/{monitor_id}/mtr", response_model=list[MtrTaskRead])
@@ -453,7 +698,10 @@ def monitor_mtr_run(monitor_id: int, user: User = Depends(current_user), db: Ses
     m = monitor_svc.get_monitor(db, monitor_id)
     if m is None:
         raise HTTPException(404, "监控项不存在")
-    return task_svc.create_mtr_for_monitor(db, m)
+    try:
+        return task_svc.create_mtr_for_monitor(db, m)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @monitor_router.get("/{monitor_id}/checks", response_model=list[MonitorCheckRead])

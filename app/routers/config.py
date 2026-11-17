@@ -14,6 +14,24 @@ router = APIRouter(dependencies=[Depends(current_user)], prefix="/config", tags=
 public_router = APIRouter(prefix="/config", tags=["config"])
 
 
+from app.services import access_entries
+from fastapi import Response
+
+@router.get('/access-entries')
+def access_read(response: Response, user=Depends(admin_user), db=Depends(get_db)):
+    response.headers['Cache-Control'] = 'no-store'
+    return access_entries.summary(db,user.id)
+
+@router.post('/access-entries/check')
+def access_check(data: access_entries.Settings, response: Response, user=Depends(admin_user), db=Depends(get_db)):
+    response.headers['Cache-Control'] = 'no-store'
+    return access_entries.check(db,data,user.id)
+
+@router.put('/access-entries')
+def access_apply(data: access_entries.ApplyInput, response: Response, user=Depends(admin_user), db=Depends(get_db)):
+    response.headers['Cache-Control'] = 'no-store'
+    return access_entries.apply(db,data,user.id)
+
 class PublicHostIn(BaseModel):
     value: str
 

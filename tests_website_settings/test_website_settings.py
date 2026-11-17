@@ -3,7 +3,9 @@ Only synthetic SQLite and ephemeral real HTTP; application PG connect forbidden.
 SQLite verifies rollback/atomic state, NOT PostgreSQL row-lock concurrency.
 """
 import os
-os.environ.update(STELLA_SECRET_KEY='website-settings-synthetic-signing-key-000000', POSTGRES_HOST='127.0.0.1', POSTGRES_PORT='1', POSTGRES_DB='stella_test_website_settings', POSTGRES_USER='fixture', POSTGRES_PASSWORD='synthetic-only', STELLA_MAIN_ORIGIN='http://stella.test')
+os.environ.update(STELLA_SECRET_KEY='website-settings-synthetic-signing-key-000000', STELLA_MAIN_ORIGIN='http://stella.test')
+if os.environ.get('STELLA_CI_NONCE_PG') != '1':
+    os.environ.update(POSTGRES_HOST='127.0.0.1', POSTGRES_PORT='1', POSTGRES_DB='stella_test_website_settings', POSTGRES_USER='fixture', POSTGRES_PASSWORD='synthetic-only')
 import asyncio
 import importlib.util
 import threading
@@ -170,6 +172,17 @@ def api_env():
         yield c,factory,app,admin_calls
     engine.dispose(); event.remove(unused_pg,'do_connect',forbid)
 
+def expected_plain_website(mid,address,name,icon,keep_alive=False):
+    # Independent closed DTO fixture: never derive expected fields from the response.
+    return dict(id=mid,name=name,icon=icon,mode='iframe',adapter='generic',browser_url=address,
+        private_address=None,address_mode=None,alternate_address=None,mapping_configured=False,
+        entry_policy='follow',access_adapter='auto',target_id=None,initial_path='/',enabled=True,
+        keep_alive=keep_alive,origin='https://app-'+mid+'.xiya.live',
+        injection=dict(draft=None,active=None,previous=None),template_id=None,
+        connection=dict(transport='auto',auth_mode='original',header_name='Authorization',injection_delivery='proxy',has_token=False),
+        background='solid',request_policy=dict(management_prefixes=[],read_post_paths=[],protect_other_writes=False),
+        route='/apps/'+mid,capabilities=dict(injection=False,browser_status='unobservable',managed_settings=None))
+
 def test_new_save_check_is_readonly_and_idempotent_atomic_nav(upstream,api_env):
     import json
     from app.models.config import AppConfig
@@ -189,7 +202,9 @@ def test_new_save_check_is_readonly_and_idempotent_atomic_nav(upstream,api_env):
     assert website['check']['normalized_url']==data['address']
     assert len(admin_calls)==1
     reread=c.get('/external-modules/'+mid).json()
-    assert reread=={k:v for k,v in website.items() if k!='check'}
+    expected=expected_plain_website(mid,data['address'],'New website','star',True)
+    assert reread==expected
+    assert website==expected|dict(check=website['check'],navigation=c.get('/navigation').json(),idempotency_key='synthetic-new-001')
     nav=next(e for e in c.get('/navigation').json()['entries'] if e['id']==mid)
     assert (nav['title'],nav['icon'],nav['visible'])==('New website','star',False)
     retry=c.post('/website-settings',json=data)
@@ -274,6 +289,73 @@ def test_custom_first_save_and_edit_versions_are_atomic_headerfree_uncontrolled(
     rollback=c.post('/external-modules/'+mid+'/injection/rollback')
     assert rollback.status_code==200,rollback.text
     assert rollback.json()['active']==saved['injection']['active']
+
+def test_disabled_code_first_save_is_a_current_nonexecuting_snapshot(upstream,api_env):
+    root,_,_=upstream;c,_,_,_=api_env
+    code={'enabled':False,'css':'/* retained disabled */body{color:purple}','js':'window.neverRun=1','timing':'dom_ready'}
+    r=c.post('/website-settings',json=dict(address=root,idempotency_key='single-disabled-first',custom=code))
+    assert r.status_code==201,r.text
+    active=r.json()['injection']['active']
+    assert active is not None, 'A single editor must be able to reread explicitly saved disabled code'
+    assert {k:active[k] for k in code}==code
+    assert active['version']
+    reread=c.get('/external-modules/'+r.json()['id'])
+    assert reread.status_code==200
+    assert reread.json()['injection']['active']==active
+    from app.services.integrations_injection import inject_html
+    assert inject_html('<html><head></head><body>fixture</body></html>',r.json()['id'],active)==('<html><head></head><body>fixture</body></html>',False)
+
+
+@pytest.mark.parametrize('changed_origin',[False,True])
+def test_single_editor_commit_preserves_an_independent_saved_draft(upstream,api_env,changed_origin):
+    root,_,_=upstream;c,_,_,_=api_env
+    active={'enabled':True,'css':'/* active original */body{color:red}','js':'','timing':'dom_ready'}
+    created=c.post('/website-settings',json=dict(address=root,idempotency_key='independent-draft-create',custom=active))
+    assert created.status_code==201,created.text
+    mid=created.json()['id']
+    draft=active|{'css':'/* independent saved draft */body{color:orange}'}
+    result=c.post('/external-modules/'+mid+'/injection/validate',json=draft)
+    assert result.status_code==200,result.text
+    before=c.get('/external-modules/'+mid).json()
+    updated=active|{'css':'/* one editor update */body{color:purple}'}
+    address=root.replace('127.0.0.1','localhost') if changed_origin else root
+    result=c.patch('/website-settings/'+mid,json=dict(address=address,custom=updated,preserve_saved_draft=True,idempotency_key='independent-draft-commit'))
+    assert result.status_code==200,result.text
+    read=c.get('/external-modules/'+mid).json()
+    assert read['injection']['draft']==before['injection']['draft']
+    assert {k:read['injection']['active'][k] for k in updated}==updated
+    assert read['injection']['previous']==before['injection']['active']
+
+
+@pytest.mark.parametrize('changed_origin',[False,True])
+def test_explicit_empty_disabled_commit_retains_historical_draft_and_current_snapshot(upstream,api_env,changed_origin):
+    import json
+    from pathlib import Path
+    root,_,_=upstream;c,_,_,_=api_env
+    created=c.post('/website-settings',json=dict(address=root+'/',name='现有网站',icon='globe',idempotency_key='empty-disabled-created'))
+    assert created.status_code==201,created.text
+    mid=created.json()['id']
+    historical={'enabled':True,'css':'/* 独立历史草稿 */body{color:orange}','js':'','timing':'dom_ready'}
+    assert c.post('/external-modules/'+mid+'/injection/validate',json=historical).status_code==200
+    before=c.get('/external-modules/'+mid).json()
+    assert before['injection']['active'] is None
+    custom={'enabled':False,'css':'','js':'','timing':'document_start'}
+    address=root.replace('127.0.0.1','localhost')+'/' if changed_origin else root+'/'
+    body=dict(address=address,name='现有网站',icon='globe',custom=custom,preserve_saved_draft=True,idempotency_key='empty-disabled-commit')
+    result=c.patch('/website-settings/'+mid,json=body)
+    assert result.status_code==200,result.text
+    after=c.get('/external-modules/'+mid).json()
+    output=os.environ.get('STELLA_ROUND2_EMPTY_RESPONSE')
+    if output and not changed_origin: Path(output).write_text(json.dumps({'before':before,'request':body,'response':result.json(),'after':after},ensure_ascii=False,indent=2))
+    assert after['injection']['active'] is not None, 'explicit empty disabled snapshot must satisfy the unified editor readback'
+    assert {key:after['injection']['active'][key] for key in custom}==custom
+    assert after['injection']['draft']==before['injection']['draft']
+    assert result.json()['injection']==after['injection']
+    from app.services.integrations_injection import inject_html
+    html='<html><head></head><body>synthetic</body></html>'
+    assert inject_html(html,mid,after['injection']['active'])==(html,False)
+    assert c.patch('/website-settings/'+mid,json=body).json()==result.json()
+
 
 def test_invalid_custom_syntax_never_creates_module_target_or_audit(upstream,api_env):
     from app.models.config import AppConfig
@@ -477,21 +559,28 @@ def test_real_auth_identity_elevation_expiry_revoke_and_readonly_check(upstream,
         assert r.status_code==200,r.text
     finally: event.remove(engine,'before_cursor_execute',record)
     assert statements and not any(any(word in sql for word in ['insert ','update ','delete ','for update','advisory']) for sql in statements)
-    seen.clear()
-    denied=c.post('/website-settings',json=payload)
-    assert denied.status_code==403 and denied.json()['detail']['code']=='admin_elevation_required'
-    assert not seen
+    # Management grants are retired; persisted owner/session is the authority.
+    # A real foreign principal still cannot save or trigger upstream work.
     with f() as db:
-        row=db.get(AppConfig,STATE_KEY);state=json.loads(row.value)
-        state['grants'][str(sid)]={'version':1,'expires_at':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()}
-        row.value=json.dumps(state);db.commit()
+        foreign=User(username='synthetic-foreign',display_name='Foreign',is_active=True,password_hash=hash_password('synthetic-foreign-only'))
+        db.add(foreign);db.flush()
+        foreign_session=AuthSession(user_id=foreign.id,refresh_hash='synthetic-foreign-refresh',remember=True)
+        db.add(foreign_session);db.flush()
+        foreign_token=make_access_token(str(foreign.id),str(foreign_session.id));db.commit()
+    seen.clear()
+    c.cookies.set('stella_at',foreign_token)
+    denied=c.post('/website-settings',json=payload)
+    assert denied.status_code==403,denied.text
+    assert not seen
+    c.cookies.set('stella_at',make_access_token(str(uid),str(sid)))
     r=c.post('/website-settings',json=payload)
     assert r.status_code==201,r.text
     with f() as db:
         assert db.get(User,uid).id==uid
         row=db.get(AppConfig,STATE_KEY);state=json.loads(row.value);assert state['owner_id']==str(uid)
-        state['grants'][str(sid)]['expires_at']='2000-01-01T00:00:00+00:00';row.value=json.dumps(state);db.commit()
-    assert c.patch('/website-settings/'+r.json()['id'],json={'address':root}).status_code==403
+        state['grants'][str(sid)]={'version':1,'expires_at':'2000-01-01T00:00:00+00:00'};row.value=json.dumps(state);db.commit()
+    patched=c.patch('/website-settings/'+r.json()['id'],json={'address':root})
+    assert patched.status_code==200,patched.text
     with f() as db: db.get(AuthSession,sid).revoked=True;db.commit()
     seen.clear()
     assert c.post('/website-settings/check',json={'address':root}).status_code==401
@@ -537,7 +626,7 @@ def test_actual_downstream_wire_save_readback_retry_and_edited_block(upstream,ap
         deadline=time.monotonic()+5
         while not server.started and thread.is_alive() and time.monotonic()<deadline: time.sleep(.01)
         assert server.started
-        with httpx.Client(base_url=f'http://127.0.0.1:{sock.getsockname()[1]}',trust_env=False,timeout=12) as wire:
+        with httpx.Client(base_url=f'http://127.0.0.1:{sock.getsockname()[1]}',headers={'Host':'stella.test'},trust_env=False,timeout=12) as wire:
             body=dict(address=root+'/wire?q=1#hash',name='Actual wire',icon='book',visible=False,idempotency_key='wire-save-001')
             checked=wire.post('/website-settings/check',json={'address':body['address']},headers={'Cookie':'synthetic-main-only=never','Authorization':'SYNTHETIC-MAIN-ONLY'})
             assert checked.status_code==200,checked.text
@@ -545,7 +634,9 @@ def test_actual_downstream_wire_save_readback_retry_and_edited_block(upstream,ap
             assert saved.status_code==201,saved.text
             mid=saved.json()['id']
             reread=wire.get('/external-modules/'+mid)
-            assert reread.status_code==200 and reread.json()=={k:v for k,v in saved.json().items() if k!='check'}
+            expected=expected_plain_website(mid,body['address'],'Actual wire','book')
+            assert reread.status_code==200 and reread.json()==expected
+            assert saved.json()==expected|dict(check=saved.json()['check'],navigation=wire.get('/navigation').json(),idempotency_key='wire-save-001')
             assert wire.post('/website-settings',json=body).json()==saved.json()
             responses['/wire-blocked']=(200,[('Content-Type','text/html'),('X-Frame-Options','DENY')],b'<html/>')
             rejected=wire.patch('/website-settings/'+mid,json={'address':root+'/wire-blocked','name':'not committed'})
@@ -563,10 +654,17 @@ def test_version_binding_is_internal_not_a_new_frontend_response_field(upstream,
     assert set(saved['injection']['active'])=={'enabled','css','js','timing','csp_policy','version'}
 
 def test_new_icon_values_match_frontend_navigation_allowlist(upstream,api_env):
+    from app.navigation_icons import NAVIGATION_ICONS
     root,_,seen=upstream;c,_,_,_=api_env
-    r=c.post('/website-settings',json=dict(address=root,idempotency_key='unsupported-icon-001',icon='music'))
+    invalid='not-in-navigation-catalog'
+    assert invalid not in NAVIGATION_ICONS
+    r=c.post('/website-settings',json=dict(address=root,idempotency_key='unsupported-icon-001',icon=invalid))
     assert r.status_code==422,r.text
     assert not seen
+    assert 'music' in NAVIGATION_ICONS
+    r=c.post('/website-settings',json=dict(address=root,idempotency_key='supported-music-001',icon='music'))
+    assert r.status_code==201,r.text
+    assert r.json()['icon']=='music'
 
 def test_partial_edit_preserves_existing_display_and_behavior(upstream,api_env):
     root,_,_=upstream;c,_,_,_=api_env

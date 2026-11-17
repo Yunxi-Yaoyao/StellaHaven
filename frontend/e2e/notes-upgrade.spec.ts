@@ -1,9 +1,12 @@
 import {test as base,expect,type Page} from '@playwright/test';
+import {createClientPreferencesFixture} from '../tests/fixtures/clientPreferences';
+import {createNotesStartupFixture} from '../tests/fixtures/notesStartup.mjs';
 const out=process.env.STELLA_SERVICE_ARTIFACTS||'test-results/service-regression';
 const ROOT='http://127.0.0.1:15174';
 const test=base.extend<{network:{unknown:string[];errors:string[]}}>({network:[async({page},use)=>{const network={unknown:[] as string[],errors:[] as string[]};page.on('pageerror',e=>network.errors.push(e.message));await page.route('**/*',r=>{network.unknown.push(r.request().method()+' '+r.request().url());return r.abort('blockedbyclient');});await page.routeWebSocket('**/*',socket=>{const u=new URL(socket.url());if(u.origin===ROOT.replace('http:','ws:')&&(u.pathname==='/'||u.pathname==='/ws/notifications'||u.pathname==='/ws/list/11111111-1111-4111-8111-111111111111'||['/ws/22222222-2222-4222-8222-222222222222','/ws/33333333-3333-4333-8333-333333333333'].includes(u.pathname)))return;network.unknown.push(socket.url());socket.close();});try{await use(network);}finally{expect(network.unknown).toEqual([]);expect(network.errors).toEqual([]);}},{auto:true}]});
 const ws='11111111-1111-4111-8111-111111111111', id='22222222-2222-4222-8222-222222222222';
 async function mock(page:Page) {
+ const clientPreferences=createClientPreferencesFixture();
  const calls:{path:string,method:string,body:any}[]=[];
  const state={elevated:false};
  const doc:any={id,title:'版本验收',file_path:'/test.md',workspace_id:ws,parent_id:null,content:'# 当前正文\n\n保存内容',content_hash:'hash',updated_at:'2026-10-06T00:00:00',created_at:'2026-10-06T00:00:00',has_draft:false,status:'published',is_folder:false,is_favorite:false,is_pinned:false};
@@ -11,12 +14,15 @@ async function mock(page:Page) {
  const me={id:'mock-owner',username:'test',display_name:'测试',is_admin:true,email:'',email_verified:false};
  await page.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url()),p=url.pathname;
-  if(url.origin==='http://127.0.0.1:15174' && (p==='/notes'||p==='/'||p.startsWith('/e2e/')||p.startsWith('/src/')||p.startsWith('/@')||p.startsWith('/node_modules/')||/\.(svg|png|woff2)$/.test(p)))return route.continue();
+  if(url.origin===ROOT && (p==='/notes'||p==='/settings'||p==='/'||p.startsWith('/static/')||/\.(svg|png|woff2)$/.test(p)))return route.continue();
   // Collaboration metadata uses documentation-only fixture values; never contact IP providers.
   if(req.method()==='GET'&&['https://ipinfo.io/json','https://api.ip.sb/geoip'].includes(url.href))return route.fulfill({json:{ip:'192.0.2.44',city:'Synthetic fixture',region:'Fixture',country:'ZZ'}});
   if(url.origin!==ROOT)return route.fallback();
   const body=req.postDataJSON();calls.push({path:p,method:req.method(),body});
   const ok=(json:any)=>route.fulfill({json});
+  const preference=clientPreferences.respond(req.method(),p+url.search,body);if(preference)return route.fulfill(preference);
+  const startup=createNotesStartupFixture(ws).respond(req.method(),p+url.search);if(startup)return route.fulfill(startup);
+  if(p==='/auth/status'&&req.method()==='GET')return ok({initialized:true});
   if(p==='/auth/me'||p==='/auth/refresh')return ok(me);
   if(p==='/auth/security')return ok({enabled:true,configured:true,elevated:state.elevated,single_user:true,setup_required:false});
   if(p==='/auth/admin/unlock'){state.elevated=true;return ok({enabled:true,configured:true,elevated:true});}
@@ -54,6 +60,7 @@ async function mock(page:Page) {
 }
 test('version diff and confirmed elevated restore update the real editor once',async({page})=>{
  const m=await mock(page);await page.goto('/notes');
+ await page.getByRole('button',{name:'更多',exact:true}).click();
  await page.getByRole('button',{name:'版本历史',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'版本历史'})).toBeVisible();
  await page.getByRole('button',{name:'查看差异 v1',exact:true}).click();
@@ -87,12 +94,13 @@ test('quick capture creates in current workspace and opens the actual rich edito
  await page.screenshot({path:out+'/quick-record-rich-editor.png',fullPage:true});
 });
 
-test('note node association exposes existing record timeline without dispatch',async({page})=>{
+test('notes no longer mount or request the unrelated operational timeline',async({page})=>{
  const m=await mock(page);await page.goto('/notes');
- await page.getByRole('button',{name:'关联时间线',exact:true}).click();
- await expect(page.getByText('心跳超时',{exact:true})).toBeVisible();
- await expect(page.getByLabel('关联节点',{exact:true})).toHaveValue('1');
- expect(m.calls.filter(c=>c.path==='/timeline')).toHaveLength(1);
+ await expect(page.locator('.preview h1')).toBeVisible();
+ await page.getByRole('button',{name:'更多',exact:true}).click();
+ await page.screenshot({path:out+'/unrelated-timeline-before-assertion.png',fullPage:true});
+ await expect(page.getByRole('button',{name:'关联时间线',exact:true})).toHaveCount(0);
+ expect(m.calls.filter(c=>c.path==='/timeline'||c.path.endsWith('/node'))).toHaveLength(0);
  expect(m.calls.filter(c=>c.method==='POST'&&c.path.includes('/tasks'))).toHaveLength(0);
  await page.screenshot({path:out+'/note-timeline.png',fullPage:true});
 });
@@ -100,8 +108,7 @@ test('note node association exposes existing record timeline without dispatch',a
 test('global palette keyboard metadata search and quick capture reach the real editor',async({page})=>{
  const m=await mock(page);await page.goto('/notes');
  await expect(page.locator('.preview h1')).toBeVisible();
- const mounted=await page.evaluate(async()=>{const path='/e2e/palette-mount.ts';const mod=await import(path);return mod.mountPaletteHarness();});
- console.log('Palette integration:',mounted?'test-only mount (App.vue owned by parent)':'actual App.vue mount');
+ // Exercise the production App's lazy palette through its public keyboard shortcut.
  await page.keyboard.press('Control+k');
  await expect(page.getByRole('dialog',{name:'统一搜索与快捷命令'})).toBeVisible();
  await page.getByLabel('统一搜索',{exact:true}).fill('版本');
@@ -117,14 +124,15 @@ test('global palette keyboard metadata search and quick capture reach the real e
 });
 
 test('read-only version history does not save dirty content and closes on leaving notes',async({page})=>{
- const m=await mock(page);await page.goto('/notes');
+ const m=await mock(page);await page.goto('/settings');await page.locator('a[href="/notes"]').first().click();
  await page.getByRole('button',{name:'编辑',exact:true}).click();
  const editor=page.locator('.rich-editor .ProseMirror');
  await editor.locator('h1').click();await page.keyboard.press('End');await page.keyboard.type(' unsaved');
+ await page.getByRole('button',{name:'更多',exact:true}).click();
  await page.getByRole('button',{name:'版本历史',exact:true}).click();
  await expect(page.getByRole('button',{name:'恢复 v1',exact:true})).toBeDisabled();
  expect(m.calls.filter(c=>c.method==='PUT'&&c.path.startsWith('/documents/'))).toHaveLength(0);
- await page.evaluate(async()=>{const app=(document.querySelector('#app') as any).__vue_app__;await app.config.globalProperties.$router.push('/settings');});
+ await page.goBack();await expect(page).toHaveURL(/settings/);
  await expect(page.getByRole('dialog',{name:'版本历史'})).toHaveCount(0);
 });
 

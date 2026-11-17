@@ -10,5 +10,5 @@ export function summarizeMonitorPoints(points: readonly MonitorCheckPoint[]) {
     if(p.loss_pct!=null) { lossSum+=p.loss_pct*pc; lossCount+=pc; }
   }
   return {total,avail:total?success/total*100:0,avgLat:latencyCount?latencySum/latencyCount:null,
-    loss:lossCount?lossSum/lossCount:total?(total-success)/total*100:0};
+    loss:lossCount?lossSum/lossCount:null};
 }

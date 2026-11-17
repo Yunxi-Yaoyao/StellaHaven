@@ -1,0 +1,370 @@
+{
+  "candidate": "1c281f557f857c2c36b4015f7ba6d59c9e9125eb",
+  "base": "68335ca9424fedd28b3759f7feefd8e5b3215b4a",
+  "review": "Stella-体验第三轮-20261020/review/REPORT.md",
+  "scope": "ProfileIn.username and update_profile only; unchanged auth bodies checked by AST",
+  "sources": {
+    "app.routers.auth.current_user": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 35,
+      "end_line": 55,
+      "symbol": "app.routers.auth.current_user"
+    },
+    "app.routers.auth.require_ws_owner": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 125,
+      "end_line": 131,
+      "symbol": "app.routers.auth.require_ws_owner"
+    },
+    "app.routers.auth.admin_user": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 58,
+      "end_line": 61,
+      "symbol": "app.routers.auth.admin_user"
+    },
+    "app.routers.auth.require_doc_owner": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 134,
+      "end_line": 141,
+      "symbol": "app.routers.auth.require_doc_owner"
+    },
+    "app.routers.auth.security": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 65,
+      "end_line": 67,
+      "symbol": "app.routers.auth.security"
+    },
+    "app.routers.auth.update_security": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 82,
+      "end_line": 85,
+      "symbol": "app.routers.auth.update_security"
+    },
+    "app.routers.auth.change_management_password": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 89,
+      "end_line": 92,
+      "symbol": "app.routers.auth.change_management_password"
+    },
+    "app.routers.auth.admin_setup": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 105,
+      "end_line": 108,
+      "symbol": "app.routers.auth.admin_setup"
+    },
+    "app.routers.auth.admin_unlock": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 112,
+      "end_line": 115,
+      "symbol": "app.routers.auth.admin_unlock"
+    },
+    "app.routers.auth.admin_lock": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 119,
+      "end_line": 122,
+      "symbol": "app.routers.auth.admin_lock"
+    },
+    "app.routers.auth.status": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 224,
+      "end_line": 230,
+      "symbol": "app.routers.auth.status"
+    },
+    "app.routers.auth._assert_identifiers_free": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 205,
+      "end_line": 219,
+      "symbol": "app.routers.auth._assert_identifiers_free"
+    },
+    "app.routers.auth._create_session": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 271,
+      "end_line": 309,
+      "symbol": "app.routers.auth._create_session"
+    },
+    "app.routers.auth._device_label": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 145,
+      "end_line": 154,
+      "symbol": "app.routers.auth._device_label"
+    },
+    "app.routers.auth._issue_cookies": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 157,
+      "end_line": 170,
+      "symbol": "app.routers.auth._issue_cookies"
+    },
+    "app.routers.auth._presented_session": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 343,
+      "end_line": 356,
+      "symbol": "app.routers.auth._presented_session"
+    },
+    "app.routers.auth._user_out": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 841,
+      "end_line": 851,
+      "symbol": "app.routers.auth._user_out"
+    },
+    "app.routers.auth.register": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 234,
+      "end_line": 255,
+      "symbol": "app.routers.auth.register"
+    },
+    "app.routers.auth._find_by_identifier": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 193,
+      "end_line": 202,
+      "symbol": "app.routers.auth._find_by_identifier"
+    },
+    "app.routers.auth.login": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 259,
+      "end_line": 268,
+      "symbol": "app.routers.auth.login"
+    },
+    "app.routers.auth.refresh": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 339,
+      "end_line": 340,
+      "symbol": "app.routers.auth.refresh"
+    },
+    "app.routers.auth.rotate_refresh": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 312,
+      "end_line": 335,
+      "symbol": "app.routers.auth.rotate_refresh"
+    },
+    "app.routers.auth.logout": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 360,
+      "end_line": 368,
+      "symbol": "app.routers.auth.logout"
+    },
+    "app.routers.auth.me": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 372,
+      "end_line": 373,
+      "symbol": "app.routers.auth.me"
+    },
+    "app.routers.auth.activity": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 377,
+      "end_line": 389,
+      "symbol": "app.routers.auth.activity"
+    },
+    "app.routers.auth.update_profile": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 400,
+      "end_line": 436,
+      "symbol": "app.routers.auth.update_profile"
+    },
+    "app.routers.auth.change_password": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 445,
+      "end_line": 457,
+      "symbol": "app.routers.auth.change_password"
+    },
+    "app.routers.auth.upload_avatar": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 461,
+      "end_line": 495,
+      "symbol": "app.routers.auth.upload_avatar"
+    },
+    "app.routers.auth.avatar_history": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 533,
+      "end_line": 536,
+      "symbol": "app.routers.auth.avatar_history"
+    },
+    "app.routers.auth.email_service_status": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 564,
+      "end_line": 570,
+      "symbol": "app.routers.auth.email_service_status"
+    },
+    "app.routers.auth._mail_for": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 541,
+      "end_line": 560,
+      "symbol": "app.routers.auth._mail_for"
+    },
+    "app.routers.auth._send_purpose_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 585,
+      "end_line": 601,
+      "symbol": "app.routers.auth._send_purpose_code"
+    },
+    "app.routers.auth.send_email_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 605,
+      "end_line": 607,
+      "symbol": "app.routers.auth.send_email_code"
+    },
+    "app.routers.auth.forgot_password": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 621,
+      "end_line": 627,
+      "symbol": "app.routers.auth.forgot_password"
+    },
+    "app.routers.auth.send_login_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 642,
+      "end_line": 650,
+      "symbol": "app.routers.auth.send_login_code"
+    },
+    "app.routers.auth._verified_email_owner": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 577,
+      "end_line": 582,
+      "symbol": "app.routers.auth._verified_email_owner"
+    },
+    "app.routers.auth.login_by_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 665,
+      "end_line": 671,
+      "symbol": "app.routers.auth.login_by_code"
+    },
+    "app.routers.auth.reset_password": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 675,
+      "end_line": 688,
+      "symbol": "app.routers.auth.reset_password"
+    },
+    "app.routers.auth.verify_email_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 692,
+      "end_line": 699,
+      "symbol": "app.routers.auth.verify_email_code"
+    },
+    "app.routers.auth.resend_code": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 708,
+      "end_line": 714,
+      "symbol": "app.routers.auth.resend_code"
+    },
+    "app.routers.auth.pick_avatar": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 722,
+      "end_line": 741,
+      "symbol": "app.routers.auth.pick_avatar"
+    },
+    "app.routers.auth.retired_invitation_api": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 747,
+      "end_line": 748,
+      "symbol": "app.routers.auth.retired_invitation_api"
+    },
+    "app.routers.auth._active_sessions": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 789,
+      "end_line": 793,
+      "symbol": "app.routers.auth._active_sessions"
+    },
+    "app.routers.auth.my_sessions": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 754,
+      "end_line": 786,
+      "symbol": "app.routers.auth.my_sessions"
+    },
+    "app.routers.auth.session_history": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 797,
+      "end_line": 808,
+      "symbol": "app.routers.auth.session_history"
+    },
+    "app.routers.auth.revoke_session": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 829,
+      "end_line": 838,
+      "symbol": "app.routers.auth.revoke_session"
+    },
+    "app/routers/auth.py:response-shapes": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 1,
+      "end_line": 851,
+      "symbol": "app/routers/auth.py:response-shapes"
+    },
+    "app.routers.auth.session_location": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 823,
+      "end_line": 825,
+      "symbol": "app.routers.auth.session_location"
+    },
+    "app.routers.auth._session_location_ip": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 811,
+      "end_line": 819,
+      "symbol": "app.routers.auth._session_location_ip"
+    },
+    "app/routers/auth.py:integrated-review": {
+      "file": "app/routers/auth.py",
+      "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+      "line": 1,
+      "end_line": 851,
+      "symbol": "app/routers/auth.py:integrated-review"
+    }
+  },
+  "new_request_source": {
+    "file": "app/routers/auth.py",
+    "sha256": "8f9a216c13e17ebb9c13cec539c546ad05d69bb4443089da57adba8e0e3766b8",
+    "line": 392,
+    "end_line": 396,
+    "symbol": "app.routers.auth.ProfileIn"
+  },
+  "request_source_additions": {
+    "app.routers.auth.update_profile": [
+      "app.routers.auth.ProfileIn"
+    ]
+  }
+}

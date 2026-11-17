@@ -1,5 +1,6 @@
 """任务域路由：打流/MTR/命令 发起（前端，登录）+ agent 轮询领取/回传（token）。"""
 import os
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel
@@ -13,9 +14,10 @@ from app.models.user import User
 from app.routers.auth import current_user, admin_user
 from app.repositories import node as node_repo
 from app.schemas.monitor import (
-    IperfTaskCreate, IperfTaskRead, MtrTaskCreate, MtrTaskRead, CommandCreate, CommandRead,
+    IperfTaskCreate, IperfTaskRead, MtrTaskCreate, MtrTaskRead, MtrJobCreate, CommandCreate, CommandRead,
     ComponentInstallCreate, ComponentTaskRead,
 )
+from app.schemas.public_task import AgentTasksRead
 from app.services import task as task_svc
 from app.services import node as node_svc
 
@@ -28,9 +30,7 @@ def list_iperf(user: User = Depends(current_user), db: Session = Depends(get_db)
     tasks = task_svc.list_iperf(db)
     # 列表不扛实时进度数组（每秒一个点、最多 100 条任务，5s 轮询扛全量是浪费）；
     # 实时曲线走单任务详情的 ?progress_after= 增量拉取
-    for t in tasks:
-        t.progress_json = None
-    return tasks
+    return [IperfTaskRead.model_validate(t).model_copy(update={'progress_json': None}) for t in tasks]
 
 
 @router.get("/iperf-tasks/{task_id}", response_model=IperfTaskRead)
@@ -41,9 +41,10 @@ def get_iperf(task_id: int, progress_after: int | None = None,
     t = task_svc.get_iperf(db, task_id)
     if t is None:
         raise HTTPException(404, "任务不存在")
-    if progress_after is not None and t.progress_json:
-        t.progress_json = t.progress_json[progress_after:]
-    return t
+    result = IperfTaskRead.model_validate(t)
+    if progress_after is not None and result.progress_json:
+        result = result.model_copy(update={'progress_json': result.progress_json[progress_after:]})
+    return result
 
 
 @router.post("/iperf-tasks/{task_id}/cancel")
@@ -68,8 +69,9 @@ def create_iperf(data: IperfTaskCreate, user: User = Depends(admin_user), db: Se
 
 
 @router.get("/mtr-tasks", response_model=list[MtrTaskRead])
-def list_mtr(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return task_svc.list_mtr(db)
+def list_mtr(trigger: Literal['manual', 'periodic', 'failure'] | None = None,
+             user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return task_svc.list_mtr(db, trigger=trigger)
 
 
 @router.post("/mtr-tasks", response_model=MtrTaskRead, status_code=201)
@@ -77,7 +79,23 @@ def create_mtr(data: MtrTaskCreate, user: User = Depends(current_user), db: Sess
     try:
         return task_svc.create_mtr(db, data.node_id, data.target, data.protocol, data.params)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409 if '进行中' in str(e) else 400, detail=str(e))
+
+
+@router.post('/mtr-jobs', response_model=list[MtrTaskRead], status_code=201)
+def create_mtr_job(data: MtrJobCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    try:
+        return task_svc.create_mtr_job(db, data.node_ids, data.target, data.protocol, data.params)
+    except ValueError as e:
+        raise HTTPException(409 if '进行中' in str(e) else 400, str(e))
+
+
+@router.get('/mtr-tasks/{task_id}', response_model=MtrTaskRead)
+def get_mtr(task_id: int, db: Session = Depends(get_db)):
+    task = task_svc.repo.get_mtr(db, task_id)
+    if task is None:
+        raise HTTPException(404, '任务不存在')
+    return task
 
 
 @router.get("/commands", response_model=list[CommandRead])
@@ -107,7 +125,7 @@ def install_component(data: ComponentInstallCreate, user: User = Depends(admin_u
 agent_task_router = APIRouter(prefix="/agent", tags=["agent"])
 
 
-@agent_task_router.get("/tasks")
+@agent_task_router.get("/tasks", response_model=AgentTasksRead)
 def poll_tasks(token: Annotated[str, Depends(agent_token)], db: Session = Depends(get_db)):
     """agent 拉待办任务（领取 pending → running）。"""
     try:
@@ -154,7 +172,10 @@ def iperf_progress(task_id: int, token: Annotated[str, Depends(agent_token)], ts
         point["retry"] = True
         point["attempt"] = attempt
         point["reason"] = reason
-    task_svc.append_iperf_progress(db, task_id, point)
+    try:
+        task_svc.append_iperf_progress(db, task_id, point)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     return {"ok": True}
 
 

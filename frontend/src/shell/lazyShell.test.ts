@@ -24,7 +24,7 @@ afterEach(() => { cleanup.splice(0).forEach(f => f()); });
 async function flush() { for (let i = 0; i < 30; i++) { await new Promise(resolve => setTimeout(resolve, 0)); await nextTick(); } }
 async function mountShell() {
  const { default: App } = await import('../App.vue');
- const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { render: () => null } }, { path: '/settings', component: { render: () => null } }] });
+ const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', name: 'home', component: { render: () => null } }, { path: '/settings', name: 'settings', component: { render: () => null } }] });
  await router.push('/'); await router.isReady();
  const host = document.createElement('div'); document.body.append(host);
  const app = createApp(App).use(router); app.mount(host);
@@ -54,14 +54,21 @@ test('background manager is imported on first open and retained after close', as
  bgManagerOpen.value = false; await flush();
  expect(document.querySelector('.background-test')).not.toBeNull();
 });
-test('legacy home settings trigger redirects without importing appearance form', async () => {
+test('home settings intent stays on home and shell remains a lazy host', async () => {
  const { settingsOpen } = await import('../modules/home/settings');
  settingsOpen.value = false;
  const router = await mountShell();
  expect(loaded.settings).toBe(0);
  settingsOpen.value = true; await flush();
- expect(router.currentRoute.value.fullPath).toBe('/settings?section=navigation&module=home');
+ // The real HomePage owns the lazily mounted drawer; this shell-only fixture
+ // must not redirect or eagerly import a second appearance editor.
+ expect(router.currentRoute.value.fullPath).toBe('/');
+ expect(settingsOpen.value).toBe(true);
+ expect(loaded.settings).toBe(0);
+ expect(document.querySelector('.shell')?.getAttribute('aria-hidden')).toBe('true');
+ await router.push('/settings'); await flush();
  expect(settingsOpen.value).toBe(false);
+ expect(document.querySelector('.shell')?.getAttribute('aria-hidden')).toBeNull();
 });
 test('two shortcut presses before async mount cancel the pending opening', async () => {
  await mountShell();

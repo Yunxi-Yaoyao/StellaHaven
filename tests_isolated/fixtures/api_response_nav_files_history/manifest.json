@@ -1,0 +1,106 @@
+[
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "agent/stella_agent.py",
+    "fixture": "25bc5e8c4f8e6ec262b89118098ea6d7b796f0bf3e75d8b10bd9a0aab070208b.gz",
+    "size": 232703,
+    "sha256": "25bc5e8c4f8e6ec262b89118098ea6d7b796f0bf3e75d8b10bd9a0aab070208b",
+    "git_blob": "d9013a9f5eb2bbfdd1624cafc24d3b8dd5978e1f"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "app/api_response_contracts.py",
+    "fixture": "77f42446db3fccabe18f6bd96abdc03f3614725b1a8b8c87ba7f6c16dd87aa6c.gz",
+    "size": 85517,
+    "sha256": "77f42446db3fccabe18f6bd96abdc03f3614725b1a8b8c87ba7f6c16dd87aa6c",
+    "git_blob": "3cbc1c4781f60ffef1afe8fb8613949e8f235c82"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "app/routers/auth.py",
+    "fixture": "895baf8953665c853711653db4a19910f199409eaed38f487556da34246bda17.gz",
+    "size": 37002,
+    "sha256": "895baf8953665c853711653db4a19910f199409eaed38f487556da34246bda17",
+    "git_blob": "86e7f7f3694cbd3d5c6893b4e5b1775b098c9093"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "app/routers/homebg.py",
+    "fixture": "555589faa335257faf603e3b2a55ec4dd449a8823376cc907f76928fafdb78e3.gz",
+    "size": 11178,
+    "sha256": "555589faa335257faf603e3b2a55ec4dd449a8823376cc907f76928fafdb78e3",
+    "git_blob": "5a9611b7ddba7b9da0a7f36720c6b42f8ea37833"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "app/routers/monitor.py",
+    "fixture": "30bd86ea0e39046ed450511c903601e981d05b2d7b2be0848c4ddb761d36a56d.gz",
+    "size": 34906,
+    "sha256": "30bd86ea0e39046ed450511c903601e981d05b2d7b2be0848c4ddb761d36a56d",
+    "git_blob": "a23c50233b55d603d7d5def81f0c8ac842980bda"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "app/schemas/monitor.py",
+    "fixture": "1e977cc52b67c0ddc8e7d542604d23ee8f119cfb39bec23e742a7676ab13e4a2.gz",
+    "size": 18213,
+    "sha256": "1e977cc52b67c0ddc8e7d542604d23ee8f119cfb39bec23e742a7676ab13e4a2",
+    "git_blob": "983750b110f2787f9f0ef9e8b7eb949f0597df7d"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "app/services/backup_preferences.py",
+    "fixture": "a26125e93c599eb9ff9540e95471cd9cde6d28fb56ab6a854172171d8e79f1a2.gz",
+    "size": 1851,
+    "sha256": "a26125e93c599eb9ff9540e95471cd9cde6d28fb56ab6a854172171d8e79f1a2",
+    "git_blob": "2f3cf6aeb8b97800c5fa655fdea9e06e7976d6e8"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "app/services/backup_projection.py",
+    "fixture": "e3853acc76abd92e1c518d82d55431a4a5dd804fbf2f8d5a17c6de28818c3739.gz",
+    "size": 24021,
+    "sha256": "e3853acc76abd92e1c518d82d55431a4a5dd804fbf2f8d5a17c6de28818c3739",
+    "git_blob": "6e0129b0fa35d0fdb1b82c22f874c6db4beb59fa"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "app/services/integrations.py",
+    "fixture": "d763be47eeaa274ae0636dc1ddff0b89de100e6b6b6647d2de15a3201e03a117.gz",
+    "size": 11513,
+    "sha256": "d763be47eeaa274ae0636dc1ddff0b89de100e6b6b6647d2de15a3201e03a117",
+    "git_blob": "dde397397d165d2c0f79a9c001b9563eb4caaff2"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "frontend/src/stores/navigation.ts",
+    "fixture": "7bb8ef63580935ae18a8bea82184013918a75ecbbbed4d481d05165dce671772.gz",
+    "size": 5661,
+    "sha256": "7bb8ef63580935ae18a8bea82184013918a75ecbbbed4d481d05165dce671772",
+    "git_blob": "136c5a6c4877fc1718f8efbb09f4502f74c0e885"
+  },
+  {
+    "commit": "77d122c69b17a7670ead0a492b0f804b069acc8d",
+    "file": "main.py",
+    "fixture": "a35ee8aade658ed8543b6784af5a286698d81a09ec01fb596dc60bf06717bf67.gz",
+    "size": 9945,
+    "sha256": "a35ee8aade658ed8543b6784af5a286698d81a09ec01fb596dc60bf06717bf67",
+    "git_blob": "e0c58a66089920f077b613d06038dd26512bdea2"
+  },
+  {
+    "commit": "29333cdd22aee6515331de5e44f504e108d9a504",
+    "file": "agent/stella_agent.py",
+    "fixture": "728b859c92039c67a23243b87f91ffda5789cf2236120d1ead9b52c9a9031126.gz",
+    "size": 233494,
+    "sha256": "728b859c92039c67a23243b87f91ffda5789cf2236120d1ead9b52c9a9031126",
+    "git_blob": "b581a57384183a17195d5d0711eae65e30f9955a"
+  },
+  {
+    "commit": "29333cdd22aee6515331de5e44f504e108d9a504",
+    "file": "agent/node_files.py",
+    "fixture": "00b1521ff5be4afbd25967fcb9e1bfb05f64afa302edc69fc955d39b9403b500.gz",
+    "size": 20523,
+    "sha256": "00b1521ff5be4afbd25967fcb9e1bfb05f64afa302edc69fc955d39b9403b500",
+    "git_blob": "88ac8cd1d5d5cb4086c5d1365f04f3f20e8613bc"
+  }
+]

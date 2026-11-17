@@ -103,7 +103,7 @@ async function read(){
 void read();
 </script>
 <template><form class="service-editor inline-editor" @submit.prevent="save">
- <header><h3>{{site==='drive'?'OpenList':'Immich'}} · 接入服务</h3><button type="button" :disabled="locked" @click="emit('cancel')">收起编辑</button></header>
+ <header><h3>{{site==='drive'?'OpenList':'Immich'}} · 接入服务</h3><button class="st-button" type="button" :disabled="locked" @click="emit('cancel')">收起编辑</button></header>
  <fieldset v-if="data" :disabled="locked">
   <h4>连接与登录</h4>
   <div class="identity-fields"><label class="name-field">显示名称<input v-model="data.name" aria-label="显示名称" maxlength="80" required/></label><IconPicker v-model="data.icon" :name="data.name"/></div>
@@ -117,13 +117,13 @@ void read();
    <label>登录方式<Dropdown v-model="gallery.auth_mode" :options="[{value:'manual',label:'原站手动登录'},{value:'oidc',label:'OIDC 单点登录'}]"/></label>
    <details><summary>备用入口与登录明细</summary><label>备用浏览器地址<input v-model="gallery.alternate_browser_url" aria-label="备用浏览器地址"/></label><label>健康检查地址<input v-model="gallery.upstream_url" aria-label="健康检查地址"/></label><template v-if="data.oidc"><p>{{data.oidc.client_registered?'Stella 客户端已登记':'Stella 客户端尚未登记'}}；登录方式仅选择已有流程，不会更改原站 OAuth 配置或账号绑定。</p><dl><dt>Issuer</dt><dd>{{data.oidc.issuer}}</dd><dt>Client ID</dt><dd>{{data.oidc.client_id}}</dd><dt>回调地址</dt><dd v-for="uri in data.oidc.redirect_uris" :key="uri">{{uri}}</dd></dl></template></details>
   </template>
-  <button type="button" :disabled="checking" @click="detect">检测连接</button><p v-if="checkMessage" role="status">{{checkMessage}}</p>
+  <button class="st-button" type="button" :disabled="checking" @click="detect">检测连接</button><p v-if="checkMessage" role="status">{{checkMessage}}</p>
   <section class="appearance" aria-label="外观"><h4>外观</h4>
    <template v-if="site==='drive'">
     <label class="check"><input v-model="data.appearance.theme" type="checkbox" true-value="stella" false-value="original" aria-label="Stella 主题"/>Stella 主题<span>关闭保留原站配色</span></label>
     <label class="check"><input v-model="data.appearance.simplified" type="checkbox" aria-label="简洁显示"/>简洁显示<span>整理品牌与布局</span></label>
     <p>主题与简洁显示仅作用于 Stella 嵌入内；不改变原站文件或视图偏好。</p>
-    <div v-if="data.capabilities.background" class="device-background"><label class="check"><input v-model="background" type="checkbox" true-value="image" false-value="solid" aria-label="主页背景"/>主页背景<span>关闭使用纯色</span></label><p>背景仅保存在当前设备，支持主页图片或视频；不随账号同步。</p><button type="button" :disabled="background===originalBackground" @click="saveBackground">保存本机背景</button></div>
+    <div v-if="data.capabilities.background" class="device-background"><label class="check"><input v-model="background" type="checkbox" true-value="image" false-value="solid" aria-label="主页背景"/>主页背景<span>关闭使用纯色</span></label><p>背景仅保存在当前设备，支持主页图片或视频；不随账号同步。</p><button class="st-button" type="button" :disabled="background===originalBackground" @click="saveBackground">保存本机背景</button></div>
    </template>
    <template v-else><label class="check"><input v-model="data.appearance.logo" type="checkbox" true-value="stella" false-value="original" aria-label="Stella Logo"/>Stella Logo<span>关闭保留原 Logo</span></label><p>作用于整个原站域名，独立打开 Immich 也会生效。</p></template>
    <ServiceAppearancePreview :site="site" :appearance="data.appearance" :background="background"/>
@@ -133,23 +133,23 @@ void read();
    <label class="check"><input v-model="custom.enabled" type="checkbox" aria-label="启用自定义"/>启用自定义</label>
    <label>自定义 CSS<textarea v-model="custom.css" aria-label="自定义 CSS" spellcheck="false"/></label>
    <label>自定义 JavaScript<textarea v-model="custom.js" aria-label="自定义 JavaScript" spellcheck="false"/></label>
-   <button type="button" @click="saveDraft">仅保存草稿</button>
+   <button class="st-button" type="button" @click="saveDraft">仅保存草稿</button>
    <details class="technical"><summary>执行时机、活动版本与兼容信息</summary>
     <label>执行时机<Dropdown v-model="custom.timing" :options="[{value:'dom_ready',label:'页面就绪后'},{value:'document_start',label:'页面开始时'}]"/></label>
     <p>当前活动：{{data.injection.active.version}}（{{data.injection.active.enabled?'启用':'停用'}}） · 上一版：{{data.injection.previous?.version||'无'}}</p>
     <label>活动版本 CSS<textarea :value="data.injection.active.css" aria-label="活动版本 CSS" readonly/></label>
     <label>活动版本 JavaScript<textarea :value="data.injection.active.js" aria-label="活动版本 JavaScript" readonly/></label>
     <p>编辑区：{{data.injection.draft?'已保存草稿（与活动版本分开）':'活动版本的副本'}}。</p>
-    <button type="button" :disabled="dirty||!data.injection.previous" @click="rollback">回退上一版本</button><p v-if="dirty">回退前请先保存或放弃当前修改。</p>
+    <button class="st-button" type="button" :disabled="dirty||!data.injection.previous" @click="rollback">回退上一版本</button><p v-if="dirty">回退前请先保存或放弃当前修改。</p>
     <p v-for="item in data.compatibility" :key="item">{{item}}</p>
    </details>
   </details>
-  <div class="actions"><button type="button" @click="emit('cancel')">取消</button><button type="submit">保存</button></div>
+  <div class="actions"><button class="st-button" type="button" @click="emit('cancel')">取消</button><button class="st-button is-primary" type="submit">保存</button></div>
  </fieldset>
- <button v-if="pending" type="button" :disabled="busy" @click="reconcile">重试回读</button>
- <button v-if="pending&&readConfirmed" type="button" :disabled="busy" @click="resumeEditing">继续编辑，不重发</button>
- <p v-if="message" role="alert">{{message}}</p><button v-if="!data&&!busy" type="button" @click="read">重试读取</button>
+ <button class="st-button" v-if="pending" type="button" :disabled="busy" @click="reconcile">重试回读</button>
+ <button class="st-button" v-if="pending&&readConfirmed" type="button" :disabled="busy" @click="resumeEditing">继续编辑，不重发</button>
+ <p v-if="message" role="alert">{{message}}</p><button class="st-button" v-if="!data&&!busy" type="button" @click="read">重试读取</button>
 </form></template>
 <style scoped>
-.service-editor{padding:18px;margin:0 0 14px;background:var(--bg-base);border:1px solid #7085a94d;border-radius:10px;min-width:0}header{display:flex;align-items:center;justify-content:space-between;gap:12px}h3,h4{font-size:14px}h4{margin:20px 0 14px}fieldset{border:0;margin:0;padding:0;min-width:0}.identity-fields{display:flex;gap:20px;align-items:start;flex-wrap:wrap}.identity-fields .icon-picker{max-width:100%;width:240px}.name-field{width:220px;max-width:100%}label{display:block;font-size:12px;color:var(--text-lo);margin:12px 0}input:not([type=checkbox]){display:block;box-sizing:border-box;width:100%;min-width:0;margin-top:6px;padding:9px 10px;border:1px solid #ffffff20;border-radius:7px;color:var(--text-hi);background:var(--bg-panel)}button{font:inherit;white-space:nowrap;flex-shrink:0;padding:8px 11px;border:1px solid #ffffff20;border-radius:7px;background:var(--bg-raised);color:var(--text-hi);cursor:pointer}button:disabled{opacity:.45;cursor:default}p,dl{font-size:12px;color:var(--text-lo);line-height:1.7;overflow-wrap:anywhere}dd{margin-left:12px}textarea{display:block;width:100%;box-sizing:border-box;min-width:0;min-height:110px;margin-top:6px;padding:10px;border:1px solid #ffffff20;border-radius:7px;background:var(--bg-panel);color:var(--text-hi);font:12px/1.6 monospace;resize:vertical}.appearance{border-top:1px solid #ffffff12;margin-top:20px}.check span{font-size:11px;opacity:.7}.device-background{padding:0 0 8px}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.check{display:flex;align-items:center;gap:8px}summary{cursor:pointer;font-size:13px}details{padding:14px 0;border-top:1px solid #ffffff12;margin-top:16px}@media(max-width:600px){.service-editor{padding:12px}.identity-fields{gap:10px}}
+.service-editor{padding:18px;margin:0 0 14px;background:var(--bg-base);border:1px solid var(--control-border,var(--accent-dim));border-radius:10px;min-width:0}header{display:flex;align-items:center;justify-content:space-between;gap:12px}h3,h4{font-size:14px}h4{margin:20px 0 14px}fieldset{border:0;margin:0;padding:0;min-width:0}.identity-fields{display:flex;gap:20px;align-items:start;flex-wrap:wrap}fieldset>label:not(.check){max-width:680px}fieldset>label:not(.check):has(.dd),fieldset>div>label:not(.check){max-width:340px}.advanced label{max-width:none}.actions{max-width:680px}.identity-fields .icon-picker{max-width:100%;width:240px}.name-field{width:340px;max-width:100%}label{display:block;font-size:12px;color:var(--text-lo);margin:12px 0}input:not([type=checkbox]){display:block;box-sizing:border-box;width:100%;min-width:0;margin-top:6px;padding:9px 10px;border:1px solid var(--control-border,var(--accent-dim));border-radius:7px;color:var(--text-hi);background:var(--bg-panel)}button:not(.st-button){font:inherit;white-space:nowrap;flex-shrink:0;padding:8px 11px;border:1px solid var(--control-border,var(--accent-dim));border-radius:7px;background:var(--bg-raised);color:var(--text-hi);cursor:pointer}button:not(.st-button):disabled{opacity:.45;cursor:default}p,dl{font-size:12px;color:var(--text-lo);line-height:1.7;overflow-wrap:anywhere}dd{margin-left:12px}textarea{display:block;width:100%;box-sizing:border-box;min-width:0;min-height:110px;margin-top:6px;padding:10px;border:1px solid var(--control-border,var(--accent-dim));border-radius:7px;background:var(--bg-panel);color:var(--text-hi);font:12px/1.6 monospace;resize:vertical}.appearance{border-top:1px solid var(--control-border,var(--accent-dim));margin-top:20px}.check span{font-size:11px;opacity:.7}.device-background{padding:0 0 8px}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.check{display:flex;align-items:center;gap:8px}summary{cursor:pointer;font-size:13px}details{padding:14px 0;border-top:1px solid var(--control-border,var(--accent-dim));margin-top:16px}@media(max-width:600px){.service-editor{padding:12px}.identity-fields{gap:10px}}
 </style>

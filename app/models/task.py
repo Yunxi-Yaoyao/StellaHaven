@@ -63,6 +63,7 @@ class MtrTask(Base):
     __tablename__ = "mtr_tasks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     node_id: Mapped[int] = mapped_column(Integer, ForeignKey("nodes.id"), nullable=False)
     monitor_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("monitors.id"), nullable=True)
     target: Mapped[str] = mapped_column(String(256), nullable=False)

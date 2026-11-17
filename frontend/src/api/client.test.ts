@@ -25,15 +25,15 @@ it('adds JSON content type only for a string body without an explicit type', asy
   expect(sent.get('X-Fixture')).toBe('kept');
 });
 
-it('requires an explicit elevation handler and retries the blocked request only once', async () => {
+it('retired elevation registration cannot replay a rejected request', async () => {
   const register = (client as any).setElevationHandler;
   expect(register, 'global elevation handler must exist').toBeTypeOf('function');
   const authorize = vi.fn(async () => true);
   register(authorize);
   vi.mocked(fetch).mockResolvedValueOnce(denied()).mockResolvedValueOnce(new Response('{"ok":true}'));
-  expect(await api('/danger', {method:'DELETE'})).toEqual({ok:true});
-  expect(authorize).toHaveBeenCalledWith('admin_elevation_required', '/danger');
-  expect(fetch).toHaveBeenCalledTimes(2);
+  await expect(api('/danger', {method:'DELETE'})).rejects.toMatchObject({status:403});
+  expect(authorize).not.toHaveBeenCalled();
+  expect(fetch).toHaveBeenCalledTimes(1);
 });
 it('does not automatically replay a rejected management password as an access refresh',async()=>{
  vi.mocked(refreshAccess).mockClear();vi.mocked(fetch).mockResolvedValue(new Response('{"detail":"密码错误"}',{status:401}));
@@ -47,5 +47,5 @@ it('does not retry generic 403, canceled elevation, or a second authorization de
  vi.mocked(fetch).mockClear().mockResolvedValue(denied());
  client.setElevationHandler(async()=>false);await expect(api('/cancel',{method:'DELETE'})).rejects.toMatchObject({status:403});expect(fetch).toHaveBeenCalledTimes(1);
  vi.mocked(fetch).mockClear().mockResolvedValue(denied());client.setElevationHandler(authorize);
- await expect(api('/twice',{method:'DELETE'})).rejects.toMatchObject({status:403});expect(fetch).toHaveBeenCalledTimes(2);expect(authorize).toHaveBeenCalledTimes(1);
+ await expect(api('/twice',{method:'DELETE'})).rejects.toMatchObject({status:403});expect(fetch).toHaveBeenCalledTimes(1);expect(authorize).not.toHaveBeenCalled();
 });

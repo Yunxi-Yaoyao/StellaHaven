@@ -66,8 +66,8 @@ def test_pg_real_owner_loader_elevation_and_generic_proxy_policy(pg_factory,upst
     with TestClient(app,base_url='https://stella.test') as c:
         assert c.get('/website-templates').status_code==401
         assert c.post('/auth/register',json={'username':'fixture-owner','password':'generic-fixture-daily'}).status_code==201
-        assert c.post('/auth/admin/setup',json={'user_password':'generic-fixture-daily','new_password':'generic-fixture-admin'}).status_code==200
-        assert c.post('/auth/admin/unlock',json={'password':'generic-fixture-admin'}).status_code==200
+        assert c.post('/auth/admin/setup',json={'user_password':'generic-fixture-daily','new_password':'generic-fixture-admin'}).status_code==410
+        assert c.post('/auth/admin/unlock',json={'password':'generic-fixture-admin'}).status_code==410
         draft=catalog(main_origin='https://stella.test')[1]['draft']|{'address':root+'/','idempotency_key':'pg-loader'}
         draft['custom']['js']='window.privateActive=73'
         response=c.post('/website-settings',json=draft)
@@ -80,15 +80,18 @@ def test_pg_real_owner_loader_elevation_and_generic_proxy_policy(pg_factory,upst
         with TestClient(IntegrationsHostMiddleware(app,db_factory=pg_factory,main_origin='https://stella.test'),base_url=proxy['origin']) as frame:
             boot=frame.post('/__stella/bootstrap',data=ticket['fields'],headers={'Origin':'https://stella.test'},follow_redirects=False)
             assert boot.status_code==303,boot.text
-            assert c.post('/auth/admin/lock').status_code==200
+            assert c.post('/auth/admin/lock').status_code==410
             assert 'privateActive=73' in c.get('/website-assets/'+mid+'.js').text
-            assert c.patch('/website-settings/'+mid,json={'address':root+'/'}).status_code==403
+            assert c.post('/auth/logout').status_code==200
+            assert c.patch('/website-settings/'+mid,json={'address':root+'/'}).status_code==401
             seen.clear()
             denied=frame.get('/drive/openlist/api/admin/settings')
-            assert denied.status_code==403,denied.text
-            assert denied.json()['detail']['code'].startswith('admin_')
+            assert denied.status_code==401,denied.text
             assert not seen
-            assert c.post('/auth/admin/unlock',json={'password':'generic-fixture-admin'}).status_code==200
+            assert c.post('/auth/login',json={'username':'fixture-owner','password':'generic-fixture-daily'}).status_code==200
+            assert c.post('/auth/admin/unlock',json={'password':'generic-fixture-admin'}).status_code==410
+            fresh=c.post('/external-modules/'+proxy['id']+'/launch').json()
+            assert frame.post('/__stella/bootstrap',data=fresh['fields'],headers={'Origin':'https://stella.test'},follow_redirects=False).status_code==303
             assert frame.get('/drive/openlist/api/admin/settings').status_code==200
         token=c.cookies.get('stella_at')
         assert c.post('/auth/logout').status_code==200

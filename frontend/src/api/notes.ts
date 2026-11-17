@@ -1,4 +1,39 @@
-import { api } from "./client";
+import { api, ApiError } from "./client";
+import { auth, refreshAccess } from '../modules/home/auth';
+
+// Notes deletions use owner authorization only. Never invoke the global admin
+// elevation handler, even when talking to a pre-migration server.
+async function ownerDelete<T>(path: string, method = 'DELETE', admitted: () => boolean = () => true): Promise<T> {
+  const owner = auth.me?.id, generation = auth.sessionGeneration, epoch = auth.requestEpoch;
+  const check = () => { if (!admitted() || auth.suspended || auth.sessionClosing || owner !== auth.me?.id || generation !== auth.sessionGeneration || epoch !== auth.requestEpoch) throw new DOMException('会话已改变', 'AbortError'); };
+  check();
+  let response = await fetch(path, {method, credentials:'same-origin'});
+  if (response.status === 401 && await refreshAccess()) { check(); response = await fetch(path, {method, credentials:'same-origin'}); }
+  check();
+  if (!response.ok) throw new ApiError(response.status, await response.json().then(body => body.detail).catch(() => null));
+  if (response.status === 204) return undefined as T;
+  const value = await response.json(); check(); return value;
+}
+
+export interface NotesPreferenceFields {
+  delete_action: 'trash' | 'permanent'; ask_before_delete: boolean;
+  font_size?: number; line_height?: number; read_width?: number;
+  code_line_numbers?: boolean; code_wrap?: boolean;
+  directory_sort?: 'updated' | 'title' | 'created'; hidden_folders?: string[];
+}
+export interface NotesPreferences extends NotesPreferenceFields { revision: number }
+export const getNotesPreferences = () => api<NotesPreferences>('/notes-preferences');
+export const patchNotesPreferences = (fields: Partial<NotesPreferenceFields> & {expected_revision: number}) =>
+  api<NotesPreferences>('/notes-preferences', {method:'PATCH', body:JSON.stringify(fields)});
+
+export interface TemplateCatalog {
+  root_id: string | null;
+  items: {id: string; parent_id: string | null; title: string; is_folder: boolean}[];
+  recent_ids: string[];
+}
+export const listTemplates = (workspace: string, initialize = false) => api<TemplateCatalog>(`/notes-tools/templates/${workspace}${initialize ? '/initialize' : ''}`, initialize ? {method:'POST'} : undefined);
+export const saveAsTemplate = (workspace:string, source:string) => api<Doc>(`/notes-tools/templates/${workspace}/copy/${source}`, {method:'POST'});
+export const createFromTemplate = (workspace: string, template_id: string, parent_id: string | null, title: string) => api<Doc>(`/notes-tools/templates/${workspace}/create`, {method:'POST',body:JSON.stringify({template_id,parent_id,title})});
 
 // ── 类型：对齐后端 DocumentRead ──
 export interface Doc {
@@ -15,10 +50,17 @@ export interface Doc {
   is_favorite: boolean;
   created_at: string;
   updated_at: string;
+  // Display only; never send this field as a CAS token.
+  updated_at_display?: string | null;
   // 草稿元信息
   draft_updated_at: string | null;
   draft_device: string | null;
   has_draft: boolean;
+}
+
+export interface ConsumedDraft {
+  draft_updated_at: string;
+  content_hash: string;
 }
 
 export interface Draft {
@@ -103,8 +145,8 @@ export const createWorkspace = (userId: string, name: string) =>
 export const renameWorkspace = (id: string, name: string) =>
   api<WorkspaceRead>(`/workspaces/${id}?name=${encodeURIComponent(name)}`, { method: "PUT" });
 
-export const deleteWorkspace = (id: string, force = false) =>
-  api<void>(`/workspaces/${id}?force=${force}`, { method: "DELETE" });
+export const deleteWorkspace = (id: string, force = false, admitted?: () => boolean) =>
+  api<void>(`/workspaces/${id}?force=${force}`, { method: "DELETE" }, admitted);
 
 // ── 文档接口 ──
 // 分页拉全量：目录树/缓存都需要完整列表，单一 limit 上限会在文档增长后截断
@@ -137,14 +179,30 @@ export const createDoc = (wsId: string, title: string, parentId?: string, conten
     }),
   });
 
-export const updateDoc = (id: string, updatedAt: string, fields: { title?: string; content?: string; parent_id?: string | null }) =>
-  api<Doc>(`/documents/${id}`, {
+export const updateDoc = (id: string, updatedAt: string, fields: { title?: string; content?: string; parent_id?: string | null; consumed_draft?: ConsumedDraft }) => {
+  const {consumed_draft, ...values} = fields;
+  return api<Doc>(`/documents/${id}`, {
     method: "PUT",
-    body: JSON.stringify({ updated_at: updatedAt, ...fields }),
+    body: JSON.stringify({ updated_at: updatedAt, ...values, ...(typeof values.content === 'string' && consumed_draft ? {consumed_draft} : {}) }),
   });
+};
 
-export const deleteDoc = (id: string, cascade = true) =>
-  api<void>(`/documents/${id}?cascade=${cascade}`, { method: "DELETE" });
+export interface DeletePreviewRequest {
+  workspace_id: string; doc_id?: string; mode: 'trash'|'permanent'|'empty-trash'; cascade: boolean;
+}
+export interface DeletePreview extends Omit<DeletePreviewRequest, 'doc_id'> {
+  doc_id?: string | null;
+  scope_token: string; target_ids: string[]; descendant_count: number;
+}
+export const previewDelete = (request: DeletePreviewRequest) =>
+  api<DeletePreview>('/documents/delete-preview', {method:'POST', body:JSON.stringify(request)});
+const scopeQuery = (token?: string) => token ? `&scope_token=${encodeURIComponent(token)}` : '';
+export const deleteDoc = (id: string, cascade = true, scopeToken?: string, admitted?: () => boolean) =>
+  ownerDelete<void>(`/documents/${id}?cascade=${cascade}${scopeQuery(scopeToken)}`, 'DELETE', admitted);
+
+// Existing delete contract is HTTP 204; permanent deletion keeps that shape.
+export const permanentDeleteDoc = (id: string, cascade = false, scopeToken?: string, admitted?: () => boolean) =>
+  ownerDelete<void>(`/documents/${id}/permanent?cascade=${cascade}${scopeQuery(scopeToken)}`, 'DELETE', admitted);
 
 export interface RestoreResult {
   doc: Doc;
@@ -161,8 +219,8 @@ export const listTrash = (wsId: string) =>
 export const listRecent = (wsId: string) =>
   api<Doc[]>(`/documents/recent?workspace_id=${wsId}`);
 
-export const emptyTrash = (wsId: string) =>
-  api<{ purged: number }>(`/documents/trash/empty?workspace_id=${wsId}`, { method: "POST" });
+export const emptyTrash = (wsId: string, scopeToken?: string) =>
+  ownerDelete<{ purged: number }>(`/documents/trash/empty?workspace_id=${wsId}${scopeQuery(scopeToken)}`, 'POST');
 
 export const clearAllDocs = (wsId: string) =>
   api<{ trashed: number }>(`/documents/clear-all?workspace_id=${wsId}`, { method: "POST" });
@@ -201,7 +259,7 @@ export const unifiedSearch = (q:string, workspaceId?:string, signal?:AbortSignal
 export const captureNote = (workspaceId:string,title:string,content:string,signal?:AbortSignal) => api<Doc>('/notes-tools/quick-record',{method:'POST',body:JSON.stringify({workspace_id:workspaceId,title,content}),signal});
 export const readNoteNode = (id:string,signal?:AbortSignal) => api<{node_id:number|null}>(`/notes-tools/documents/${id}/node`,{signal});
 export const setNoteNode = (id:string,nodeId:number|null,signal?:AbortSignal) => api<{node_id:number|null}>(`/notes-tools/documents/${id}/node`,{method:'PUT',body:JSON.stringify({node_id:nodeId}),signal});
-export const nodeTimeline = (nodeId:number,workspaceId?:string,signal?:AbortSignal) => api<{items:SearchItem[];has_more:boolean}>(`/timeline?node_id=${nodeId}${workspaceId?`&workspace_id=${encodeURIComponent(workspaceId)}`:''}`,{signal});
+export const nodeTimeline = (nodeId:number,workspaceId?:string,signal?:AbortSignal) => api<{items:SearchItem[];has_more:boolean;unknown_notes_present?:boolean;history_path?:string|null}>(`/timeline?node_id=${nodeId}${workspaceId?`&workspace_id=${encodeURIComponent(workspaceId)}`:''}`,{signal});
 
 export interface NoteVersion { id: string; doc_id: string; version_no: number; created_at: string }
 export const listVersions = (docId: string, signal?: AbortSignal) => api<NoteVersion[]>(`/document-versions/?doc_id=${encodeURIComponent(docId)}`, {signal});

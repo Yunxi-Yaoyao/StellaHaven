@@ -12,6 +12,7 @@
     "test:login-native-media": "node e2e/login-modal/native-media.mjs",
     "test:monitor-loading": "vitest run --config vitest.monitor-loading.config.mjs",
     "test:full": "vitest run --config vitest.full.config.mjs && node --experimental-strip-types --test src/modules/notes/richMarkdown.test.ts src/modules/servers/polling.test.ts src/modules/servers/taskWait.test.ts src/modules/servers/lazyImports.test.ts src/modules/servers/monitorStats.test.ts tests/*.test.mjs",
+    "test:documentation": "node e2e/documentation/run.mjs",
     "test:e2e": "playwright test e2e/ --workers=1",
     "test:experience": "node e2e/experience-gate/run.mjs",
     "test:background": "vitest run --config vitest.background.config.mjs && node --test tests/background-player.test.mjs",
@@ -31,7 +32,7 @@
     "@types/d3-force": "^3.0.10",
     "codemirror": "^6.0.2",
     "d3-force": "^3.0.0",
-    "dompurify": "^3.4.15",
+    "dompurify": "^3.4.17",
     "echarts": "^6.1.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
@@ -45,7 +46,7 @@
     "pixi.js": "^6.5.10",
     "three": "^0.185.1",
     "three-stdlib": "^2.36.1",
-    "vue": "^3.5.40",
+    "vue": "^3.5.44",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
@@ -59,5 +60,19 @@
     "vite": "^8.2.0",
     "vitest": "^3.2.4",
     "vue-tsc": "^3.3.8"
+  },
+  "overrides": {
+    "pixi-live2d-display@^0.4.0": {
+      "gh-pages": "5.0.0"
+    },
+    "mermaid": {
+      "katex": "0.18.2"
+    },
+    "url@0.11.4": {
+      "qs": "6.16.1"
+    },
+    "opencollective@1.0.3": {
+      "minimist": "1.2.8"
+    }
   }
 }

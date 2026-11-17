@@ -21,6 +21,8 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 import app.models
+import app.models.native_nav
+import app.models.node_file
 
 # target_metadata = mymodel.Base.metadata
 target_metadata = Base.metadata

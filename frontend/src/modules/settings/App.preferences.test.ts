@@ -1,0 +1,46 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {createApp,nextTick,ref,type App} from 'vue';
+import {createMemoryHistory,createRouter} from 'vue-router';
+vi.mock('../../shell/SideBar.vue',()=>({default:{template:'<button @click="$emit(\'toggle\')">sidebar</button>'}}));
+vi.mock('../../shell/AdminElevationModal.vue',()=>({default:{render:()=>null}}));
+vi.mock('../../shell/ExternalModuleCache.vue',()=>({default:{render:()=>null}}));
+vi.mock('../../shell/LazyCommandPalette.vue',()=>({default:{render:()=>null}}));
+vi.mock('../auth/loginStatus',()=>({refreshLoginStatus:vi.fn()}));
+vi.mock('../../stores/navigation',()=>({navigationRows:ref([]),loadNavigation:vi.fn(),resetNavigation:vi.fn()}));
+vi.mock('../../stores/notes',()=>({useNotesStore:()=>({resetSession:vi.fn()})}));
+vi.mock('../../stores/notifications',()=>({startNotifications:vi.fn(),stopNotifications:vi.fn()}));
+vi.mock('../home/auth',async()=>{const {reactive,computed}=await import('vue');const auth=reactive({me:{id:'alice'},sessionGeneration:1,requestEpoch:1,suspended:false,sessionClosing:false,checked:true});return {auth,loggedIn:computed(()=>!!auth.me&&!auth.suspended),fetchMe:vi.fn(async()=>true),reportActivity:vi.fn(),loadSecurity:vi.fn(async()=>{}),clearSecurity:vi.fn(),refreshAccess:vi.fn(async()=>false)};});
+import Root from '../../App.vue';
+import {toast,toasts} from '../../composables/useToast';
+import {homeSettings} from '../home/settings';
+import {defaultClientPreferences} from './clientPreferenceContract';
+import {clientPreferenceSync} from './clientPreferenceSync';
+let app:App|undefined;
+afterEach(()=>{toasts.splice(0);app?.unmount();app=undefined;document.body.innerHTML='';localStorage.clear();vi.unstubAllGlobals();vi.useRealTimers();});
+const settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve();await nextTick();};
+it('App presents the shared notification once in a polite global region and removes it after expiry',async()=>{
+ vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify(defaultClientPreferences()))));
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',name:'home',component:{render:()=>null},meta:{public:true}}]});await router.push('/');await router.isReady();
+ const root=document.createElement('div');document.body.append(root);app=createApp(Root).use(router);app.mount(root);await settle();
+ toast('资料已确认');await nextTick();expect(root.querySelector('.toast-stack')?.getAttribute('aria-live')).toBe('polite');
+ expect(root.querySelectorAll('.toast')).toHaveLength(1);expect(root.querySelector('.toast')?.textContent).toBe('资料已确认');
+ await vi.advanceTimersByTimeAsync(3000);await settle();expect(root.querySelectorAll('.toast')).toHaveLength(0);
+});
+it('marks only embedded website routes for the full-width mobile content surface',async()=>{
+  vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify(defaultClientPreferences()))));
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',name:'home',component:{render:()=>null}},{path:'/apps/:id',name:'external-module',component:{render:()=>null}},{path:'/notes',name:'notes',component:{render:()=>null}}]});await router.push('/apps/isolated-immich');await router.isReady();
+  const root=document.createElement('div');document.body.append(root);app=createApp(Root).use(router);app.mount(root);await settle();
+  expect(document.querySelector('main.content')?.classList.contains('external-content')).toBe(true);
+  await router.push('/notes');await settle();expect(document.querySelector('main.content')?.classList.contains('external-content')).toBe(false);
+  await router.push('/');await settle();expect(document.querySelector('main.content')?.classList.contains('external-content')).toBe(false);
+});
+it('App starts ordinary preference HTTP sync and exposes background failure with a working retry outside the backup page',async()=>{
+  vi.useFakeTimers();Object.assign(homeSettings,defaultClientPreferences().home);let remote=defaultClientPreferences(),fail=false;const calls:string[]=[];
+  vi.stubGlobal('fetch',vi.fn(async(path:string,options:RequestInit={})=>{calls.push((options.method||'GET')+' '+path);if(fail)return new Response('{"detail":"fixture offline"}',{status:503});if(options.method==='PUT'){const {expected_revision,...value}=JSON.parse(String(options.body));remote={...value,revision:expected_revision+1};}return new Response(JSON.stringify(remote));}));
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',name:'home',component:{template:'<div>home</div>'},meta:{public:true}}]});await router.push('/');await router.isReady();
+  const root=document.createElement('div');document.body.append(root);app=createApp(Root).use(router);app.mount(root);await settle();
+  await clientPreferenceSync.ensureConfirmed();expect(calls).toContain('PUT /operations/backups/client-preferences');expect(calls).not.toContain('POST /operations/backups');
+  fail=true;homeSettings.siteTitle='失败仍保留';await vi.advanceTimersByTimeAsync(600);await settle();
+  const alert=document.querySelector('[data-client-preferences][role="alert"]');expect(alert).not.toBeNull();expect(alert!.textContent).toContain('本机输入已保留');
+  fail=false;const retry=[...alert!.querySelectorAll('button')].find(b=>b.textContent==='重试偏好同步')!;expect(retry).toBeDefined();retry.click();await settle();await clientPreferenceSync.ensureConfirmed();await nextTick();expect(remote.home.siteTitle).toBe('失败仍保留');expect(document.querySelector('[data-client-preferences][role="alert"]')).toBeNull();
+});

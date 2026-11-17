@@ -63,7 +63,9 @@ export interface ImportPayload {
 export async function runImportBatch(
   rows: ImportRow[], target: ImportTarget, existingTitles: string[],
   create: (payload: ImportPayload) => Promise<{ id: string }>,
+  check: () => void = () => {},
 ): Promise<void> {
+  check();
   const destination = { ...target };
   const used = new Set([...existingTitles, ...rows.flatMap(row => row.payload ? [row.payload.title] : [])]);
   const pending = rows.filter(row => row.status === 'ready' || row.status === 'failed');
@@ -80,15 +82,21 @@ export async function runImportBatch(
     row.title = title;
   }
   for (const row of pending) {
+    check();
     row.status = 'importing';
     row.error = '';
     try {
+      check();
       const result = await create({ ...row.payload! });
+      check();
       row.documentId = result.id;
       row.status = 'success';
     } catch (error) {
       row.status = 'failed';
       row.error = error instanceof Error ? error.message : '导入失败';
+      // An unknown receipt retains the exact payload/key, but cannot resume this loop.
+      check();
+      if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') throw error;
     }
   }
 }

@@ -1,0 +1,41 @@
+{
+  "database_timezone": "UTC",
+  "pg_epoch": 1792131161.088732,
+  "expected": [
+    "6a978cf3-4cdc-42ab-a3c0-ea9c8e7cab36",
+    "87f44d56-e06b-4a45-9cd3-c196d9c553cb"
+  ],
+  "actual": [
+    "6a978cf3-4cdc-42ab-a3c0-ea9c8e7cab36",
+    "87f44d56-e06b-4a45-9cd3-c196d9c553cb"
+  ],
+  "rows": [
+    {
+      "kind": "note_updated",
+      "id": "6a978cf3-4cdc-42ab-a3c0-ea9c8e7cab36",
+      "label": "later create",
+      "ts": "2026-10-16T06:12:40.932627+00:00",
+      "node_id": 1,
+      "path": "/notes?doc=6a978cf3-4cdc-42ab-a3c0-ea9c8e7cab36",
+      "state": null
+    },
+    {
+      "kind": "note_updated",
+      "id": "87f44d56-e06b-4a45-9cd3-c196d9c553cb",
+      "label": "earlier save",
+      "ts": "2026-10-16T06:12:40.919193+00:00",
+      "node_id": 1,
+      "path": "/notes?doc=87f44d56-e06b-4a45-9cd3-c196d9c553cb",
+      "state": null
+    }
+  ],
+  "http_epochs": [
+    1792131160.9029467,
+    1792131160.9246633,
+    1792131160.9366133
+  ],
+  "raw_updated_at": [
+    "2026-10-16T14:12:40.917770",
+    "2026-10-16T06:12:40.927501"
+  ]
+}

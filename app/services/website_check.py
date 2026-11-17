@@ -38,11 +38,14 @@ def safe_address(value):
     if not (ip.is_global or ip.is_loopback or private): raise ValueError('禁止特殊用途/保留网络')
     return value
 
-class CheckInput(BaseModel):
+from app.services.website_mapping import WebsiteMappingInput
+
+class CheckInput(WebsiteMappingInput):
     model_config = ConfigDict(extra='forbid')
     address: str = Field(min_length=1, max_length=2048)
     open_behavior: Literal['embedded', 'external'] = 'embedded'
     custom_enabled: bool = False
+    website_type: Literal['openlist', 'immich'] | None = None
     connection: ConnectionInput | None = None
     module_id: str | None = Field(default=None, pattern=r'^[0-9a-f]{32}$')
 
@@ -52,9 +55,25 @@ class Document(HTMLParser):
         self.in_title = False
         self.title = ''
         self.meta_csp = False
+        self.software_hints = []
+
+    @property
+    def software(self):
+        # Display/compatibility hint only, never authorization or policy evidence.
+        kinds = {value for _, value in self.software_hints}
+        if len(kinds) == 1:
+            key, value = self.software_hints[0]
+            return dict(type=value, source='html:' + key)
+        return dict(type='unknown', source=None)
 
     def handle_starttag(self, tag, attrs):
         if tag == 'title': self.in_title = True
+        if tag == 'meta':
+            values = dict(attrs)
+            name = (values.get('name') or '').lower()
+            value = (values.get('content') or '').strip().lower()
+            if name in {'generator', 'application-name'} and value in {'openlist', 'immich'}:
+                self.software_hints.append((name, value))
         if tag == 'meta' and (dict(attrs).get('http-equiv') or '').strip().lower() == 'content-security-policy': self.meta_csp = True
 
     def handle_endtag(self, tag):
@@ -62,6 +81,17 @@ class Document(HTMLParser):
 
     def handle_data(self, data):
         if self.in_title: self.title += data
+
+def appearance_compatibility(site, parent_origin):
+    """Only our background bridge; never replace native login/binding or navigation."""
+    if site != 'openlist': return None
+    import json
+    from app.services.openlist_compat import BACKGROUND_JS
+    from app.services.openlist_appearance import BACKGROUND_CSS
+    return dict(enabled=True, css=BACKGROUND_CSS,
+                js=BACKGROUND_JS.replace('const parentOrigins=[location.origin]', 'const parentOrigins=' + json.dumps([parent_origin])),
+                timing='document_start')
+
 
 def origin(url):
     p = urlsplit(url)
@@ -227,8 +257,11 @@ async def _check_draft(incoming: CheckInput, *, parent_origin: str, evidence=Non
                 issues = [] if access == 'reachable' else ['服务器返回认证/拒绝或错误响应；不能确认原站登录与浏览器内容']
                 if embedding['status'] != 'allowed': issues.append(embedding['reason'])
                 if evidence is not None: evidence.update(allowed_ips=addresses,upstream_url=root)
+                software = document.software if html and text_valid and http_status == 200 and origin(url) == origin(normalized) else dict(type='unknown', source=None)
+                compatibility_type = software['type'] if software['type'] != 'unknown' else incoming.website_type
                 return dict(normalized_url=normalized, name_suggestion=' '.join(document.title.split())[:100] or urlsplit(normalized).hostname,
                             access=dict(status=access, http_status=http_status), embedding=embedding,
+                            software=software, compatibility=appearance_compatibility(compatibility_type, parent_origin) if supported else None,
                             injection=dict(status=('supported' if loader_seen else 'loader_required') if loader else ('supported' if supported else 'unsupported'), reason=('已观察到模块加载器，浏览器状态仍未验证' if loader_seen else '需在原站安装此模块的经典脚本加载器；可先保存代码') if loader else '匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证' if supported else '原站策略、认证、响应类型或跨站跳转不支持安全注入；不自动清除 CSP'),
                             help=frame_help(normalized) if embedding['status'] != 'allowed' else None,
                             can_save=can_save, recommended_behavior='external' if embedding['status'] != 'allowed' else incoming.open_behavior, issues=issues)
@@ -261,7 +294,11 @@ async def check_saved_draft(db, incoming, *, parent_origin):
     config=store.state(db)
     before=copy.deepcopy(config['modules'].get(incoming.module_id)) if incoming.module_id else None
     if incoming.module_id and before is None: raise HTTPException(404,'模块不存在')
+    from app.services.website_mapping import prepare_alternate, mapping_values
+    _, alternate, _ = mapping_values(incoming,before)
     target=copy.deepcopy(config['targets'].get(before.get('target_id'))) if before else None
+    binding=(before or {}).get('alternate_binding')
+    alternate_target=copy.deepcopy(config['targets'].get(binding.get('target_id'))) if isinstance(binding,dict) else None
     connection=incoming.connection or effective_connection(before,target)
     if connection.auth_mode == 'header' and incoming.open_behavior == 'external':
         raise HTTPException(422,'凭据头认证需要隔离代理嵌入；外部打开请使用原站登录')
@@ -270,12 +307,36 @@ async def check_saved_draft(db, incoming, *, parent_origin):
     pin=target if target and (preserve or (headers and connection.token is None and not connection.clear_token)) else None
     address=target['upstream_url'].rstrip('/')+before.get('initial_path','/') if preserve else incoming.address
     db.rollback()
-    result=await check_draft(incoming.model_copy(update={'connection':connection,'address':address}),parent_origin=parent_origin,credential_headers=headers,approved_target=pin)
+    probe_connection=connection
+    if incoming.open_behavior=='embedded' and connection.transport=='auto' and connection.injection_delivery=='proxy' and urlsplit(incoming.address).scheme=='http' and urlsplit(parent_origin).scheme=='https':
+        probe_connection=connection.model_copy(update={'transport':'proxy'})
+    # Match save_website's retained same-identity proxy without persisting a new
+    # preference or overriding explicit direct/loader choices.
+    if incoming.open_behavior=='embedded' and connection.transport=='auto' and connection.injection_delivery=='proxy' and before and before.get('mode')=='isolated_proxy':
+        try: same_identity=origin(before['browser_url'])==origin(normalize_url(incoming.address))
+        except (ValueError,HTTPException): same_identity=False
+        if same_identity: probe_connection=connection.model_copy(update={'transport':'proxy'})
+    result=await check_draft(incoming.model_copy(update={'connection':probe_connection,'address':address}),parent_origin=parent_origin,credential_headers=headers,approved_target=pin)
     if preserve: result['normalized_url']=normalize_url(incoming.address)
+    from app.services.entry_registry import records
+    if alternate and result['can_save']:
+        alternate_parent = records()['stella'].get('private',parent_origin)
+        if probe_connection.transport=='proxy' or connection.auth_mode=='header' or incoming.custom_enabled:
+            try:
+                await prepare_alternate(alternate,connection,before,alternate_target,parent_origin=alternate_parent,custom_enabled=incoming.custom_enabled,name=None)
+            except HTTPException as exc:
+                detail = exc.detail
+                reason = detail['check']['embedding']['reason'] if isinstance(detail,dict) and 'check' in detail else str(detail)
+                result.update(can_save=False,issues=result['issues']+['其他入口：'+reason])
+        else:
+            other = await check_draft(incoming.model_copy(update={'address':alternate,'connection':probe_connection}),parent_origin=alternate_parent)
+            if not other['can_save']: result.update(can_save=False,issues=result['issues']+['其他入口：'+other['embedding']['reason']])
     if before:
         after=store.state(db)
-        if after['modules'].get(incoming.module_id)!=before or (target and after['targets'].get(target['id'])!=target):
+        if after['modules'].get(incoming.module_id)!=before or (target and after['targets'].get(target['id'])!=target) or (alternate_target and after['targets'].get(alternate_target['id'])!=alternate_target):
             db.rollback()
             raise HTTPException(409,'检测期间网站或凭据已变更，请重新读取')
+    if alternate and 'alternate_address' in incoming.model_fields_set:
+        result['alternate_normalized_url'] = normalize_url(alternate)
     db.rollback()
     return result

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models.workspace import Workspace
 from app.schemas.workspace import WorkspaceCreate
+from app.services.notes_lifecycle import lock_graph, locked_tree, rollback_on_error
 
 def get_by_id(db: Session, ws_id: UUID) -> Workspace | None:
     """按 ID 查一个 workspace，找不到返回 None"""
@@ -32,6 +33,7 @@ def rename(db: Session, ws_id: UUID, name: str) -> Workspace | None:
     return ws
 
 
+@rollback_on_error
 def delete(db: Session, ws_id: UUID, force: bool = False) -> str:
     """删除工作区（老婆 8.10 定稿规则）：
     - 有正常笔记且不 force → not_empty（前端弹提醒+二次确认）
@@ -39,21 +41,31 @@ def delete(db: Session, ws_id: UUID, force: bool = False) -> str:
     - force=True → 连同所有笔记（正常+回收站）一起物理删除，再删工作区
     """
     from app.models.document import Document
+    lock_graph(db)
     ws = get_by_id(db, ws_id)
     if ws is None:
         return "not_found"
-    q = db.query(Document).filter(Document.workspace_id == ws_id)
-    active = q.filter(Document.deleted_at.is_(None)).count()
-    trashed = q.filter(Document.deleted_at.isnot(None)).count()
+    docs = list(locked_tree(db, ws_id).values())
+    active = sum(doc.deleted_at is None for doc in docs)
+    trashed = len(docs) - active
     if active > 0 and not force:
         return "not_empty"
     if active == 0 and trashed > 0 and not force:
         return "has_trash"
     if active + trashed > 0:
         # force：笔记连工作区一起永久删除（连带标签/双链/版本/附件清理）
-        from app.services.document import _physical_delete
-        for d in q.all():
-            _physical_delete(db, d)
+        from app.services.document import _delete_set
+        # The protected template root belongs to this workspace's lifetime.
+        # Remove its identity in the same transaction, not the ordinary note
+        # protection globally; any later lifecycle conflict rolls this back.
+        from app.models.config import AppConfig
+        from app.services.notes_templates import PREFIX
+        db.query(AppConfig).filter(AppConfig.key.in_([
+            PREFIX + str(ws_id), 'notes-template-usage:' + str(ws_id),
+        ])).delete(synchronize_session='fetch')
+        _delete_set(db, docs)
     db.delete(ws)
     db.commit()
+    from app.services.attachment_lifecycle import drain_file_gc
+    drain_file_gc(db)
     return "deleted"

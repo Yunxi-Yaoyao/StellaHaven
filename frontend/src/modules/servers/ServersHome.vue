@@ -9,6 +9,10 @@ const NodesView = defineAsyncComponent(() => import("./NodesView.vue"));
 const RecordsView = defineAsyncComponent(() => import("./RecordsView.vue"));
 const DockerView = defineAsyncComponent(() => import("./DockerView.vue"));
 const AlertsView = defineAsyncComponent(() => import("./AlertsView.vue"));
+const NodeFilesView = defineAsyncComponent(() => import("./NodeFilesView.vue"));
+import {auth} from '../home/auth';
+const filesActive = computed(() => !!auth.me && !auth.suspended && !auth.sessionClosing);
+const filesScope = computed(() => `${auth.me?.id}:${auth.sessionGeneration}:${auth.requestEpoch}`);
 
 const route = useRoute();
 const view = computed(() => (route.query.view as string) || "nodes");
@@ -25,6 +29,7 @@ const presetNode = computed(() => {
   <NodesView v-else-if="view === 'nodes'" />
   <DockerView v-else-if="view === 'docker'" />
   <AlertsView v-else-if="view === 'alerts'" />
+  <template v-else-if="view === 'files'"><NodeFilesView v-if="filesActive" :key="filesScope" :scope-key="filesScope" /></template>
   <RecordsView v-else-if="tool === 'records'" :preset-node="presetNode" />
   <ToolsView v-else :tool="tool" :preset-node="presetNode" />
 </template>

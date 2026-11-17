@@ -1,0 +1,49 @@
+/* Explicit variants: HTML type controls submission, never visual priority. */
+.st-button {
+  position:relative; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  flex:0 0 auto; width:auto; max-width:100%; min-width:0; min-height:32px;
+  padding:5px 10px; border:1px solid var(--control-border,var(--accent-dim)); border-radius:6px;
+  background:var(--control-bg,var(--bg-panel)); color:var(--text-hi);
+  font:500 14px/20px var(--font-ui); text-align:center; white-space:normal; overflow-wrap:anywhere;
+  cursor:pointer; touch-action:manipulation;
+  transition:background-color .14s, border-color .14s, color .14s;
+}
+.st-button:hover:not(:disabled,[aria-disabled=true]) { background:var(--control-hover,var(--bg-raised)); border-color:var(--accent); }
+.st-button:active:not(:disabled,[aria-disabled=true]) { transform:translateY(1px); }
+.st-button.is-primary { background:linear-gradient(170deg,var(--button-top),var(--button-bottom)); border-color:var(--button-border); color:var(--button-text,var(--text-hi)); }
+.st-button.is-primary:hover:not(:disabled,[aria-disabled=true]) { background:linear-gradient(170deg,var(--button-bottom),var(--button-top)); border-color:var(--accent); }
+.st-button.is-ghost { background:transparent; border-color:transparent; color:var(--text-lo); }
+.st-button.is-danger { background:transparent; border-color:var(--danger); color:var(--danger); }
+.st-button.is-danger:hover:not(:disabled,[aria-disabled=true]) { background:color-mix(in srgb,var(--danger) 12%,var(--bg-panel)); border-color:var(--danger); }
+.st-button.is-icon { width:32px; height:32px; min-height:32px; padding:7px; line-height:1; }
+.st-button > svg { width:16px; height:16px; flex:none; }
+.st-button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.st-button:is(:disabled,[aria-disabled=true]) { color:var(--text-lo); cursor:not-allowed; filter:saturate(.5); }
+/* Keep the original label in flow, so busy states never change geometry. */
+.st-button[aria-busy=true] > .st-button-label { visibility:hidden; }
+.st-button[aria-busy=true]::after { content:''; position:absolute; width:14px; height:14px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:st-button-spin .8s linear infinite; }
+/* Stable shared row protocol: form width and scene centering are independent. */
+.st-setting-row { display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr);align-items:start;gap:12px 24px;padding-block:14px;min-width:0; }
+.st-setting-label { display:flex;align-items:center;gap:6px;min-height:38px;font-size:14px; }
+.st-setting-field { width:min(100%,340px);min-width:0; }
+.st-setting-field.is-wide { width:min(100%,44rem); }
+.st-setting-field.is-full { width:100%; }
+.st-setting-field :is(input:not([type=checkbox],[type=radio]),textarea,select) { width:100%;min-width:0;box-sizing:border-box; }
+.st-setting-actions { display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+@media(max-width:768px) { .st-setting-row { grid-template-columns:minmax(0,1fr);gap:6px; }.st-setting-field { width:100%; } }
+@keyframes st-button-spin { to { transform:rotate(360deg); } }
+@media(max-width:768px) {
+  /* Separate the 44px hit target from its compact painted face; never overlap neighbors. */
+  .st-button,.st-button:hover:not(:disabled,[aria-disabled=true]),.st-button:is(.is-primary,.is-danger,.is-ghost):hover:not(:disabled,[aria-disabled=true]) { isolation:isolate; min-height:44px; padding:12px 10px; border:0; background:transparent; box-shadow:none; }
+  .st-button::before { content:''; position:absolute; inset:6px 0; z-index:-1; pointer-events:none; border:1px solid var(--control-border,var(--accent-dim)); border-radius:6px; background:var(--control-bg,var(--bg-panel)); }
+  .st-button:hover:not(:disabled,[aria-disabled=true])::before { background:var(--control-hover,var(--bg-raised)); border-color:var(--accent); }
+  .st-button.is-primary { background:transparent; }
+  .st-button.is-primary::before { background:linear-gradient(170deg,var(--button-top),var(--button-bottom)); border-color:var(--button-border); }
+  .st-button.is-primary:hover:not(:disabled,[aria-disabled=true])::before { background:linear-gradient(170deg,var(--button-bottom),var(--button-top)); }
+  .st-button.is-ghost::before { background:transparent; border-color:transparent; }
+  .st-button.is-danger::before { background:transparent; border-color:var(--danger); }
+  .st-button.is-danger:hover:not(:disabled,[aria-disabled=true])::before { background:color-mix(in srgb,var(--danger) 12%,var(--bg-panel)); }
+  .st-button.is-icon { width:44px; height:44px; min-height:44px; padding:0; }
+  .st-button.is-icon::before { inset:6px; }
+}
+@media(prefers-reduced-motion:reduce) { .st-button { transition:none; }.st-button[aria-busy=true]::after { animation:none; } }

@@ -9,6 +9,20 @@ __pycache__
 data/
 frontend/node_modules
 frontend/dist
+# Private local context and installer/test caches must not enter any COPY layer.
+**/node_modules
+**/.env
+**/.env.*
+**/.npmrc
+**/.cache
+**/.npm
+**/.ssh
+**/.credentials
+**/.pytest_cache
+**/.mypy_cache
+**/__pycache__
+**/*.pyc
+**/.ruff_cache
 *.pyc
 .github
 docs

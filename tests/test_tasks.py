@@ -30,10 +30,12 @@ def _mk_iperf(client, server_node_id, client_node_id):
 
 
 def _finish_iperf(client, task_id, token, server_token):
-    """按真实领取顺序完成任务，不能跳过pending直接回传结果。"""
+    """按真实领取顺序提交完整合法测量；不能用空结果假称完成。"""
     client.get(f"/agent/tasks?token={server_token}")
     client.get(f"/agent/tasks?token={token}")
-    assert client.post(f"/agent/iperf-tasks/{task_id}/result?token={token}&status=done", json={}).status_code == 200
+    assert client.post(f"/agent/iperf-tasks/{task_id}/result?token={token}&status=done",
+        json={"sum_sent": {"bits_per_second": 900000000, "bytes": 1125000000, "seconds": 10}}).status_code == 200
+    assert client.get(f"/iperf-tasks/{task_id}").json()["status"] == "done"
 
 
 def test_create_iperf_task(client):
@@ -58,7 +60,7 @@ def test_iperf_concurrency_limit(client):
     _finish_iperf(client, t1["id"], c["token"], server["token"])
 
 
-def test_agent_poll_and_finish_iperf(client):
+def test_agent_poll_and_finish_iperf(client, db_session):
     """agent 领取打流任务 → 回传结果 → 状态 pending→running→done"""
     server = _mk_node(client, net_type="public")
     c = _mk_node(client)
@@ -73,13 +75,51 @@ def test_agent_poll_and_finish_iperf(client):
     task = next(x for x in polled["iperf_tasks"] if x["id"] == t["id"])
     assert task["mode"] == "iperf3"
     assert "server_host" in task
+    payload = {"sum_sent": {"bits_per_second": 900000000, "bytes": 1125000000, "seconds": 10}}
+    path = f"/agent/iperf-tasks/{t['id']}/result"
+    # Authentication and role ownership precede payload validation.
+    assert client.post(path + "?token=bad&status=done", json=payload).status_code == 401
+    assert client.post("/agent/iperf-tasks/999999/result?token=bad&status=done", json=payload).status_code == 401
+    assert client.post(f"/agent/iperf-tasks/999999/result?token={c['token']}&status=done", json=payload).status_code == 404
+    assert client.post(path + f"?token={server['token']}&status=done", json=payload).status_code == 403
+    assert client.post(path + f"?token={c['token']}&status=done", json=payload | {"role": "server"}).status_code == 403
+    # An authorized server result is auxiliary, never the client's completion.
+    assert client.post(path + f"?token={server['token']}&status=done", json={"role": "server"}).status_code == 200
+    assert client.get(f"/iperf-tasks/{t['id']}").json()["status"] == "running"
     # 回传结果
     assert client.post(f"/agent/iperf-tasks/{t['id']}/result?token={c['token']}&status=done",
-                       json={"sum_sent": {"bits_per_second": 900000000}}).status_code == 200
+                       json={"sum_sent": {"bits_per_second": 900000000,
+                                          "bytes": 1125000000, "seconds": 10}}).status_code == 200
     # 列表里状态是 done
     tasks = {x["id"]: x for x in client.get("/iperf-tasks").json()}
     assert tasks[t["id"]]["status"] == "done"
     assert tasks[t["id"]]["result_json"] is not None
+    assert tasks[t["id"]]["result_json"]["sum_sent"] == payload["sum_sent"]
+    from sqlalchemy.orm import Session
+    from app.models.task import IperfTask
+    with Session(db_session.get_bind()) as fresh:
+        persisted = fresh.get(IperfTask, t["id"])
+        assert persisted.status == "done" and persisted.result_json["sum_sent"] == payload["sum_sent"]
+    assert client.post(path + f"?token={c['token']}&status=done", json=payload).status_code == 409
+
+
+def test_incomplete_iperf_measurement_persists_failed(client, db_session):
+    from sqlalchemy.orm import Session
+    from app.models.task import IperfTask
+    server = _mk_node(client, net_type="public")
+    c = _mk_node(client)
+    t = _mk_iperf(client, server["id"], c["id"])
+    client.get(f"/agent/tasks?token={server['token']}")
+    client.get(f"/agent/tasks?token={c['token']}")
+    bad = {"sum_sent": {"bits_per_second": 900000000}}
+    assert client.post(f"/agent/iperf-tasks/{t['id']}/result?token={c['token']}&status=done", json=bad).status_code == 200
+    result = client.get(f"/iperf-tasks/{t['id']}").json()
+    assert result["status"] == "failed" and result["result_json"]["error"]
+    with Session(db_session.get_bind()) as fresh:
+        persisted = fresh.get(IperfTask, t["id"])
+        assert persisted.status == "failed"
+        assert persisted.result_json["sum_sent"] == bad["sum_sent"]
+        assert persisted.result_json["error"]
 
 
 def test_agent_poll_mtr_and_command(client):

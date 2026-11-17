@@ -1,0 +1,74 @@
+[
+  {
+    "commit": "725d2e73bfb35df7e3290cd6fc74d62799da7426",
+    "file": "agent/install.sh",
+    "fixture": "agent__install.sh.gz",
+    "size": 15080,
+    "sha256": "4bc88965cc990261fc94c81777c1572de6c76ea5372101e9c7952f61fadbf130",
+    "git_blob": "9659915e0a26c1851438a3d7ef778f46fab1f935"
+  },
+  {
+    "commit": "725d2e73bfb35df7e3290cd6fc74d62799da7426",
+    "file": "agent/node_files.py",
+    "fixture": "agent__node_files.py.gz",
+    "size": 20523,
+    "sha256": "00b1521ff5be4afbd25967fcb9e1bfb05f64afa302edc69fc955d39b9403b500",
+    "git_blob": "88ac8cd1d5d5cb4086c5d1365f04f3f20e8613bc"
+  },
+  {
+    "commit": "725d2e73bfb35df7e3290cd6fc74d62799da7426",
+    "file": "agent/stella_agent.py",
+    "fixture": "agent__stella_agent.py.gz",
+    "size": 233494,
+    "sha256": "728b859c92039c67a23243b87f91ffda5789cf2236120d1ead9b52c9a9031126",
+    "git_blob": "b581a57384183a17195d5d0711eae65e30f9955a"
+  },
+  {
+    "commit": "725d2e73bfb35df7e3290cd6fc74d62799da7426",
+    "file": "app/routers/monitor.py",
+    "fixture": "app__routers__monitor.py.gz",
+    "size": 34906,
+    "sha256": "30bd86ea0e39046ed450511c903601e981d05b2d7b2be0848c4ddb761d36a56d",
+    "git_blob": "a23c50233b55d603d7d5def81f0c8ac842980bda"
+  },
+  {
+    "commit": "725d2e73bfb35df7e3290cd6fc74d62799da7426",
+    "file": "app/routers/node_files.py",
+    "fixture": "app__routers__node_files.py.gz",
+    "size": 13352,
+    "sha256": "a4108c631f1c9660ddd24201eaa28c834bb18af4af534403ee722645490653b3",
+    "git_blob": "5814e3c4357048a24f88be50883d31ce5ce7d811"
+  },
+  {
+    "commit": "725d2e73bfb35df7e3290cd6fc74d62799da7426",
+    "file": "app/schemas/node_file.py",
+    "fixture": "app__schemas__node_file.py.gz",
+    "size": 2719,
+    "sha256": "2f087e1c9e369b8e49be08d710b714bce00cc4569212b2009213c7c4cc32f9e0",
+    "git_blob": "aa3998fa3c700dace108014e9644cf84480deb06"
+  },
+  {
+    "commit": "725d2e73bfb35df7e3290cd6fc74d62799da7426",
+    "file": "app/services/node_files.py",
+    "fixture": "app__services__node_files.py.gz",
+    "size": 7354,
+    "sha256": "3626e4980b077da8d58464aecb71366188d11836036e5df38d7923f358373b20",
+    "git_blob": "a2de1820fc5977962cfcae17131493a0370a21be"
+  },
+  {
+    "commit": "fa44f76715beb1f117149311f625de4d15dfda16",
+    "file": "app/api_response_contracts.py",
+    "fixture": "app__api_response_contracts.py.gz",
+    "size": 93043,
+    "sha256": "271d5076328641598037c02d196392c5f23e17ce3b85ab7557999ac10b1f95df",
+    "git_blob": "df43634cc9d1a04db7590892eb1d8ce2354a30ba"
+  },
+  {
+    "commit": "fa44f76715beb1f117149311f625de4d15dfda16",
+    "file": "app/openapi_contract.py",
+    "fixture": "app__openapi_contract.py.gz",
+    "size": 17410,
+    "sha256": "7b682fc92fdf4fa45b66fcae2dd78e080c335c647e9a6e60fd0b5bd8279aed8a",
+    "git_blob": "8aa551d788d9e229ef3689a804634879c5d3ed20"
+  }
+]

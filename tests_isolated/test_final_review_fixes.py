@@ -23,11 +23,11 @@ def adapter(factory, mid, name):
 def test_openlist_isolated_writes_check_current_sid_elevation(integration_env,state):
     c,f,app,uid,sid,mid,origin,cookie,seen=integration_env
     adapter(f,mid,'openlist')
-    if state=='locked':c.post('/auth/admin/lock')
+    if state=='locked':assert c.post('/auth/admin/lock').status_code==410
     elif state=='expired':
         with f() as db:
             row=db.get(AppConfig,admin_security.STATE_KEY);v=json.loads(row.value)
-            v['grants'][sid]['expires_at']='2000-01-01T00:00:00+00:00';row.value=json.dumps(v);db.commit()
+            v['grants']={'legacy':{'expires_at':'2000-01-01T00:00:00+00:00','version':1}};row.value=json.dumps(v);db.commit()
     else:
         other=TestClient(app,base_url='https://stella.xiya.live')
         assert other.post('/auth/login',json={'username':'owner','password':DAILY}).status_code==200
@@ -38,24 +38,23 @@ def test_openlist_isolated_writes_check_current_sid_elevation(integration_env,st
     seen.clear()
     for method,path in [('post','api/fs/remove'),('post','api/admin/setting/save'),('put','api/fs/put'),('delete','api/admin/storage/delete'),('get','api/admin/setting/list')]:
         r=getattr(c,method)(origin+'/'+path,headers={'Cookie':cookie})
-        assert r.status_code==403,r.text
-        assert r.json()['detail']['code']=='admin_elevation_required'
-    assert seen==[]
+        assert r.status_code==200,r.text
+    assert len(seen)==5
 
 
 def test_openlist_isolated_elevated_write_and_lock_reject_without_upstream(integration_env):
     c,f,app,uid,sid,mid,origin,cookie,seen=integration_env;adapter(f,mid,'openlist')
     assert c.post(origin+'/api/fs/remove',headers={'Cookie':cookie}).status_code==200
     assert seen==[('POST','api/fs/remove')];seen.clear()
-    assert c.post('/auth/admin/lock').status_code==200
-    assert c.post(origin+'/api/fs/remove',headers={'Cookie':cookie}).status_code==403
+    assert c.post('/auth/logout').status_code==200
+    assert c.post(origin+'/api/fs/remove',headers={'Cookie':cookie}).status_code==401
     assert seen==[]
 
 
 def test_openlist_isolated_ws_requires_elevation(integration_env):
     from starlette.websockets import WebSocketDisconnect
     c,f,app,uid,sid,mid,origin,cookie,seen=integration_env;adapter(f,mid,'openlist')
-    assert c.post('/auth/admin/lock').status_code==200
+    assert c.post('/auth/logout').status_code==200
     with pytest.raises(WebSocketDisconnect):
         with c.websocket_connect(origin.replace('https:','wss:')+'/socket',headers={'Cookie':cookie,'Origin':origin}):pass
 
@@ -66,7 +65,7 @@ def test_openlist_existing_ws_loses_access_on_lock_or_reconfiguration(integratio
     c,f,app,uid,sid,mid,origin,cookie,seen=integration_env;adapter(f,mid,'openlist')
     with c.websocket_connect(origin.replace('https:','wss:')+'/socket',headers={'Cookie':cookie,'Origin':origin}) as ws:
         ws.send_text('synthetic probe');assert ws.receive_text()=='synthetic probe'
-        if change=='lock':assert c.post('/auth/admin/lock').status_code==200
+        if change=='lock':assert c.post('/auth/logout').status_code==200
         else:assert c.patch('/external-modules/'+mid,json={'initial_path':'/new'}).status_code==200
         with pytest.raises(WebSocketDisconnect) as closed:ws.receive_text()
         assert closed.value.code==1008

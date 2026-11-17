@@ -80,7 +80,7 @@ def test_stale_draft_hidden(client, db_session, doc_id):
 
 
 def test_manual_save_clears_draft(client, db_session, doc_id):
-    """手动保存成功 → 草稿槽清空"""
+    """Historical ID: metadata preserves drafts; exact consumption clears the slot."""
     send_draft(client, doc_id, "马上要被保存的草稿")
 
     db_session.expire_all()
@@ -96,8 +96,25 @@ def test_manual_save_clears_draft(client, db_session, doc_id):
 
     db_session.expire_all()
     doc2 = client.get(f"/documents/{doc_id}").json()
-    assert doc2["has_draft"] is False
-    assert doc2["draft_updated_at"] is None
+    assert doc2["has_draft"] is True
+    slot = client.get(f"/documents/{doc_id}/draft").json()
+    assert slot['content'] == "马上要被保存的草稿"
+    import hashlib
+    from uuid import UUID
+    from sqlalchemy.orm import Session
+    with Session(db_session.get_bind()) as fresh:
+        assert fresh.get(Document, UUID(doc_id)).draft_content == slot['content']
+    response = client.put(f"/documents/{doc_id}", json={
+        'updated_at': doc2['updated_at'], 'content': slot['content'],
+        'consumed_draft': {'draft_updated_at': slot['updated_at'],
+                           'content_hash': hashlib.sha256(slot['content'].encode()).hexdigest()},
+    })
+    assert response.status_code == 200
+    assert client.get(f"/documents/{doc_id}/draft").status_code == 404
+    with Session(db_session.get_bind()) as fresh:
+        row = fresh.get(Document, UUID(doc_id))
+        assert row.draft_content is None and row.draft_updated_at is None
+        assert row.content == slot['content']
 
 
 def test_draft_sync_does_not_break_save_token(client, db_session, doc_id):

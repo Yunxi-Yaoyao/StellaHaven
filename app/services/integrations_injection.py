@@ -73,7 +73,8 @@ def apply(db,mid,actor_id):
     with store.edit(db) as config:
         module=config['modules'].get(mid)
         if not module: raise HTTPException(404,'模块不存在')
-        value=module['injection']['draft']
+        from app.public_website import require_stored_version
+        value=require_stored_version(module.get('injection'), 'draft')
         if value is None: raise HTTPException(422,'没有可发布草稿')
         problems=errors(value,module,config['targets'].get(module['target_id']))
         if problems: raise HTTPException(422,{'errors':problems})
@@ -81,15 +82,18 @@ def apply(db,mid,actor_id):
         module['injection']['active']=value | {'version':uuid4().hex}
         record_change(db,action='injection.apply',actor_id=actor_id,resource_id=mid,changed_fields=['injection'])
         output=module['injection'].copy()
-    return output
+    from app.public_website import public_versions
+    return public_versions(output)
 
 
 def rollback(db,mid,actor_id):
     with store.edit(db) as config:
         module=config['modules'].get(mid)
         if not module: raise HTTPException(404,'模块不存在')
+        from app.public_website import require_stored_version
+        previous=require_stored_version(module.get('injection'), 'previous')
         injection=module['injection']
-        if injection['previous'] is None: raise HTTPException(409,'没有上一版本')
+        if previous is None: raise HTTPException(409,'没有上一版本')
         binding = config.get('website_version_origins',{}).get(mid,{}).get(injection['previous']['version'])
         if binding:
             from app.services.website_check import origin
@@ -100,7 +104,8 @@ def rollback(db,mid,actor_id):
         injection['active'],injection['previous']=injection['previous'],injection['active']
         record_change(db,action='injection.rollback',actor_id=actor_id,resource_id=mid,changed_fields=['injection'])
         output=injection.copy()
-    return output
+    from app.public_website import public_versions
+    return public_versions(output)
 
 
 def safe_json(value):

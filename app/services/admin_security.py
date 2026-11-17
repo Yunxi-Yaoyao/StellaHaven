@@ -1,13 +1,9 @@
-"""Independent management authentication persisted in PostgreSQL AppConfig.
+"""Single-owner authentication; legacy management credentials are inactive.
 
-Private keys are deliberately NOT exposed via generic configuration routes.
+AppConfig retains its owner pin and dormant hash/grants for rollback. No second
+password or grant is authority. Private state stays excluded from generic config.
 """
 import json
-from datetime import datetime, timedelta, timezone
-from app.security import hash_password, verify_password
-from app.services.session_policy import expires_at as session_expires_at
-
-ADMIN_TTL = timedelta(minutes=10)
 from fastapi import HTTPException
 from sqlalchemy import text
 from app.models.config import AppConfig
@@ -35,8 +31,9 @@ def read_state(db):
     row = db.query(AppConfig).filter(AppConfig.key == STATE_KEY).populate_existing().first()
     return row, decode_state(row.value if row else '{}')
 
+
 def locked_state(db):
-    # Serialize creation too: FOR UPDATE alone cannot lock an absent row.
+    # Serialize owner pin creation too: FOR UPDATE cannot lock an absent row.
     if db.get_bind().dialect.name == 'postgresql':
         db.execute(text('SELECT pg_advisory_xact_lock(1836289001)'))
     row = db.query(AppConfig).filter(AppConfig.key == STATE_KEY).with_for_update().populate_existing().first()
@@ -46,24 +43,20 @@ def locked_state(db):
         db.flush()
     return row, decode_state(row.value)
 
+
 def save(db, row, state):
     row.value = json.dumps(state, separators=(',', ':'))
     db.flush()
 
-def security_status(db, session, state=None):
-    if state is None:
-        _, state = read_state(db)
-    configured = bool(state.get('password_hash'))
-    grant = state['grants'].get(str(session.id), {})
-    expiry = grant.get('expires_at')
-    elevated = bool(configured and (not state['enabled'] or (
-        grant.get('version') == state['version'] and expiry and
-        datetime.fromisoformat(expiry) > datetime.now(timezone.utc))))
-    return {'enabled': state['enabled'], 'configured': configured,
-            'elevated': elevated, 'expires_at': expiry if elevated and state['enabled'] else None,
-            'single_user': True, 'setup_required': not configured}
 
-def owner_id(db):
+def security_status(db, session, state=None):
+    """Compatible DTO for old clients, never a grant or anonymous authority."""
+    require_admin(db, session)
+    return {'enabled': False, 'configured': True, 'elevated': True,
+            'expires_at': None, 'single_user': True, 'setup_required': False}
+
+
+def owner_id(db, *, commit=True):
     """Never pick the first row or change a persisted identity implicitly."""
     import os
     from uuid import UUID
@@ -91,126 +84,70 @@ def owner_id(db):
     if not state.get('owner_id'):
         state['owner_id'] = str(uid)
         save(db, row, state)
-        db.commit()
+        # Registration owns User + pin + first AuthSession in one transaction.
+        # Legacy login/read callers retain their existing bootstrap durability.
+        if commit:
+            db.commit()
     return uid
 
-def require_owner(db, user):
-    if user.id != owner_id(db):
+
+def require_owner(db, user, *, commit=True):
+    if user.id != owner_id(db, commit=commit):
         raise HTTPException(403, '单用户模式仅允许owner登录')
 
-def validate_new_password(user, password):
-    if not 10 <= len(password) <= 256:
-        raise HTTPException(400, '管理密码须为10至256位')
-    if verify_password(password, user.password_hash):
-        raise HTTPException(400, '管理密码必须独立于日常密码')
 
-def invalidate(state):
-    state['version'] += 1
-    state['grants'] = {}
+def management_password_retired():
+    raise HTTPException(410, {'code': 'management_password_retired',
+                              'message': '独立管理密码已退役，请使用用户账号登录'})
 
-def verify_limited(db, row, state, password, hashed):
-    import math
-    now = datetime.now(timezone.utc).timestamp()
-    failures = [stamp for stamp in state.get('failures', []) if now - stamp < 60]
-    if len(failures) >= 5:
-        retry = max(1, min(60, math.ceil(60 - (now - min(failures)))))
-        raise HTTPException(429, '尝试过多，请稍后重试', headers={'Retry-After': str(retry)})
-    if not password or not verify_password(password, hashed):
-        state['failures'] = (failures + [now])[-5:]
-        save(db, row, state)
-        db.commit()  # failures survive all workers and rejected-request rollbacks
-        raise HTTPException(401, '密码错误')
-    state['failures'] = []
 
+# Internal compatibility entry points fail closed too; old hashes cannot grant.
 def setup(db, user, user_password, new_password):
-    row, state = locked_state(db)
-    if state.get('password_hash'):
-        raise HTTPException(409, '管理密码已设置')
-    verify_limited(db, row, state, user_password, user.password_hash)
-    validate_new_password(user, new_password)
-    state['password_hash'] = hash_password(new_password)
-    state['enabled'] = True
-    invalidate(state)
-    save(db, row, state)
-    from app.services.backup_health import record_change
-    record_change(db, action='security.setup', actor_id=user.id,
-                  changed_fields=['security'], payload=None)
-    db.commit()
+    management_password_retired()
+
 
 def unlock(db, session, password):
-    row, state = locked_state(db)
-    if not state.get('password_hash'):
-        raise HTTPException(403, {'code': 'admin_setup_required', 'message': '请先设置管理密码'})
-    verify_limited(db, row, state, password, state['password_hash'])
-    now = datetime.now(timezone.utc)
-    # Drop expired entries, bound state even for owners with many old sessions.
-    grants = {sid: g for sid, g in state['grants'].items()
-              if datetime.fromisoformat(g['expires_at']) > now and g['version'] == state['version']}
-    if len(grants) >= 100:
-        oldest = min(grants, key=lambda sid: grants[sid]['expires_at'])
-        del grants[oldest]
-    until = min(now + ADMIN_TTL, session_expires_at(session))
-    grants[str(session.id)] = {'expires_at': until.isoformat(), 'version': state['version']}
-    state['grants'] = grants
-    save(db, row, state)
-    from app.services.backup_health import record_change
-    record_change(db, action='security.unlock', actor_id=session.user_id,
-                  changed_fields=['security'], payload=None)
-    db.commit()
+    management_password_retired()
+
 
 def lock(db, session):
-    row, state = locked_state(db)
-    state['grants'].pop(str(session.id), None)
-    save(db, row, state)
-    from app.services.backup_health import record_change
-    record_change(db, action='security.lock', actor_id=session.user_id,
-                  changed_fields=['security'], payload=None)
-    db.commit()
+    management_password_retired()
 
-def check_management_password(db, row, state, password):
-    if not state.get('password_hash'):
-        raise HTTPException(403, {'code': 'admin_setup_required', 'message': '请先设置管理密码'})
-    verify_limited(db, row, state, password, state['password_hash'])
 
 def change_protection(db, enabled, password):
-    row, state = locked_state(db)
-    check_management_password(db, row, state, password)
-    state['enabled'] = enabled
-    invalidate(state)
-    save(db, row, state)
-    from app.services.backup_health import record_change
-    record_change(db, action='security.update', actor_id=state['owner_id'],
-                  changed_fields=['security', 'protection'], payload=None)
-    db.commit()
+    management_password_retired()
+
 
 def change_admin_password(db, user, current_password, new_password):
-    row, state = locked_state(db)
-    check_management_password(db, row, state, current_password)
-    validate_new_password(user, new_password)
-    state['password_hash'] = hash_password(new_password)
-    invalidate(state)
-    save(db, row, state)
-    from app.services.backup_health import record_change
-    record_change(db, action='security.password_change', actor_id=user.id,
-                  changed_fields=['security'], payload=None)
-    db.commit()
+    management_password_retired()
+
 
 def daily_password_changed(db, new_password):
-    row, state = locked_state(db)
-    if state.get('password_hash') and verify_password(new_password, state['password_hash']):
-        raise HTTPException(400, '日常密码不能与管理密码相同')
-    invalidate(state)
-    save(db, row, state)
-
+    # Caller verifies old user password and revokes AuthSessions atomically.
+    # A dormant historical hash does not constrain the one active password.
     from app.services.backup_health import record_change
-    record_change(db, action='security.password_change', actor_id=state['owner_id'],
+    record_change(db, action='security.password_change', actor_id=owner_id(db),
                   changed_fields=['security'], payload=None)
+
+
 def require_admin(db, session):
+    """Compatibility name for authenticated owner, including service callers.
+
+    Reload persisted state so stale/forged objects cannot bypass revoke, expiry
+    or owner checks. Cookie/ticket and origin checks stay at existing callers.
+    """
+    from app.models.user import AuthSession, User
     from app.services.session_policy import expired
-    if session.revoked or expired(session):
+    sid = getattr(session, 'id', None)
+    if not sid:
         raise HTTPException(401, '会话已失效')
-    _, state = locked_state(db)
-    status = security_status(db, session, state)
-    if not status['configured'] or not status['elevated']:
-        code = 'admin_setup_required' if not status['configured'] else 'admin_elevation_required'
-        raise HTTPException(403, {'code': code, 'message': '请设置独立管理密码' if not status['configured'] else '请验证独立管理密码'})
+    # Preserve the pre-existing transaction serialization used by management
+    # writers. It is not a password/grant check, and does not rewrite history.
+    locked_state(db)
+    persisted = db.get(AuthSession, sid, populate_existing=True)
+    if not persisted or persisted.revoked or expired(persisted):
+        raise HTTPException(401, '会话已失效')
+    user = db.get(User, persisted.user_id, populate_existing=True)
+    if not user or not user.is_active:
+        raise HTTPException(401, '账号不可用')
+    require_owner(db, user)

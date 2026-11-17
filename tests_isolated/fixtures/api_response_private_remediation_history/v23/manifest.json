@@ -1,0 +1,47 @@
+{
+  "commit": "22a55697cb83c41b4d7dd39e601fe1105d8b47f6",
+  "files": [
+    {
+      "file": "agent/node_files_delivery.py",
+      "sha256": "eef4fa05016f302bdb13e6f4add3d7d30d0336ea42afd748c66c6b201920a600",
+      "size": 17928,
+      "git_blob": "b343badfe850211fe5293d1c4eef5275c1607d4d",
+      "fixture": "agent__node_files_delivery.py.gz"
+    },
+    {
+      "file": "app/routers/integrations_host.py",
+      "sha256": "f14ab16aa11200caba637fb3611d2bb78f25464a28f9c2764d9800996b822ee8",
+      "size": 9895,
+      "git_blob": "97f6fabbc6b0f683fb79d350ba5a41fabdda0161",
+      "fixture": "app__routers__integrations_host.py.gz"
+    },
+    {
+      "file": "app/routers/website_settings.py",
+      "sha256": "a615c8552e791928d04b9b24640e1736f6f40f482b01cf92ef8447308697d5fa",
+      "size": 5792,
+      "git_blob": "34d28903135e106b5fb20d74fac89289b3e02b85",
+      "fixture": "app__routers__website_settings.py.gz"
+    },
+    {
+      "file": "app/services/access_entries.py",
+      "sha256": "e1b5dcec743f1868f3c840f0e24837c0d9d311e0dfe78397193a91a438e15c7b",
+      "size": 8129,
+      "git_blob": "fa4f9ca5091672da62d766650310deec725d6803",
+      "fixture": "app__services__access_entries.py.gz"
+    },
+    {
+      "file": "app/services/website_settings.py",
+      "sha256": "4517e0519de8f0c5534a8bfa1c113ed47a211f1f289cb849eb079c65761026a5",
+      "size": 35835,
+      "git_blob": "91ccbaa3b518454881daacffd958e356cbc52ef0",
+      "fixture": "app__services__website_settings.py.gz"
+    },
+    {
+      "file": "app/api_response_contracts.py",
+      "sha256": "b45e85594572f6753acb8a95ceaa195ec6d5e4f10f405e759e434ce48bf2134b",
+      "size": 110178,
+      "git_blob": "ebcfad51b384bfecd01433e80a82e10dfd86cf00",
+      "fixture": "app__api_response_contracts.py.gz"
+    }
+  ]
+}

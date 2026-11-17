@@ -1,431 +1,245 @@
 #!/bin/bash
-# Stella Agent 安装脚本（Linux / 飞牛OS）
-# 用法：curl -sSL <此脚本URL> | sudo bash -s -- --url http://<stella> --token <token> [--pbr] [--deps | --no-deps]
-set -eE
-STAGE="初始化"
-_AGENT_TMP=""
-fail() { echo "错误：[$STAGE] $1" >&2; exit 1; }
-# Never print BASH_COMMAND: the failing command may contain the token.
-trap 'rc=$?; echo "错误：[$STAGE] 安装失败（退出码 $rc）" >&2; exit "$rc"' ERR
-trap 'if [[ -n "$_AGENT_TMP" ]]; then rm -f -- "$_AGENT_TMP"; fi' EXIT
+# Legacy stella-agent is never adopted. One root Agent owns its file child.
+set -e
+command -v python3 >/dev/null || { printf '%s\n' '错误：请先安装 python3' >&2; exit 1; }
+exec python3 -I - "$@" <<'STELLA_INSTANCE_INSTALLER'
+import argparse, contextlib, fcntl, hashlib, json, os, re, shutil, stat, subprocess, sys, tempfile
+from pathlib import Path
+import urllib.parse, urllib.request
+CODE_BASE = Path('/opt/stella-agents')
+CONFIG_BASE = Path('/etc/stella-agents')
+UNIT_BASE = Path('/etc/systemd/system')
+SUDO_BASE = Path('/etc/sudoers.d')
+HELPER_BASE = Path('/usr/local/libexec')
 
-STELLA_URL="${STELLA_URL:-http://127.0.0.1:12031}"
-TOKEN=""
-INSTALL_DIR="/opt/stella-agent"
-PBR=0
-DEPS_MODE="ask"   # ask（默认交互询问）| auto（--deps 自动装）| skip（--no-deps 跳过）
+def run(args):
+    return subprocess.run(args, check=True, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=45)
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --url) STELLA_URL="$2"; shift 2 ;;
-    --token) TOKEN="$2"; shift 2 ;;
-    --pbr) PBR=1; shift ;;
-    --deps) DEPS_MODE="auto"; shift ;;
-    --no-deps) DEPS_MODE="skip"; shift ;;
-    *) shift ;;
-  esac
-done
-
-if [[ -z "$TOKEN" ]]; then
-  echo "错误：缺少 --token" >&2
-  exit 1
-fi
-
-echo "==> Stella Agent 安装中..."
-STAGE="前置检查"
-[[ "$(id -u)" == "0" ]] || fail "请以 root / sudo 运行"
-_SYSCTL=$(command -v systemctl) || fail "缺少 systemctl，必须使用 systemd"
-_RM=$(command -v rm) || fail "缺少 rm"
-command -v curl >/dev/null 2>&1 || fail "缺少 curl，请安装后重试"
-
-# 交互式询问（从 /dev/tty 读，避免 curl|bash 时 stdin 被管道占用；无 TTY 则用默认值）
-ask_yn() {
-  local prompt="$1" default="$2" ans=""
-  if ( : < /dev/tty ) 2>/dev/null; then
-    read -r -p "$prompt " ans < /dev/tty || ans=""
-  fi
-  case "$ans" in
-    [Yy]|[Yy][Ee][Ss]) return 0 ;;
-    [Nn]|[Nn][Oo]) return 1 ;;
-    *) [[ "$default" == "y" ]] && return 0 || return 1 ;;
-  esac
-}
-
-STAGE="python3"
-# ── 1. 检测 python3（硬依赖，缺失则询问安装） ──
-if command -v python3 >/dev/null 2>&1; then
-  echo "    python3: $(python3 --version)"
-else
-  echo "    [缺] python3（Stella Agent 必需）"
-  if [[ "$DEPS_MODE" == "skip" ]]; then
-    echo "错误：--no-deps 且未检测到 python3，无法继续" >&2
-    exit 1
-  fi
-  if [[ "$DEPS_MODE" == "ask" ]]; then
-    ask_yn "    是否自动安装 python3（含 pip）？[Y/n]" "y" || { echo "    已取消，退出" >&2; exit 1; }
-  fi
-  if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y -qq python3 python3-pip
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y -q python3 python3-pip
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y -q python3 python3-pip
-  elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache python3 py3-pip
-  else
-    echo "错误：无法识别包管理器，请手动安装 python3 后重试" >&2
-    exit 1
-  fi
-  echo "    python3: $(python3 --version)"
-fi
-
-STAGE="用户与 sudoers"
-# ── 2. 独立系统用户（PBR 按 UID 识别 + 最小权限） ──
-if ! id -u stella >/dev/null 2>&1; then
-  useradd --system --no-create-home --shell /usr/sbin/nologin stella 2>/dev/null || \
-    useradd -r -M -s /usr/sbin/nologin stella
-  echo "    已创建独立用户 stella"
-fi
-
-# Docker privileged helper is root-owned OUTSIDE the agent self-update directory.
-_HELPER_DIR=/usr/local/libexec
-_HELPER=/usr/local/libexec/stella-docker-helper
-_VISUDO=$(command -v visudo) || fail "缺少 visudo，不能安全安装 sudoers"
-python3 -I - "$_HELPER_DIR" /etc/stella-agent/docker /etc/sudoers.d <<'STELLA_TRUSTED_DIRS'
-import pathlib, sys
-for raw in sys.argv[1:]:
-    path = pathlib.Path(raw)
+def trusted(path):
     for part in [*reversed(path.parents), path]:
-        if part.is_symlink(): raise SystemExit('unsafe privilege directory')
+        if part.is_symlink(): raise ValueError('symlink refused')
         if part.exists():
             st = part.stat()
-            if not part.is_dir() or st.st_uid != 0 or st.st_mode & 0o022:
-                raise SystemExit('unsafe privilege directory')
-    path.mkdir(parents=True, exist_ok=True, mode=0o755)
-STELLA_TRUSTED_DIRS
-_HELPER_TMP=$(mktemp "$_HELPER_DIR/.stella-docker.XXXXXX")
-cat > "$_HELPER_TMP" <<'STELLA_DOCKER_HELPER'
-#!/usr/bin/python3 -I
-"""Privileged Docker gateway. Install root:root 0755 outside agent-writable dirs."""
-import subprocess
-import sys
-import re
+            if st.st_uid != 0 or st.st_mode & 0o022: raise ValueError('untrusted owner/mode')
+            if part != path and not part.is_dir(): raise ValueError('invalid ancestor')
 
-DOCKER = "/usr/bin/docker"
-ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/var/empty",
-       "LANG": "C", "LC_ALL": "C", "DOCKER_CONFIG": "/etc/stella-agent/docker"}
+def atomic(path, data, mode=0o600, uid=0, gid=0, validator=None):
+    fd, name = tempfile.mkstemp(prefix='.install-', dir=path.parent)
+    try:
+        with os.fdopen(fd,'wb') as out: out.write(data); out.flush(); os.fsync(out.fileno())
+        os.chmod(name,mode); os.chown(name,uid,gid)
+        if validator: validator(name)
+        os.replace(name,path)
+    finally: Path(name).unlink(missing_ok=True)
 
+def fetch(url, token=None, limit=8*1024*1024):
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self,*args,**kwargs): return None
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect)
+    headers = {'Authorization':'Bearer '+token} if token else {}
+    with opener.open(urllib.request.Request(url,headers=headers),timeout=30) as response:
+        if response.status != 200: raise ValueError('HTTP failure')
+        body = response.read(limit+1)
+        if len(body)>limit: raise ValueError('oversized response')
+        return body
 
-def docker_args(args):
-    if args == ['ps']:
-        return ['ps', '-a', '--format', '{{json .}}']
-    if (len(args) == 2 and args[0] in ('inspect', 'start', 'stop', 'restart')
-            and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', args[1])):
-        if args[0] == 'inspect':
-            return ['inspect', '--type', 'container', args[1]]
-        return args
-    if (len(args) == 3 and args[0] == 'logs'
-            and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', args[1])
-            and re.fullmatch(r'[1-9][0-9]{0,2}', args[2]) and int(args[2]) <= 500):
-        return ['logs', '--tail', args[2], args[1]]
-    raise ValueError('request refused')
+def preflight(url, token):
+    p = urllib.parse.urlsplit(url)
+    if p.scheme not in ('http','https') or not p.hostname or p.username or p.password or p.query or p.fragment or p.path not in ('','/'): raise ValueError('invalid origin')
+    if not token or any(c in token for c in '\r\n\x00'): raise ValueError('invalid token')
+    value = json.loads(fetch(url.rstrip('/')+'/agent/identity',token,8192))
+    if not isinstance(value,dict) or set(value)!={'center_id','node_id','source_version','source_sha256','source_size'}: raise ValueError('missing identity')
+    if not re.fullmatch('[a-f0-9]{64}',str(value['center_id'])) or type(value['node_id']) is not int or value['node_id']<=0: raise ValueError('invalid binding')
+    if not re.fullmatch('[a-f0-9]{64}',str(value['source_sha256'])) or type(value['source_size']) is not int or not 0<value['source_size']<=8*1024*1024: raise ValueError('invalid artifact metadata')
+    body = fetch(url.rstrip('/')+'/agent/script')
+    if len(body)!=value['source_size'] or hashlib.sha256(body).hexdigest()!=value['source_sha256']: raise ValueError('artifact mismatch')
+    import ast
+    tree=ast.parse(body,filename='stella_agent.py'); compile(tree,'stella_agent.py','exec')
+    declarations=[n.value.value for n in tree.body if isinstance(n,ast.Assign) and len(n.targets)==1 and isinstance(n.targets[0],ast.Name) and n.targets[0].id=='AGENT_VERSION' and isinstance(n.value,ast.Constant)]
+    if declarations != [value['source_version']]: raise ValueError('artifact version mismatch')
+    return value,body
 
+def helper_source(binding,code,config,unit,sudo,helper,account,systemctl):
+    c = dict(binding=binding,code=str(code),config=str(config),unit=str(unit),sudo=str(sudo),helper=str(helper),account=account,systemctl=systemctl,systemd_run=shutil.which('systemd-run'),userdel=shutil.which('userdel'))
+    return ('#!'+sys.executable+' -I\nC = '+repr(c)+'\n'+r'''
+import fcntl,json,os,pathlib,shutil,subprocess,sys
+
+def invoke(*args):
+    subprocess.run(args,check=True,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=45)
 
 def main():
-    try:
-        args = docker_args(sys.argv[1:])
-        result = subprocess.run([DOCKER, '--host', 'unix:///var/run/docker.sock'] + args,
-                                shell=False, env=ENV, cwd='/', stdin=subprocess.DEVNULL,
-                                timeout=65)
-        return result.returncode
-    except ValueError:
-        print('stella Docker helper: request refused', file=sys.stderr)
-        return 2
-    except (OSError, subprocess.TimeoutExpired):
-        print('stella Docker helper: command failed or timed out', file=sys.stderr)
-        return 1
+    if os.geteuid()!=0 or sys.argv[1:] not in (['--schedule'],['--remove']): raise ValueError('request refused')
+    config=pathlib.Path(C['config']); manifest=config/'instance.json'
+    for path in [*reversed(config.parents),config,manifest,pathlib.Path(C['unit']),pathlib.Path(C['helper'])]:
+        st=path.lstat()
+        if path.is_symlink() or st.st_uid!=0 or st.st_mode&0o022: raise ValueError('untrusted ownership')
+    if json.loads(manifest.read_text())!=C['binding']: raise ValueError('binding mismatch')
+    fd=os.open(config.parent/('.'+C['binding']['instance_id']+'.lock'),os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+    if os.fstat(fd).st_uid!=0 or os.fstat(fd).st_mode&0o022: raise ValueError('untrusted lock')
+    fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    if sys.argv[1]=='--schedule':
+        invoke(C['systemd_run'],'--unit=stella-remove-'+C['binding']['instance_id'],'--on-active=3',C['helper'],'--remove'); return
+    text=pathlib.Path(C['unit']).read_text()
+    if 'User=root\n' not in text or ('EnvironmentFile='+C['config']+'/agent.env\n') not in text: raise ValueError('unit mismatch')
+    invoke(C['systemctl'],'disable',C['binding']['service']); invoke(C['systemctl'],'stop',C['binding']['service'])
+    pathlib.Path(C['unit']).unlink(); invoke(C['systemctl'],'daemon-reload')
+    for name in ('code','config'):
+        path=pathlib.Path(C[name])
+        if path.is_symlink(): raise ValueError('symlink root refused')
+        shutil.rmtree(path)
+    pathlib.Path(C['sudo']).unlink(); invoke(C['userdel'],C['account']); pathlib.Path(C['helper']).unlink()
 
+if __name__=='__main__':
+    try: main()
+    except Exception:
+        print('Stella instance removal refused or failed',file=sys.stderr); sys.exit(1)
+''').encode()
 
-if __name__ == '__main__':
-    sys.exit(main())
-STELLA_DOCKER_HELPER
-python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); compile(p.read_bytes(),str(p),"exec")' "$_HELPER_TMP"
-chown root:root "$_HELPER_TMP"
-chmod 755 "$_HELPER_TMP"
-[[ ! -L "$_HELPER" ]] || fail "拒绝 helper 符号链接"
-mv -f -- "$_HELPER_TMP" "$_HELPER"
-_HELPER_TMP=""
-_DOCKER_SUDO_TMP=$(mktemp /etc/sudoers.d/.stella-docker.XXXXXX)
-for _ACTION in ps inspect logs start stop restart; do
-  _ARGS="*"; [[ "$_ACTION" == "ps" ]] && _ARGS=""
-  printf 'stella ALL=(root) NOPASSWD: %s %s %s\n' "$_HELPER" "$_ACTION" "$_ARGS"
-done > "$_DOCKER_SUDO_TMP"
-"$_VISUDO" -cf "$_DOCKER_SUDO_TMP" >/dev/null 2>&1 || fail "Docker sudoers 校验失败"
-chown root:root "$_DOCKER_SUDO_TMP"
-chmod 440 "$_DOCKER_SUDO_TMP"
-mv -f -- "$_DOCKER_SUDO_TMP" /etc/sudoers.d/stella-docker
-_DOCKER_SUDO_TMP=""
-
-# sudoers：允许 stella 卸载自己 + 代装 iperf3（NOPASSWD 白名单，路径按当前系统动态取）
-_APT=$(command -v apt-get || true)
-_DNF=$(command -v dnf || true)
-_YUM=$(command -v yum || true)
-_APK=$(command -v apk || true)
-_PACMAN=$(command -v pacman || true)
-_CMDS="${_SYSCTL} stop stella-agent, ${_SYSCTL} disable stella-agent, ${_SYSCTL} daemon-reload, ${_RM} -f /etc/systemd/system/stella-agent.service, ${_RM} -rf /opt/stella-agent"
-# WG map collection: exact public read fields only; no dump/showconf/private keys.
-_WG=$(command -v wg || true)
-if [ -n "$_WG" ]; then
-  for _FIELD in public-key peers endpoints allowed-ips latest-handshakes transfer; do
-    _CMDS="${_CMDS}, ${_WG} show all ${_FIELD}"
-  done
-fi
-# 组件代装：允许 stella 装 iperf3（各发行版包管理器，精确到包名，不放开任意安装）
-[ -n "$_APT" ] && _CMDS="${_CMDS}, ${_APT} install -y iperf3"
-[ -n "$_DNF" ] && _CMDS="${_CMDS}, ${_DNF} install -y iperf3"
-[ -n "$_YUM" ] && _CMDS="${_CMDS}, ${_YUM} install -y iperf3"
-[ -n "$_APK" ] && _CMDS="${_CMDS}, ${_APK} add iperf3"
-[ -n "$_PACMAN" ] && _CMDS="${_CMDS}, ${_PACMAN} -S --noconfirm iperf3"
-# 组件代装：ufw / docker（Debian 系 docker 包名是 docker.io）/ mtr（Debian 系叫 mtr-tiny）+ 装完拉起 docker 守护
-[ -n "$_APT" ] && _CMDS="${_CMDS}, ${_APT} install -y ufw, ${_APT} install -y docker.io, ${_APT} install -y mtr-tiny"
-[ -n "$_DNF" ] && _CMDS="${_CMDS}, ${_DNF} install -y ufw, ${_DNF} install -y docker, ${_DNF} install -y mtr"
-[ -n "$_YUM" ] && _CMDS="${_CMDS}, ${_YUM} install -y ufw, ${_YUM} install -y docker, ${_YUM} install -y mtr"
-[ -n "$_APK" ] && _CMDS="${_CMDS}, ${_APK} add ufw, ${_APK} add docker, ${_APK} add mtr"
-[ -n "$_PACMAN" ] && _CMDS="${_CMDS}, ${_PACMAN} -S --noconfirm ufw, ${_PACMAN} -S --noconfirm docker, ${_PACMAN} -S --noconfirm mtr"
-_CMDS="${_CMDS}, ${_SYSCTL} enable --now docker"
-# Docker panel is authorized exclusively in stella-docker via the validated helper.
-# 网络操作（改 IP 回退 / 防火墙查看 / PBR 查看）：允许 stella sudo 执行这些网络配置/只读命令
-_IP=$(command -v ip || true)
-_NMCLI=$(command -v nmcli || true)
-_NETPLAN=$(command -v netplan || true)
-_UFW=$(command -v ufw || true)
-_IPTABLES_SAVE=$(command -v iptables-save || true)
-_IPTABLES=$(command -v iptables || true)
-[ -n "$_IP" ] && _CMDS="${_CMDS}, ${_IP}"
-[ -n "$_NMCLI" ] && _CMDS="${_CMDS}, ${_NMCLI}"
-[ -n "$_NETPLAN" ] && _CMDS="${_CMDS}, ${_NETPLAN}"
-[ -n "$_UFW" ] && _CMDS="${_CMDS}, ${_UFW}"
-[ -n "$_IPTABLES_SAVE" ] && _CMDS="${_CMDS}, ${_IPTABLES_SAVE}"
-[ -n "$_IPTABLES" ] && _CMDS="${_CMDS}, ${_IPTABLES}"
-# 改 IP 连通性验证：sudo ping 绕 owner-mark（agent 被 PBR 打标走固定出口，直连探测摸不到被改接口的网关）
-_PING=$(command -v ping || true)
-[ -n "$_PING" ] && _CMDS="${_CMDS}, ${_PING}"
-_SUDO_TMP=$(mktemp /etc/sudoers.d/.stella-uninstall.XXXXXX)
-# One command per rule, preserving authorized networking capabilities.
-IFS=',' read -ra _ENTRIES <<< "$_CMDS"
-for _ENTRY in "${_ENTRIES[@]}"; do
-  printf 'stella ALL=(root) NOPASSWD: %s\n' "${_ENTRY# }"
-done > "$_SUDO_TMP"
-"$_VISUDO" -cf "$_SUDO_TMP" >/dev/null 2>&1 || fail "sudoers 校验失败"
-chown root:root "$_SUDO_TMP"
-chmod 440 "$_SUDO_TMP"
-mv -f -- "$_SUDO_TMP" /etc/sudoers.d/stella-uninstall
-_SUDO_TMP=""
-
-# pip 安装：用系统包管理器（Ubuntu/Debian 的 python3 不带 ensurepip，用 ensurepip 必然失败）
-_install_pip() {
-  if command -v apt-get >/dev/null 2>&1; then
-    apt-get install -y -qq python3-pip
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y -q python3-pip
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y -q python3-pip
-  elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache py3-pip
-  elif python3 -m ensurepip --version >/dev/null 2>&1; then
-    python3 -m ensurepip --upgrade
-  else
-    return 1
-  fi
-}
-
-STAGE="pip"
-# ── 3. 检测 pip ──
-HAVE_PIP=0
-if python3 -m pip --version >/dev/null 2>&1; then
-  HAVE_PIP=1
-  echo "    pip: 已就绪"
-else
-  echo "    [缺] pip（缺少则无法安装 httpx/psutil，agent 用 urllib 兜底仍可运行）"
-  if [[ "$DEPS_MODE" == "auto" ]]; then
-    _install_pip || true
-  elif [[ "$DEPS_MODE" == "ask" ]]; then
-    if ask_yn "    是否安装 pip？[Y/n]" "y"; then _install_pip || true; fi
-  fi
-  if python3 -m pip --version >/dev/null 2>&1; then
-    HAVE_PIP=1
-    echo "    pip 已装好"
-  else
-    echo "    [warn] pip 安装失败，httpx/psutil 无法安装（agent 将降级运行）"
-  fi
-fi
-
-# Debian/Ubuntu externally-managed Python: use distro packages, never force pip.
-_install_python_deps() {
-  if [[ -n "$_APT" ]]; then
-    local packages=() dep
-    for dep in "${MISSING[@]}"; do packages+=("python3-$dep"); done
-    apt-get install -y -qq "${packages[@]}"
-  elif [[ "$HAVE_PIP" == "1" ]]; then
-    python3 -m pip install --quiet "${MISSING[@]}"
-  else
-    return 1
-  fi
-}
-
-STAGE="可选 Python 依赖"
-# ── 4. 检测可选依赖 httpx / psutil ──
-echo "==> 检查依赖..."
-MISSING=()
-python3 -c "import httpx" 2>/dev/null || MISSING+=("httpx")
-python3 -c "import psutil" 2>/dev/null || MISSING+=("psutil")
-
-if [[ ${#MISSING[@]} -eq 0 ]]; then
-  echo "    httpx / psutil 已就绪"
-elif [[ "$HAVE_PIP" != "1" && -z "$_APT" ]]; then
-  echo "    [缺] ${MISSING[*]}，且无 pip，跳过安装（agent 将降级运行）"
-elif [[ "$DEPS_MODE" == "skip" ]]; then
-  echo "    [缺] ${MISSING[*]}，--no-deps 跳过安装（agent 将降级运行）"
-elif [[ "$DEPS_MODE" == "auto" ]]; then
-  _install_python_deps || echo "    [warn] 可选依赖安装失败，将降级运行"
-else
-  echo "    [缺] ${MISSING[*]}（缺失时 agent 降级运行，不影响核心上报）"
-  if ask_yn "    是否安装缺失依赖？[Y/n]" "y"; then
-    _install_python_deps || echo "    [warn] 可选依赖安装失败，将降级运行"
-  else
-    echo "    已跳过，agent 将降级运行"
-  fi
-fi
-
-STAGE="可选打流组件"
-# ── 4.5 打流组件（iperf3 / speedtest-go）──
-echo "==> 检查打流组件..."
-_install_pkg_iperf3() {
-  if command -v apt-get >/dev/null 2>&1; then apt-get install -y -qq iperf3
-  elif command -v dnf >/dev/null 2>&1; then dnf install -y -q iperf3
-  elif command -v yum >/dev/null 2>&1; then yum install -y -q iperf3
-  elif command -v apk >/dev/null 2>&1; then apk add --no-cache iperf3
-  else echo "    [warn] 无法识别包管理器，跳过 iperf3"; return 1; fi
-  command -v iperf3 >/dev/null 2>&1 && echo "    iperf3 已装好" || echo "    [warn] iperf3 安装失败（可在面板代装）"
-}
-_install_speedtest_go() {
-  local _arch; _arch=$(uname -m)
-  case "$_arch" in x86_64) _arch="x86_64";; aarch64) _arch="arm64";; armv7l) _arch="armv7";; armv6l) _arch="armv6";; i686) _arch="i386";; esac
-  # 资产名带版本号（speedtest-go_<tag>_Linux_<arch>.tar.gz），先跟随 latest 重定向拿 tag
-  local _tag; _tag=$(curl -sSL -o /dev/null -w "%{url_effective}" "https://github.com/showwin/speedtest-go/releases/latest" 2>/dev/null | sed 's#.*/##')
-  [ -z "$_tag" ] && _tag="v1.7.11"
-  local _url="https://github.com/showwin/speedtest-go/releases/download/${_tag}/speedtest-go_${_tag}_Linux_${_arch}.tar.gz"
-  local _tmp; _tmp=$(mktemp -d)
-  if curl -sSL -A "Mozilla/5.0" "$_url" -o "$_tmp/st.tar.gz" 2>/dev/null \
-    && tar -xzf "$_tmp/st.tar.gz" -C "$_tmp" 2>/dev/null \
-    && mv "$_tmp/speedtest-go" /usr/local/bin/speedtest-go 2>/dev/null; then
-    chmod +x /usr/local/bin/speedtest-go
-    echo "    speedtest-go 已装好"
-  else
-    echo "    [warn] speedtest-go 下载失败（可在面板代装）"
-  fi
-  rm -rf "$_tmp" 2>/dev/null
-}
-if command -v iperf3 >/dev/null 2>&1; then
-  echo "    iperf3: 已就绪"
-elif [[ "$DEPS_MODE" == "skip" ]]; then
-  echo "    [缺] iperf3（--no-deps 跳过，可在面板点「安装」代装）"
-elif [[ "$DEPS_MODE" == "auto" ]]; then
-  _install_pkg_iperf3
-elif ask_yn "    是否安装 iperf3（打流测速）？[Y/n]" "y"; then
-  _install_pkg_iperf3
-fi
-if command -v speedtest-go >/dev/null 2>&1; then
-  echo "    speedtest-go: 已就绪"
-elif [[ "$DEPS_MODE" == "skip" ]]; then
-  echo "    [缺] speedtest-go（--no-deps 跳过，可在面板点「安装」代装）"
-elif [[ "$DEPS_MODE" == "auto" ]]; then
-  _install_speedtest_go
-elif ask_yn "    是否安装 speedtest-go（公网测速）？[Y/n]" "y"; then
-  _install_speedtest_go
-fi
-
-# ── 5. 校验 token（任何未验证的凭证都不继续安装） ──
-STAGE="校验 token"
-echo "==> 校验 token..."
-_TOKEN_HTTP=$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w "%{http_code}" \
-  --header "Authorization: Bearer $TOKEN" "$STELLA_URL/agent/config" 2>/dev/null) || fail "无法连接中心校验 token"
-case "$_TOKEN_HTTP" in
-  200) echo "    token 校验通过" ;;
-  401) fail "HTTP 401：token 无效或已失效，请从面板复制最新安装命令" ;;
-  *) fail "中心未确认 token 有效，请检查中心连接后重试" ;;
-esac
-
-# ── 6. 下载并验证，原子替换；失败保留已有可运行文件 ──
-STAGE="下载 agent"
-echo "==> 下载 agent..."
-mkdir -p "$INSTALL_DIR"
-_AGENT_TMP=$(mktemp "$INSTALL_DIR/.stella_agent.XXXXXX")
-curl -fsSL --connect-timeout 10 --max-time 120 "$STELLA_URL/agent/script" \
-  -o "$_AGENT_TMP" 2>/dev/null || fail "主程序下载失败（HTTP 或网络错误）"
-STAGE="验证 agent Python"
-[[ -s "$_AGENT_TMP" ]] || fail "下载的主程序为空"
-# Compile only: do not execute downloaded code or produce a pycache as root.
-python3 -c 'import pathlib, sys; p = pathlib.Path(sys.argv[1]); compile(p.read_bytes(), str(p), "exec")' \
-  "$_AGENT_TMP" 2>/dev/null || fail "下载内容不是有效的 Python（可能是 HTML 错误页）"
-chmod 755 "$_AGENT_TMP"
-chown stella:stella "$_AGENT_TMP"
-mv -f -- "$_AGENT_TMP" "$INSTALL_DIR/stella_agent.py"
-_AGENT_TMP=""
-# 保留 agent 的自更新权限。
-chown -R stella:stella "$INSTALL_DIR"
-
-STAGE="systemd"
-# ── 7. 写 systemd 单元（独立用户 + raw socket 权限跑探测） ──
-echo "==> 配置 systemd 服务..."
-_ENV_TMP=$(mktemp /etc/stella-agent/.agent-env.XXXXXX)
-STELLA_TOKEN="$TOKEN" STELLA_URL="$STELLA_URL" python3 -I - > "$_ENV_TMP" <<'STELLA_AGENT_ENV'
-import json, os
-for name in ('STELLA_URL', 'STELLA_TOKEN'):
-    value = os.environ[name]
-    if any(c in value for c in '\r\n'): raise SystemExit('invalid agent configuration')
-    print(name + '=' + json.dumps(value))
-STELLA_AGENT_ENV
-chown root:root "$_ENV_TMP"
-chmod 600 "$_ENV_TMP"
-mv -f -- "$_ENV_TMP" /etc/stella-agent/agent.env
-_ENV_TMP=""
-cat > /etc/systemd/system/stella-agent.service << EOF
-[Unit]
-Description=Stella Agent
+def install(args):
+    if os.geteuid()!=0: raise ValueError('root required')
+    systemctl,visudo=shutil.which('systemctl'),shutil.which('visudo')
+    if not systemctl or not visudo or not shutil.which('useradd'): raise ValueError('systemd/visudo/useradd required')
+    identity,body=preflight(args.url,args.token)  # before resident writes/accounts
+    if args.instance and not re.fullmatch('[a-z0-9][a-z0-9-]{0,31}',args.instance): raise ValueError('invalid instance label')
+    seed='stella-instance-v1:'+identity['center_id']+(':slot:'+args.instance if args.instance else '')
+    iid=hashlib.sha256(seed.encode()).hexdigest()[:24]
+    service,account='stella-agent-'+iid,'sta'+iid
+    code,config=CODE_BASE/iid,CONFIG_BASE/iid
+    unit,sudo,helper=UNIT_BASE/(service+'.service'),SUDO_BASE/service,HELPER_BASE/service
+    binding=dict(format=1,center_id=identity['center_id'],node_id=identity['node_id'],instance_id=iid,service=service,slot=args.instance)
+    for base in (CODE_BASE,CONFIG_BASE,UNIT_BASE,SUDO_BASE,HELPER_BASE): trusted(base)
+    if not (config/'instance.json').exists() and any(p.exists() or p.is_symlink() for p in (code,config,unit,sudo,helper)):
+        raise ValueError('foreign target exists')
+    for base in (CODE_BASE,CONFIG_BASE,UNIT_BASE,SUDO_BASE,HELPER_BASE): base.mkdir(parents=True,exist_ok=True,mode=0o755)
+    # mkdir's mode is filtered by the caller's umask; these trusted public
+    # directories must remain traversable by the dedicated instance UID.
+    for base in (CODE_BASE,CONFIG_BASE,HELPER_BASE): os.chmod(base,0o755)
+    lockpath=CONFIG_BASE/('.'+iid+'.lock'); trusted(lockpath)
+    with os.fdopen(os.open(lockpath,os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600),'w') as handle:
+        fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        manifest=config/'instance.json'; existing=manifest.exists()
+        if existing:
+            trusted(config); trusted(manifest)
+            if json.loads(manifest.read_text())!=binding: raise ValueError('same center already bound to another node')
+            for path in (unit,sudo,helper): trusted(path)
+            if code.is_symlink() or not code.is_dir() or not all(p.is_file() for p in (unit,sudo,helper)): raise ValueError('incomplete/foreign instance')
+            unit_text=unit.read_text()
+            if not any(('User='+user+'\n') in unit_text for user in (account,'root')): raise ValueError('foreign unit user')
+            for expected in (f'EnvironmentFile={config}/agent.env\n',f'ExecStart=/usr/bin/env python3 {code}/stella_agent.py\n'):
+                if expected not in unit_text: raise ValueError('foreign unit definition')
+        else:
+            if any(p.exists() or p.is_symlink() for p in (code,config,unit,sudo,helper)): raise ValueError('foreign target exists')
+            if run([systemctl,'show',service,'--property=FragmentPath','--value']).stdout.strip(): raise ValueError('foreign service exists')
+        user=subprocess.run(['id','-u',account],capture_output=True,text=True,timeout=5)
+        if not existing and user.returncode==0: raise ValueError('foreign account exists')
+        if existing and user.returncode!=0: raise ValueError('account missing')
+        update_lock=None
+        if existing:
+            update_lock=os.open(code/'.update.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+            try: fcntl.flock(update_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except Exception: os.close(update_lock); raise
+        saved={}; created_user=False
+        saved_code=code.stat() if existing else None
+        saved_lock=os.fstat(update_lock) if existing else None
+        targets=(code/'stella_agent.py',config/'agent.env',manifest,unit,sudo,helper)
+        if existing:
+            for path in targets:
+                if path.is_symlink() or not path.is_file(): raise ValueError('incomplete instance files')
+                st=path.stat(); saved[path]=(path.read_bytes(),stat.S_IMODE(st.st_mode),st.st_uid,st.st_gid)
+        try:
+            if not existing:
+                run(['useradd','--system','--no-create-home','--shell','/usr/sbin/nologin',account]); created_user=True
+            # Keep the old account only for scoped legacy removal compatibility;
+            # executable code and all new processes are root-owned.
+            uid=gid=0
+            config.mkdir(mode=0o755,exist_ok=True); os.chmod(config,0o755)
+            code.mkdir(mode=0o700,exist_ok=True); os.chown(code,uid,gid); os.chmod(code,0o700)
+            if update_lock is None:
+                update_lock=os.open(code/'.update.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+                fcntl.flock(update_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            os.fchown(update_lock,uid,gid)
+            installed_origin=args.url.rstrip('/')
+            if existing:
+                # An alias used to authenticate a repair must not reset the
+                # runtime/cache origin or its monotonic report receipt sequence.
+                previous_env=dict(line.split('=',1) for line in saved[config/'agent.env'][0].decode().splitlines() if '=' in line)
+                installed_origin=json.loads(previous_env['STELLA_URL'])
+                parsed=urllib.parse.urlsplit(installed_origin)
+                if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
+                    raise ValueError('invalid resident origin')
+            env=dict(STELLA_URL=installed_origin,STELLA_TOKEN=args.token,STELLA_INSTANCE_ID=iid,STELLA_INSTANCE_MANIFEST=str(manifest))
+            atomic(code/'stella_agent.py',body,0o700,uid,gid)
+            atomic(config/'agent.env',''.join(k+'='+json.dumps(v)+'\n' for k,v in env.items()).encode())
+            atomic(manifest,json.dumps(binding,sort_keys=True).encode(),0o644)
+            atomic(helper,helper_source(binding,code,config,unit,sudo,helper,account,systemctl),0o755)
+            grants=f'{account} ALL=(root) NOPASSWD: {helper} --schedule\n'
+            if args.admin_network:
+                for name in ('ip','nmcli','netplan','ufw','iptables-save','iptables','ping'):
+                    exe=shutil.which(name)
+                    if exe: grants+=f'{account} ALL=(root) NOPASSWD: {exe}\n'
+                wg=shutil.which('wg')
+                if wg:
+                    for field in ('public-key','peers','endpoints','allowed-ips','latest-handshakes','transfer'): grants+=f'{account} ALL=(root) NOPASSWD: {wg} show all {field}\n'
+            elif existing: grants=saved[sudo][0].decode()
+            atomic(sudo,grants.encode(),0o440,validator=lambda stage: run([visudo,'-cf',stage]))
+            text=f'''[Unit]
+Description=Stella Agent instance {iid}
 After=network-online.target
 Wants=network-online.target
-
 [Service]
 Type=simple
-User=stella
+User=root
+Group=root
+KillMode=control-group
+TimeoutStopSec=10
 AmbientCapabilities=CAP_NET_RAW
-ExecStart=/usr/bin/env python3 $INSTALL_DIR/stella_agent.py
-EnvironmentFile=/etc/stella-agent/agent.env
+ExecStart=/usr/bin/env python3 {code}/stella_agent.py
+EnvironmentFile={config}/agent.env
+WorkingDirectory={code}
 Restart=always
 RestartSec=5
-
-
+UMask=0077
 [Install]
 WantedBy=multi-user.target
-EOF
+'''
+            atomic(unit,text.encode(),0o644)
+            run([systemctl,'daemon-reload']); run([systemctl,'enable',service]); run([systemctl,'restart',service]); run([systemctl,'is-active','--quiet',service])
+        except Exception:
+            if existing:
+                for path,(data,mode,owner,group) in saved.items(): atomic(path,data,mode,owner,group)
+                # Restore traversal and updater-lock access before the old UID
+                # is restarted; restoring only executable bytes is insufficient.
+                os.chown(code,saved_code.st_uid,saved_code.st_gid)
+                os.chmod(code,stat.S_IMODE(saved_code.st_mode))
+                os.fchown(update_lock,saved_lock.st_uid,saved_lock.st_gid)
+                os.fchmod(update_lock,stat.S_IMODE(saved_lock.st_mode))
+                with contextlib.suppress(Exception): run([systemctl,'daemon-reload']); run([systemctl,'restart',service])
+            else:
+                with contextlib.suppress(Exception): run([systemctl,'disable','--now',service])
+                for path in (unit,sudo,helper): path.unlink(missing_ok=True)
+                shutil.rmtree(code,ignore_errors=True); shutil.rmtree(config,ignore_errors=True)
+                with contextlib.suppress(Exception): run([systemctl,'daemon-reload'])
+                if created_user:
+                    with contextlib.suppress(Exception): run(['userdel',account])
+            raise
+        finally:
+            if update_lock is not None: os.close(update_lock)
+    print('安装完成：'+service+'；旧实例未迁移。请在此中心核实节点心跳。')
+    print('Linux 主 Agent 与受管文件子进程以 root 运行；文件根仍需中心显式启用，无独立文件 service。')
+    if args.pbr: print('PBR 未修改：本实例现以 root 运行，旧独立 UID 出口规则不适用；请先核实显式路由策略。')
 
-systemctl daemon-reload
-systemctl enable stella-agent
-systemctl restart stella-agent
+def main():
+    parser=argparse.ArgumentParser(description='Stella authenticated instance installer')
+    parser.add_argument('--url',required=True); parser.add_argument('--token',default=os.environ.get('STELLA_TOKEN',''))
+    parser.add_argument('--no-deps',action='store_true'); parser.add_argument('--deps',action='store_true')
+    parser.add_argument('--instance',default=''); parser.add_argument('--admin-network',action='store_true'); parser.add_argument('--pbr',action='store_true')
+    args=parser.parse_args()
+    if args.deps and args.no_deps: raise ValueError('dependency option conflict')
+    if args.deps: print('可选依赖需自行安装 python3-httpx/python3-psutil；本安装不修改全局 Python。')
+    install(args)
 
-STAGE="PBR"
-# ── 8. 可选 PBR：agent 流量直连公网出口（宿主有透明代理时加） ──
-if [[ "$PBR" == "1" ]]; then
-  if [[ -s "$INSTALL_DIR/pbr.sh" ]]; then
-    bash "$INSTALL_DIR/pbr.sh"
-  else
-    echo "    [warn] 未找到 pbr.sh，跳过 PBR 配置"
-  fi
-fi
-
-STAGE="检查服务启动"
-sleep 2
-systemctl is-active --quiet stella-agent || fail "服务未保持运行，请查看 journalctl -u stella-agent；安装未完成"
-echo "==> 安装完成，服务已启动；是否在线请在 Stella 面板确认心跳。状态："
-systemctl --no-pager status stella-agent -l | head -5 || true
+if __name__=='__main__':
+    try: main()
+    except Exception:
+        print('错误：中心认证、工件预检或实例安装失败；未接管旧实例。',file=sys.stderr); sys.exit(1)
+STELLA_INSTANCE_INSTALLER

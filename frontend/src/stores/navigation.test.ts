@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import * as navigation from './navigation';
 it('only native pages are builtin; templates are ordinary websites',()=>{
  const rows=navigation.resolveNavigation({entries:[]},[{id:'a'.repeat(32),name:'网盘',icon:'drive',mode:'iframe',adapter:'generic',browser_url:'https://owned.test/',enabled:true,template_id:'openlist'}]);
- expect(rows.filter(x=>x.builtin).map(x=>x.id)).toEqual(['home','notes','status','settings']);
+ expect(rows.filter(x=>x.builtin).map(x=>x.id)).toEqual(['home','nav','notes','status','settings']);
  expect(rows.at(-1)).toMatchObject({kind:'website',builtin:false,to:'/apps/'+'a'.repeat(32)});
 });
 it('merges stable navigation IDs without allowing a builtin route override', () => {

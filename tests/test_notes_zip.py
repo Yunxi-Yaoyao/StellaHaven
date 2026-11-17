@@ -160,6 +160,7 @@ def test_zip_encoding_and_parent(client, workspace_id, encoding):
 def test_failure_cleans_only_new_files(client, workspace_id, db_session, tmp_path, monkeypatch):
     from app.routers import attachment
     from app.models.document import Document
+    monkeypatch.setenv('STELLA_BLOB_STORAGE', 'file')
     monkeypatch.setattr(attachment, 'STORAGE', tmp_path)
     keep = tmp_path / 'existing'; keep.write_bytes(b'keep')
     before = db_session.query(Document).count()

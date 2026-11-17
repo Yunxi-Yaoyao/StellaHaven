@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import HelpHint from "../settings/HelpHint.vue";
 import { createPoller } from "./polling";
 // 工具页：打流测速 / MTR / 下发命令（由 tool prop 决定渲染哪一个）
 import { waitForTask } from "./taskWait";
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import * as echarts from "./chartRuntime";
 import {
-  listNodes, listIperfTasks, getIperfTask, createIperfTask, cancelIperfTask, listMtrTasks, createMtrTask,
+  listNodes, listIperfTasks, getIperfTask, createIperfTask, cancelIperfTask, listMtrTasks, createMtrJob, getMtrTask,
   listCommands, createCommand,
   mtrHopRows, type Node, type IperfTask, type MtrTask, type Command, type MtrHopRow,
 } from "../../api/servers";
@@ -13,7 +14,9 @@ import { useRouter } from "vue-router";
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
 import Dropdown from "../../shell/Dropdown.vue";
+import { componentInstalled } from "./serverState";
 import NodeComponents from "./NodeComponents.vue";
+import SpeedtestProgress, { throughputResultError } from "./SpeedtestProgress.vue";
 
 const props = defineProps<{ tool: "iperf" | "mtr" | "command"; presetNode?: number | null }>();
 
@@ -34,7 +37,7 @@ function activePlusRecent<T extends { status: string }>(list: T[], n = 3): T[] {
   const rest = list.filter((t) => !active.includes(t)).slice(0, n);
   return [...active, ...rest];
 }
-const iperfRecent = computed(() => activePlusRecent(iperfTasks.value));
+const iperfRecent = computed(() => activePlusRecent(iperfTasks.value.map(t => t.id === activeTask.value?.id ? { ...t, ...activeTask.value, progress_json: chartPoints.value } : t)));
 const mtrRecent = computed(() => activePlusRecent(mtrTasks.value));
 const cmdRecent = computed(() => activePlusRecent(commands.value));
 function goRecords() { router.push({ path: "/status", query: { view: "tools", tool: "records" } }); }
@@ -59,6 +62,16 @@ const iperfOmit = ref(0);
 const iperfZerocopy = ref(false);
 const iperfPreset = ref("quick");
 const advOpen = ref(false);
+const iperfSubmitting = ref(false);
+const iperfError = ref('');
+const iperfPollError = ref('');
+const iperfCancelling = ref(false);
+const cancelRequested = ref(false);
+const iperfBusy = computed(() => iperfSubmitting.value || !!activeTask.value && ['pending','running'].includes(activeTask.value.status) || iperfTasks.value.some(t => ['pending','running'].includes(t.status)));
+function throughputError(e: unknown, fallback: string) {
+  const detail = (e as {detail?: unknown})?.detail;
+  return `${typeof detail === 'string' ? detail : fallback}喵~`;
+}
 
 // 预制方案：一键填充参数
 interface IperfPreset { id: string; name: string; desc: string; }
@@ -97,7 +110,10 @@ const iperfServerOptions = computed(() =>
   onlineNodes().filter((n) => n.net_type === "public").map((n) => ({ value: n.id, label: n.name + " · 公网" })));
 // 打流客户端：在线节点，排除已选服务端（两端不能同机）
 const iperfClientOptions = computed(() =>
-  onlineNodes().filter((n) => n.id !== iperfServerId.value).map((n) => ({ value: n.id, label: n.name + (n.net_type === "public" ? " · 公网" : "") })));
+  onlineNodes().filter((n) => iperfMode.value === 'speedtest' || n.id !== iperfServerId.value).map((n) => ({ value: n.id, label: n.name + (n.net_type === "public" ? " · 公网" : "") })));
+watch(iperfClientOptions, options => {
+  if (!options.some(o=>o.value===iperfClientId.value)) iperfClientId.value=options[0]?.value ?? null;
+});
 const limitOptions = [
   { value: "time", label: "按时长" },
   { value: "bytes", label: "按数据量" },
@@ -123,6 +139,7 @@ function onPresetChange(v: string | number | boolean) {
 // 实时打流曲线
 const chartRef = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
+let chartObserver: ResizeObserver | null = null;
 const activeTaskId = ref<number | null>(null);
 const activeTask = ref<IperfTask | null>(null);
 const chartPoints = ref<{ ts: string; bitrate: number; lost_pct?: number; jitter_ms?: number; role?: string; retry?: boolean; attempt?: number; reason?: string; note?: string }[]>([]);
@@ -135,10 +152,10 @@ const phaseHint = computed(() => {
   if (!t) return "";
   if (t.status === "pending") {
     if (t.mode === "speedtest") return "等待客户端领取任务…";
-    return t.server_started ? "服务端已就绪，等待客户端领取…" : "等待服务端领取并起 iperf3 -s…";
+    return t.server_started ? "服务端已领取，等待监听与客户端连接喵~" : "等待服务端领取任务喵~";
   }
   if (t.status === "running") {
-    if (t.mode === "speedtest") return stageNote.value || "测速中（选服务器 → ping → 下载 → 上传，约 1 分钟）…";
+    if (t.mode === "speedtest") return stageNote.value || "测速运行中，等待 CLI 返回结果喵~";
     if (!chartPoints.value.filter((p) => !p.retry && !p.note).length) return "已领取，连接服务端中…";
   }
   return "";
@@ -151,16 +168,16 @@ const liveThruput = computed(() => {
   const pts = recvPoints(chartPoints.value, chartDir.value);
   const last = pts[pts.length - 1];
   if (!last) return "-";
-  if (last.bitrate > 1e9) return "数据异常";
+  if (!Number.isFinite(last.bitrate) || last.bitrate < 0) return "数据异常";
   return (last.bitrate / 1e6).toFixed(1) + " Mbps";
 });
 const liveSend = computed(() => {
-  const clientPts = chartPoints.value.filter((p) => (p.role || "client") !== "server");
-  const serverPts = chartPoints.value.filter((p) => p.role === "server");
+  const clientPts = chartPoints.value.filter((p) => !p.retry && !p.note && (p.role || "client") !== "server");
+  const serverPts = chartPoints.value.filter((p) => !p.retry && !p.note && p.role === "server");
   const sendPts = chartDir.value === "reverse" ? serverPts : clientPts;
   const last = sendPts[sendPts.length - 1];
   if (!last) return null;
-  if (last.bitrate > 1e9) return "数据异常";
+  if (!Number.isFinite(last.bitrate) || last.bitrate < 0) return "数据异常";
   return (last.bitrate / 1e6).toFixed(1) + " Mbps";
 });
 const liveLoss = computed(() => {
@@ -175,20 +192,20 @@ const liveJitter = computed(() => {
 const liveAvg = computed(() => {
   const pts = recvPoints(chartPoints.value, chartDir.value);
   if (!pts.length) return null;
-  if (pts.some((p) => p.bitrate > 1e9)) return "数据异常";
+  if (pts.some((p) => !Number.isFinite(p.bitrate) || p.bitrate < 0)) return "数据异常";
   const sum = pts.reduce((a, p) => a + p.bitrate, 0);
   return (sum / pts.length / 1e6).toFixed(1) + " Mbps";
 });
 const livePeak = computed(() => {
   const pts = recvPoints(chartPoints.value, chartDir.value);
   if (!pts.length) return null;
-  if (pts.some((p) => p.bitrate > 1e9)) return "数据异常";
+  if (pts.some((p) => !Number.isFinite(p.bitrate) || p.bitrate < 0)) return "数据异常";
   return (Math.max(...pts.map((p) => p.bitrate)) / 1e6).toFixed(1) + " Mbps";
 });
 const liveBytes = computed(() => {
   const pts = recvPoints(chartPoints.value, chartDir.value);
   if (!pts.length) return null;
-  if (pts.some((p) => p.bitrate > 1e9)) return "数据异常";
+  if (pts.some((p) => !Number.isFinite(p.bitrate) || p.bitrate < 0)) return "数据异常";
   // 每秒一个点，每点 bitrate 是 bits/s（代表该秒流量），累计数据量 = Σbitrate/8（bytes）
   const totalBits = pts.reduce((a, p) => a + p.bitrate, 0);
   return fmtBytes(totalBits / 8);
@@ -196,6 +213,14 @@ const liveBytes = computed(() => {
 
 // MTR 表单（主机/端口分栏，tcp/udp 才显示端口；全角冒号容错）
 const mtrNodeId = ref<number | null>(null);
+const mtrExtraNodes = ref<number[]>([]);
+const mtrMissingNodes = computed(() => nodes.value.filter(n => [mtrNodeId.value, ...mtrExtraNodes.value].includes(n.id) && componentInstalled(n.components?.mtr) === false));
+const mtrSubmitting = ref(false);
+const mtrError = ref('');
+const mtrJobTasks = ref<MtrTask[]>([]);
+const mtrResultIndex = ref(0);
+const isActiveMtr = (t: MtrTask) => ['pending', 'running'].includes(t.status);
+const mtrBusy = computed(() => mtrSubmitting.value || mtrJobTasks.value.some(isActiveMtr) || mtrTasks.value.some(isActiveMtr));
 const mtrHost = ref("");
 const mtrPort = ref("");
 const mtrProtocol = ref("icmp");
@@ -210,6 +235,7 @@ const mtrPsize = ref(64);
 const cmdNodeId = ref<number | null>(null);
 const cmdText = ref("");
 
+const statusError = ref('');
 const statusPoll = createPoller(refreshStatus, 5000);
 function refresh() { return statusPoll.run(); }
 function onVisibility() {
@@ -226,6 +252,14 @@ async function refreshStatus(signal: AbortSignal) {
     ]);
     if (signal.aborted) return;
     nodes.value=n; iperfTasks.value=i; commands.value=c;
+    if (!activeTask.value) {
+      const running = i.find(t => ['pending','running'].includes(t.status));
+      if (running) {
+        activeTaskId.value = running.id; activeTask.value = running;
+        chartPoints.value = running.progress_json || []; progressCursor = chartPoints.value.length;
+        startPoll();
+      }
+    }
     // 默认选中：服务端选唯一公网在线节点（多台公网时选第一台），客户端选第一台在线（且≠服务端）
     if (iperfServerId.value === null || !iperfServerOptions.value.some((o) => o.value === iperfServerId.value)) {
       iperfServerId.value = iperfServerOptions.value[0]?.value ?? null;
@@ -235,7 +269,8 @@ async function refreshStatus(signal: AbortSignal) {
     }
     if (mtrNodeId.value === null && nodes.value.length) mtrNodeId.value = nodes.value[0].id;
     if (cmdNodeId.value === null && nodes.value.length) cmdNodeId.value = nodes.value[0].id;
-  } catch { /* 静默 */ }
+    statusError.value = '';
+  } catch { if (!signal.aborted) statusError.value = '节点与任务刷新失败，已保留上次结果，正在重试喵~'; }
 }
 let presetApplied = false;
 function applyPresetNode() {
@@ -259,19 +294,28 @@ onUnmounted(() => {
   mtrPoll.stop();
   disposed = true;
   chart?.dispose();
+  chartObserver?.disconnect();
 });
 
-const onlineNodes = () => nodes.value.filter((n) => n.status === "online");
+function onlineNodes() { return nodes.value.filter((n) => n.status === 'online'); }
 
 async function startIperf() {
+  if (iperfBusy.value) return;
+  iperfError.value = '';
   if (iperfMode.value === "iperf3" && (iperfServerId.value === null || iperfClientId.value === null)) {
     toast("互打需要选服务端和客户端喵~"); return;
   }
   if (iperfMode.value === "speedtest" && iperfClientId.value === null) {
     toast("选一个节点跑 speedtest 喵~"); return;
   }
+  if (iperfMode.value === 'iperf3' && (!Number.isInteger(iperfParallel.value) || iperfParallel.value < 1 || iperfParallel.value > 16)) {
+    iperfError.value = '并行流必须为 1–16 的整数喵~'; return;
+  }
+  iperfSubmitting.value = true;
   try {
-    const t = await createIperfTask({
+    const t = await createIperfTask(iperfMode.value === 'speedtest' ? {
+      server_node_id: null, client_node_id: iperfClientId.value!, mode: 'speedtest', speedtest_server: stServerId.value || null,
+    } : {
       server_node_id: iperfMode.value === "iperf3" ? iperfServerId.value : null,
       client_node_id: iperfClientId.value!,
       mode: iperfMode.value,
@@ -286,20 +330,21 @@ async function startIperf() {
       length: iperfLength.value || null,
       omit: iperfOmit.value,
       zerocopy: iperfZerocopy.value,
-      speedtest_server: iperfMode.value === "speedtest" && stServerId.value ? stServerId.value : null,
+      speedtest_server: null,
     });
     if (disposed) return;
     toast("打流任务已下发");
     // 开始实时跟踪
     activeTaskId.value = t.id;
     activeTask.value = t;
+    cancelRequested.value = false; iperfPollError.value = '';
     chartPoints.value = [];
     progressCursor = 0;
     startPoll();
     await refresh();
   } catch (e: any) {
-    toast(e?.status === 409 ? "已有打流任务进行中，等它跑完" : "下发失败");
-  }
+    if (!disposed) iperfError.value = throughputError(e, e?.status === 409 ? '已有打流任务进行中，等它跑完再试' : '下发失败，请重试；参数已保留');
+  } finally { iperfSubmitting.value = false; }
 }
 
 // 实时进度游标：独立于 chartPoints.length——之前直接用数组长度当 cursor，
@@ -313,6 +358,7 @@ const iperfPoll = createPoller(async signal => {
     const t=await getIperfTask(id,{progressAfter:progressCursor, signal});
     if(signal.aborted || activeTaskId.value!==id) return;
     activeTask.value=t;
+    iperfPollError.value='';
     if(t.progress_json?.length) {
       chartPoints.value=chartPoints.value.concat(t.progress_json);
       progressCursor+=t.progress_json.length;
@@ -327,20 +373,27 @@ const iperfPoll = createPoller(async signal => {
       if(signal.aborted) return;
       stopPoll(); await refresh();
     }
-  } catch { /* next completion-driven poll retries */ }
+  } catch { if(!signal.aborted && !disposed) iperfPollError.value='进度刷新失败，已保留上次数据，正在重试喵~'; }
 },1000);
 function startPoll() { if(!disposed && !document.hidden && props.tool==="iperf") iperfPoll.start(); }
 function stopPoll() { iperfPoll.stop(); }
 
 async function cancelTask() {
-  if (activeTaskId.value === null) return;
+  if (activeTaskId.value === null || iperfCancelling.value || cancelRequested.value) return;
+  const id = activeTaskId.value;
+  iperfCancelling.value = true; iperfError.value = '';
   try {
-    await cancelIperfTask(activeTaskId.value);
-    toast("已中止打流喵~");
+    await cancelIperfTask(id);
+    if (disposed || activeTaskId.value !== id) return;
+    cancelRequested.value = true;
+    const task = await getIperfTask(id);
+    if (disposed || activeTaskId.value !== id) return;
+    activeTask.value = task;
+    if (task.progress_json) { chartPoints.value = task.progress_json; progressCursor = chartPoints.value.length; renderChart(); }
+    if (['done','failed','cancelled'].includes(task.status)) stopPoll();
     await refresh();
-  } catch {
-    toast("中止失败");
-  }
+  } catch (e) { if(!disposed) iperfError.value=throughputError(e, cancelRequested.value ? '已请求中止，但状态确认失败；正在刷新' : '中止失败，请重试'); }
+  finally { iperfCancelling.value = false; }
 }
 
 function buildChartOption(x: string[], y: number[], sendY?: number[], lost?: (number | null)[]) {
@@ -416,7 +469,7 @@ function splitChartPoints(pts: { ts: string; bitrate: number; lost_pct?: number;
   const serverPts = data.filter((p) => p.role === "server");
   const recvPts = direction === "reverse" ? clientPts : serverPts;
   const sendPts = direction === "reverse" ? serverPts : clientPts;
-  const thruPts = recvPts.length ? recvPts : sendPts;  // 接收端还没数据时回退发送端
+  const thruPts = recvPts;  // 接收端尚无样本时留空，发送速率仍由独立虚线展示
   const y = thruPts.map((p) => p.bitrate / 1e6);       // 接收速率（主体实线）
   const sendY = sendPts.map((p) => p.bitrate / 1e6);   // 发送速率（虚线基准）
   const lost = thruPts.map((p) => (p.lost_pct != null ? p.lost_pct : null));
@@ -432,12 +485,11 @@ function recvPoints(pts: { ts: string; bitrate: number; lost_pct?: number; jitte
   const clientPts = data.filter((p) => (p.role || "client") !== "server");
   const serverPts = data.filter((p) => p.role === "server");
   const recv = direction === "reverse" ? clientPts : serverPts;
-  const send = direction === "reverse" ? serverPts : clientPts;
-  return recv.length ? recv : send;
+  return recv;
 }
 
 function renderChart() {
-  if (!chartRef.value) return;
+  if (!chartRef.value || activeTask.value?.mode === 'speedtest') return;
   // 每次动态获取实例：切工具/路由时 .lc-canvas 会被 v-if 销毁重建，
   // 模块级缓存的 chart 会指向已销毁的旧元素，setOption 打在空气上 → 图表空白。
   // getInstanceByDom 按当前 DOM 取实例，元素重建了就重新 init。
@@ -446,13 +498,25 @@ function renderChart() {
   const { x, y, sendY, lost } = splitChartPoints(chartPoints.value, dir);
   chart.setOption(buildChartOption(x, y, sendY, lost), { notMerge: true });
 }
+watch(chartRef, async el => {
+  chartObserver?.disconnect(); chart?.dispose(); chart = null;
+  if (!el) return;
+  await nextTick();
+  if (disposed || chartRef.value !== el) return;
+  renderChart();
+  if (typeof ResizeObserver !== 'undefined') {
+    chartObserver = new ResizeObserver(() => { if (el.clientWidth > 0) chart?.resize(); });
+    chartObserver.observe(el);
+  }
+});
 
-const statusLabel: Record<string, string> = { pending: "排队中", running: "执行中", done: "完成", failed: "失败", cancelled: "已中止" };
+const statusLabel: Record<string, string> = { pending: "等待领取", running: "执行中", done: "完成", failed: "失败", cancelled: "已中止" };
 const statusColor: Record<string, string> = { pending: "var(--accent-dim)", running: "var(--pink)", done: "var(--pink)", failed: "var(--text-faint)", cancelled: "var(--accent-dim)" };
+function throughputStatus(t: IperfTask): string { return throughputResultError(t) ? 'failed' : t.status; }
 
 function fmtBandwidth(t: IperfTask): string {
   const r = t.result_json as any;
-  if (t.status !== "done" || !r) return "-";
+  if (t.status !== "done" || !r || throughputResultError(t)) return "-";
   if (r.suspicious) return "数据异常";
   if (t.mode === "speedtest") {
     const srv = r?.servers?.[0] || {};
@@ -496,18 +560,37 @@ function mtrRows(t: MtrTask): MtrHopRow[] {
   return mtrHopRows(r?.report?.hubs || r?.hubs || []);
 }
 // 运行中的 MTR 实时逐跳表（agent --raw 每 ~2s 覆写 live_json，2s 轮询跟终端一样边跑边刷）
-const runningMtr = computed(() =>
-  mtrTasks.value.find((t) => t.status === "running" || t.status === "pending") || null);
-const mtrLiveRows = computed(() => mtrHopRows(runningMtr.value?.live_json?.hops));
+const runningMtr = computed(() => mtrJobTasks.value[mtrResultIndex.value] || null);
+const mtrLiveRows = computed(() => runningMtr.value?.status === 'done' ? mtrRows(runningMtr.value) : mtrHopRows(runningMtr.value?.live_json?.hops));
 const mtrLiveCount = computed(() => runningMtr.value?.params_json?.count ?? 10);
 
 const mtrPoll = createPoller(async signal => {
-  const rows=await listMtrTasks(signal);
-  if(!signal.aborted) mtrTasks.value=rows;
+  const ids = mtrJobTasks.value.map(t => t.id);
+  try {
+    const rows=await listMtrTasks(signal);
+    const missing = ids.filter(id => !rows.some(t => t.id === id));
+    const exact = await Promise.all(missing.map(id => getMtrTask(id, signal)));
+    if(signal.aborted || disposed || ids.join(',') !== mtrJobTasks.value.map(t=>t.id).join(',')) return;
+    mtrTasks.value=rows.map(fresh => {
+      const old=mtrTasks.value.find(t=>t.id===fresh.id);
+      return old && !isActiveMtr(old) && isActiveMtr(fresh) ? old : fresh;
+    }); mtrError.value='';
+    if (!ids.length) {
+      const active=rows.find(isActiveMtr);
+      if (active) mtrJobTasks.value=rows.filter(t=> t.id===active.id || (active.job_id && t.job_id===active.job_id)).sort((a,b)=>a.id-b.id);
+    } else if (ids.join(',') === mtrJobTasks.value.map(t=>t.id).join(',')) {
+      mtrJobTasks.value=mtrJobTasks.value.map(old => {
+        const fresh=[...rows,...exact].find(t=>t.id===old.id);
+        return fresh && (isActiveMtr(old) || !isActiveMtr(fresh)) ? fresh : old;
+      });
+    }
+  } catch {
+    if(!signal.aborted && !disposed) mtrError.value='手动记录刷新失败，已保留上次结果；稍后重试。';
+  }
 },2000);
-watch(() => `${props.tool}:${runningMtr.value?.id ?? "none"}`, () => {
+watch(() => `${props.tool}:${mtrJobTasks.value.some(isActiveMtr)}`, () => {
   mtrPoll.stop();
-  if(runningMtr.value && props.tool==="mtr" && !document.hidden && !disposed) mtrPoll.start();
+  if(mtrJobTasks.value.some(isActiveMtr) && props.tool==="mtr" && !document.hidden && !disposed) mtrPoll.start();
 });
 watch(() => props.tool, () => {
   stopPoll();
@@ -557,19 +640,20 @@ function fmtBytes(b: number | null | undefined): string {
 }
 
 function fmtParams(t: IperfTask): string {
+  if (t.mode === 'speedtest') return t.speedtest_server ? `服务器 #${t.speedtest_server}` : '自动选择服务器';
   const parts: string[] = [];
   parts.push(t.udp ? "UDP" : "TCP");
-  if (t.bytes) parts.push(`数据量 ${t.bytes}`);
+  if (t.bytes) parts.push(`目标 ${t.bytes}${/^\d+(\.\d+)?$/.test(t.bytes) ? ' MiB' : '（二进制单位）'}`);
   else parts.push(`${t.duration}s`);
   if (t.parallel > 1) parts.push(`${t.parallel}流`);
   if (t.direction === "reverse") parts.push("反向");
-  if (t.udp && t.bitrate) parts.push(`@${t.bitrate}`);
+  if (t.udp && t.bitrate) parts.push(`每流 @${t.bitrate}`);
   return parts.join(" · ");
 }
 
 function resultMetrics(t: IperfTask): { label: string; value: string }[] {
   const r = t.result_json as any;
-  if (!r || t.status !== "done") return [];
+  if (!r || t.status !== "done" || throughputResultError(t)) return [];
   if (r.suspicious) return [{ label: "提示", value: "数据异常（iperf3 统计虚高，请重测）" }];
   // speedtest 模式：下载/上传/延迟/抖动（speedtest-go 的 dl_speed/ul_speed 单位是 bytes/s，latency/jitter 是纳秒）
   if (t.mode === "speedtest") {
@@ -612,6 +696,8 @@ function resultMetrics(t: IperfTask): { label: string; value: string }[] {
 }
 
 async function startMtr() {
+  if (mtrBusy.value) return;
+  if (mtrMissingNodes.value.length) { mtrError.value = '所选探测节点未安装 MTR，请先在下方下发组件安装。'; return; }
   if (mtrNodeId.value === null || !mtrHost.value.trim()) { toast("节点和目标都要填喵~"); return; }
   const host = mtrHost.value.trim().replace(/：/g, ":").replace(/\s+/g, "");
   let target = host;
@@ -620,15 +706,20 @@ async function startMtr() {
     if (!p || p < 1 || p > 65535) { toast("TCP/UDP 要填端口号（1-65535）喵~"); return; }
     target = `${host}:${p}`;
   }
+  mtrSubmitting.value = true; mtrError.value = '';
   try {
-    await createMtrTask({
-      node_id: mtrNodeId.value, target, protocol: mtrProtocol.value,
+    const tasks = await createMtrJob({
+      node_ids: [...new Set([mtrNodeId.value, ...mtrExtraNodes.value])], target, protocol: mtrProtocol.value,
       params: { count: mtrCount.value, interval: mtrInterval.value, max_hops: mtrMaxHops.value, psize: mtrPsize.value },
     });
+    if(disposed) return;
+    mtrJobTasks.value=tasks; mtrResultIndex.value=0;
+    mtrTasks.value=[...tasks,...mtrTasks.value.filter(t=>!tasks.some(n=>n.id===t.id))];
     toast("MTR 任务已下发");
-    mtrHost.value = "";
+    // Preserve the form draft after admission and completion.
     await refresh();
-  } catch (e: any) { toast(e?.data?.detail || "下发失败"); }
+  } catch (e: any) { if(!disposed) mtrError.value=typeof e?.detail==='string' ? e.detail : e?.data?.detail || '下发失败，请重试；参数已保留。'; }
+  finally { mtrSubmitting.value=false; }
 }
 
 async function startCmd() {
@@ -641,32 +732,43 @@ async function startCmd() {
   } catch { toast("下发失败"); }
 }
 
-// ── speedtest 服务器选择：「获取列表」让客户端节点跑 speedtest-go --list --json，解析成下拉 ──
+// ── speedtest 服务器选择：通过现有命令通道执行本实例选择的 speedtest-go --list ──
 const stServerId = ref<string>("");  // "" = 自动（延迟最低）
 const stServerList = ref<{ id: string | number; name: string; country?: string }[]>([]);
 const stListLoading = ref(false);
+const stListError = ref('');
+const stListCount = ref(0);
 const stServerOptions = computed(() => [
   { value: "", label: "自动（延迟最低）" },
-  ...stServerList.value.map((s) => ({ value: String(s.id), label: `${s.name}${s.country ? " · " + s.country : ""}` })),
+  ...stServerList.value.map((s) => ({ value: String(s.id), label: `${s.name}${s.country ? " · " + s.country : ""} · #${s.id}` })),
 ]);
 // 换客户端节点后旧列表作废
 let commandLifecycle = new AbortController();
 onUnmounted(() => commandLifecycle.abort());
-watch(iperfClientId, () => { commandLifecycle.abort(); commandLifecycle = new AbortController(); stListLoading.value = false; stServerList.value = []; stServerId.value = ""; });
+watch(iperfClientId, () => { commandLifecycle.abort(); commandLifecycle = new AbortController(); stListLoading.value = false; stListError.value = ''; stListCount.value = 0; stServerList.value = []; stServerId.value = ""; });
 
 async function fetchStServers() {
-  if (iperfClientId.value === null) { toast("先选客户端节点喵~"); return; }
+  if (stListLoading.value) return;
+  stListCount.value = 0;
+  if (iperfClientId.value === null) { stListError.value='先选客户端节点喵~'; return; }
+  if (nodes.value.find(n => n.id === iperfClientId.value)?.platform?.toLowerCase() === 'windows') {
+    stListError.value='服务器列表目前仅支持 Linux 节点；Windows 的执行器路径与命令引用尚未验证，不下发此列表命令喵~';
+    return;
+  }
   const signal = commandLifecycle.signal;
   stListLoading.value = true;
+  stListError.value = '';
   try {
     const cmd = await createCommand({
       node_id: iperfClientId.value,
-      command: "speedtest-go --list 2>/dev/null || /opt/stella-agent/bin/speedtest-go --list",
+      // Agent supplies the already-selected, instance-relative executable. Choose
+      // once in the real command handler; a failed --list must not run another copy.
+      command: "if [ -z \"${STELLA_SPEEDTEST_GO:-}\" ]; then printf '%s\\n' '当前 Agent 未提供可用 speedtest-go 执行器；请检查组件和 Agent 版本' >&2; exit 127; fi; \"$STELLA_SPEEDTEST_GO\" --list",
     });
     if (signal.aborted) return;
     const c = await waitForTask(async s => (await listCommands(s)).find(x => x.id === cmd.id), { signal, timeoutMs: 60000 });
     if (signal.aborted) return;
-        if (c.status === "done" && c.stdout?.trim()) {
+        if (c.status === "done" && (c.exit_code ?? 0) === 0 && c.stdout?.trim()) {
           // speedtest-go --list 是纯文本表格：「[ 1345]  12386.43km 227ms \tHays, KS (United States) by …」
           // （--json 对 --list 不生效，v1.7.11 实测）；留 JSON 解析兜底兼容未来版本
           const out = c.stdout.trim();
@@ -676,28 +778,30 @@ async function fetchStServers() {
             const raw = Array.isArray(j) ? j : (j.servers || []);
             arr = raw.map((s: any) => ({ id: String(s.id), name: s.name || s.sponsor || `#${s.id}`, country: s.country }));
           } catch {
-            const re = /^\[\s*(\d+)\]\s+[\d.]+km\s+(\d+)ms\s+\t(.+?)\s*$/gm;
+            const re = /^\s*\[\s*(\d+)\]\s+[\d.]+\s*km\s+([\d.]+)\s*ms\s+(.+?)\s*$/gm;
             let mm: RegExpExecArray | null;
             while ((mm = re.exec(out)) !== null) {
               arr.push({ id: mm[1], name: `${mm[3].trim()} · ${mm[2]}ms` });
             }
           }
-          stServerList.value = arr.slice(0, 30);
-          toast(stServerList.value.length ? `拿到 ${stServerList.value.length} 个测速服务器喵~` : "列表是空的，用自动吧喵~");
+          stServerList.value = arr.filter(s=>/^[1-9]\d*$/.test(s.id));
+          if (!stServerList.value.length) stListError.value='节点没有返回可识别的服务器列表，可以重试或使用自动选择喵~';
+          else stListCount.value = stServerList.value.length;
         } else {
-          toast("节点上没找到 speedtest-go，先在上方代装喵~");
+          stListError.value=`获取服务器列表失败：${c.stderr || (c.exit_code ? `节点命令退出码 ${c.exit_code}` : '节点未返回列表，请检查组件或网络后重试')}喵~`;
         }
         stListLoading.value = false;
         return;
 
-  } catch (e) { if (signal.aborted) return; toast(e instanceof Error ? e.message : "下发失败"); }
+  } catch (e) { if (signal.aborted) return; stListError.value=throughputError(e, e instanceof Error ? e.message : '获取列表失败，请重试'); }
   stListLoading.value = false;
 }
 </script>
 
 <template>
-  <div class="tools">
+  <div class="tools server-content">
     <div class="head"><h2>{{ toolTitle }}</h2><span class="sub">{{ toolHint }}</span></div>
+    <p v-if="statusError" role="alert">{{ statusError }} <button class="mini-btn" @click="refresh">重试</button></p>
 
     <!-- 打流测速 -->
     <section v-if="tool === 'iperf'" class="panel">
@@ -714,7 +818,7 @@ async function fetchStServers() {
           <Dropdown v-model="iperfMode" :options="modeOptions" />
         </div>
         <div class="form-row" v-if="iperfMode === 'iperf3'">
-          <label>服务端 <span class="tip" title="客户端要直连服务端的 5201 端口，所以服务端必须是公网节点（有公网 IP 或被穿透）">ⓘ</span></label>
+          <label>服务端 <HelpHint label="服务端说明">客户端要直连服务端的 5201 端口，所以服务端必须是公网节点（有公网 IP 或被穿透）</HelpHint></label>
           <Dropdown v-model="iperfServerId" :options="iperfServerOptions" />
         </div>
         <div v-if="iperfMode === 'iperf3' && !iperfServerOptions.length" class="hint-empty" style="padding: 0 2px;">
@@ -724,44 +828,46 @@ async function fetchStServers() {
           <label>客户端</label>
           <Dropdown v-model="iperfClientId" :options="iperfMode === 'iperf3' ? iperfClientOptions : nodeOptions" />
         </div>
-        <div class="form-row" v-if="iperfMode === 'speedtest'">
-          <label>测速服务器 <span class="tip" title="默认自动选延迟最低的服务器；点「获取列表」从客户端节点拉取可选服务器">ⓘ</span></label>
-          <Dropdown v-model="stServerId" :options="stServerOptions" />
-          <button class="st-fetch" :disabled="stListLoading" @click="fetchStServers">{{ stListLoading ? "拉取中…" : "获取列表" }}</button>
+        <div class="form-row st-server-field" v-if="iperfMode === 'speedtest'">
+          <label>测速服务器 <HelpHint label="测速服务器说明">默认自动选延迟最低的服务器；点「获取列表」从客户端节点拉取可选服务器</HelpHint></label>
+          <div class="st-server-controls"><Dropdown v-model="stServerId" :options="stServerOptions" :title="stServerOptions.find(o=>o.value===stServerId)?.label" />
+          <button class="st-fetch" :disabled="stListLoading || iperfClientId === null" @click="fetchStServers">{{ stListLoading ? "拉取中喵~" : stListCount ? "重新获取" : "获取列表" }}</button></div>
         </div>
-        <div class="form-row preset-row">
+        <p v-if="iperfMode === 'speedtest' && stListCount" class="st-list-status" role="status">已获取 {{ stListCount }} 个测速服务器喵~</p>
+        <p v-if="iperfMode === 'speedtest' && stListError" class="iperf-error" role="status">{{ stListError }}</p>
+        <div class="form-row preset-row" v-if="iperfMode === 'iperf3'">
           <label>预制方案</label>
           <Dropdown :model-value="iperfPreset" :options="presetOptions" @update:model-value="onPresetChange" />
         </div>
 
         <!-- 参数组（换行，与上面一组分开） -->
-        <div class="params-group">
+        <div class="params-group" v-if="iperfMode === 'iperf3'">
           <div class="form-row">
-            <label>测速模式 <span class="tip" title="按时长(-t)与按数据量(-n)互斥，二选一">ⓘ</span></label>
+            <label>测速模式 <HelpHint label="测速模式说明">按时长(-t)与按数据量(-n)互斥，二选一</HelpHint></label>
             <Dropdown v-model="iperfLimit" :options="limitOptions" />
           </div>
           <div class="form-row" v-if="iperfLimit === 'time'">
-            <label>时长(s) <span class="tip" title="单次测速持续时间，默认 10s。长时间跑用 60s">ⓘ</span></label>
+            <label>时长(s) <HelpHint label="时长(s)说明">单次测速持续时间，默认 10s。长时间跑用 60s</HelpHint></label>
             <input v-model.number="iperfDuration" type="number" min="1" />
           </div>
           <div class="form-row" v-else>
-            <label>数据量 (MB) <span class="tip" title="传指定数据量后停止（-n，单位 MB）。填纯数字，如 100 = 100MB">ⓘ</span></label>
+            <label>数据量 (MiB) <HelpHint label="数据量 (MiB)说明">iperf3 的 -n 是至少传输的目标量，实际可能超调，并非严格流量上限。纯数字 100 = 100MiB；K/M/G 后缀分别为 KiB/MiB/GiB，按 1024 进位。最终统计的 MB/GB 为十进制，和输入目标单位不同喵~</HelpHint></label>
             <input v-model="iperfBytes" placeholder="如 100" />
           </div>
           <div class="form-row">
-            <label>并行流 <span class="tip" title="并发 TCP 流数。单流可能压不满带宽，多流能压出更高吞吐">ⓘ</span></label>
-            <input v-model.number="iperfParallel" type="number" min="1" max="32" />
+            <label>并行流 <HelpHint label="并行流说明">并发流数为 1–16。单流可能压不满带宽，多流能压出更高吞吐；UDP 目标速率按每流计算</HelpHint></label>
+            <input v-model.number="iperfParallel" type="number" min="1" max="16" step="1" />
           </div>
           <div class="form-row" v-if="iperfMode === 'iperf3'">
-            <label>方向 <span class="tip" title="正向=client 发 server 收；反向(-R)=server 发 client 收，测下行">ⓘ</span></label>
+            <label>方向 <HelpHint label="方向说明">正向=client 发 server 收；反向(-R)=server 发 client 收，测下行</HelpHint></label>
             <Dropdown v-model="iperfDirection" :options="directionOptions" />
           </div>
           <div class="form-row" v-if="iperfMode === 'iperf3'">
-            <label>协议 <span class="tip" title="TCP 测吞吐；UDP 测丢包/抖动，需配目标带宽">ⓘ</span></label>
+            <label>协议 <HelpHint label="协议说明">TCP 测吞吐；UDP 测丢包/抖动，需配目标带宽</HelpHint></label>
             <Dropdown v-model="iperfUdp" :options="protoOptions" />
           </div>
           <div class="form-row" v-if="iperfMode === 'iperf3'">
-            <label>速率 (Mbps) <span class="tip" title="目标速率（-b，单位 Mbps）。UDP 必填（决定发送速率，默认 100）；TCP 可选（留空不限速，填了限速测）">ⓘ</span></label>
+            <label>速率 (Mbps) <HelpHint label="速率 (Mbps)说明">每流目标速率（-b，单位 Mbps，K/M/G 按十进制）。UDP 默认每流 100Mbps；2 流的合计目标约为每流的 2 倍，并非总限速硬保证。TCP 可选，留空不设置速率目标喵~</HelpHint></label>
             <input v-model="iperfBitrate" :placeholder="iperfUdp ? '如 100（默认 100）' : '如 100，留空不限速'" />
           </div>
 
@@ -771,46 +877,51 @@ async function fetchStServers() {
           </button>
           <div v-if="advOpen" class="adv-grid">
             <div class="form-row">
-              <label>端口 <span class="tip" title="server 监听端口（-p），默认 5201。改端口记得两端一致">ⓘ</span></label>
+              <label>端口 <HelpHint label="端口说明">server 监听端口（-p），默认 5201。改端口记得两端一致</HelpHint></label>
               <input v-model.number="iperfPort" type="number" min="1" max="65535" />
             </div>
             <div class="form-row" v-if="!iperfUdp">
-              <label>TCP 窗口 <span class="tip" title="TCP 窗口大小（-w），如 256K/1M。高延迟跨海链路调大能提吞吐">ⓘ</span></label>
+              <label>TCP 窗口 <HelpHint label="TCP 窗口说明">TCP 窗口大小（-w），如 256K/1M。高延迟跨海链路调大能提吞吐</HelpHint></label>
               <input v-model="iperfWindow" placeholder="如 256K" />
             </div>
             <div class="form-row">
-              <label>缓冲区 <span class="tip" title="缓冲区长度（-l），默认 128KB(TCP)/8KB(UDP)，一般不用改">ⓘ</span></label>
+              <label>缓冲区 <HelpHint label="缓冲区说明">缓冲区长度（-l），默认 128KB(TCP)/8KB(UDP)，一般不用改</HelpHint></label>
               <input v-model="iperfLength" placeholder="默认" />
             </div>
             <div class="form-row" v-if="!iperfUdp">
-              <label>预热 <span class="tip" title="忽略前 N 秒（-O），排除 TCP 慢启动阶段，测更稳定的吞吐">ⓘ</span></label>
+              <label>预热 <HelpHint label="预热说明">忽略前 N 秒（-O），排除 TCP 慢启动阶段，测更稳定的吞吐</HelpHint></label>
               <input v-model.number="iperfOmit" type="number" min="0" />
             </div>
             <div class="form-row check-row" v-if="!iperfUdp">
-              <label>零拷贝 <span class="tip" title="零拷贝模式（-Z），高速链路减少 CPU 拷贝，需两端支持">ⓘ</span></label>
+              <label>零拷贝 <HelpHint label="零拷贝说明">零拷贝模式（-Z），高速链路减少 CPU 拷贝，需两端支持</HelpHint></label>
               <input v-model="iperfZerocopy" type="checkbox" />
             </div>
           </div>
         </div>
 
-        <button class="go-btn" @click="startIperf"><Icon name="zap" :size="14" /> 开始打流</button>
+        <button class="go-btn st-button is-primary" :disabled="iperfBusy" :aria-busy="iperfSubmitting" @click="startIperf"><Icon name="zap" :size="14" /> {{ iperfSubmitting ? '正在下发喵~' : iperfBusy ? '测速任务进行中喵~' : iperfMode === 'speedtest' ? '开始测速' : '开始打流' }}</button>
+        <p v-if="iperfError" class="iperf-error" role="alert">{{ iperfError }}</p>
       </div>
 
       <!-- 实时曲线 -->
-      <div v-if="activeTask && (activeTask.status === 'running' || activeTask.status === 'pending' || chartPoints.length)" class="live-chart">
+      <div v-if="activeTask" class="live-chart">
         <div class="lc-head">
-          <span>实时吞吐 · 任务 #{{ activeTask.id }}</span>
-          <span v-if="phaseHint" class="lc-phase">{{ phaseHint }}</span>
-          <span class="lc-st" :style="{ color: statusColor[activeTask.status] }">{{ statusLabel[activeTask.status] }}</span>
-          <button v-if="activeTask.status === 'running' || activeTask.status === 'pending'" class="cancel-btn" @click="cancelTask">中止</button>
+          <span>{{ activeTask.mode === 'speedtest' ? '公共测速' : '实时吞吐' }} · {{ nodeName(activeTask.client_node_id) }} · #{{ activeTask.id }}</span>
+          <span v-if="phaseHint && activeTask.mode !== 'speedtest'" class="lc-phase">{{ phaseHint }}</span>
+          <span class="lc-st" :style="{ color: statusColor[throughputStatus(activeTask)] }">{{ statusLabel[throughputStatus(activeTask)] }}喵~</span>
+          <button v-if="activeTask.status === 'running' || activeTask.status === 'pending'" class="cancel-btn" :disabled="iperfCancelling || cancelRequested" @click="cancelTask">{{ iperfCancelling ? '正在中止喵~' : cancelRequested ? '等待中止确认喵~' : '中止' }}</button>
         </div>
+        <p v-if="iperfPollError" class="iperf-error" role="status">{{ iperfPollError }}</p>
         <!-- 重试说明：偶发控制连接 reset 时 agent 自动重试，这里回显原因和次数 -->
         <div v-if="retryEvents.length" class="retry-hint">
           <span v-for="e in retryEvents" :key="e.ts" class="retry-item">⚠️ 重试第 {{ e.attempt }} 次：{{ e.reason }}</span>
         </div>
-        <div ref="chartRef" class="lc-canvas" />
+        <p v-if="activeTask.mode !== 'speedtest' && throughputResultError(activeTask)" class="iperf-error" role="alert">{{ throughputResultError(activeTask) }}喵~</p>
+        <p v-if="activeTask.status === 'cancelled'" class="lc-summary" role="status">测试已中止，保留已收到的数据喵~</p>
+        <SpeedtestProgress v-if="activeTask.mode === 'speedtest'" :task="activeTask" :points="chartPoints" :metrics="resultMetrics(activeTask)" />
+        <div v-else ref="chartRef" class="lc-canvas" />
         <!-- 指标条：running 显示实时累计值，pending 显示等待提示，done 显示完整汇总 -->
-        <div class="metric-bar">
+        <div v-if="activeTask.mode !== 'speedtest'" class="metric-bar">
           <template v-if="activeTask.status === 'running'">
             <span class="metric"><span class="m-label">接收</span><b class="m-val">{{ liveThruput }}</b></span>
             <span v-if="liveSend" class="metric"><span class="m-label">发送</span><b class="m-val" style="color:#5ac8fa">{{ liveSend }}</b></span>
@@ -836,7 +947,7 @@ async function fetchStServers() {
         <div class="th">历史打流记录 <button class="more-link" @click="goRecords">更多记录 →</button></div>
         <template v-for="t in iperfRecent" :key="t.id">
           <div class="task-row" :class="{ open: expandedTaskId === t.id }" @click="toggleExpand(t.id)">
-            <span class="t-dot" :style="{ background: statusColor[t.status] }" />
+            <span class="t-dot" :style="{ background: statusColor[throughputStatus(t)] }" />
             <span class="t-name">
               <b class="t-id">#{{ t.id }}</b>
               <template v-if="t.mode === 'iperf3'">{{ nodeName(t.client_node_id) }} → {{ nodeName(t.server_node_id) }}</template>
@@ -844,8 +955,8 @@ async function fetchStServers() {
             </span>
             <span class="t-params">{{ fmtParams(t) }}</span>
             <span class="t-time" :title="new Date(t.created_at).toLocaleString('zh-CN')">{{ fmtTime(t.created_at) }}</span>
-            <span class="t-st">{{ statusLabel[t.status] }}</span>
-            <span class="t-bw" v-if="t.status === 'done'">{{ fmtBandwidth(t) }}</span>
+            <span class="t-st">{{ statusLabel[throughputStatus(t)] }}</span>
+            <span class="t-bw" v-if="t.status === 'done' && !throughputResultError(t)">{{ fmtBandwidth(t) }}</span>
             <Icon name="chevron" :size="12" :class="{ rot: expandedTaskId === t.id }" class="t-expand" />
           </div>
           <!-- 展开：历史图表 + 结果指标 -->
@@ -856,7 +967,7 @@ async function fetchStServers() {
                 <span class="m-label">{{ m.label }}</span><b class="m-val">{{ m.value }}</b>
               </span>
             </div>
-            <div v-if="t.status === 'failed'" class="t-err">{{ (t.result_json as any)?.error }}</div>
+            <div v-if="throughputResultError(t)" class="t-err" role="alert">{{ throughputResultError(t) }}喵~</div>
           </div>
         </template>
         <div v-if="!iperfTasks.length" class="hint-empty">暂无打流记录</div>
@@ -866,7 +977,7 @@ async function fetchStServers() {
     <!-- MTR -->
     <section v-else-if="tool === 'mtr'" class="panel">
       <div class="p-head"><Icon name="globe" :size="15" /> MTR 路径测试</div>
-      <div class="p-body">
+      <div class="p-body mtr-form">
         <div class="form-row">
           <label>发起节点</label>
           <Dropdown v-model="mtrNodeId" :options="nodeOptions" />
@@ -875,7 +986,7 @@ async function fetchStServers() {
           <label>协议</label>
           <Dropdown v-model="mtrProtocol" :options="mtrProtoOptions" />
         </div>
-        <div class="form-row">
+        <div class="form-row mtr-host-field">
           <label>主机</label>
           <input v-model="mtrHost" placeholder="如 8.8.8.8 或 example.com" @keydown.enter="startMtr" />
         </div>
@@ -883,6 +994,17 @@ async function fetchStServers() {
           <label>端口</label>
           <input v-model="mtrPort" placeholder="如 443" style="width: 110px;" @keydown.enter="startMtr" />
         </div>
+        <button class="go-btn mtr-go st-button is-primary" :disabled="mtrBusy" :aria-busy="mtrBusy" @click="startMtr">
+          <Icon name="globe" :size="14" /> {{ mtrSubmitting ? '正在下发…' : mtrBusy ? 'MTR 作业进行中' : '开始 MTR' }}
+        </button>
+        <fieldset class="mtr-nodes">
+          <legend>同时从其他节点探测（一次最多 8 个）</legend>
+          <label v-for="n in onlineNodes().filter(n=>n.id!==mtrNodeId)" :key="n.id">
+            <input v-model="mtrExtraNodes" type="checkbox" :value="n.id" :disabled="!mtrExtraNodes.includes(n.id) && mtrExtraNodes.length >= 7" />{{ n.name }}
+          </label>
+        </fieldset>
+        <div v-if="mtrBusy" class="run-progress" role="progressbar" aria-label="MTR 作业执行中，完成时间未知"><span /></div>
+        <p v-if="mtrError" class="mtr-error" role="status">{{ mtrError }}</p>
         <button class="adv-toggle" @click="mtrAdv = !mtrAdv">
           {{ mtrAdv ? "收起参数" : "参数" }}（-c {{ mtrCount }} 包 · -i {{ mtrInterval }}s · -m {{ mtrMaxHops }} 跳 · -s {{ mtrPsize }}B）
         </button>
@@ -892,14 +1014,22 @@ async function fetchStServers() {
           <div class="form-row"><label>最大跳数 -m</label><input type="number" v-model.number="mtrMaxHops" min="1" max="255" /></div>
           <div class="form-row"><label>包大小 -s（B）</label><input type="number" v-model.number="mtrPsize" min="24" max="9000" /></div>
         </div>
-        <button class="go-btn" @click="startMtr"><Icon name="globe" :size="14" /> 开始 MTR</button>
+
       </div>
 
+      <NodeComponents v-if="mtrMissingNodes.length" :nodes="mtrMissingNodes" :comps="['mtr']" @refresh="refresh" />
       <!-- 实时路径：agent --raw 每 ~2s 覆写快照，和终端 mtr 一样边跑边刷 -->
       <div v-if="runningMtr" class="mtr-live">
+        <div class="mtr-result-nav" v-if="mtrJobTasks.length > 1">
+          <button aria-label="上一个节点" :disabled="mtrResultIndex===0" @click="mtrResultIndex--">←</button>
+          <span>{{ mtrResultIndex + 1 }} / {{ mtrJobTasks.length }} · {{ mtrJobTasks.filter(t=>!isActiveMtr(t)).length }} 个节点已结束</span>
+          <button aria-label="下一个节点" :disabled="mtrResultIndex===mtrJobTasks.length-1" @click="mtrResultIndex++">→</button>
+        </div>
+        <Transition name="node-result" mode="out-in">
+        <div :key="runningMtr.id" class="mtr-node-result">
         <div class="th">
-          实时路径 · #{{ runningMtr.id }} {{ runningMtr.target }}（{{ runningMtr.protocol.toUpperCase() }}）
-          <span class="lc-phase">{{ runningMtr.status === "pending" ? "等待节点领取…" : `探测中 · 每跳 ${mtrLiveCount} 包` }}</span>
+          {{ nodeName(runningMtr.node_id) }} · #{{ runningMtr.id }} {{ runningMtr.target }}（{{ runningMtr.protocol.toUpperCase() }}）
+          <span class="lc-phase">{{ runningMtr.status === 'pending' ? '等待节点领取…' : runningMtr.status === 'running' ? `探测中 · 每跳 ${mtrLiveCount} 包` : statusLabel[runningMtr.status] }}</span>
         </div>
         <div v-if="mtrLiveRows.length" class="mtr-table live">
           <div class="mtr-row mtr-hd"><span>跳</span><span>主机</span><span>Loss%</span><span>Snt</span><span>Last</span><span>Avg</span><span>Best</span><span>Wrst</span><span>StDev</span></div>
@@ -915,7 +1045,9 @@ async function fetchStServers() {
             <span class="mtr-num">{{ h.stdev != null ? h.stdev.toFixed(1) : "-" }}</span>
           </div>
         </div>
-        <div v-else class="hint-empty">正在发起探测…</div>
+        <div v-else class="hint-empty">{{ runningMtr.status === 'failed' ? (runningMtr.result_json as any)?.error || '任务失败' : runningMtr.status === 'done' ? '无路径数据（可能被目标过滤）' : '正在发起探测…' }}</div>
+        </div>
+        </Transition>
       </div>
 
       <div class="task-list">
@@ -966,7 +1098,7 @@ async function fetchStServers() {
           <label>命令</label>
           <input v-model="cmdText" placeholder="如 uptime 或 df -h" @keydown.enter="startCmd" />
         </div>
-        <button class="go-btn" @click="startCmd"><Icon name="terminal" :size="14" /> 执行</button>
+        <button class="go-btn st-button is-primary" @click="startCmd"><Icon name="terminal" :size="14" /> 执行</button>
       </div>
       <div class="cmd-list">
         <div class="th">历史记录 <button class="more-link" @click="goRecords">更多记录 →</button></div>
@@ -990,8 +1122,58 @@ async function fetchStServers() {
   </div>
 </template>
 
+<style scoped src="./serverPage.css"></style>
 <style scoped>
-.tools { height: 100%; overflow-y: auto; padding: 22px 26px; }
+.iperf-form > .form-row { flex:1 1 170px; min-width:0; max-width:240px; }
+.iperf-form > .st-server-field { flex:2 1 320px; max-width:none; }
+.iperf-form :deep(.dd-btn) { width:100%;min-width:0;min-height:38px; }
+.iperf-form :deep(.dd-menu) { width:max-content;min-width:100%;max-width:min(520px,calc(100vw - 72px)); }
+.iperf-form :deep(.dd-item-label) { white-space:normal;overflow-wrap:anywhere; }
+.panel:has(.dd-menu) { overflow:visible; }
+.st-server-controls { display:flex;gap:8px;min-width:0; }
+.st-server-controls :deep(.dd) { flex:1;min-width:0; }
+.st-fetch { min-height:38px; }
+.st-list-status { flex-basis:100%;margin:4px 0;font-size:13px;color:var(--accent);line-height:1.6; }
+.iperf-form .params-group .form-row { flex:1 1 140px;min-width:0;max-width:210px; }
+.iperf-form .form-row input { width:100%;min-width:0;box-sizing:border-box; }
+.iperf-form .check-row input { width:34px; }
+.iperf-form .go-btn { flex:none;margin:0;min-height:38px; }
+.iperf-form .go-btn[aria-busy=true]::after { position:static;flex:none; }
+.iperf-error { flex-basis:100%;margin:4px 0;font-size:13px;color:var(--danger);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere; }
+.lc-head { flex-wrap:wrap; }
+.lc-head > span:first-child { min-width:0;overflow-wrap:anywhere; }
+.cancel-btn { min-height:36px; }
+.cancel-btn:disabled { opacity:.6;cursor:default; }
+.t-err { max-width:none;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--danger);font-size:13px; }
+.task-row .t-name { min-width:0;overflow-wrap:anywhere; }
+@media(max-width:600px){
+ .head{flex-wrap:wrap;gap:4px}.iperf-form>.form-row,.iperf-form>.st-server-field{flex-basis:100%;max-width:none}
+ .iperf-form .params-group .form-row{flex:1 1 120px;max-width:none}.iperf-form :deep(.dd-menu){max-width:calc(100vw - 72px);width:100%}
+ .task-list .task-row{display:grid;grid-template-columns:7px minmax(0,1fr) auto}.task-row .t-params{grid-column:2;grid-row:2}.task-row .t-time{grid-column:2;grid-row:3}.task-row .t-st{grid-column:3;grid-row:2}.task-row .t-bw{grid-column:3;grid-row:3}.task-row .t-expand{grid-column:3;grid-row:1}
+}
+.mtr-form .form-row { flex: 0 1 150px; min-width: 0; }
+.mtr-form .mtr-host-field { flex: 1 1 220px; }
+.mtr-form .form-row input { min-width: 0; width: 100%; box-sizing: border-box; }
+.mtr-form :deep(.dd-btn) { min-width: 0; width: 100%; box-sizing: border-box; }
+.mtr-form .adv-toggle { min-width: 0; max-width: 100%; white-space: normal; text-align: left; }
+.mtr-form .mtr-go { flex: 0 0 auto; margin: 0; }
+.mtr-go:disabled { opacity: .75; cursor: default; }
+.mtr-nodes { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 8px 0 0; border: 0; min-width: 0; }
+.mtr-nodes legend { color: var(--text-lo); font-size: 12px; }
+.mtr-nodes label { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: 13px; color: var(--text-hi); }
+.mtr-error { flex-basis: 100%; margin: 0; font-size: 13px; color: #e9a2a2; }
+.run-progress { flex-basis: 100%; height: 3px; overflow: hidden; background: var(--bg-panel); border-radius: 3px; }
+.run-progress span { display: block; height: 100%; width: 30%; background: var(--accent); animation: run-sweep 1.5s ease-in-out infinite alternate; }
+@keyframes run-sweep { to { transform: translateX(230%); } }
+.mtr-result-nav { display: flex; align-items: center; gap: 12px; padding: 10px 16px; color: var(--text-lo); font-size: 12px; }
+.mtr-result-nav button { border: 1px solid var(--accent-dim); background: var(--bg-panel); color: var(--text-hi); border-radius: var(--radius-sm); min-width: 36px; min-height: 36px; cursor: pointer; }
+.mtr-result-nav button:disabled { opacity: .4; cursor: default; }
+.mtr-node-result { min-height: 100px; }
+.node-result-enter-active,.node-result-leave-active { transition: opacity 140ms ease, transform 140ms ease; }
+.node-result-enter-from { opacity: 0; transform: translateX(8px); }
+.node-result-leave-to { opacity: 0; transform: translateX(-8px); }
+@media (prefers-reduced-motion: reduce) { .run-progress span { animation: none; width: 100%; opacity: .5; } .node-result-enter-active,.node-result-leave-active { transition: none; } }
+@media (max-width: 600px) { .mtr-form .form-row { flex: 1 1 120px; } .mtr-form .mtr-host-field { flex-basis: 100%; }.mtr-form .mtr-go { flex-basis:auto; } }
 .head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; }
 h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 .sub { color: var(--text-faint); font-size: 12px; }
@@ -1004,12 +1186,13 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
   font-size: 13.5px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 .warn { font-size: 11px; color: var(--pink); font-weight: 400; margin-left: auto; }
+.tools > .head,.tools .p-head,.tools .p-body { width:100%;max-width:1040px;margin-inline:auto;box-sizing:border-box; }
 .p-body { padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .form-row { display: flex; flex-direction: column; gap: 4px; }
-.form-row label { font-size: 11px; color: var(--text-faint); }
+.form-row label { display:inline-flex;align-items:center;min-height:36px;font-size:14px;color:var(--text-lo); }
 .form-row input, .form-row select {
   padding: 7px 11px; background: var(--bg-panel); border: 1px solid rgba(255,255,255,0.08);
-  border-radius: var(--radius-sm); color: var(--text-hi); font-size: 13px; outline: none; min-width: 140px;
+  border-radius: var(--radius-sm); color: var(--text-hi); font-size:14px;min-height:38px;outline:none;min-width:140px;
 }
 .form-row input:focus, .form-row select:focus { border-color: var(--accent-dim); }
 .form-row select {
@@ -1055,12 +1238,12 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 }
 .check-row input:checked { background: var(--pink); border-color: var(--pink); }
 .check-row input:checked::before { left: 18px; background: var(--bg-base); }
-.go-btn {
+.go-btn:not(.st-button) {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 8px 18px; border: none; border-radius: var(--radius-sm);
   background: var(--accent); color: var(--bg-base); font-weight: 600; font-size: 13px; cursor: pointer;
 }
-.go-btn:hover { opacity: 0.9; }
+.go-btn:not(.st-button):hover { opacity: 0.9; }
 .task-list, .cmd-list { border-top: 1px solid rgba(255,255,255,0.05); padding: 6px 16px 12px; }
 .th { font-size: 11px; color: var(--text-faint); padding: 8px 0 4px; letter-spacing: 1px; }
 .task-row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; font-size: 12.5px; cursor: pointer; border-radius: var(--radius-sm); }
@@ -1080,7 +1263,7 @@ h2 { font-size: 19px; font-weight: 600; letter-spacing: 1px; }
 .metric { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; }
 .m-label { color: var(--text-faint); font-size: 11px; }
 .m-val { color: var(--text-hi); font-weight: 600; font-size: 13px; }
-.t-err { color: var(--text-faint); font-size: 11px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-expand .t-err { color: var(--danger); font-size: 13px; max-width: none; white-space: pre-wrap; overflow-wrap:anywhere; }
 .hint-empty { color: var(--text-faint); font-size: 12px; padding: 8px 0; }
 .cmd-row { display: flex; align-items: center; gap: 9px; padding: 6px 0; font-size: 12.5px; }
 .cmd-row.clickable { cursor: pointer; border-radius: var(--radius-sm); }

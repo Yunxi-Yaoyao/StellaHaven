@@ -1,11 +1,29 @@
 <script setup lang="ts">
 // 主页背景附件管理浮窗：拖拽上传 / 缩略图网格 / 单击选中 / 双击进裁剪预览 / 重命名 / 删除（默认不可删）
 // 裁剪模型 = 源图分数区域（cx,cy 中心 + w,h 宽高），渲染时 cover-fit 铺满——窗口 resize 内容不散。
-import { ref, computed, watch, effectScope } from "vue";
-import { bgManagerOpen, homeSettings } from "./settings";
+import { ref, computed, watch, effectScope, onBeforeUnmount, onDeactivated, onActivated, nextTick } from "vue";
+import { bgManagerOpen, homeSettings, homeSaveErrors, siteBackground, type BgCrop } from "./settings";
 import { auth, displayBg } from "./auth";
 
-import { backgroundEntries, loadBackgroundEntries, backgroundMedia, backgroundThumbnail, storeBackgroundMedia, useBackgroundMedia, optimizeBackground, type BackgroundEntry as BgEntry } from "./backgroundMedia";
+import { backgroundEntries, invalidateBackgroundEntries, backgroundMedia, backgroundThumbnail, storeBackgroundMedia, useBackgroundMedia, optimizeBackground, type BackgroundEntry as BgEntry } from "./backgroundMedia";
+// The same manager operates either on the home preference or as a controlled,
+// draft-only picker. Teleport inside the caller's native dialog top layer.
+const props = withDefaults(defineProps<{ picker?: boolean; open?: boolean; selectedUrl?: string; protectedUrls?: string[]; teleportTo?: string | HTMLElement }>(), { picker: false, open: false, selectedUrl: '', protectedUrls: () => [], teleportTo: 'body' });
+const emit = defineEmits<{ pick: [url: string]; close: [] }>();
+const visible = computed(() => props.picker ? props.open : bgManagerOpen.value);
+function closeManager() { if (props.picker) emit('close'); else bgManagerOpen.value = false; }
+function deleteProtected(e: BgEntry) {
+  if (e.isDefault || e.isSystem) return true;
+  if (!props.picker) return false;
+  // current_user is the single pinned owner. Shared/unknown ownership is never
+  // deletion authority; preserve home/site and saved/current navigation refs.
+  return e.owner !== auth.me?.id || [displayBg.value, auth.me?.home_bg, siteBackground.value, homeSettings.bgImage, ...props.protectedUrls].includes(e.url);
+}
+function pickDraft(e: BgEntry) {
+  if (locked.value || !fence()()) return;
+  emit('pick', e.url); closeManager();
+}
+const failedThumbnails = ref<Record<string, boolean>>({});
 const list = backgroundEntries;
 const selectedId = ref<string | null>(null);
 const previewEntry = ref<BgEntry | null>(null);
@@ -30,30 +48,61 @@ const zoom = ref(100);                     // 缩放滑杆：100=整张图
 const cx = computed(() => cropW.value / 2 + (sliderX.value / 100) * (1 - cropW.value));
 const cy = computed(() => cropH.value / 2 + (sliderY.value / 100) * (1 - cropH.value));
 
-const { source: previewSource, media: previewMedia } = useBackgroundMedia(computed(() => previewEntry.value?.url || ""));
-async function load() {
-  try {
-    await loadBackgroundEntries();
-    selectedId.value = list.value.find(e => e.url === displayBg.value)?.id ?? null;
-  } catch (e) { errorMsg.value = e instanceof Error ? e.message : "图库加载失败"; }
+let lifecycle = 0;
+let active = true;
+function fence() {
+  const generation = lifecycle, owner = auth.me?.id, session = auth.sessionGeneration, epoch = auth.requestEpoch;
+  return () => active && generation === lifecycle && !!owner && owner === auth.me?.id && session === auth.sessionGeneration && epoch === auth.requestEpoch && !auth.sessionClosing && !auth.suspended;
 }
-watch(bgManagerOpen, (v) => { if (v) { errorMsg.value = ""; void load(); } }, { immediate: true });
+onBeforeUnmount(() => { active = false; lifecycle++; });
+onDeactivated(() => { active = false; lifecycle++; saving.value = false; });
+onActivated(() => { active = true; });
+
+const { source: previewSource, media: previewMedia } = useBackgroundMedia(computed(() => previewEntry.value?.url || ""));
+let loadSequence = 0;
+const loadError = ref(false);
+async function readEntries(): Promise<BgEntry[]> {
+  const r = await fetch('/homebg/');
+  if (!r.ok) throw await responseError(r);
+  const entries = await r.json();
+  if (!Array.isArray(entries) || entries.some(e => !e || typeof e.id !== 'string' || typeof e.url !== 'string' || typeof e.name !== 'string')) throw new Error('图库返回不完整，尚未确认');
+  return entries;
+}
+function publishEntries(entries: BgEntry[]) {
+  loadSequence++; invalidateBackgroundEntries();
+  list.value = entries;
+  for (const e of entries) if (e.media) storeBackgroundMedia(e.media);
+}
+async function load() {
+  const current = fence(), sequence = ++loadSequence;
+  loadError.value = false;
+  try {
+    const entries = await readEntries();
+    if (!current() || sequence !== loadSequence) return;
+    publishEntries(entries);
+    if (!selectedId.value) selectedId.value = list.value.find(e => e.url === (props.picker ? props.selectedUrl : displayBg.value))?.id ?? null;
+  } catch (e) { if (current() && sequence === loadSequence) { loadError.value = true; errorMsg.value = e instanceof Error ? e.message : '图库加载失败'; } }
+}
+// Do not erase a failed draft/receipt when the user returns to the gallery.
+watch(visible, v => { if (v) void load(); }, { immediate: true });
 // Grid entries are active consumers only while visible; no media element downloads.
-watch(() => bgManagerOpen.value ? list.value.map(e => e.url) : [], (urls, _, cleanup) => {
+watch(() => visible.value ? list.value.map(e => e.url) : [], (urls, _, cleanup) => {
   const scope = effectScope();
   scope.run(() => { for (const url of urls) useBackgroundMedia(computed(() => url)); });
   cleanup(() => scope.stop());
 }, { immediate: true });
 
 function select(e: BgEntry) {
+  if (locked.value || renamingId.value) return;
   selectedId.value = e.id;
-  renamingId.value = null;
 }
 
 async function upload(files: FileList | File[]) {
-  if (uploading.value) return;
+  if (locked.value || renamingId.value || !auth.me || auth.suspended || auth.sessionClosing) return;
+  const current = fence();
   errorMsg.value = "";
   for (const f of Array.from(files)) {
+    if (!current()) return;
     const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
     if (!["jpg", "jpeg", "png", "webp", "gif", "mp4"].includes(ext)) {
       errorMsg.value = `「${f.name}」格式不支持（仅 jpg/png/webp/gif/mp4）`;
@@ -69,11 +118,12 @@ async function upload(files: FileList | File[]) {
         throw new Error(body.detail ?? String(r.status));
       }
       const entry: BgEntry = await r.json();
-      if (entry.media) storeBackgroundMedia(entry.media);
-      list.value.push(entry);
+      if (!current()) return;
+      // The upload receipt supersedes both local and shared in-flight lists.
+      publishEntries([...list.value.filter(e => e.id !== entry.id), entry]);
       selectedId.value = entry.id;
-    } catch (e) { errorMsg.value = `「${f.name}」上传失败：${e instanceof Error ? e.message : "网络错误"}`; }
-    finally { uploading.value = false; }
+    } catch (e) { if (current()) errorMsg.value = `「${f.name}」上传未确认：${e instanceof Error ? e.message : "网络错误"}。请重新打开图库核对后再上传，避免重复。`; }
+    finally { if (current()) uploading.value = false; }
   }
 }
 
@@ -84,6 +134,7 @@ function onDrop(e: DragEvent) {
 
 /* ── 裁剪预览 ── */
 function openPreview(e: BgEntry) {
+  if (locked.value || renamingId.value) return;
   previewEntry.value = e;
   // 舞台 = 主页内容区真实宽高比（扣侧栏，实测 main）
   const main = document.querySelector("main");
@@ -114,7 +165,7 @@ function previewLoaded(event: Event) {
   initFromSettings();
 }
 function initFromSettings() {
-  const c = homeSettings.bgCrop;
+  const c = props.picker ? undefined : homeSettings.bgCrop;
   if (c && c.w < 1) {
     cropW.value = c.w;
     cropH.value = c.h;
@@ -143,6 +194,7 @@ watch(zoom, () => {
 
 // 舞台内媒体的精确布局（与 BgLayer 同一份 cover-fit 数学）
 const mediaStyle = computed(() => {
+  if (props.picker) return { width: "100%", height: "100%", left: "0", top: "0", objectFit: "contain" as const };
   if (!nat.value.w || !stage.value.w) return { opacity: "0" };
   const srcW = cropW.value * nat.value.w;
   const srcH = cropH.value * nat.value.h;
@@ -157,74 +209,215 @@ const mediaStyle = computed(() => {
   };
 });
 
-async function saveMyBg(url: string) {
-  // 写服务端：登录后自己的壁纸（账号级），换设备跟随账号
+const saving = ref(false);
+const pendingPick = ref<{ url: string; crop?: BgCrop; acknowledged: boolean; phase: 'write' | 'read' | 'local'; serverValue?: NonNullable<typeof auth.me> } | null>(null);
+watch([() => auth.me?.id, () => auth.sessionGeneration, () => auth.requestEpoch, () => auth.sessionClosing, () => auth.suspended], () => {
+  lifecycle++; loadSequence++; saving.value = false; pendingPick.value = null; libraryOperation.value = null; deleteTarget.value = null; uploading.value = false;
+  previewEntry.value = null; renamingId.value = null; renameDraft.value = ''; selectedId.value = null; errorMsg.value = '';
+}, { flush: 'sync' });
+async function responseError(r: Response) {
+  const body = await r.json().catch(() => ({}));
+  return new Error(body.detail || `请求失败 (${r.status})`);
+}
+async function saveMyBg(url: string, crop?: BgCrop) {
+  if (saving.value || !auth.me || auth.suspended || auth.sessionClosing) return false;
+  const current = fence();
+  const op = pendingPick.value ||= { url, crop, acknowledged: false, phase: 'write' };
+  op.serverValue = undefined;
+  saving.value = true; errorMsg.value = '';
   try {
-    const r = await fetch("/auth/me", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ home_bg: url }),
-    });
-    if (r.ok) auth.me = await r.json();
-  } catch { /* 后端不在则不落盘 */ }
+    if (op.phase === 'write') {
+      // A response may be lost after commit: recover through GET, never blind PATCH.
+      op.phase = 'read'; loadSequence++;
+      const r = await fetch('/auth/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ home_bg: op.url }) });
+      if (!current()) return false;
+      if (!r.ok) {
+        if (r.status >= 400 && r.status < 500 && ![408,409].includes(r.status)) op.phase = 'write';
+        throw await responseError(r);
+      }
+      op.acknowledged = true;
+    }
+    if (op.phase === 'read') {
+      const r = await fetch('/auth/me');
+      if (!r.ok) throw await responseError(r);
+      const me = await r.json();
+      if (!current()) return false;
+      if (me?.id !== auth.me?.id) throw new Error('账号不匹配，未应用背景');
+      if (typeof me.home_bg !== 'string') throw new Error('背景返回不完整，尚未确认');
+      if (me.home_bg !== op.url) {
+        op.serverValue = me;
+        if (!op.acknowledged) op.phase = 'write';
+        throw new Error('背景尚未确认，选择已保留');
+      }
+      auth.me = me;
+      op.phase = 'local';
+    }
+    if (!current()) return false;
+    if (op.crop) {
+      // The existing crop is device-scoped. Do not publish it until disk readback.
+      const value = JSON.stringify(op.crop);
+      try {
+        localStorage.setItem('stella_home_bgcrop', value);
+        if (localStorage.getItem('stella_home_bgcrop') !== value) throw new Error('readback mismatch');
+      } catch { throw new Error('账号背景已保存，但取景未保存到当前设备；取景已保留，请重试本地保存。'); }
+      homeSettings.bgCrop = { ...op.crop };
+      await nextTick();
+      if (!current()) return false;
+      if (homeSaveErrors.bgCrop) throw new Error(homeSaveErrors.bgCrop);
+    }
+    pendingPick.value = null;
+    previewEntry.value = null;
+    bgManagerOpen.value = false;
+    return true;
+  } catch (e) {
+    if (current()) errorMsg.value = e instanceof Error ? e.message : '保存失败，选择已保留';
+    return false;
+  } finally { if (current()) saving.value = false; }
 }
+const pickRetryLabel = computed(() => pendingPick.value?.phase === 'local' ? '重试本地保存' : pendingPick.value?.phase === 'read' ? '重试确认' : '重试保存');
+async function retryPick() { if (pendingPick.value) await saveMyBg(pendingPick.value.url); }
 
-function applyCrop() {
+async function applyCrop() {
   const e = previewEntry.value;
-  if (e) {
-    saveMyBg(e.url);
-    homeSettings.bgCrop = { cx: cx.value, cy: cy.value, w: cropW.value, h: cropH.value };
-  }
-  previewEntry.value = null;
-  bgManagerOpen.value = false;
+  if (props.picker) { if (e) pickDraft(e); return; }
+  if (e) await saveMyBg(e.url, { cx: cx.value, cy: cy.value, w: cropW.value, h: cropH.value });
 }
 
-function confirmPick() {
+async function confirmPick() {
   const e = list.value.find((x) => x.id === selectedId.value);
-  if (e) saveMyBg(e.url);
-  bgManagerOpen.value = false;
+  if (props.picker) { if (e) pickDraft(e); return; }
+  if (e) await saveMyBg(e.url);
 }
 
+type LibraryOperation = { kind: 'rename' | 'delete'; id: string; url: string; name: string; phase: 'write' | 'read'; acknowledged: boolean; serverEntries?: BgEntry[] };
+const libraryOperation = ref<LibraryOperation | null>(null);
+const deleteTarget = ref<BgEntry | null>(null);
+const deletePanel = ref<HTMLElement>();
+const locked = computed(() => saving.value || uploading.value || !!pendingPick.value || !!libraryOperation.value);
+const libraryRetryLabel = computed(() => libraryOperation.value?.phase === 'read' ? '重试确认' : libraryOperation.value?.kind === 'delete' ? '确认删除' : '重试重命名');
 function startRename(e: BgEntry) {
+  if (locked.value || renamingId.value && renamingId.value !== e.id) return;
   renamingId.value = e.id;
   renameDraft.value = e.name;
 }
-
 async function commitRename(e: BgEntry) {
+  if (locked.value) return;
   const name = renameDraft.value.trim();
-  renamingId.value = null;
-  if (!name || name === e.name) return;
-  const r = await fetch(`/homebg/${e.id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
-  if (r.ok) e.name = (await r.json()).name;
+  if (!name) { errorMsg.value = '名称不能为空，输入已保留'; return; }
+  if (name === e.name) { renamingId.value = null; return; }
+  libraryOperation.value = { kind:'rename', id:e.id, url:e.url, name, phase:'write', acknowledged:false };
+  await runLibraryOperation();
 }
-
-async function remove(e: BgEntry) {
-  if (e.isDefault) return;
-  if (!confirm(`删除背景「${e.name}」？`)) return;
-  const r = await fetch(`/homebg/${e.id}`, { method: "DELETE" });
-  if (r.ok) {
-    list.value = list.value.filter((x) => x.id !== e.id);
-    if (selectedId.value === e.id) selectedId.value = list.value[0]?.id ?? null;
-  } else {
-    errorMsg.value = (await r.json()).detail ?? "删除失败";
+async function runLibraryOperation() {
+  const op = libraryOperation.value;
+  if (!op || saving.value || !auth.me || auth.sessionClosing || auth.suspended) return;
+  const current = fence();
+  op.serverEntries = undefined;
+  saving.value = true; errorMsg.value = ''; loadSequence++; invalidateBackgroundEntries();
+  try {
+    if (op.phase === 'write') {
+      op.phase = 'read';
+      const r = await fetch(`/homebg/${encodeURIComponent(op.id)}`, op.kind === 'delete' ? {method:'DELETE'} : {
+        method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:op.name}),
+      });
+      if (!current()) return;
+      if (!r.ok) {
+        if (r.status >= 400 && r.status < 500 && ![404,408,409].includes(r.status)) op.phase = 'write';
+        throw await responseError(r);
+      }
+      op.acknowledged = true;
+    }
+    const entries = await readEntries();
+    if (!current()) return;
+    const target = entries.find(e => e.id === op.id);
+    const verified = op.kind === 'delete' ? !target : target?.name === op.name && target.url === op.url;
+    if (!verified) {
+      // A confirmed write is never replayed because of a failed/eventually stale GET.
+      if (op.kind === 'rename') op.serverEntries = entries;
+      if (!op.acknowledged) op.phase = 'write';
+      throw new Error(op.kind === 'delete' ? '目标仍存在，尚未确认删除。请核对后再确认。' : '名称尚未确认，输入已保留。');
+    }
+    publishEntries(entries);
+    if (op.kind === 'delete') {
+      if (selectedId.value === op.id) selectedId.value = list.value[0]?.id ?? null;
+      deleteTarget.value = null;
+    } else if (renameDraft.value.trim() === op.name) { renamingId.value = null; renameDraft.value = ''; }
+    libraryOperation.value = null;
+  } catch (e) {
+    if (current()) errorMsg.value = `${e instanceof Error ? e.message : '操作失败'}${op.phase === 'read' ? '；结果待确认，重试只读取状态。' : ''}`;
+  } finally { if (current()) saving.value = false; }
+}
+const canEditRejected = computed(() => !saving.value && (pendingPick.value?.phase === 'write' || libraryOperation.value?.kind === 'rename' && libraryOperation.value.phase === 'write'));
+const canUseServer = computed(() => !saving.value && !!(pendingPick.value?.serverValue || libraryOperation.value?.serverEntries));
+function useServerCurrent() {
+  if (!canUseServer.value || !auth.me || auth.suspended || auth.sessionClosing) return;
+  const me = pendingPick.value?.serverValue;
+  // Explicitly discard the frozen choice, not a confirmation of its old write.
+  // The crop belongs to this device: do not apply the abandoned crop intent.
+  if (me) {
+    if (me.id !== auth.me.id) return;
+    auth.me = me;
+    pendingPick.value = null; previewEntry.value = null;
+    selectedId.value = list.value.find(e => e.url === me.home_bg)?.id ?? null;
+  } else if (libraryOperation.value?.serverEntries) {
+    publishEntries(libraryOperation.value.serverEntries);
+    libraryOperation.value = null; renamingId.value = null; renameDraft.value = ''; deleteTarget.value = null;
+    if (!list.value.some(e => e.id === selectedId.value)) selectedId.value = null;
   }
+  errorMsg.value = '';
+}
+function editRejected() {
+  if (!canEditRejected.value) return;
+  pendingPick.value = null; libraryOperation.value = null; errorMsg.value = '';
+}
+async function retryLibrary() {
+  const op = libraryOperation.value;
+  if (op?.kind === 'delete' && op.phase === 'write' && !deleteTarget.value) {
+    deleteTarget.value = { id:op.id, url:op.url, name:op.name, isDefault:false, ext:'' };
+    await nextTick(); deletePanel.value?.focus();
+    return;
+  }
+  await runLibraryOperation();
+}
+async function remove(e: BgEntry) {
+  if (deleteProtected(e) || locked.value || renamingId.value) return;
+  deleteTarget.value = { ...e };
+  errorMsg.value = '';
+  await nextTick(); deletePanel.value?.focus();
+}
+async function confirmDelete() {
+  const e = deleteTarget.value;
+  if (!e || deleteProtected(e) || saving.value) return;
+  libraryOperation.value ||= { kind:'delete', id:e.id, url:e.url, name:e.name, phase:'write', acknowledged:false };
+  await runLibraryOperation();
+}
+function closeDelete() {
+  if (saving.value) return;
+  deleteTarget.value = null;
+  if (libraryOperation.value?.phase === 'write') { libraryOperation.value = null; errorMsg.value = ''; }
+  void nextTick(() => document.querySelector<HTMLButtonElement>('.bgm .x')?.focus());
+}
+function deleteKeys(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeDelete(); }
+  if (event.key !== 'Tab') return;
+  const buttons = Array.from(deletePanel.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || []);
+  const first = buttons[0], last = buttons[buttons.length - 1];
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === deletePanel.value)) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 }
 </script>
 
 <template>
-  <Teleport to="body">
+  <Teleport :to="teleportTo">
     <Transition name="fade">
-      <div v-if="bgManagerOpen" class="bgm-mask" @click.self="bgManagerOpen = false">
-        <div class="bgm" @dragover.prevent="dragOver = true" @dragleave="dragOver = false" @drop.prevent="onDrop">
+      <div v-if="visible" class="bgm-mask" :data-home-theme="homeSettings.theme" @click.self="closeManager">
+        <div class="bgm" :class="{ 'is-picker': picker }" :inert="!!previewEntry || !!deleteTarget" @dragover.prevent="dragOver = true" @dragleave="dragOver = false" @drop.prevent="onDrop">
           <div class="bgm-head">
-            <div class="bgm-title">背景图库</div>
-            <button class="x" title="关闭" @click="bgManagerOpen = false">✕</button>
+            <div class="bgm-title">{{ picker ? "选择导航背景" : "背景图库" }}</div>
+            <button type="button" class="x" title="关闭" @click="closeManager">✕</button>
           </div>
 
+          <p v-if="picker" class="picker-hint">选择仅改导航草稿，不更改主页或取景。上传、重命名、删除会立即修改共享图库，取消导航设置不会撤销这些操作。</p>
           <!-- 拖拽上传区 -->
           <div class="drop" :class="{ over: dragOver }" @click="fileInput?.click()">
             <input
@@ -238,7 +431,13 @@ async function remove(e: BgEntry) {
             <span v-if="uploading">上传中…</span>
             <span v-else>拖文件到这里，或点击选择（jpg / png / webp / gif / mp4）</span>
           </div>
-          <div v-if="errorMsg" class="err">{{ errorMsg }}</div>
+          <div v-if="errorMsg && !previewEntry && !deleteTarget" class="err" role="alert">{{ errorMsg }}
+            <button type="button" v-if="pendingPick" class="btn ghost" :disabled="saving" @click="retryPick">{{ pickRetryLabel }}</button>
+            <button type="button" v-else-if="libraryOperation" class="btn ghost" :disabled="saving" @click="retryLibrary">{{ libraryRetryLabel }}</button>
+            <button type="button" v-else-if="loadError" class="btn ghost" @click="load">重试加载</button>
+            <button type="button" v-if="canEditRejected" class="btn ghost" @click="editRejected">继续修改</button>
+            <button type="button" v-if="canUseServer" class="btn ghost" title="放弃这次修改，采用最近成功读取的服务器状态；不会重新发送修改" @click="useServerCurrent">采用服务器当前值</button>
+          </div>
 
           <!-- 缩略图网格 -->
           <div class="grid">
@@ -246,12 +445,13 @@ async function remove(e: BgEntry) {
               v-for="e in list"
               :key="e.id"
               class="cell"
-              :class="{ on: selectedId === e.id }"
+              :class="{ on: selectedId === e.id, editing: renamingId === e.id }"
               @click="select(e)"
               @dblclick="openPreview(e)"
             >
               <div class="thumb">
-                <img v-if="backgroundThumbnail(e.url)" :src="backgroundThumbnail(e.url)" :alt="e.name" loading="lazy" />
+                <img v-if="backgroundThumbnail(e.url) && !failedThumbnails[e.url]" :src="backgroundThumbnail(e.url)" :alt="e.name" loading="lazy" @error="picker && (failedThumbnails[e.url] = true)"/>
+                <button v-else-if="picker && failedThumbnails[e.url]" type="button" class="thumb-placeholder thumb-retry" @click.stop="delete failedThumbnails[e.url]">缩略图加载失败 · 重试</button>
                 <span v-else class="thumb-placeholder">{{ isVideo(e) ? '视频 · 暂无缩略图' : '暂无缩略图' }}</span>
                 <span v-if="e.isDefault" class="def-tag">默认</span>
               </div>
@@ -261,9 +461,9 @@ async function remove(e: BgEntry) {
                   v-model="renameDraft"
                   class="rename-input"
                   autofocus
+                  :readonly="!!libraryOperation"
                   @keydown.enter="commitRename(e)"
-                  @keydown.esc="renamingId = null"
-                  @blur="commitRename(e)"
+                  @keydown.esc.stop="!locked && (renamingId = null)"
                   @click.stop
                   @dblclick.stop
                 />
@@ -273,18 +473,22 @@ async function remove(e: BgEntry) {
               <div v-if="['queued', 'processing'].includes(backgroundMedia[e.url]?.status || '')" class="media-status" role="status">处理中…</div>
               <div v-if="backgroundMedia[e.url]?.status === 'error'" class="media-status" role="alert">
                 {{ backgroundMedia[e.url]?.error || '处理失败' }}
-                <button class="btn ghost" @click.stop="optimizeBackground(e.url)">重试</button>
+                <button type="button" class="btn ghost" @click.stop="optimizeBackground(e.url)">重试</button>
+              </div>
+              <div v-if="renamingId === e.id" class="rename-actions" @click.stop>
+                <button type="button" class="btn ghost" :disabled="locked" @click="commitRename(e)">保存名称</button>
+                <button type="button" class="btn ghost" :disabled="locked" @click="renamingId = null">取消</button>
               </div>
               <div class="cell-ops">
-                <button class="op" title="重命名" @click.stop="startRename(e)">✎</button>
-                <button v-if="!e.isDefault" class="op danger" title="删除" @click.stop="remove(e)">🗑</button>
+                <button type="button" class="op" :disabled="locked" title="重命名" @click.stop="startRename(e)">✎</button>
+                <button type="button" v-if="!e.isDefault" :disabled="locked || !!renamingId || deleteProtected(e)" class="op danger" title="删除" @click.stop="remove(e)">🗑</button>
               </div>
             </div>
           </div>
 
           <div class="bgm-foot">
-            <button class="btn ghost" @click="bgManagerOpen = false">取消</button>
-            <button class="btn" :disabled="!selectedId" @click="confirmPick">确定更换</button>
+            <button type="button" class="btn ghost" @click="closeManager">取消</button>
+            <button type="button" class="btn" :disabled="!selectedId || locked || !!renamingId" @click="confirmPick">{{ saving ? '保存中…' : picker ? '选择此背景' : '确定更换' }}</button>
           </div>
         </div>
       </div>
@@ -292,8 +496,8 @@ async function remove(e: BgEntry) {
 
     <!-- 双击 = 裁剪预览：盖主页同款遮罩 + 组件 mock，滑杆/拖动调整「源图区域」 -->
     <Transition name="fade">
-      <div v-if="previewEntry" class="preview-mask">
-        <div class="crop-wrap">
+      <div v-if="visible && previewEntry" class="preview-mask" :data-home-theme="homeSettings.theme">
+        <div class="crop-wrap" :style="{ width: stage.w + 'px' }">
           <div class="crop-stage" :style="{ width: stage.w + 'px', height: stage.h + 'px' }">
             <video
               v-if="isVideo(previewEntry)"
@@ -304,9 +508,9 @@ async function remove(e: BgEntry) {
               autoplay muted loop playsinline
             />
             <img v-else class="crop-media" :src="previewSource" :style="mediaStyle" alt="" @load="previewLoaded" />
-            <div class="crop-scrim" />
+            <div v-if="!picker" class="crop-scrim" />
             <!-- 主页组件 mock：构图预览用 -->
-            <div class="mock-panel">
+            <div v-if="!picker" class="mock-panel">
               <div class="mk-badge">云曦 · YUNXI'S</div>
               <div class="mk-title">StellaHaven</div>
               <div class="mk-vinyl" />
@@ -316,37 +520,63 @@ async function remove(e: BgEntry) {
               <div class="mk-progress" />
               <div class="mk-btns"><i /><i /></div>
             </div>
-            <div class="mk-miku">Miku</div>
-            <div class="crop-pos">宽 {{ (cropW * 100).toFixed(0) }}% · 中心 {{ (cx * 100).toFixed(0) }}%·{{ (cy * 100).toFixed(0) }}%</div>
+            <div v-if="!picker" class="mk-miku">Miku</div>
+            <div v-if="!picker" class="crop-pos">宽 {{ (cropW * 100).toFixed(0) }}% · 中心 {{ (cx * 100).toFixed(0) }}%·{{ (cy * 100).toFixed(0) }}%</div>
           </div>
-          <div class="crop-sliders">
+          <div v-if="!picker" class="crop-sliders">
             <label class="cs-row">
               <span class="cs-label">缩放</span>
-              <input v-model.number="zoom" type="range" min="100" max="400" step="1" class="cs-slider" />
+              <input v-model.number="zoom" :disabled="locked" type="range" min="100" max="400" step="1" class="cs-slider" />
               <span class="cs-val">{{ zoom.toFixed(0) }}%</span>
             </label>
             <label class="cs-row">
               <span class="cs-label">横向</span>
-              <input v-model.number="sliderX" type="range" min="0" max="100" step="0.5" class="cs-slider" />
+              <input v-model.number="sliderX" :disabled="locked" type="range" min="0" max="100" step="0.5" class="cs-slider" />
               <span class="cs-val">{{ sliderX.toFixed(0) }}%</span>
             </label>
             <label class="cs-row">
               <span class="cs-label">纵向</span>
-              <input v-model.number="sliderY" type="range" min="0" max="100" step="0.5" class="cs-slider" />
+              <input v-model.number="sliderY" :disabled="locked" type="range" min="0" max="100" step="0.5" class="cs-slider" />
               <span class="cs-val">{{ sliderY.toFixed(0) }}%</span>
             </label>
           </div>
+          <div v-if="errorMsg" class="err" role="alert">{{ errorMsg }}
+            <button type="button" v-if="pendingPick" class="btn ghost" :disabled="saving" @click="retryPick">{{ pickRetryLabel }}</button>
+            <button type="button" v-if="canEditRejected" class="btn ghost" @click="editRejected">继续修改</button>
+            <button type="button" v-if="canUseServer" class="btn ghost" title="放弃这次修改及未保存取景，不会重新发送修改" @click="useServerCurrent">采用服务器当前值</button>
+          </div>
           <div class="crop-actions">
-            <button class="btn ghost" @click="previewEntry = null">取消</button>
-            <button class="btn" @click="applyCrop">使用这个取景</button>
+            <button type="button" class="btn ghost" @click="previewEntry = null">取消</button>
+            <button type="button" class="btn" :disabled="locked" @click="applyCrop">{{ saving ? '保存中…' : picker ? '选择此背景' : '使用这个取景' }}</button>
           </div>
         </div>
       </div>
     </Transition>
+    <!-- Same in-app modal/focus pattern as the note deletion confirmation. -->
+    <div v-if="visible && deleteTarget" class="bgm-delete-mask" :data-home-theme="homeSettings.theme" @click.self="closeDelete">
+      <section ref="deletePanel" class="bgm bgm-delete" role="dialog" aria-modal="true" aria-label="删除背景" tabindex="-1" @keydown="deleteKeys">
+        <h3>删除背景</h3>
+        <p>仅删除「{{ deleteTarget.name }}」这一项及其背景文件；不可恢复。不会删除其他背景。</p>
+        <p v-if="picker">这是共享图库删除，不只是移除导航选择。此窗口已知的主页、站点背景及已保存/草稿引用已禁删；其他窗口的后续改动不在此检查内。删除后文件不可恢复，取消导航设置不会恢复文件。</p>
+        <p v-if="errorMsg" class="err" role="alert">{{ errorMsg }}</p>
+        <div class="bgm-foot">
+          <button type="button" class="btn ghost" :disabled="saving" @click="closeDelete">{{ libraryOperation?.phase === 'read' ? '关闭' : '取消' }}</button>
+          <button type="button" class="btn" :disabled="saving" @click="confirmDelete">{{ saving ? '处理中…' : libraryOperation ? libraryRetryLabel : '确认删除' }}</button>
+        </div>
+      </section>
+    </div>
   </Teleport>
 </template>
 
 <style scoped>
+.bgm-delete-mask { position:fixed; inset:0; z-index:140; display:flex; align-items:center; justify-content:center; background:#04070cd9; }
+.bgm-delete { width:420px; color:var(--text-hi); overflow-y:auto; }
+.bgm-delete p { overflow-wrap:anywhere; line-height:1.65; }
+.cell.editing { grid-column:1 / -1; }
+.rename-actions { display:flex; flex-wrap:wrap; gap:4px; padding:4px; }
+.rename-actions .btn { padding:5px 7px; font-size:11px; }
+@media (hover:none) { .cell-ops { opacity:1 !important; } }
+
 .bgm-mask {
   position: fixed; inset: 0; z-index: 120;
   background: rgba(6, 10, 16, 0.55);
@@ -385,7 +615,15 @@ async function remove(e: BgEntry) {
 .drop:hover, .drop.over { border-color: var(--accent-dim); background: rgba(255, 255, 255, 0.04); color: var(--text-hi); }
 .err { margin-top: 8px; font-size: 12px; color: #d98a9e; }
 
+.thumb-retry { width:100%; border:0; background:transparent; cursor:pointer; padding:8px; }
+@media(max-width:480px) {
+  .bgm.is-picker .grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .bgm.is-picker .cell:has(.media-status[role="alert"]) { grid-column:1 / -1; }
+}
+.picker-hint { color:var(--text-lo); font-size:12px; line-height:1.6; margin:10px 0 0; }
+.bgm-head, .drop, .bgm-foot { flex-shrink:0; }
 .grid {
+  min-height:0;
   margin-top: 14px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -474,12 +712,14 @@ async function remove(e: BgEntry) {
   display: flex; align-items: center; justify-content: center;
 }
 .crop-wrap {
+  max-width:92vw; max-height:92dvh; overflow-y:auto; padding:2px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   align-items: stretch;
 }
 .crop-stage {
+  flex-shrink:0;
   position: relative;
   max-width: 92vw;
   border-radius: 14px;
@@ -509,6 +749,16 @@ async function remove(e: BgEntry) {
   padding: 3px 10px; border-radius: 8px;
   pointer-events: none;
 }
+/* Keep the existing light preview for daybreak/coastline. Dark home themes
+   carry their local palette through both Teleports without recoloring the shell. */
+.preview-mask:is([data-home-theme="nightfall"], [data-home-theme="classic"]) .crop-scrim {
+  background: linear-gradient(to right, var(--bg-base), color-mix(in srgb, var(--bg-base) 94%, transparent) 30%, color-mix(in srgb, var(--bg-base) 55%, transparent) 60%, transparent);
+}
+.preview-mask:is([data-home-theme="nightfall"], [data-home-theme="classic"]) .crop-pos { background:var(--bg-panel); color:var(--text-lo); }
+.preview-mask:is([data-home-theme="nightfall"], [data-home-theme="classic"]) .mk-title { color:var(--accent); }
+.preview-mask:is([data-home-theme="nightfall"], [data-home-theme="classic"]) .mk-badge { background:var(--home-warm); color:var(--bg-base); }
+.preview-mask:is([data-home-theme="nightfall"], [data-home-theme="classic"]) .mk-line { background:color-mix(in srgb, var(--accent) 35%, transparent); }
+.preview-mask:is([data-home-theme="nightfall"], [data-home-theme="classic"]) .mk-miku { color:var(--text-lo); border-color:var(--accent-dim); }
 .crop-sliders { display: flex; flex-direction: column; gap: 8px; }
 .cs-row { display: flex; align-items: center; gap: 10px; }
 /* 主页组件 mock（构图预览用，简化版） */

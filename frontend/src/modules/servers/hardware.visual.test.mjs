@@ -161,7 +161,8 @@ try {
       if (width>=1000 && name==='NAS') assert.ok(layout.primary[0].width<=560, 'CPU-only summary stays moderately sized');
     }
     if (query.includes('content980')) assert.ok(Math.abs(layout.hardware.width-980)<1, 'actual 980px allocated content width');
-    assert.equal(layout.background, 'rgb(20, 23, 31)', 'Stella dark blue palette');
+    // Approved U02 uses the neutral non-brown --bg-panel:#191a20 palette.
+    assert.equal(layout.background, 'rgb(25, 26, 32)', 'Stella U02 neutral dark panel');
     assert.equal(Math.abs(layout.storage.width-layout.hardware.width)<1, true, 'storage is full width');
     assert.equal(layout.storage.y >= layout.hardware.bottom-1, true, 'storage does not overlap hardware');
     assert.equal(layout.requests.every(r => r.method === 'GET'), true, 'no state-changing API');
@@ -202,13 +203,13 @@ try {
     const sensors=await page.locator('.sensors-card').textContent();
     for(const value of ['温度探头 1 · Temperature #1','风扇 2 · Fan #2','核心簇 1 温度 · CCD1 (Tdie)']) assert.ok(sensors.includes(value),value);
     assert.doesNotMatch(sensors,/ITE IT8613E|Core \(Tctl\/Tdie\)/);
-    await inspect('NAS',width,'nas',{ physical:7,volumes:5,badge:'未确定' });
+    await inspect('NAS',width,'nas',{ physical:7,volumes:5,badge:'未判定' });
     for(const mount of ['/vol1','/vol2','/vol3','/boot/efi']) assert.equal(await page.locator('.volume-row').filter({hasText:mount}).count(),1,mount);
     assert.equal(await page.locator('.volume-row.system-volume').count(),2);
     assert.equal(await page.locator('.volume-row .usage-track').count(),5);
   }
   await inspect('5060',1440,'content980',{ physical:2,volumes:3,badge:'物理机' });
-  await inspect('NAS',1440,'nas&content980&drm',{ physical:7,volumes:5,badge:'未确定' });
+  await inspect('NAS',1440,'nas&content980&drm',{ physical:7,volumes:5,badge:'未判定' });
   assert.match(await page.locator('.gpu-inventory-row').textContent(), /100 MHz/);
   for (const state of ['unsupported','driver_missing','query_failed']) {
     await inspect('5060',390,`gpu-invalid=${state}`,{physical:2,volumes:3,badge:'物理机',primaryCount:1});
@@ -220,7 +221,7 @@ try {
   await inspect('5060',1440,'gpu-stale',{physical:2,volumes:3,badge:'物理机'});
   assert.equal(await page.locator('.sample-status').textContent(),'数据已过期');
   await inspect('5060',360,'legacy',{physical:2,volumes:0,badge:'物理机'});
-  await inspect('NAS',360,'nas&legacy',{physical:7,volumes:3,badge:'未确定'});
+  await inspect('NAS',360,'nas&legacy',{physical:7,volumes:3,badge:'未判定'});
   await inspect('5060',360,'wmi',{physical:2,volumes:3,badge:'物理机'});
   assert.doesNotMatch(await page.locator('.cpu-card').textContent(),/当前频率|3900 MHz|WMI/);
   await inspect('5060',360,'long',{physical:2,volumes:3,badge:'物理机',long:true});
@@ -230,7 +231,7 @@ try {
     await page.setViewportSize({width,height:1100});
     await page.goto(`${origin}/hardware-fixture?list`);
     await page.locator('.grid > .card').nth(4).waitFor();
-    assert.deepEqual(await page.locator('.grid > .card .machine-badge').allTextContents(),['物理机','虚拟机','容器','未确定','未确定']);
+    assert.deepEqual(await page.locator('.grid > .card .machine-badge').allTextContents(),['物理机','虚拟机','容器','未判定','未判定']);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth<=innerWidth),true);
     await page.screenshot({path:resolve(out,`list-${width}.png`),fullPage:true});
   }

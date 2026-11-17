@@ -95,7 +95,7 @@ export function resultMetrics(t: IperfTask): { label: string; value: string }[] 
 }
 
 export const TASK_STATUS: Record<string, { label: string; cls: string }> = {
-  pending: { label: "排队中", cls: "st-pending" },
+  pending: { label: "等待领取", cls: "st-pending" },
   running: { label: "进行中", cls: "st-running" },
   done: { label: "完成", cls: "st-done" },
   failed: { label: "失败", cls: "st-failed" },

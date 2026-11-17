@@ -59,9 +59,51 @@ class ReceiptGateTests(unittest.TestCase):
         needs = re.search(r'^  needs: (.+)$', build, re.M).group(1)
         self.assertIn('"experience-gate"', needs)
 
+    def test_background_followup_checks_are_mandatory_not_optional(self):
+        # Independently named mandatory cases, not a count derived from CONTRACT.
+        followups = [
+            'background followup negative detects a transient white flash despite correct final pixels',
+            'background followup negative detects exposed native frame before document load',
+            'background followup isolates raw invalid legacy fallback after valid account bootstrap',
+            'background followup negative detects disappearance after target first presented frame',
+        ]
+        for check_id in followups:
+            with self.subTest(check_id=check_id):
+                self.assertEqual(CONTRACT['synthetic-process'].count(check_id), 1)
+                bad = receipt()
+                bad['checks'] = [c for c in bad['checks'] if c['id'] != check_id]
+                self.assertTrue(self.validate(bad, SHA, 'synthetic-process'))
+        old = receipt()
+        old['checks'] = [c for c in old['checks'] if c['id'] not in followups]
+        self.assertTrue(self.validate(old, SHA, 'synthetic-process'))
+
     def test_bad_expected_commit_is_not_normalized(self):
         for value in ['a'*7, ' '+SHA, 'A'*40, '', None]:
             with self.subTest(value=value):self.assertTrue(self.validate(receipt(),value,'synthetic-process'))
+
+    def test_remediation_units_and_post_receipt_browsers_are_mandatory(self):
+        root = HERE.parents[1]
+        config = (root / 'frontend/vitest.experience.config.mjs').read_text()
+        units = [
+            'src/**/*.experience.test.ts',
+            'src/stores/navigation.save-light.test.ts',
+            'src/modules/settings/WebsiteSettings.save-light.test.ts',
+            'src/composables/navigationOrder.test.ts',
+            'src/modules/settings/NavigationOrder.drag.test.ts',
+            'src/modules/home/startupAdmission.test.ts',
+            'src/modules/home/live2dAdmission.test.ts',
+            'src/modules/home/Live2dWidget.admission.test.ts',
+            'src/modules/home/BgLayer.admission.test.ts',
+        ]
+        for name in units:
+            with self.subTest(unit=name):self.assertEqual(config.count("'" + name + "'"), 1)
+        runner = (root / 'frontend/e2e/experience-gate/run.mjs').read_text()
+        self.assertIn('process.argv.length!==2', runner)
+        boundary = runner.index("'--kind','synthetic-process'")
+        for name in ['tests/private-entry-appearance.browser.mjs', 'tests/startup-admission-browser.mjs', 'sidebar-drag.browser.mjs']:
+            with self.subTest(browser=name):self.assertGreater(runner.index(name), boundary)
+        self.assertIn('process.env.STELLA_QA_OUTPUT=path.join(output,name)', runner)
+        self.assertIn('run(process.execPath,[script])', runner)
 
     def test_production_requires_raw_budgeted_normal_cache_samples(self):
         r=receipt('production-readback');self.assertEqual(self.validate(r,SHA,'production-readback'),[])

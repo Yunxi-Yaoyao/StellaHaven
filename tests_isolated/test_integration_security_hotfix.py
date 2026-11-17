@@ -73,8 +73,8 @@ def integration_env(monkeypatch, upstream):
     response=c.post('/auth/register',json={'username':'owner','password':DAILY})
     assert response.status_code==201,response.text
     uid=UUID(response.json()['id'])
-    assert c.post('/auth/admin/setup',json={'user_password':DAILY,'new_password':ADMIN}).status_code==200
-    assert c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code==200
+    assert c.post('/auth/admin/setup',json={'user_password':DAILY,'new_password':ADMIN}).status_code==410
+    assert c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code==410
     mid='a'*32; origin='https://app-'+mid+'.xiya.live'; root,seen=upstream
     with factory() as db:
         sid=str(db.query(AuthSession).filter(AuthSession.user_id==uid,AuthSession.revoked==False).one().id)
@@ -169,7 +169,7 @@ def test_persisted_grant_tracks_owner_and_session_from_new_db_session(integratio
 
 def test_lock_preserves_same_sid_iframe_and_reads_are_readonly(integration_env):
     c,f,app,uid,sid,mid,origin,cookie,seen=integration_env
-    assert c.post('/auth/admin/lock').status_code==200
+    assert c.post('/auth/admin/lock').status_code==410
     with f() as db: before=db.get(AppConfig,store.KEY).value
     statements=[]
     def record_sql(conn,cursor,statement,params,ctx,many): statements.append(statement.lower())
@@ -204,7 +204,7 @@ def test_real_websocket_rechecks_owner_every_five_seconds(integration_env,mode):
     with c.websocket_connect(origin.replace('https:','wss:')+'/socket',headers={'Cookie':cookie,'Origin':origin}) as ws:
         ws.send_text('real synthetic echo');assert ws.receive_text()=='real synthetic echo'
         ws.send_bytes(b'\x00\xff');assert ws.receive_bytes()==b'\x00\xff'
-        assert c.post('/auth/admin/lock').status_code==200
+        assert c.post('/auth/admin/lock').status_code==410
         ws.send_text('still ordinary iframe');assert ws.receive_text()=='still ordinary iframe'
         start=time.monotonic();change_identity(f,uid,sid,mode)
         with pytest.raises(WebSocketDisconnect) as err: ws.receive_text()
@@ -239,14 +239,18 @@ def test_actual_main_legacy_drive_lock_blocks_all_writes_but_not_reads(integrati
     for method,path in writes:
         assert c.request(method,'/drive/openlist/'+path,json={},headers={'Authorization':'SYNTHETIC-CACHED-ADMIN','Origin':'https://stella.xiya.live'}).status_code==200
     assert len(seen)==len(writes);seen.clear()
-    assert c.post('/auth/admin/lock').status_code==200
+    assert c.post('/auth/admin/lock').status_code==410
     for method,path in writes:
         r=c.request(method,'/drive/openlist/'+path,json={},headers={'Authorization':'SYNTHETIC-CACHED-ADMIN','Origin':'https://stella.xiya.live'})
-        assert r.status_code==403,r.text
-        assert r.json()['detail']['code']=='admin_elevation_required'
-    assert seen==[]
+        assert r.status_code==200,r.text
+    assert len(seen)==len(writes);seen.clear()
     assert c.post('/drive/openlist/api/fs/list',json={'path':'/'},headers={'Authorization':'SYNTHETIC-CACHED-ADMIN'}).status_code==200
     assert seen==[('POST','api/fs/list')]
+    assert c.post('/auth/logout').status_code==200
+    seen.clear()
+    for method,path in writes:
+        assert c.request(method,'/drive/openlist/'+path,json={},headers={'Authorization':'SYNTHETIC-CACHED-ADMIN','Origin':'https://stella.xiya.live'}).status_code==401
+    assert seen==[]
 
 
 def test_missing_host_rejected_by_actual_asgi_before_routing(integration_env):
@@ -281,11 +285,61 @@ def test_read_owner_check_never_enters_lazy_pin_initialization(integration_env,m
     assert len(reads)==1
 
 
-def test_real_stream_releases_db_before_body_and_disconnect(integration_env,upstream):
+@pytest.fixture
+def stream_lifespan_env(integration_env, monkeypatch):
+    """Bind the real startup hook, not just HTTP get_db, to owned SQLite.
+
+    PG-only periodic workers are outside a proxy-stream test: retain their real
+    construction/stop but fence their scheduler start, never auth or streaming.
+    This wrapper is local; importers of integration_env keep the same fixture.
+    """
+    from sqlalchemy import JSON, MetaData
+    from sqlalchemy.dialects.postgresql import JSONB
+    from app import database
+    from app.models.node import Node
+    from app.models.monitor import MonitorGroup
+    from app.services.backup_center import BackupCenter
+    from app.services.node_deadlines import NodeDeadlineWatcher
+    c, factory, app, *_ = integration_env
+    engine = factory.kw['bind']
+    metadata = MetaData()
+    for model in (Node, MonitorGroup):
+        table = model.__table__.to_metadata(metadata)
+        for column in table.columns:
+            if isinstance(column.type, JSONB):
+                column.type = JSON()
+    metadata.create_all(engine)
+    monkeypatch.setattr(database, 'engine', engine)
+    monkeypatch.setattr(database, 'sessionLocal', factory)
+    monkeypatch.setattr(app.state, 'backup_center', None, raising=False)
+    monkeypatch.setattr(app.state, 'node_deadlines', None, raising=False)
+    started = []
+    def owned_deadlines(cls, url):
+        assert url == engine.url
+        return cls(engine)
+    def scheduler_start(worker, *args, **kwargs):
+        assert worker.engine is engine
+        started.append(type(worker))
+    monkeypatch.setattr(NodeDeadlineWatcher, 'from_url', classmethod(owned_deadlines))
+    monkeypatch.setattr(NodeDeadlineWatcher, 'start', scheduler_start)
+    monkeypatch.setattr(BackupCenter, 'start', scheduler_start)
+    yield integration_env
+    assert started == [NodeDeadlineWatcher, BackupCenter]
+    assert app.state.backup_center.stop_event.is_set()
+    assert app.state.node_deadlines.stop_event.is_set()
+    assert app.state.backup_center.timer is app.state.node_deadlines.timer is None
+    with factory() as fresh:
+        # Actual lifespan reconciliation committed its owned groups.
+        assert fresh.query(Node).count() == 0
+        assert fresh.query(MonitorGroup).count() == 2
+    assert set(app.dependency_overrides) == {get_db}
+
+
+def test_real_stream_releases_db_before_body_and_disconnect(stream_lifespan_env,upstream):
     import asyncio
     import httpx
     from fastapi.responses import StreamingResponse
-    c,f,app,uid,sid,mid,origin,cookie,seen=integration_env
+    c,f,app,uid,sid,mid,origin,cookie,seen=stream_lifespan_env
     root,_=upstream
     # Reach fixture FastAPI through the registered handler's owner.
     # The streaming upstream is separate from production and contains only synthetic data.
@@ -325,3 +379,334 @@ def test_real_stream_releases_db_before_body_and_disconnect(integration_env,upst
         proxy_server.should_exit=True;upstream_server.should_exit=True
         proxy_thread.join(5);upstream_thread.join(5);downstream.close();sock.close()
     assert not proxy_thread.is_alive() and not upstream_thread.is_alive()
+
+
+@pytest.fixture
+def integration_pg(integration_env):
+    """Explicit disposable PG only; copy the real main-issued identity and grant."""
+    from sqlalchemy.orm import Session
+    from uuid import uuid4
+    dsn = os.environ.get('STELLA_INTEGRATION_LOOP_TEST_DSN')
+    if not dsn: pytest.skip('explicit owned PG fixture required')
+    c, source, app, uid, sid, mid, origin, cookie, seen = integration_env
+    root = create_engine(dsn)
+    assert root.url.database == 'integration_offload'
+    schema = 'integration_offload_' + uuid4().hex
+    with root.begin() as conn: conn.exec_driver_sql('CREATE SCHEMA ' + schema)
+    engine = create_engine(dsn, connect_args={'options':'-csearch_path='+schema})
+    tables = (User.__table__, AuthSession.__table__, AppConfig.__table__)
+    for table in tables: table.create(engine)
+    # Keep the source Session scoped too; never leave fixture connections open.
+    with source() as source_db, engine.begin() as dest:
+        for table in tables:
+            rows = [dict(row) for row in source_db.execute(table.select()).mappings()]
+            if rows: dest.execute(table.insert(), rows)
+    trace = []
+    class OwnedSession(Session):
+        def __init__(self, *a, **kw):
+            self.trace_id = len(trace)
+            trace.append(('create', self.trace_id, threading.get_ident()))
+            super().__init__(*a, **kw)
+        def close(self):
+            trace.append(('close', self.trace_id, threading.get_ident()))
+            return super().close()
+    factory = sessionmaker(engine, class_=OwnedSession)
+    try: yield factory, engine, trace, mid, origin, cookie, sid
+    finally:
+        engine.dispose()
+        with root.begin() as conn: conn.exec_driver_sql('DROP SCHEMA '+schema+' CASCADE')
+        root.dispose()
+
+
+@pytest.mark.parametrize('phase', ['read', 'checkout', 'redeem', 'alias', 'websocket'])
+def test_integration_preparation_pg_keeps_loop_alive(integration_pg, monkeypatch, phase):
+    import asyncio
+    from app.services import access_entries, integrations_proxy
+    from starlette.responses import Response
+    factory, engine, trace, mid, origin, cookie, sid = integration_pg
+    if phase == 'alias':
+        origin = 'https://immich.xiya.live'
+        assert origin.removeprefix('https://') in store.IMMICH_HOSTS
+        with factory() as db, store.edit(db) as config:
+            config['modules'][mid]['origin'] = origin
+            config['modules'][mid]['adapter'] = 'immich'
+    ticket = None
+    if phase == 'redeem':
+        with factory() as db:
+            ticket = sessions.issue(db, store.get_module(db, mid), sid, 'https://stella.xiya.live')['fields']['ticket']
+    trace.clear()
+    started, release = threading.Event(), threading.Event()
+    checks = []
+    checkout_count = []
+    def slow_sql(conn, cursor, statement, parameters, context, many):
+        trace.append(('sql', id(conn), threading.get_ident()))
+        selected = ('FOR UPDATE' in statement.upper() if phase == 'redeem' else
+                    store.KEY in str(parameters) if phase != 'checkout' else False)
+        if selected and not started.is_set():
+            started.set(); cursor.execute('SELECT pg_sleep(0.25)')
+            assert release.wait(2), 'bounded PG release failed'
+    def slow_checkout(conn, record, proxy):
+        checkout_count.append(threading.get_ident())
+        if phase == 'checkout' and len(checkout_count) == 2:
+            started.set(); conn.cursor().execute('SELECT pg_sleep(0.25)')
+            assert release.wait(2)
+    event.listen(engine, 'before_cursor_execute', slow_sql)
+    event.listen(engine, 'checkout', slow_checkout)
+    def releaser():
+        if started.wait(3): time.sleep(.3); release.set()
+    thread = threading.Thread(target=releaser); thread.start()
+    async def exercise():
+        loop_thread = threading.get_ident()
+        ticks, sent, body_checkouts = [], [], []
+        async def heartbeat():
+            while not release.is_set():
+                if started.is_set(): ticks.append(time.monotonic())
+                await asyncio.sleep(.005)
+        async def app(*a): pytest.fail('integration must not fall through to main')
+        async def http(request, module, target, source_origin):
+            assert engine.pool.checkedout() == 0
+            assert module['origin'] == origin and source_origin == 'https://stella.xiya.live'
+            assert target['allowed_ips'] == ['127.0.0.1']
+            checks.append(access_entries.current())
+            return Response('synthetic')
+        async def ws(socket, module, target, db_factory, grant):
+            assert engine.pool.checkedout() == 0
+            assert grant['sid'] == sid
+            checks.append(access_entries.current())
+            await socket.close()
+        monkeypatch.setattr(integrations_proxy, 'proxy_http', http)
+        monkeypatch.setattr(integrations_proxy, 'proxy_websocket', ws)
+        headers=[(b'host',origin.removeprefix('https://').encode()),(b'cookie',cookie.encode())]
+        path = '/__stella/bootstrap' if ticket else '/echo'
+        if ticket: headers += [(b'origin',b'https://stella.xiya.live'),(b'content-type',b'application/x-www-form-urlencoded')]
+        scope={'type':'websocket' if phase=='websocket' else 'http','asgi':{'version':'3.0'},'http_version':'1.1','scheme':'https','method':'POST' if ticket else 'GET','path':path,'raw_path':path.encode(),'root_path':'','query_string':b'','headers':headers,'server':('fixture',443),'client':('127.0.0.1',1)}
+        async def receive():
+            assert threading.get_ident() == loop_thread
+            body_checkouts.append(engine.pool.checkedout())
+            return {'type':'http.request','body':('ticket='+ticket).encode() if ticket else b'','more_body':False}
+        async def send(message): sent.append(message)
+        beat=asyncio.create_task(heartbeat())
+        try:
+            await IntegrationsHostMiddleware(app, factory)(scope, receive, send)
+            assert started.is_set(), 'expected PG boundary was not exercised'
+            assert len(ticks)>=5, f'integration {phase} blocked independent heartbeat: {len(ticks)} ticks'
+            assert not any(body_checkouts), 'no Session may span bootstrap body receive'
+            sessions_by_id = {}
+            for kind, identity, tid in trace:
+                if kind in {'create','close'}: sessions_by_id.setdefault(identity, []).append((kind,tid))
+                assert tid != loop_thread, trace
+            assert all([kind for kind,_ in events]==['create','close'] and len({tid for _,tid in events})==1 for events in sessions_by_id.values())
+            assert engine.pool.checkedout() == 0
+            if phase == 'alias': assert sent[0]['status'] == 410
+            elif ticket: assert sent[0]['status'] == 303
+            else: assert checks and checks[0] is not None
+            assert access_entries.current() is None
+        finally:
+            release.set(); await beat
+    try: asyncio.run(exercise())
+    finally:
+        release.set(); thread.join(4)
+        event.remove(engine, 'before_cursor_execute', slow_sql)
+        event.remove(engine, 'checkout', slow_checkout)
+
+
+@pytest.mark.parametrize('phase', ['read', 'redeem'])
+def test_cancel_blocked_integration_pg_eventually_closes(integration_pg, monkeypatch, phase):
+    import asyncio
+    from app.services import access_entries, integrations_proxy
+    factory, engine, trace, mid, origin, cookie, sid = integration_pg
+    ticket = None
+    if phase == 'redeem':
+        with factory() as db:
+            ticket = sessions.issue(db, store.get_module(db, mid), sid, 'https://stella.xiya.live')['fields']['ticket']
+    trace.clear()
+    entered, release = threading.Event(), threading.Event()
+    def block(conn, cursor, statement, params, context, many):
+        selected = 'FOR UPDATE' in statement.upper() if ticket else store.KEY in str(params)
+        if selected and not entered.is_set():
+            entered.set()
+            cursor.execute('SELECT pg_sleep(0.1)')
+            assert release.wait(3)
+    event.listen(engine, 'before_cursor_execute', block)
+    # This also bounds an unfixed event-loop block, so RED cannot hang pytest.
+    timer = threading.Timer(1, release.set); timer.start()
+    async def exercise():
+        async def forbidden(*args): pytest.fail('cancelled preparation must not proxy')
+        monkeypatch.setattr(integrations_proxy, 'proxy_http', forbidden)
+        path='/__stella/bootstrap' if ticket else '/echo'
+        headers=[(b'host',origin.removeprefix('https://').encode()),(b'cookie',cookie.encode())]
+        if ticket: headers += [(b'origin',b'https://stella.xiya.live'),(b'content-type',b'application/x-www-form-urlencoded')]
+        scope={'type':'http','scheme':'https','method':'POST' if ticket else 'GET','path':path,'raw_path':path.encode(),'query_string':b'','headers':headers}
+        async def receive(): return {'type':'http.request','body':('ticket='+ticket).encode() if ticket else b'','more_body':False}
+        async def send(message): pytest.fail('cancelled request must not respond')
+        middleware=IntegrationsHostMiddleware(forbidden, factory)
+        task=asyncio.create_task(middleware(scope,receive,send))
+        try:
+            while not entered.is_set(): await asyncio.sleep(.001)
+            assert not release.is_set(), 'blocked integration prevented cancellation admission'
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError): await task
+            assert access_entries.current() is None
+            assert not any(c['total'] for c in middleware._inflight.values())
+        finally:
+            release.set()
+            for _ in range(2000):
+                creates=[row for row in trace if row[0]=='create']
+                closes=[row for row in trace if row[0]=='close']
+                if len(creates)==len(closes) and engine.pool.checkedout()==0: break
+                await asyncio.sleep(.001)
+            if not task.done(): task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        assert len(creates)==len(closes)==2, trace
+        for _, identity, tid in creates:
+            assert tid != threading.get_ident()
+            assert ('close', identity, tid) in closes
+        assert engine.pool.checkedout()==0
+    try: asyncio.run(exercise())
+    finally:
+        release.set(); timer.cancel(); timer.join(2)
+        event.remove(engine, 'before_cursor_execute', block)
+
+
+def _assert_worker_threads_off_loop(workers, loops):
+    # Keep strong Thread references: ident can be reused by later portal threads.
+    assert workers and loops and all(w[1] is not loop[1] for w in workers for loop in loops), 'integration preparation ran on request loop thread'
+
+
+def test_worker_thread_oracle_survives_reused_numeric_ident():
+    from types import SimpleNamespace
+    # A local observer models legal ident reuse after a previous thread exits;
+    # never monkeypatch threading.get_ident (threading itself depends on it).
+    def observe(kind, thread): return (kind, thread, None)
+    worker=observe('worker',SimpleNamespace(ident=7))
+    loop=observe('loop',SimpleNamespace(ident=7))
+    with pytest.raises(AssertionError):
+        assert worker[1].ident != loop[1].ident  # The CI184 numeric oracle is RED.
+    _assert_worker_threads_off_loop([worker],[loop])
+    with pytest.raises(AssertionError,match='preparation ran on request loop'):
+        _assert_worker_threads_off_loop([worker],[observe('loop',worker[1])])
+
+
+@pytest.mark.parametrize('lane', ['public', 'private'])
+def test_worker_context_projection_and_bootstrap_remain_request_local(integration_env, monkeypatch, lane):
+    from app.services import access_entries, integrations_proxy
+    from app.routers import integrations_host
+    from starlette.responses import Response
+    c, factory, app, uid, sid, mid, public, cookie, seen = integration_env
+    parent='https://stella.xiya.live'
+    private_parent='https://stella.p.xiya.live'
+    private='https://app-'+mid+'.p.xiya.live'
+    monkeypatch.setenv('STELLA_ENTRY_REGISTRY',json.dumps([
+        {'service_id':'stella','public':parent,'private':private_parent},
+        {'service_id':mid,'public':public,'private':private}]))
+    monkeypatch.setenv('STELLA_TRUSTED_ORIGINS',parent+','+private_parent)
+    with factory() as db:
+        with store.edit(db) as config:
+            config['modules'][mid].update(mapping_configured=True,alternate_address='http://127.0.0.2/other',
+                alternate_binding={'target_id':'b'*32,'initial_path':'/other'})
+            config['targets']['b'*32]=dict(config['targets']['target'],id='b'*32,allowed_ips=['127.0.0.2'])
+        before=db.get(AppConfig,store.KEY).value
+        db.add(AppConfig(key=access_entries.KEY,value=json.dumps({'owner_id':str(uid),'settings':{'revision':7,'enabled':True,'public_origin':parent,'private_origin':private_parent}})))
+        db.commit()
+    expected={'revision':7,'enabled':True,'public_origin':parent,'private_origin':private_parent}
+    observations=[]; request_loops=[]
+    real_offload=integrations_host.run_in_threadpool
+    async def observe_prepare(func, *args, **kwargs):
+        # Observe each bootstrap/read's live submitting loop, not only the final
+        # GET's proxy loop after earlier TestClient portals have already exited.
+        request_loops.append(('loop',threading.current_thread(),access_entries.current()))
+        return await real_offload(func,*args,**kwargs)
+    monkeypatch.setattr(integrations_host,'run_in_threadpool',observe_prepare)
+    real_get=store.get_module
+    def get(db, module_id):
+        snapshot=access_entries.current()
+        assert dict(snapshot)==expected
+        with pytest.raises(TypeError): snapshot['revision']=8
+        observations.append(('worker',threading.current_thread(),snapshot))
+        return real_get(db,module_id)
+    monkeypatch.setattr(store,'get_module',get)
+    chosen=public if lane=='public' else private
+    source=parent if lane=='public' else private_parent
+    async def proxy(request,module,target,source_origin):
+        assert dict(access_entries.current())==expected
+        assert module['origin']==chosen and source_origin==source
+        assert module['target_id']==('target' if lane=='public' else 'b'*32)
+        assert target['allowed_ips']==(['127.0.0.1'] if lane=='public' else ['127.0.0.2'])
+        observations.append(('loop',threading.current_thread(),access_entries.current()))
+        return Response('isolated')
+    monkeypatch.setattr(integrations_proxy,'proxy_http',proxy)
+    with factory() as db:
+        # issue is a sync consumer and receives the same immutable snapshot.
+        with access_entries.request_snapshot(factory):
+            issued=sessions.issue(db,real_get(db,mid),sid,source)
+    boot=c.post(chosen+'/__stella/bootstrap',data=issued['fields'],headers={'Origin':source},follow_redirects=False)
+    assert boot.status_code==303,boot.text
+    grant_cookie=boot.headers['set-cookie'].split(';')[0]
+    assert c.post(chosen+'/__stella/bootstrap',data=issued['fields'],headers={'Origin':source},follow_redirects=False).status_code==401
+    assert c.get(chosen+'/echo',headers={'Cookie':grant_cookie}).text=='isolated'
+    workers=[row for row in observations if row[0]=='worker']; loops=[row for row in observations if row[0]=='loop']
+    _assert_worker_threads_off_loop(workers,request_loops+loops)
+    assert loops
+    assert all(any(w[2] is loop[2] for loop in request_loops) for w in workers)
+    assert workers[-1][2] is loops[-1][2]
+    with factory() as db:
+        after=json.loads(db.get(AppConfig,store.KEY).value)
+        assert after['modules']==json.loads(before)['modules']
+        assert after['targets']==json.loads(before)['targets']
+    change_identity(factory,uid,sid,'revoked')
+    assert c.get(chosen+'/echo',headers={'Cookie':grant_cookie}).status_code==401
+
+
+@pytest.mark.parametrize('kind,status', [('method',405), ('query',405), ('origin',403), ('content_type',415), ('large',413), ('format',400)])
+def test_bootstrap_validation_precedes_integration_db(integration_env, kind, status):
+    c, factory, app, uid, sid, mid, origin, cookie, seen = integration_env
+    reads=[]
+    def record(conn, cursor, statement, params, context, many):
+        if store.KEY in str(params): reads.append(statement)
+    engine=factory.kw['bind']
+    event.listen(engine,'before_cursor_execute',record)
+    headers={'Origin':'https://stella.xiya.live','Content-Type':'application/x-www-form-urlencoded'}
+    method='GET' if kind=='method' else 'POST'
+    if kind=='origin': headers['Origin']='https://attacker.invalid'
+    if kind=='content_type': headers['Content-Type']='application/json'
+    body='x=y' if kind=='format' else 'ticket='+('x'*2050 if kind=='large' else 'synthetic')
+    try:
+        result=c.request(method,origin+'/__stella/bootstrap'+('?bad=1' if kind=='query' else ''),content=body,headers=headers,follow_redirects=False)
+        assert result.status_code==status,result.text
+        assert reads==[], 'invalid body/origin must not checkout integration state'
+    finally: event.remove(engine,'before_cursor_execute',record)
+    assert seen==[]
+
+
+@pytest.mark.parametrize('method', ['GET','WEBSOCKET'])
+def test_encoded_reserved_path_cannot_escape_to_proxy(integration_env, method):
+    c, factory, app, uid, sid, mid, origin, cookie, seen = integration_env
+    result=c.request(method,origin+'/%5f%5fstella/unknown',headers={'Cookie':cookie})
+    assert result.status_code==404,result.text
+    assert result.json()=={'detail':'保留集成路径'}
+    assert seen==[]
+
+
+def test_main_passthrough_keeps_one_snapshot_and_no_integration_queries(integration_env, monkeypatch):
+    from app.services import access_entries
+    from starlette.responses import Response
+    _, factory, *_ = integration_env
+    public='https://stella.xiya.live'; private='https://stella.p.xiya.live'
+    monkeypatch.setenv('STELLA_ENTRY_REGISTRY',json.dumps([{'service_id':'stella','public':public,'private':private}]))
+    statements=[]; snapshots=[]
+    async def app(scope,receive,send):
+        snapshots.append(dict(access_entries.current()))
+        await Response('main')(scope,receive,send)
+    def sql(conn,cursor,statement,params,context,many): statements.append((statement,params))
+    engine=factory.kw['bind']; event.listen(engine,'before_cursor_execute',sql)
+    try:
+        client=TestClient(IntegrationsHostMiddleware(app,factory))
+        try:
+            for origin in (public, private):
+                statements.clear()
+                response=client.get(origin+'/assets/main.css')
+                assert response.status_code==200 and response.text=='main'
+                assert len(statements)==1 and access_entries.KEY in str(statements[0][1]), statements
+        finally: client.close()
+        assert snapshots==[{'revision':0,'enabled':False,'public_origin':public,'private_origin':private}]*2
+    finally: event.remove(engine,'before_cursor_execute',sql)

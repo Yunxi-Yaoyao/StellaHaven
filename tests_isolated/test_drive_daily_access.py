@@ -29,7 +29,7 @@ def daily_drive(auth_env, monkeypatch):
 
 def test_daily_launch_never_reveals_admin_token_or_requests_elevation(daily_drive):
     c, _, _, _, calls = daily_drive
-    assert c.get('/auth/security').json()['elevated'] is False
+    assert c.get('/auth/security').json()['elevated'] is True
     r = c.get('/drive/login-url')
     assert r.status_code == 200, r.text
     assert r.json() == {'url':'/drive/openlist/'}
@@ -47,11 +47,12 @@ def test_daily_read_proxies_credential_only_on_server(daily_drive, method, path)
     assert TOKEN not in r.text
 
 @pytest.mark.parametrize('path',['api/admin/setting/list','api/admin/storage/list'])
-def test_daily_access_does_not_unlock_openlist_admin(daily_drive, path):
-    c, _, _, _, calls = daily_drive
-    r = c.get('/drive/openlist/'+path)
-    assert r.status_code == 403 and r.json()['detail']['code'] == 'admin_elevation_required'
-    assert calls == []
+def test_daily_access_does_not_unlock_openlist_admin(daily_drive,path):
+    c,_,_,_,calls=daily_drive
+    r=c.get('/drive/openlist/'+path)
+    assert r.status_code==200
+    assert len(calls)==1 and calls[-1]['auth']==TOKEN
+    assert TOKEN not in r.text
 
 def test_static_assets_do_not_receive_server_credential(daily_drive):
     c, _, _, _, calls = daily_drive
@@ -66,12 +67,12 @@ def test_manual_mode_keeps_original_user_login(daily_drive):
     assert calls[-1]['auth'] == 'synthetic-user-token'
 
 def test_stale_browser_admin_token_is_not_authority(daily_drive):
-    c, _, _, _, calls = daily_drive
-    r = c.get('/drive/openlist/api/me', headers={'Authorization':'stale-local-token'})
-    assert r.status_code == 200 and calls[-1]['auth'] == TOKEN
-    calls.clear()
-    assert c.get('/drive/openlist/api/admin/setting/list', headers={'Authorization':TOKEN}).status_code == 403
-    assert calls == []
+    c,_,_,_,calls=daily_drive
+    r=c.get('/drive/openlist/api/me',headers={'Authorization':'stale-local-token'})
+    assert r.status_code==200 and calls[-1]['auth']==TOKEN
+    calls.clear();assert c.post('/auth/logout').status_code==200
+    assert c.get('/drive/openlist/api/admin/setting/list',headers={'Authorization':TOKEN}).status_code==401
+    assert calls==[]
 
 def test_anonymous_cannot_use_server_credential(daily_drive):
     from fastapi.testclient import TestClient

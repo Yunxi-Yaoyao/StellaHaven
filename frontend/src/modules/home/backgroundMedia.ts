@@ -14,7 +14,7 @@ export interface BgMedia {
   height?: number;
 }
 export interface BackgroundEntry {
-  id: string; name: string; ext: string; url: string; isDefault: boolean; media?: BgMedia;
+  id: string; name: string; ext: string; url: string; isDefault: boolean; isSystem?: boolean; owner?: string | null; media?: BgMedia;
 }
 export const QUALITY_KEY = "stella_home_bg_quality";
 export const qualityOptions = [
@@ -41,6 +41,16 @@ export const backgroundEntries = ref<BackgroundEntry[]>([]);
 const pending = new Map<string, Promise<BgMedia | null>>();
 const optimizing = new Map<string, Promise<BgMedia | null>>();
 let entriesPending: Promise<BackgroundEntry[]> | null = null;
+let entriesGeneration = 0;
+export function invalidateBackgroundEntries() { entriesGeneration++; entriesPending = null; }
+function sessionFence() {
+  const owner = auth.me?.id, session = auth.sessionGeneration, epoch = auth.requestEpoch;
+  return () => owner === auth.me?.id && session === auth.sessionGeneration && epoch === auth.requestEpoch && !auth.suspended && !auth.sessionClosing;
+}
+watch([() => auth.me?.id, () => auth.sessionGeneration, () => auth.requestEpoch, () => auth.suspended, () => auth.sessionClosing], () => {
+  invalidateBackgroundEntries(); pending.clear(); optimizing.clear();
+  backgroundEntries.value = [];
+}, {flush:'sync'});
 const active = new Map<string, { count: number; timer?: ReturnType<typeof setTimeout>; polls: number }>();
 // Only known local asset URLs. Never proxy arbitrary remote or protocol-relative URLs.
 export function isLocalBackground(url: string) { return /^\/assets\/homebg\/[^?#]+(?:[?#].*)?$/.test(url) && !url.includes(".."); }
@@ -61,29 +71,34 @@ function failed(url: string, error: unknown) {
 export async function loadBackgroundEntries(): Promise<BackgroundEntry[]> {
   if (!auth.me) return [];
   if (entriesPending) return entriesPending;
-  entriesPending = (async () => {
+  const current = sessionFence(), generation = entriesGeneration;
+  const request = entriesPending = (async () => {
     const r = await fetch("/homebg/");
     if (!r.ok) throw new Error(`背景图库加载失败 (${r.status})`);
     const entries: BackgroundEntry[] = await r.json();
+    if (!current() || generation !== entriesGeneration) return [];
     backgroundEntries.value = entries;
     for (const e of entries) if (e.media) storeBackgroundMedia(e.media);
     return entries;
   })();
-  try { return await entriesPending; } finally { entriesPending = null; }
+  try { return await request; } finally { if (entriesPending === request) entriesPending = null; }
 }
 export function reloadBackgroundMedia(url: string): Promise<BgMedia | null> {
   if (!isLocalBackground(url)) return Promise.resolve(null);
   const current = pending.get(url);
   if (current) return current;
-  const request = (async () => {
+  const valid = sessionFence();
+  let request: Promise<BgMedia | null> | undefined;
+  request = (async () => {
     try {
       const r = await fetch(`/homebg/media?url=${encodeURIComponent(url)}`);
       if (!r.ok) throw new Error(`背景信息加载失败 (${r.status})`);
       const m: BgMedia = await r.json();
+      if (!valid()) return null;
       storeBackgroundMedia({ ...m, url });
       return backgroundMedia[url]!;
-    } catch (e) { failed(url, e); return null; }
-    finally { pending.delete(url); }
+    } catch (e) { if (valid()) failed(url, e); return null; }
+    finally { if (pending.get(url) === request) pending.delete(url); }
   })();
   pending.set(url, request);
   return request;
@@ -92,21 +107,24 @@ export function optimizeBackground(url: string): Promise<BgMedia | null> {
   if (!auth.me || !isLocalBackground(url)) return Promise.resolve(null);
   const current = optimizing.get(url);
   if (current) return current;
-  const request = (async () => {
+  const valid = sessionFence();
+  let request: Promise<BgMedia | null> | undefined;
+  request = (async () => {
     try {
       const entries = await loadBackgroundEntries();
-      if (!auth.me) return null;
+      if (!auth.me || !valid()) return null;
       const entry = entries.find(e => e.url === url);
       if (!entry) return null; // bundled defaults outside the managed library stay original
       const r = await fetch(`/homebg/${encodeURIComponent(entry.id)}/optimize`, { method: "POST" });
       if (!r.ok) throw new Error(`背景处理失败 (${r.status})`);
       const m: BgMedia = await r.json();
+      if (!valid()) return null;
       storeBackgroundMedia({ ...m, url });
       const consumer = active.get(url);
       if (consumer) consumer.polls = 0;
       return await reloadBackgroundMedia(url);
-    } catch (e) { failed(url, e); return null; }
-    finally { optimizing.delete(url); }
+    } catch (e) { if (valid()) failed(url, e); return null; }
+    finally { if (optimizing.get(url) === request) optimizing.delete(url); }
   })();
   optimizing.set(url, request);
   return request;

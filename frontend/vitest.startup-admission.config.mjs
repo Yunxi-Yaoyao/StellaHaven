@@ -1,0 +1,3 @@
+import {defineConfig} from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
+export default defineConfig({plugins:[vue()],test:{include:['src/modules/home/*.recovery.test.ts','src/modules/home/live2dHitMask.test.ts','src/shell/SideBar.experience.test.ts','src/modules/home/BgLayer.admission.test.ts','src/modules/home/Live2dWidget.admission.test.ts','src/modules/home/startupAdmission.test.ts','src/modules/home/live2dAdmission.test.ts','src/modules/home/live2dLifetime.test.ts','src/modules/home/auth.test.ts','src/modules/home/auth-generation.experience.test.ts','src/modules/auth/reviewRegression.test.ts'],environment:'jsdom'}});

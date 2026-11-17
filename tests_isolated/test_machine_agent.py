@@ -268,7 +268,8 @@ def test_linux_container_guards_prevent_passthrough_dmi_physical_inventory(
             raise ValueError('offline systemd')
         return value
     def read_metadata(path, limit=8192):
-        assert not any(field in path for field in ('board_', 'bios_'))
+        # Public board/BIOS capability is allowed, never serial/UUID or DIMMs.
+        assert not any(field in path.lower() for field in ('serial', 'uuid', '/dev/mem', '/tables/dmi'))
         return files.get(path)
     with patch.object(agent.platform, 'system', return_value='Linux'), \
             patch.object(agent.shutil, 'which', side_effect=lambda name: '/bin/' + name), \

@@ -94,6 +94,7 @@ class Peer(StrictModel):
     rx_bytes: Counter
     tx_bytes: Counter
     probe: Probe | None = None
+    manual_probes: Annotated[list[Probe], Field(max_length=8)] = []
 
     @field_validator("allowed_ips")
     @classmethod
@@ -118,6 +119,7 @@ class Interface(StrictModel):
 
 
 class WireGuard(StrictModel):
+    manual_probe_version: Annotated[int, Field(strict=True, ge=1, le=1)] | None = None
     status: Literal["ok", "unavailable", "permission_denied"]
     interfaces: Annotated[list[Interface], Field(max_length=64)] = []
 
@@ -233,6 +235,59 @@ def _route_owner(iface, address):
     best = max(p[0] for p in candidates)
     owners = [key for length, key in candidates if length == best]
     return owners[0] if len(owners) == 1 else None
+
+
+class ManualProbeIntent(StrictModel):
+    node_id: Annotated[int, Field(strict=True, gt=0, le=2147483647)]
+    interface: Annotated[str, Field(strict=True, pattern=r'^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$')]
+    target: Annotated[str, Field(strict=True, max_length=15)]
+
+    @field_validator('target')
+    @classmethod
+    def private_ipv4(cls, value):
+        address = ip_address(value)
+        if not any(address in ip_network(p) for p in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')):
+            raise ValueError('manual WG target must be a private IPv4 address')
+        return str(address)
+
+
+class ManualProbeBinding(ManualProbeIntent):
+    interface_key_id: Fingerprint
+    peer_key_id: Fingerprint
+
+
+def bind_manual_probe(value, nodes, snapshots, *, now=None):
+    """Authorize a user-selected target against discovery, not host configuration.
+
+    Bind both interface and peer keys so disappearance/replacement cannot silently
+    rebind an old rule. The agent additionally verifies the actual kernel route.
+    """
+    data = ManualProbeIntent.model_validate(value).model_dump()
+    now = now or datetime.now(timezone.utc)
+    node = next((n for n in nodes if n.id == data['node_id'] and n.status != 'removed'), None)
+    snap = _safe_snapshot(snapshots.get(data['node_id']))
+    if not node or not _fresh(node, snap, now):
+        raise ValueError('源节点需要新鲜的真实 WG 发现报告')
+    interfaces = snap['wireguard']['interfaces']
+    matches = [i for i in interfaces if i['name'] == data['interface']]
+    if len(matches) != 1:
+        raise ValueError('本地 WG 接口不存在或身份不唯一')
+    iface = matches[0]
+    address = ip_address(data['target'])
+    locals_ = [ip_interface(a) for i in interfaces for a in i['addresses']]
+    if not any(ip_interface(a).version == 4 for a in iface['addresses']) or any(a.ip == address for a in locals_):
+        raise ValueError('接口缺少 IPv4 地址或目标属于本机')
+    owner = _route_owner(iface, address)
+    if not owner:
+        raise ValueError('目标没有唯一的 WG AllowedIPs 归属')
+    # Do not allow a subnet's network/broadcast address, including configured
+    # interface subnets. /31 and /32 point-to-point host addresses remain valid.
+    prefixes = [ip_network(p, strict=False) for p in iface['addresses']]
+    prefixes += [ip_network(p, strict=False) for peer in iface['peers']
+                 if peer['public_key_id'] == owner for p in peer['allowed_ips']]
+    if any(p.version == 4 and p.prefixlen < 31 and address in (p.network_address, p.broadcast_address) for p in prefixes):
+        raise ValueError('目标不能为网络或广播地址')
+    return data | dict(interface_key_id=iface['public_key_id'], peer_key_id=owner)
 
 
 def build_probe_targets(node_id, nodes, snapshots, *, now=None):
@@ -401,4 +456,14 @@ def get_probe_targets(db, token, *, now=None):
     if node is None or node.status == 'removed':
         raise ValueError('invalid agent token')
     nodes, snapshots, _ = _read_map_data(db)
-    return build_probe_targets(node.id, nodes, snapshots, now=now)
+    automatic = build_probe_targets(node.id, nodes, snapshots, now=now)
+    from app.services import wg_manual
+    manual = wg_manual.probe_targets(wg_manual.node_rules(db, node.id), node.id, nodes, snapshots, now=now)
+    combined = automatic + manual
+    # Same eight-target budget. Rotate crowded admission each collection minute,
+    # rather than permanently starving configured targets or replacing discovery.
+    if len(combined) > 8:
+        tick = int((now or datetime.now(timezone.utc)).timestamp()) // 60
+        offset = (tick * 8) % len(combined)
+        combined = (combined + combined)[offset:offset + 8]
+    return combined

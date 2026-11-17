@@ -1,0 +1,798 @@
+{
+  "status": "APPROVED EXTERNAL ALERT SOURCE DATA; LOADER STILL REQUIRES INDEPENDENT REVIEW",
+  "worker_source_approved": true,
+  "release_approved": false,
+  "reviewed_commit": "d2bf1f44bc01e0ef1ed650f84e02c55674720a0e",
+  "candidate_before_contract": "d9ca844a50f719e104251f22e31d66e1a3d65759",
+  "approval_provenance": {
+    "result": "/opt/hermes-workstation/docs/Stella-监控第五轮-20261020/recheck-alerts/RESULT.json",
+    "result_sha256": "1c35c85e5a1b1ada06dfebfe08d8e32b84fa65900275d71c03db2bd9030d88ff",
+    "proposal": "/opt/hermes-workstation/docs/Stella-监控第五轮-20261020/recheck-alerts/SOURCE-PROPOSAL.json",
+    "proposal_sha256": "83f124ff5d6429e3797e5528e929c459236149f4caa5f2ba428429ad7019ede4"
+  },
+  "historical_contract_sha256": {
+    "app/api_response_v5_integration.json": "362aeb8309ced40a9f0d3af5bc55f48d4132767cabc04caf178202cfad3fdfbb",
+    "app/api_response_entry_scope_review.json": "56a7b7ffaebac02ec7728d2b1fba57c0cefda47863da06aa377bb1a0abbc3be9",
+    "app/api_response_models.json": "a6c8d103011e9a250f94f5422dba8e2b9873e3fc06e4c8b05071b703e319ed00",
+    "app/api_response_inventory.json": "ffbacf41ec5b07935a10194e6e6bc3a02ec1233185dd831b97ae1656e0a65a3e",
+    "app/api_response_upstream.json": "6a0bed1b23ac5d0f1ffce506434aac3b195bb8b21b054940b7a31ca0c00b3d72",
+    "app/api_response_feedback.json": "3cd82689dc1ce9c1c0d77b84c76c4e47db72ad29104c818e75fc35aeb575068f",
+    "app/api_response_notes_upstream.json": "7f284b1e15310761d5782318b89e60f2ea9ea2d4c1a89a0c90edabeda16eb9d3",
+    "app/api_response_entry_monitoring.json": "58e18134f84b31dce48e9445b74113557c65801d7a45040012580834bbaba096",
+    "app/api_response_auth_review.json": "6154c892d9f4fdda10cc73b90a809721296fa3de95cf5fbfef8d6407817a13e6",
+    "app/api_response_web_projects.json": "319cc72219eae806450cb681513cc2768d5daa69b986dee7b89043191fe5c1da",
+    "app/api_response_backups.json": "e977065d9ffb605251025fee0b2b74426ecef7b3cfae49268ffb011c0f4e66a0",
+    "app/api_response_alerts_upstream.json": "3efbe68ff6e7692e4f5dfcb83b166930aba0d37e3365d828ef064bc35099388a",
+    "app/api_response_round4_review.json": "51231076a0d1ab427b62e62f9493085b928056b8df5b9cd2116792dcad74c475",
+    "app/api_response_overhaul.json": "4cf521caaf1e42f854ba1a08ac97e0dd3ee547bce5d780b621db2017047e1396",
+    "app/api_response_integrated.json": "8d0bcc77e6f158b448866635be505c56b51ad7c6d1158b8a5750c4774710c772"
+  },
+  "sources": {
+    "main.py:response-projection@alerts-recheck-d2bf1f44": {
+      "file": "main.py",
+      "sha256": "5dbe4707a7e5666c6aea2e34357dbb72141ce8e3112b7cef2aaf813ff6e612e3",
+      "line": 1,
+      "end_line": 191,
+      "symbol": "main.py:response-projection@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "5dbe4707a7e5666c6aea2e34357dbb72141ce8e3112b7cef2aaf813ff6e612e3"
+    },
+    "app/services/node.py:round4-final-667bb1d@alerts-recheck-d2bf1f44": {
+      "file": "app/services/node.py",
+      "sha256": "83e42a457cef30baaa9bd8fb0220518267c58abf5225f791e3eda1ad0550978c",
+      "line": 1,
+      "end_line": 369,
+      "symbol": "app/services/node.py:round4-final-667bb1d@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "83e42a457cef30baaa9bd8fb0220518267c58abf5225f791e3eda1ad0550978c"
+    },
+    "app/services/node_monitor_policy.py:entry-monitoring-review@alerts-recheck-d2bf1f44": {
+      "file": "app/services/node_monitor_policy.py",
+      "sha256": "13607f7668662402ec5f961c54b23d6cdb659cc576e954e50b24d02ecc155683",
+      "line": 1,
+      "end_line": 214,
+      "symbol": "app/services/node_monitor_policy.py:entry-monitoring-review@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "13607f7668662402ec5f961c54b23d6cdb659cc576e954e50b24d02ecc155683"
+    },
+    "app/services/node_monitor_policy.py:integrated-review@alerts-recheck-d2bf1f44": {
+      "file": "app/services/node_monitor_policy.py",
+      "sha256": "13607f7668662402ec5f961c54b23d6cdb659cc576e954e50b24d02ecc155683",
+      "line": 1,
+      "end_line": 214,
+      "symbol": "app/services/node_monitor_policy.py:integrated-review@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "13607f7668662402ec5f961c54b23d6cdb659cc576e954e50b24d02ecc155683"
+    },
+    "app.models.alert.AlertEvent@alerts-recheck-d2bf1f44": {
+      "file": "app/models/alert.py",
+      "sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924",
+      "line": 67,
+      "end_line": 77,
+      "symbol": "app.models.alert.AlertEvent@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "749a5a3e836447798c3ae41b77d703d656fc3dafe8d61d9038bb72b3f682f658"
+    },
+    "app.models.alert.AlertRule@alerts-recheck-d2bf1f44": {
+      "file": "app/models/alert.py",
+      "sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924",
+      "line": 18,
+      "end_line": 48,
+      "symbol": "app.models.alert.AlertRule@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "40fbb55ed7b2e1d817ca632dfc886290275ce268ab15cb612211a6a450254530"
+    },
+    "app.models.alert.AlertState@alerts-recheck-d2bf1f44": {
+      "file": "app/models/alert.py",
+      "sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924",
+      "line": 51,
+      "end_line": 64,
+      "symbol": "app.models.alert.AlertState@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "abcb9eaed5be95ac2dc1bd1039ff48fe79f1aa92adbcf2542f157aba35099598"
+    },
+    "app.models.alert.Notification@alerts-recheck-d2bf1f44": {
+      "file": "app/models/alert.py",
+      "sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924",
+      "line": 80,
+      "end_line": 96,
+      "symbol": "app.models.alert.Notification@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "9b5099fe8dea766b71c0bb729a11e8f9cab6f517ec30cef55185dcb3f4f41834"
+    },
+    "app.models.alert:type-evidence@alerts-recheck-d2bf1f44": {
+      "file": "app/models/alert.py",
+      "sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924",
+      "line": 1,
+      "end_line": 96,
+      "symbol": "app.models.alert:type-evidence@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924"
+    },
+    "app/models/alert.py:feedback-review@alerts-recheck-d2bf1f44": {
+      "file": "app/models/alert.py",
+      "sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924",
+      "line": 1,
+      "end_line": 96,
+      "symbol": "app/models/alert.py:feedback-review@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924"
+    },
+    "app/models/alert.py:schema@alerts-recheck-d2bf1f44": {
+      "file": "app/models/alert.py",
+      "sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924",
+      "line": 1,
+      "end_line": 96,
+      "symbol": "app/models/alert.py:schema@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924"
+    },
+    "app.routers.alerts._note_out@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 160,
+      "end_line": 161,
+      "symbol": "app.routers.alerts._note_out@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "28af5439d2bedeee677d38e8d66f9729ef4a17b409c5891ab61a96edaf9c7226"
+    },
+    "app.routers.alerts.create_metric_rule@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 149,
+      "end_line": 150,
+      "symbol": "app.routers.alerts.create_metric_rule@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "91f11f9728567e6c294cb7713ba5012624c1dcb7092b4128513d3a5ae9e80326"
+    },
+    "app.routers.alerts.create_rule@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 47,
+      "end_line": 58,
+      "symbol": "app.routers.alerts.create_rule@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "b8a7c166f15cf050124c83b7402fd7e0d12635cb5ee983294b547b49f6657da0"
+    },
+    "app.routers.alerts.delete_rule@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 73,
+      "end_line": 80,
+      "symbol": "app.routers.alerts.delete_rule@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "b5489ec6afe533b1e6c16cebb085e8973a219b1fc05170932343dd2af610b306"
+    },
+    "app.routers.alerts.incident_detail@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 105,
+      "end_line": 109,
+      "symbol": "app.routers.alerts.incident_detail@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "53e5f0efbb96acbaa9ecf569d73e193bc2be54ce47ed03586873c31a17fc133b"
+    },
+    "app.routers.alerts.incident_list@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 91,
+      "end_line": 101,
+      "symbol": "app.routers.alerts.incident_list@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "5c92c3888ad976465123dd510a559a3c62e985cdecafa03edd72f03923b0d50c"
+    },
+    "app.routers.alerts.list_events@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 84,
+      "end_line": 87,
+      "symbol": "app.routers.alerts.list_events@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "7f0c82df5f1a055ce7c804973f9ace8a8e442a481c051d3b67a71d8bf640a028"
+    },
+    "app.routers.alerts.list_notifications@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 165,
+      "end_line": 167,
+      "symbol": "app.routers.alerts.list_notifications@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "f2510457b16ee195bc090c6a4fb9fc76d4b4acd94ac25e88b4763381f0b3ce32"
+    },
+    "app.routers.alerts.list_rules@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 42,
+      "end_line": 43,
+      "symbol": "app.routers.alerts.list_rules@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "7ef661d1c273387d099aa084dc686be906a2d2058aea72690804f692511b9fb4"
+    },
+    "app.routers.alerts.mark_all_read@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 208,
+      "end_line": 211,
+      "symbol": "app.routers.alerts.mark_all_read@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "8cf8dd99ff4c70acd8853389481e8f15e1c7d33186ac1dce129b0a27536bb268"
+    },
+    "app.routers.alerts.mark_read@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 197,
+      "end_line": 204,
+      "symbol": "app.routers.alerts.mark_read@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "e5e6b9c1e1662753f347ef0473bda20c4c6be7516f3f1f54faa391812c394b29"
+    },
+    "app.routers.alerts.metric_preview@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 133,
+      "end_line": 134,
+      "symbol": "app.routers.alerts.metric_preview@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "3889cd701e50b1c0a3ff2ac27bcc0acf292a90db7f05ba9da2853b92021cb02d"
+    },
+    "app.routers.alerts.metric_rules@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 128,
+      "end_line": 129,
+      "symbol": "app.routers.alerts.metric_rules@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "f0dd1d198588908a71084109854837a7d609e37cf232a758509a4013f01b2812"
+    },
+    "app.routers.alerts.notification_detail@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 176,
+      "end_line": 193,
+      "symbol": "app.routers.alerts.notification_detail@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "76b8375e3c99d635fb149b0a3df9b9c60cff3d4b1c16b27a638259b7429ce094"
+    },
+    "app.routers.alerts.patch_rule@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 62,
+      "end_line": 69,
+      "symbol": "app.routers.alerts.patch_rule@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "9fb532bfe7d3734d93e4f8a0362537cd8b4d76dfb5b698063e4edd9e44dfa8e1"
+    },
+    "app.routers.alerts.unread_count@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 171,
+      "end_line": 172,
+      "symbol": "app.routers.alerts.unread_count@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "602a72bfb2c4d1b419fa901ff6035cf15c2428bee55fd2523dcefddd4b132a34"
+    },
+    "app.routers.alerts.update_metric_rule@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 154,
+      "end_line": 155,
+      "symbol": "app.routers.alerts.update_metric_rule@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "a132927ca317f0cfb0a5b0b53dee3942159b3f6d6def68783baa56d312a93aaa"
+    },
+    "app.services.alerts._evaluate@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 165,
+      "end_line": 199,
+      "symbol": "app.services.alerts._evaluate@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "eec1f566fef88418af17ada00ff50ec2352488f322dc0a656bd2e6ebb5dda74a"
+    },
+    "app.services.alerts._notify@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 222,
+      "end_line": 241,
+      "symbol": "app.services.alerts._notify@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "7fe5a600695bbdc525a610b73f30ddcc2a822a1e52d077757d9ad6df29f00ee5"
+    },
+    "app.services.alerts._push_ws@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 293,
+      "end_line": 299,
+      "symbol": "app.services.alerts._push_ws@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "7e8f59a6c21532325782efbc7966d873d94c15f70397a46711a452a4c17da785"
+    },
+    "app.services.alerts._record@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 202,
+      "end_line": 216,
+      "symbol": "app.services.alerts._record@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "312783ea390ae5f2222e2162c15053a057a347855535ec2de1fc400d550f9114"
+    },
+    "app.services.alerts._send_alert_email@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 302,
+      "end_line": 325,
+      "symbol": "app.services.alerts._send_alert_email@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "f33d2657cb4c22840fd9a11483b59796761080ba8f58aa1938653c95c7d6f6d3"
+    },
+    "app.services.alerts._state_for@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 155,
+      "end_line": 162,
+      "symbol": "app.services.alerts._state_for@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "b38c5ed4ab75d00a1a9304a77804152d627645bdc116a873511bc059bd6a7f48"
+    },
+    "app.services.alerts.create_rule@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 57,
+      "end_line": 84,
+      "symbol": "app.services.alerts.create_rule@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "74c6bbf088cf974c44828e548e7af44e5507348fce9d2fc21d7313b7ca2e27e8"
+    },
+    "app.services.alerts.delete_rule@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 142,
+      "end_line": 150,
+      "symbol": "app.services.alerts.delete_rule@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "09fdb0db1efd85576a21523bfe04e5782123e5ee347bfbf5ac631f0006ed8795"
+    },
+    "app.services.alerts.evaluate_monitor@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 439,
+      "end_line": 454,
+      "symbol": "app.services.alerts.evaluate_monitor@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "3c0486dc063f6e9901e13e39db7970659969c74cc25c82e90b471617f15dbcee"
+    },
+    "app.services.alerts.evaluate_node_rules@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 369,
+      "end_line": 436,
+      "symbol": "app.services.alerts.evaluate_node_rules@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "f85516bfeb7d7e9156c9ff86e27449b7fe1c5944ee49b2475a028b1451f1bd44"
+    },
+    "app.services.alerts.evaluate_wg_rules@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 457,
+      "end_line": 491,
+      "symbol": "app.services.alerts.evaluate_wg_rules@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "ecec93ff76475afd068802c062412e3680a1c0d2c31dc24eaa75b9c5d9eb0381"
+    },
+    "app.services.alerts.list_events@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 355,
+      "end_line": 359,
+      "symbol": "app.services.alerts.list_events@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "61ce87b983b20b238b5b4768d18491313e80d270dfa46b97282bb940f1555017"
+    },
+    "app.services.alerts.list_notifications@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 330,
+      "end_line": 334,
+      "symbol": "app.services.alerts.list_notifications@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "c3f4fbf1b7663b1eaddac547140a1e35058d394cc71e0b9c607561fa6669c46b"
+    },
+    "app.services.alerts.list_rules@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 91,
+      "end_line": 112,
+      "symbol": "app.services.alerts.list_rules@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "63ffa6063c626124adb16736c8a4b5e6f943b9052e9c5cfde4bf1e32d81170e1"
+    },
+    "app.services.alerts.mark_all_read@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 349,
+      "end_line": 352,
+      "symbol": "app.services.alerts.mark_all_read@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "11768bc539c5436286a1e542cfdbcdf199a542659cca244b2b87202d472f286c"
+    },
+    "app.services.alerts.mark_read@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 341,
+      "end_line": 346,
+      "symbol": "app.services.alerts.mark_read@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "e17d68b8fb917f4a2e934d4fd27bbf87eca0dd082037cb13745f71f52768cb8e"
+    },
+    "app.services.alerts.unread_count@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 337,
+      "end_line": 338,
+      "symbol": "app.services.alerts.unread_count@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "9abd59bd6a60ff60391e20b371fe3022a519d2a3942402fe01d93f446efce57a"
+    },
+    "app.services.alerts.update_rule@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 115,
+      "end_line": 139,
+      "symbol": "app.services.alerts.update_rule@alerts-recheck-d2bf1f44",
+      "symbol_sha256": "09faf623741d637632f47b88d297504b3b310734fe9580455d15618e36191339"
+    },
+    "app.services.node_deadlines._writable_primary@alerts-recheck-d2bf1f44": {
+      "file": "app/services/node_deadlines.py",
+      "symbol": "app.services.node_deadlines._writable_primary@alerts-recheck-d2bf1f44",
+      "sha256": "5e206c6b6d45c9ed447107bd522e11f0fe04dd7670e8acade5a1dde71ba229f9",
+      "line": 25,
+      "end_line": 31,
+      "symbol_sha256": "b970430654dbe36682033bf2a8000448330a368048fce8dc5c44a3dae891a14f"
+    },
+    "app.services.node_deadlines._ha_admitted@alerts-recheck-d2bf1f44": {
+      "file": "app/services/node_deadlines.py",
+      "symbol": "app.services.node_deadlines._ha_admitted@alerts-recheck-d2bf1f44",
+      "sha256": "5e206c6b6d45c9ed447107bd522e11f0fe04dd7670e8acade5a1dde71ba229f9",
+      "line": 34,
+      "end_line": 46,
+      "symbol_sha256": "d87e5a71884e9960455eb32dd5981e2ad247fb29d5c5d6fddfdaeeaf931a3472"
+    },
+    "app.services.node_deadlines.NodeDeadlineWatcher@alerts-recheck-d2bf1f44": {
+      "file": "app/services/node_deadlines.py",
+      "symbol": "app.services.node_deadlines.NodeDeadlineWatcher@alerts-recheck-d2bf1f44",
+      "sha256": "5e206c6b6d45c9ed447107bd522e11f0fe04dd7670e8acade5a1dde71ba229f9",
+      "line": 49,
+      "end_line": 242,
+      "symbol_sha256": "0977688de3e8677f403adc7e0bb583d7f1d6170669024e48e30573acc4c5484a"
+    },
+    "app.services.alerts.create_node_interruption_rule@alerts-recheck-d2bf1f44": {
+      "file": "app/services/alerts.py",
+      "symbol": "app.services.alerts.create_node_interruption_rule@alerts-recheck-d2bf1f44",
+      "sha256": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+      "line": 26,
+      "end_line": 55,
+      "symbol_sha256": "654cf0ed97405cc49c13b637d1fd07b5a74101a04fbc509905461f6f90e76015"
+    },
+    "app.routers.alerts.RuleCreate@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "symbol": "app.routers.alerts.RuleCreate@alerts-recheck-d2bf1f44",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 20,
+      "end_line": 29,
+      "symbol_sha256": "437b6595b2bb507a0fcf966d6a1313a5b4d887da7f4eaba261e1cadea7c5469c"
+    },
+    "app.routers.alerts.RulePatch@alerts-recheck-d2bf1f44": {
+      "file": "app/routers/alerts.py",
+      "symbol": "app.routers.alerts.RulePatch@alerts-recheck-d2bf1f44",
+      "sha256": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+      "line": 32,
+      "end_line": 38,
+      "symbol_sha256": "89d8f4f7b65393d98eb5807de104398c11cd019cb35979798d21a1d13ffd8cb2"
+    },
+    "main.backup_lifespan@alerts-recheck-d2bf1f44": {
+      "file": "main.py",
+      "symbol": "main.backup_lifespan@alerts-recheck-d2bf1f44",
+      "sha256": "5dbe4707a7e5666c6aea2e34357dbb72141ce8e3112b7cef2aaf813ff6e612e3",
+      "line": 60,
+      "end_line": 81,
+      "symbol_sha256": "61d5fbac9b8c4415751084aa80326b4b5a95050b429404fb828520c75e1a0501"
+    }
+  },
+  "source_replacements": {
+    "app.routers.alerts.list_rules": "app.routers.alerts.list_rules@alerts-recheck-d2bf1f44",
+    "app.services.alerts.list_rules": "app.services.alerts.list_rules@alerts-recheck-d2bf1f44",
+    "app.models.alert:type-evidence": "app.models.alert:type-evidence@alerts-recheck-d2bf1f44",
+    "app.models.alert.AlertRule": "app.models.alert.AlertRule@alerts-recheck-d2bf1f44",
+    "app.models.alert.AlertState": "app.models.alert.AlertState@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.create_rule": "app.routers.alerts.create_rule@alerts-recheck-d2bf1f44",
+    "app.services.alerts.create_rule": "app.services.alerts.create_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.patch_rule": "app.routers.alerts.patch_rule@alerts-recheck-d2bf1f44",
+    "app.services.alerts.update_rule": "app.services.alerts.update_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.delete_rule": "app.routers.alerts.delete_rule@alerts-recheck-d2bf1f44",
+    "app.services.alerts.delete_rule": "app.services.alerts.delete_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.list_events": "app.routers.alerts.list_events@alerts-recheck-d2bf1f44",
+    "app.services.alerts.list_events": "app.services.alerts.list_events@alerts-recheck-d2bf1f44",
+    "app.routers.alerts._note_out": "app.routers.alerts._note_out@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.list_notifications": "app.routers.alerts.list_notifications@alerts-recheck-d2bf1f44",
+    "app.services.alerts.list_notifications": "app.services.alerts.list_notifications@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.unread_count": "app.routers.alerts.unread_count@alerts-recheck-d2bf1f44",
+    "app.services.alerts.unread_count": "app.services.alerts.unread_count@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.mark_read": "app.routers.alerts.mark_read@alerts-recheck-d2bf1f44",
+    "app.services.alerts.mark_read": "app.services.alerts.mark_read@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.mark_all_read": "app.routers.alerts.mark_all_read@alerts-recheck-d2bf1f44",
+    "app.services.alerts.mark_all_read": "app.services.alerts.mark_all_read@alerts-recheck-d2bf1f44",
+    "app.models.alert.AlertEvent": "app.models.alert.AlertEvent@alerts-recheck-d2bf1f44",
+    "app.models.alert.Notification": "app.models.alert.Notification@alerts-recheck-d2bf1f44",
+    "app.services.alerts._evaluate": "app.services.alerts._evaluate@alerts-recheck-d2bf1f44",
+    "app.services.alerts._notify": "app.services.alerts._notify@alerts-recheck-d2bf1f44",
+    "app.services.alerts._push_ws": "app.services.alerts._push_ws@alerts-recheck-d2bf1f44",
+    "app.services.alerts._record": "app.services.alerts._record@alerts-recheck-d2bf1f44",
+    "app.services.alerts._send_alert_email": "app.services.alerts._send_alert_email@alerts-recheck-d2bf1f44",
+    "app.services.alerts._state_for": "app.services.alerts._state_for@alerts-recheck-d2bf1f44",
+    "app.services.alerts.evaluate_node_rules": "app.services.alerts.evaluate_node_rules@alerts-recheck-d2bf1f44",
+    "app.services.alerts.evaluate_wg_rules": "app.services.alerts.evaluate_wg_rules@alerts-recheck-d2bf1f44",
+    "app.services.alerts.evaluate_monitor": "app.services.alerts.evaluate_monitor@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.metric_rules": "app.routers.alerts.metric_rules@alerts-recheck-d2bf1f44",
+    "app/models/alert.py:schema": "app/models/alert.py:schema@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.metric_preview": "app.routers.alerts.metric_preview@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.create_metric_rule": "app.routers.alerts.create_metric_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.update_metric_rule": "app.routers.alerts.update_metric_rule@alerts-recheck-d2bf1f44",
+    "main.py:response-projection": "main.py:response-projection@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.incident_list": "app.routers.alerts.incident_list@alerts-recheck-d2bf1f44",
+    "app/models/alert.py:feedback-review": "app/models/alert.py:feedback-review@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.incident_detail": "app.routers.alerts.incident_detail@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.notification_detail": "app.routers.alerts.notification_detail@alerts-recheck-d2bf1f44",
+    "app/services/node_monitor_policy.py:integrated-review": "app/services/node_monitor_policy.py:integrated-review@alerts-recheck-d2bf1f44",
+    "app/services/node_monitor_policy.py:entry-monitoring-review": "app/services/node_monitor_policy.py:entry-monitoring-review@alerts-recheck-d2bf1f44",
+    "app/services/node.py:round4-final-667bb1d": "app/services/node.py:round4-final-667bb1d@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.list_rules@v5-integration-6b31345": "app.routers.alerts.list_rules@alerts-recheck-d2bf1f44",
+    "app.services.alerts.list_rules@v5-integration-6b31345": "app.services.alerts.list_rules@alerts-recheck-d2bf1f44",
+    "app.models.alert:type-evidence@v5-integration-6b31345": "app.models.alert:type-evidence@alerts-recheck-d2bf1f44",
+    "app.models.alert.AlertRule@v5-integration-6b31345": "app.models.alert.AlertRule@alerts-recheck-d2bf1f44",
+    "app.models.alert.AlertState@v5-integration-6b31345": "app.models.alert.AlertState@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.create_rule@v5-integration-6b31345": "app.routers.alerts.create_rule@alerts-recheck-d2bf1f44",
+    "app.services.alerts.create_rule@v5-integration-6b31345": "app.services.alerts.create_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.patch_rule@v5-integration-6b31345": "app.routers.alerts.patch_rule@alerts-recheck-d2bf1f44",
+    "app.services.alerts.update_rule@v5-integration-6b31345": "app.services.alerts.update_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.delete_rule@v5-integration-6b31345": "app.routers.alerts.delete_rule@alerts-recheck-d2bf1f44",
+    "app.services.alerts.delete_rule@v5-integration-6b31345": "app.services.alerts.delete_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.list_events@v5-integration-6b31345": "app.routers.alerts.list_events@alerts-recheck-d2bf1f44",
+    "app.services.alerts.list_events@v5-integration-6b31345": "app.services.alerts.list_events@alerts-recheck-d2bf1f44",
+    "app.routers.alerts._note_out@v5-integration-6b31345": "app.routers.alerts._note_out@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.list_notifications@v5-integration-6b31345": "app.routers.alerts.list_notifications@alerts-recheck-d2bf1f44",
+    "app.services.alerts.list_notifications@v5-integration-6b31345": "app.services.alerts.list_notifications@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.unread_count@v5-integration-6b31345": "app.routers.alerts.unread_count@alerts-recheck-d2bf1f44",
+    "app.services.alerts.unread_count@v5-integration-6b31345": "app.services.alerts.unread_count@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.mark_read@v5-integration-6b31345": "app.routers.alerts.mark_read@alerts-recheck-d2bf1f44",
+    "app.services.alerts.mark_read@v5-integration-6b31345": "app.services.alerts.mark_read@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.mark_all_read@v5-integration-6b31345": "app.routers.alerts.mark_all_read@alerts-recheck-d2bf1f44",
+    "app.services.alerts.mark_all_read@v5-integration-6b31345": "app.services.alerts.mark_all_read@alerts-recheck-d2bf1f44",
+    "app.models.alert.AlertEvent@v5-integration-6b31345": "app.models.alert.AlertEvent@alerts-recheck-d2bf1f44",
+    "app.models.alert.Notification@v5-integration-6b31345": "app.models.alert.Notification@alerts-recheck-d2bf1f44",
+    "app.services.alerts._evaluate@v5-integration-6b31345": "app.services.alerts._evaluate@alerts-recheck-d2bf1f44",
+    "app.services.alerts._notify@v5-integration-6b31345": "app.services.alerts._notify@alerts-recheck-d2bf1f44",
+    "app.services.alerts._push_ws@v5-integration-6b31345": "app.services.alerts._push_ws@alerts-recheck-d2bf1f44",
+    "app.services.alerts._record@v5-integration-6b31345": "app.services.alerts._record@alerts-recheck-d2bf1f44",
+    "app.services.alerts._send_alert_email@v5-integration-6b31345": "app.services.alerts._send_alert_email@alerts-recheck-d2bf1f44",
+    "app.services.alerts._state_for@v5-integration-6b31345": "app.services.alerts._state_for@alerts-recheck-d2bf1f44",
+    "app.services.alerts.evaluate_node_rules@v5-integration-6b31345": "app.services.alerts.evaluate_node_rules@alerts-recheck-d2bf1f44",
+    "app.services.alerts.evaluate_wg_rules@v5-integration-6b31345": "app.services.alerts.evaluate_wg_rules@alerts-recheck-d2bf1f44",
+    "app.services.alerts.evaluate_monitor@v5-integration-6b31345": "app.services.alerts.evaluate_monitor@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.metric_rules@v5-integration-6b31345": "app.routers.alerts.metric_rules@alerts-recheck-d2bf1f44",
+    "app/models/alert.py:schema@v5-integration-6b31345": "app/models/alert.py:schema@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.metric_preview@v5-integration-6b31345": "app.routers.alerts.metric_preview@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.create_metric_rule@v5-integration-6b31345": "app.routers.alerts.create_metric_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.update_metric_rule@v5-integration-6b31345": "app.routers.alerts.update_metric_rule@alerts-recheck-d2bf1f44",
+    "main.py:response-projection@v5-integration-6b31345": "main.py:response-projection@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.incident_list@v5-integration-6b31345": "app.routers.alerts.incident_list@alerts-recheck-d2bf1f44",
+    "app/models/alert.py:feedback-review@v5-integration-6b31345": "app/models/alert.py:feedback-review@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.incident_detail@v5-integration-6b31345": "app.routers.alerts.incident_detail@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.notification_detail@v5-integration-6b31345": "app.routers.alerts.notification_detail@alerts-recheck-d2bf1f44",
+    "app/services/node_monitor_policy.py:integrated-review@v5-integration-6b31345": "app/services/node_monitor_policy.py:integrated-review@alerts-recheck-d2bf1f44",
+    "app/services/node_monitor_policy.py:entry-monitoring-review@v5-integration-6b31345": "app/services/node_monitor_policy.py:entry-monitoring-review@alerts-recheck-d2bf1f44",
+    "app/services/node.py:round4-final-667bb1d@v5-integration-6b31345": "app/services/node.py:round4-final-667bb1d@alerts-recheck-d2bf1f44",
+    "app.services.alerts.create_node_interruption_rule@v5-integration-6b31345": "app.services.alerts.create_node_interruption_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.RuleCreate@v5-integration-6b31345": "app.routers.alerts.RuleCreate@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.RulePatch@v5-integration-6b31345": "app.routers.alerts.RulePatch@alerts-recheck-d2bf1f44",
+    "main.backup_lifespan@v5-integration-6b31345": "main.backup_lifespan@alerts-recheck-d2bf1f44",
+    "app.services.node_deadlines._writable_primary@pending-independent-review": "app.services.node_deadlines._writable_primary@alerts-recheck-d2bf1f44",
+    "app.services.node_deadlines._ha_admitted@pending-independent-review": "app.services.node_deadlines._ha_admitted@alerts-recheck-d2bf1f44",
+    "app.services.node_deadlines.NodeDeadlineWatcher@pending-independent-review": "app.services.node_deadlines.NodeDeadlineWatcher@alerts-recheck-d2bf1f44",
+    "app.services.node_deadlines._writable_primary": "app.services.node_deadlines._writable_primary@alerts-recheck-d2bf1f44",
+    "app.services.node_deadlines._ha_admitted": "app.services.node_deadlines._ha_admitted@alerts-recheck-d2bf1f44",
+    "app.services.node_deadlines.NodeDeadlineWatcher": "app.services.node_deadlines.NodeDeadlineWatcher@alerts-recheck-d2bf1f44",
+    "app.services.alerts.create_node_interruption_rule": "app.services.alerts.create_node_interruption_rule@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.RuleCreate": "app.routers.alerts.RuleCreate@alerts-recheck-d2bf1f44",
+    "app.routers.alerts.RulePatch": "app.routers.alerts.RulePatch@alerts-recheck-d2bf1f44",
+    "main.backup_lifespan": "main.backup_lifespan@alerts-recheck-d2bf1f44"
+  },
+  "source_additions": {
+    "app.routers.alerts.list_rules": [
+      "app.services.node_deadlines._writable_primary",
+      "app.services.node_deadlines._ha_admitted",
+      "app.services.node_deadlines.NodeDeadlineWatcher",
+      "main.backup_lifespan"
+    ],
+    "app.routers.alerts.incident_list": [
+      "app.services.node_deadlines._writable_primary",
+      "app.services.node_deadlines._ha_admitted",
+      "app.services.node_deadlines.NodeDeadlineWatcher"
+    ],
+    "app.routers.alerts.incident_detail": [
+      "app.services.node_deadlines._writable_primary",
+      "app.services.node_deadlines._ha_admitted",
+      "app.services.node_deadlines.NodeDeadlineWatcher"
+    ],
+    "app.routers.alerts.create_rule": [
+      "app.routers.alerts.RuleCreate"
+    ],
+    "app.routers.alerts.patch_rule": [
+      "app.routers.alerts.RulePatch"
+    ]
+  },
+  "request_contract_proposal": {
+    "POST /alerts/rules": {
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RuleCreate"
+            }
+          }
+        },
+        "required": true
+      },
+      "schema": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Target"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Label",
+            "default": ""
+          },
+          "link": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Link",
+            "default": ""
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity",
+            "default": "warning"
+          },
+          "debounce": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Debounce",
+            "default": 2
+          },
+          "repeat_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 0.0,
+            "title": "Repeat Minutes",
+            "default": 0
+          },
+          "email": {
+            "type": "boolean",
+            "title": "Email",
+            "default": false
+          },
+          "wg_manual": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManualProbeIntent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "target"
+        ],
+        "title": "RuleCreate"
+      }
+    },
+    "PATCH /alerts/rules/{rule_id}": {
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RulePatch"
+            }
+          }
+        }
+      },
+      "schema": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          },
+          "debounce": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debounce"
+          },
+          "repeat_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1440.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeat Minutes"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "title": "RulePatch"
+      }
+    },
+    "runtime_strictness": {
+      "fields": [
+        "debounce",
+        "repeat_minutes"
+      ],
+      "strict_int": true,
+      "reject": [
+        true,
+        false,
+        0.5,
+        "1"
+      ],
+      "repeat_minutes": {
+        "minimum": 0,
+        "maximum": 1440,
+        "default": 0
+      },
+      "email_default": false
+    },
+    "request_source_keys": [
+      "app.routers.alerts.RuleCreate",
+      "app.routers.alerts.RulePatch"
+    ],
+    "constraint": "Preserve FastAPI native nullable PATCH representation; JSONSchema integer alone cannot express runtime strict int / reject bool, float, and numeric strings. Pin schema AND runtime negative matrix. Response DTOs stay unchanged."
+  },
+  "approved_production_hashes": {
+    "main.py": "5dbe4707a7e5666c6aea2e34357dbb72141ce8e3112b7cef2aaf813ff6e612e3",
+    "app/services/node.py": "83e42a457cef30baaa9bd8fb0220518267c58abf5225f791e3eda1ad0550978c",
+    "app/services/node_monitor_policy.py": "13607f7668662402ec5f961c54b23d6cdb659cc576e954e50b24d02ecc155683",
+    "app/models/alert.py": "477ac6e69ea60df2cac66a16b313dbc2db7adeda87dff3c1de09e0fc07bd6924",
+    "app/routers/alerts.py": "f1ba34ffe53aa07cb9428c7504fd70358ab678dca0f920664d2113222a294370",
+    "app/services/alerts.py": "36ca53af5dda200b2859f5ca722d1f9569e76475db3a2cfbcd4f8536a6ec49d2",
+    "app/services/node_deadlines.py": "5e206c6b6d45c9ed447107bd522e11f0fe04dd7670e8acade5a1dde71ba229f9"
+  },
+  "contract": {
+    "authority": "parent explicit engineering ruling; not a new user requirement",
+    "cycle_budget_seconds": 2,
+    "cycle_semantics": "soft discovery/next-node SQL admission",
+    "transaction_budget_seconds": 10,
+    "stop_budget_seconds": 8,
+    "hard_two_second_tick_or_fixed_125_second_SLA": false,
+    "unbounded_libpq_network_blackhole_hard_termination_proven": false
+  }
+}

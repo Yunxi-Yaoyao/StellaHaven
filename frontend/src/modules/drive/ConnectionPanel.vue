@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {notifyClientPreferenceChange} from '../settings/clientPreferenceEvents';
 import { ref, onMounted } from 'vue';
 import { api } from '../../api/client';
 import Dropdown from '../../shell/Dropdown.vue';
@@ -10,7 +11,7 @@ const message = ref('');
 const success = ref(false);
 const secret = ref('');
 const bgMode = ref(localStorage.getItem('stella_drive_bg_mode') === 'image' ? 'image' : 'solid');
-function chooseBackground(value:string|number|boolean){bgMode.value=String(value);localStorage.setItem('stella_drive_bg_mode',bgMode.value);}
+function chooseBackground(value:string|number|boolean){bgMode.value=String(value);notifyClientPreferenceChange('stella_drive_bg_mode',bgMode.value);localStorage.setItem('stella_drive_bg_mode',bgMode.value);}
 const authOptions = [{ value:'manual',label:'在原服务登录' }, ...(props.kind === 'drive' ? [{value:'token',label:'管理员专用 Token 登录'}] : [{value:'oidc',label:'使用已有 OIDC 登录'}])];
 const clearToken = ref(false);
 const reveal = ref(false);
@@ -71,7 +72,7 @@ async function submit(test: boolean) {
               <label>Token<input v-model="secret" :type="reveal ? 'text' : 'password'" :placeholder="cfg.has_token ? '已保存 · 留空不修改' : '输入 OpenList Token'" autocomplete="new-password" @input="secretEdited = true" /></label>
               <button type="button" @click="revealToken">{{ reveal ? '隐藏 Token' : cfg.has_token ? '查看已保存 Token' : '显示 Token' }}</button>
               <label class="check"><input v-model="clearToken" type="checkbox" />清除已保存 Token</label>
-              <small>取得已保存 Token 需要验证管理密码。建议使用最小权限 Token。</small>
+              <small>仅已登录的用户账号可取得已保存 Token。建议使用最小权限 Token。</small>
             </template>
             <small v-else>账号密码在原服务填写，Stella 不保存。OIDC 必须已在原服务配置。</small>
           </fieldset>

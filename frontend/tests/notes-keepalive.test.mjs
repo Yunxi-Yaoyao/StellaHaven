@@ -27,11 +27,18 @@ test('draft socket pauses, resumes once, and ignores late close after destructio
 test('editor hooks retain state while pausing and idempotently resuming resources', () => {
   const section = editor.slice(editor.indexOf('let listenersActive ='), editor.indexOf('function fmtDraftTime'));
   const hooks = {}, listeners = new Set(), timers = new Set(), loads = []; let flushed = 0;
-  const env = { versionsOpen: {value:true}, timelineOpen: {value:true}, ownsSession: () => true, editorActive: true, loadSequence: 0, draftTimer: 123, tickTimer: null, nowTick: { value: 0 }, onWinResize() {}, onKey() {}, renderMermaid() {}, props: { docId: 'a' }, load: (...args) => loads.push(args), flushDraft: () => flushed++, window: { addEventListener: name => listeners.add(name), removeEventListener: name => listeners.delete(name) }, setInterval: () => { timers.add(1); return 1; }, clearInterval: id => timers.delete(id), clearTimeout() {}, onMounted: cb => hooks.mount = cb, onActivated: cb => hooks.activate = cb, onDeactivated: cb => hooks.deactivate = cb };
+  const env = { watch() {}, editorEpoch: 0, draftReadSequence: 0, invalidateDraftRequests() {}, resetDraftSource() {}, versionsOpen: {value:true}, closeOverlays() {}, outsideMenu() {}, document: {addEventListener() {}, removeEventListener() {}}, ownsSession: () => true, editorActive: true, loadSequence: 0, draftTimer: 123, tickTimer: null, nowTick: { value: 0 }, onWinResize() {}, onKey() {}, renderMermaid() {}, props: { docId: 'a' }, load: (...args) => loads.push(args), flushDraft: () => flushed++, window: { addEventListener: name => listeners.add(name), removeEventListener: name => listeners.delete(name) }, setInterval: () => { timers.add(1); return 1; }, clearInterval: id => timers.delete(id), clearTimeout() {}, onMounted: cb => hooks.mount = cb, onActivated: cb => hooks.activate = cb, onDeactivated: cb => hooks.deactivate = cb };
+  const overlays = Object.fromEntries(['moreOpen','infoOpen','fullTitleOpen','tocOpen','findOpen','versionsOpen','exportWin'].map(key => [key, {value:true}]));
+  Object.assign(env, overlays);
+  const closeSource = editor.slice(editor.indexOf('function closeOverlays()'), editor.indexOf('function menuAction('));
+  env.closeOverlays = new Function(...Object.keys(overlays), compile(closeSource) + '\nreturn closeOverlays;')(...Object.values(overlays));
   new Function(...Object.keys(env), compile(section))(...Object.values(env));
   hooks.mount(); hooks.activate(); assert.equal(timers.size, 1); assert.equal(loads.length, 0);
   hooks.deactivate(); assert.equal(flushed, 1); assert.equal(timers.size, 0); assert.equal(listeners.size, 0);
-  assert.equal(env.versionsOpen.value, false); assert.equal(env.timelineOpen.value, false);
+  assert.equal(env.versionsOpen.value, false);
+  // Ordinary Notes retain their overlays but must not import/mount the operational timeline.
+  for (const value of Object.values(overlays)) assert.equal(value.value, false);
+  assert.doesNotMatch(editor, /NoteTimelinePanel|timelineOpen|关联时间线/);
   hooks.activate(); assert.equal(timers.size, 1); assert.equal(listeners.size, 2); assert.deepEqual(loads, [['a', true]]);
 });
 test('background document response cannot overwrite edits made while awaiting it', async () => {
@@ -39,8 +46,8 @@ test('background document response cannot overwrite edits made while awaiting it
   let resolve; const pending = new Promise(r => resolve = r);
   const state = Object.fromEntries(['doc','title','content','savedTitle','savedContent','savedAt','draftSynced','draftPreview','draftBanner'].map(k => [k, { value: null }]));
   state.doc.value = { id: 'a' }; state.title.value = state.savedTitle.value = 'A'; state.content.value = state.savedContent.value = 'old';
-  const env = { ...state, props: { docId: 'a' }, getDoc: () => pending, dirty: { get value() { return state.content.value !== state.savedContent.value; } }, toast() {}, isDismissed: () => false, loadBacklinks: async () => {}, loadAttachMeta: async () => {} };
+  const env = { ...state, savePending: {value: false}, editorActive: true, ownsSession: () => true, store: {workspaceId: 'ws'}, resetDraftSource() {}, props: { docId: 'a' }, getDoc: () => pending, dirty: { get value() { return state.content.value !== state.savedContent.value; } }, toast() {}, isDismissed: () => false, loadBacklinks: async () => {}, loadAttachMeta: async () => {} };
   const load = new Function(...Object.keys(env), compile(section) + '\nreturn load;')(...Object.values(env));
-  const request = load('a', true); state.content.value = 'local edit'; resolve({ id: 'a', title: 'A', content: 'remote' }); await request;
+  const request = load('a', true); state.content.value = 'local edit'; resolve({ id: 'a', workspace_id: 'ws', title: 'A', content: 'remote' }); await request;
   assert.equal(state.content.value, 'local edit');
 });

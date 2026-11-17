@@ -32,12 +32,15 @@ def get_by_name(db: Session, name: str) -> Node | None:
     return db.query(Node).filter(Node.name == name, Node.status != "removed").first()
 
 
-def create(db: Session, name: str, platform: str, host: str) -> Node:
+def create(db: Session, name: str, platform: str, host: str, *, commit: bool = True) -> Node:
     node = Node(name=name, platform=platform, host=host, status="pending",
                 token=secrets.token_urlsafe(32))
     db.add(node)
-    db.commit()
-    db.refresh(node)
+    if commit:
+        db.commit()
+        db.refresh(node)
+    else:
+        db.flush()
     return node
 
 
@@ -62,7 +65,7 @@ def set_uninstall_status(db: Session, node_id: int, status: str | None, error: s
 
 
 # ── 指标写入（幂等）──
-def insert_metrics(db: Session, node_id: int, points: list) -> int:
+def insert_metrics(db: Session, node_id: int, points: list, *, commit: bool = True) -> int:
     """批量写流量采样点。ON CONFLICT DO NOTHING 幂等——补传重复自动丢弃。
 
     返回实际写入条数（重复的被忽略）。
@@ -71,17 +74,21 @@ def insert_metrics(db: Session, node_id: int, points: list) -> int:
         return 0
     stmt = pg_insert(NodeMetric).values([
         {"node_id": node_id, "iface": p.iface, "ts": p.ts,
-         "rx_delta": p.rx_delta, "tx_delta": p.tx_delta}
+         "rx_delta": p.rx_delta, "tx_delta": p.tx_delta,
+         "interval_start": getattr(p, "interval_start", None),
+         "elapsed_seconds": getattr(p, "elapsed_seconds", None),
+         "quality": getattr(p, "quality", None)}
         for p in points
     ]).on_conflict_do_nothing(
         constraint="uq_node_metric"
     )
     result = db.execute(stmt)  # type: ignore[assignment]  # CursorResult，有 rowcount
-    db.commit()
+    if commit:
+        db.commit()
     return result.rowcount
 
 
-def insert_sys_metrics(db: Session, node_id: int, points: list) -> int:
+def insert_sys_metrics(db: Session, node_id: int, points: list, *, commit: bool = True) -> int:
     """批量写系统指标，幂等同理。"""
     if not points:
         return 0
@@ -93,7 +100,8 @@ def insert_sys_metrics(db: Session, node_id: int, points: list) -> int:
         constraint="uq_node_sys_metric"
     )
     result = db.execute(stmt)  # type: ignore[assignment]  # CursorResult，有 rowcount
-    db.commit()
+    if commit:
+        db.commit()
     return result.rowcount
 
 

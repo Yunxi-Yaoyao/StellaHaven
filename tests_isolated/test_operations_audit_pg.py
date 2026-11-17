@@ -10,12 +10,29 @@ from sqlalchemy.orm import Session
 from app.models.config import AppConfig
 from app.services.backup_health import record_change, read_change_audit
 
-@pytest.mark.skipif(not os.environ.get('STELLA_INFRA_TEST_DSN'), reason='dedicated disposable PostgreSQL DSN not provided')
-def test_postgres_audit_concurrent_first_insert_and_rollback():
+from contextlib import ExitStack
+from qa.isolated_legacy_backends.owned_target import owned_target
+
+
+def legacy_audit_url():
+    if not os.environ.get('STELLA_INFRA_TEST_DSN'):
+        pytest.skip('dedicated disposable PostgreSQL DSN not provided')
     url = make_url(os.environ['STELLA_INFRA_TEST_DSN'])
     assert url.host == '127.0.0.1' and url.database == 'stella_infra_audit'
     assert url.port not in {5432, 24532, 24533, 24534}, 'refuse production ports'
-    engine = create_engine(url)
+    return url
+
+
+def test_postgres_audit_concurrent_first_insert_and_rollback(owned_target):
+    with ExitStack() as resources:
+        if owned_target is None:
+            engine = create_engine(legacy_audit_url())
+        else:
+            engine = resources.enter_context(owned_target.scope())
+        _audit_roundtrip(engine)
+
+
+def _audit_roundtrip(engine):
     AppConfig.__table__.create(engine)
     actor = str(uuid4())
     barrier = Barrier(2)
@@ -37,6 +54,8 @@ def test_postgres_audit_concurrent_first_insert_and_rollback():
             record_change(db, action='integration.delete', actor_id=actor)
             db.rollback()
             assert read_change_audit(db) == events
+        with Session(engine) as fresh:
+            assert read_change_audit(fresh) == events
     finally:
         AppConfig.__table__.drop(engine)
         engine.dispose()

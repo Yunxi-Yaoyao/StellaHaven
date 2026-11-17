@@ -1,0 +1,217 @@
+{
+  "provenance": "Actual FastAPI TestClient HTTP / in-memory SQLite / ephemeral real loopback upstream; no live backend",
+  "before": {
+    "id": "08770f02c8ac44d3b21a3a5dadbe97c8",
+    "name": "原网站",
+    "icon": "globe",
+    "mode": "isolated_proxy",
+    "adapter": "generic",
+    "browser_url": "http://127.0.0.1:37161/library?q=1#section",
+    "private_address": "https://app-alt-08770f02c8ac44d3b21a3a5dadbe97c8.test/",
+    "entry_policy": "public",
+    "access_adapter": "auto",
+    "target_id": "d7ab0b6b08f24088ad2ae8db749901c6",
+    "initial_path": "/library?q=1#section",
+    "enabled": true,
+    "keep_alive": false,
+    "origin": "https://app-08770f02c8ac44d3b21a3a5dadbe97c8.xiya.live",
+    "injection": {
+      "draft": null,
+      "active": null,
+      "previous": null
+    },
+    "template_id": null,
+    "connection": {
+      "transport": "proxy",
+      "auth_mode": "original",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "has_token": false
+    },
+    "background": "solid",
+    "request_policy": {
+      "management_prefixes": [],
+      "read_post_paths": [],
+      "protect_other_writes": false
+    },
+    "route": "/apps/08770f02c8ac44d3b21a3a5dadbe97c8",
+    "capabilities": {
+      "injection": true,
+      "browser_status": "unobservable",
+      "managed_settings": null
+    }
+  },
+  "request": {
+    "address": "http://127.0.0.1:37161/library?q=1#section",
+    "name": "仅修改网站名称",
+    "icon": "globe",
+    "visible": true,
+    "open_behavior": "embedded",
+    "entry_policy": "public",
+    "access_adapter": "auto",
+    "template_id": null,
+    "connection": {
+      "transport": "proxy",
+      "auth_mode": "original",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "token": null,
+      "clear_token": false
+    },
+    "request_policy": {
+      "management_prefixes": [],
+      "read_post_paths": [],
+      "protect_other_writes": false
+    },
+    "idempotency_key": "lowconfig-proxy-edit"
+  },
+  "response": {
+    "id": "08770f02c8ac44d3b21a3a5dadbe97c8",
+    "name": "仅修改网站名称",
+    "icon": "globe",
+    "mode": "isolated_proxy",
+    "adapter": "generic",
+    "browser_url": "http://127.0.0.1:37161/library?q=1#section",
+    "private_address": "https://app-alt-08770f02c8ac44d3b21a3a5dadbe97c8.test/",
+    "entry_policy": "public",
+    "access_adapter": "auto",
+    "target_id": "d7ab0b6b08f24088ad2ae8db749901c6",
+    "initial_path": "/library?q=1#section",
+    "enabled": true,
+    "keep_alive": false,
+    "origin": "https://app-08770f02c8ac44d3b21a3a5dadbe97c8.xiya.live",
+    "injection": {
+      "draft": null,
+      "active": null,
+      "previous": null
+    },
+    "template_id": null,
+    "connection": {
+      "transport": "proxy",
+      "auth_mode": "original",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "has_token": false
+    },
+    "background": "solid",
+    "request_policy": {
+      "management_prefixes": [],
+      "read_post_paths": [],
+      "protect_other_writes": false
+    },
+    "route": "/apps/08770f02c8ac44d3b21a3a5dadbe97c8",
+    "capabilities": {
+      "injection": true,
+      "browser_status": "unobservable",
+      "managed_settings": null
+    },
+    "check": {
+      "software": {
+        "type": "unknown",
+        "source": null
+      },
+      "compatibility": null,
+      "normalized_url": "http://127.0.0.1:37161/library?q=1#section",
+      "name_suggestion": "Fixture title",
+      "access": {
+        "status": "reachable",
+        "http_status": 200
+      },
+      "embedding": {
+        "status": "allowed",
+        "reason_code": "isolated_https_proxy",
+        "reason": "将通过 HTTPS 隔离代理交付；浏览器内容及登录仍需验证"
+      },
+      "injection": {
+        "status": "supported",
+        "reason": "匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"
+      },
+      "help": null,
+      "can_save": true,
+      "recommended_behavior": "embedded",
+      "issues": []
+    }
+  },
+  "after": {
+    "id": "08770f02c8ac44d3b21a3a5dadbe97c8",
+    "name": "仅修改网站名称",
+    "icon": "globe",
+    "mode": "isolated_proxy",
+    "adapter": "generic",
+    "browser_url": "http://127.0.0.1:37161/library?q=1#section",
+    "private_address": "https://app-alt-08770f02c8ac44d3b21a3a5dadbe97c8.test/",
+    "entry_policy": "public",
+    "access_adapter": "auto",
+    "target_id": "d7ab0b6b08f24088ad2ae8db749901c6",
+    "initial_path": "/library?q=1#section",
+    "enabled": true,
+    "keep_alive": false,
+    "origin": "https://app-08770f02c8ac44d3b21a3a5dadbe97c8.xiya.live",
+    "injection": {
+      "draft": null,
+      "active": null,
+      "previous": null
+    },
+    "template_id": null,
+    "connection": {
+      "transport": "proxy",
+      "auth_mode": "original",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "has_token": false
+    },
+    "background": "solid",
+    "request_policy": {
+      "management_prefixes": [],
+      "read_post_paths": [],
+      "protect_other_writes": false
+    },
+    "route": "/apps/08770f02c8ac44d3b21a3a5dadbe97c8",
+    "capabilities": {
+      "injection": true,
+      "browser_status": "unobservable",
+      "managed_settings": null
+    }
+  },
+  "follow": {
+    "id": "08770f02c8ac44d3b21a3a5dadbe97c8",
+    "name": "仅修改网站名称",
+    "icon": "globe",
+    "mode": "isolated_proxy",
+    "adapter": "generic",
+    "browser_url": "http://127.0.0.1:37161/library?q=1#section",
+    "private_address": "https://app-alt-08770f02c8ac44d3b21a3a5dadbe97c8.test/",
+    "entry_policy": "follow",
+    "access_adapter": "auto",
+    "target_id": "d7ab0b6b08f24088ad2ae8db749901c6",
+    "initial_path": "/library?q=1#section",
+    "enabled": true,
+    "keep_alive": false,
+    "origin": "https://app-08770f02c8ac44d3b21a3a5dadbe97c8.xiya.live",
+    "injection": {
+      "draft": null,
+      "active": null,
+      "previous": null
+    },
+    "template_id": null,
+    "connection": {
+      "transport": "proxy",
+      "auth_mode": "original",
+      "header_name": "Authorization",
+      "injection_delivery": "proxy",
+      "has_token": false
+    },
+    "background": "solid",
+    "request_policy": {
+      "management_prefixes": [],
+      "read_post_paths": [],
+      "protect_other_writes": false
+    },
+    "route": "/apps/08770f02c8ac44d3b21a3a5dadbe97c8",
+    "capabilities": {
+      "injection": true,
+      "browser_status": "unobservable",
+      "managed_settings": null
+    }
+  }
+}

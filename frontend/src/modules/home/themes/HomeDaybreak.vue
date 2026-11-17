@@ -47,6 +47,7 @@ const bgImage = displayBg;
 /* ================= Live2D 挂件（Miku，戳她播报今日塔罗） ================= */
 const Live2dWidget = defineAsyncComponent(() => import("../Live2dWidget.vue"));
 
+const live2dForeground = ref(false);
 const tarotBubble = ref(false);
 let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
 function showTarotBubble() {
@@ -157,15 +158,15 @@ const dateLine = computed(() =>
         <button class="ctl" title="今日塔罗" @click="showTarotBubble">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
         </button>
-        <button v-if="loggedIn" class="ctl" title="主页设置" @click="settingsOpen = true">
+        <button v-if="loggedIn" class="ctl" title="主页设置" aria-label="主页设置" aria-haspopup="dialog" :aria-expanded="settingsOpen" @click="settingsOpen = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2.2"/><circle cx="9" cy="16" r="2.2"/></svg>
         </button>
       </div>
     </section>
 
     <!-- ═══ 右：Miku（出血位贴右缘） ═══ -->
-    <div class="shinano">
-      <Live2dWidget v-if="homeSettings.live2d" :headroom="150" @poke="showTarotBubble" />
+    <div class="shinano" :class="{ 'is-foreground': live2dForeground }">
+      <Live2dWidget v-if="homeSettings.live2d" :headroom="150" :inactive="settingsOpen" :interaction-key="homeSettings.theme" @foreground="live2dForeground = $event" @poke="showTarotBubble" />
     </div>
     <Transition name="bubble">
       <div v-if="tarotBubble" class="tarot-bubble">
@@ -221,7 +222,7 @@ const dateLine = computed(() =>
   --t-rule: linear-gradient(to right, rgba(201,212,232,0.85), rgba(201,212,232,0.1));
   --t-title: #c9d4e8; --t-title-shadow: 0 2px 16px rgba(201,212,232,0.25);
   --t-wave: linear-gradient(180deg, #8a94ab, #c9d4e8);
-  --t-lyr-main: #c9d4e8; --t-lyr-sub: #8a94ab; --t-lyr-hover: #c9d4e8;
+  --t-lyr-main: #c9d4e8; --t-lyr-sub: #b4bfd2; --t-lyr-hover: #c9d4e8;
   --t-pop-bg: rgba(27,31,42,0.94); --t-pop-border: 1px solid rgba(201,212,232,0.18);
   --t-pop-shadow: 0 16px 40px rgba(0,0,0,0.5);
   --t-input-bg: rgba(13,16,23,0.6); --t-input-fg: #e8ecf4;
@@ -232,9 +233,9 @@ const dateLine = computed(() =>
   --t-bubble-bg: rgba(27,31,42,0.85); --t-bubble-border: 1px solid rgba(201,212,232,0.2);
   --t-bubble-shadow: 0 12px 32px rgba(0,0,0,0.45);
   --t-bubble-name: #e8a0bf; --t-bubble-mean: #9aa3b5;
-  --t-date: #5c6474;
+  --t-date: #9aa3b5;
   --prog-track: rgba(201,212,232,0.14); --prog-from: #8a94ab; --prog-to: #c9d4e8;
-  --prog-label: #8a94ab; --prog-cap: #5c6474;
+  --prog-label: #b4bfd2; --prog-cap: #9aa3b5;
 }
 .bg-img {
   position: absolute; inset: 0;
@@ -481,5 +482,10 @@ const dateLine = computed(() =>
   pointer-events: none;
   z-index: 5;
 }
+@media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
+  .tarot-bubble { position: fixed; top: 72px; right: 16px; width: calc(100% - 32px); max-width: 320px; }
+}
+.shinano { pointer-events: none; }
+.shinano.is-foreground { z-index: 25; } /* Above home cards, below global drawers/modals. */
 .locked { cursor: default !important; opacity: 0.75; }
 </style>

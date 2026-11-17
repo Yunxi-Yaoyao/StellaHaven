@@ -1,0 +1,638 @@
+{
+  "review": {
+    "audit": "docs/api-response-feedback-review.md",
+    "scope": {
+      "main.py": "Only reserve /mtr-jobs alongside existing API prefixes; no mount/auth change.",
+      "app/routers/monitor.py": "Four ordered /groups routes, current_user read and admin_user writes, 201/204 and string 400; real DTO output.",
+      "app/schemas/monitor.py": "Nullable optional job_id, bounded MtrJobCreate and MonitorGroupWrite/Read; other schemas unchanged.",
+      "app/models/task.py": "Add nullable indexed job_id only.",
+      "app/repositories/task.py": "Advisory-locked atomic fan-out, no manual queue, trigger-scoped retention of completed tasks; pre-limit source filter.",
+      "app/services/task.py": "Bounded unique online node fan-out with existing params validation; list trigger delegated.",
+      "app/models/monitor.py": "Group/member tables only, FK cascading membership not child data.",
+      "app/models/alert.py": "Archived rule partial uniqueness, snapshot/context/dedupe fields; notification link remains nullable.",
+      "app/routers/alerts.py": "Incident list timezone/range422 and detail404, notification context and entity detail; auth inherited current_user.",
+      "app/services/alerts.py": "Archive instead of delete, unknown resets consecutive, frozen transitions and exact incident notification contexts; SMTP remains existing explicit rule choice.",
+      "app/routers/task.py": "Manual filter Literal, active conflict409, current_user one-shot /mtr-jobs and detail404.",
+      "app/public_website.py": "Validated optional private_address and follow/public policy only.",
+      "app/routers/website_settings.py": "Request-origin source for check/save and authenticated JS loader; response envelopes unchanged.",
+      "app/services/website_settings.py": "Exact deployed private entry validation/probe; optional field persistence; no DNS/TLS/callback provisioning.",
+      "app/services/website_templates.py": "Explicit exported editable dual registered parent origins; snapshot not runtime rewrite.",
+      "app/services/website_assets.py": "Exact selected registered browser origin in authenticated asset payload.",
+      "app/services/entry_registry.py": "Select registered private/public entry, preserve suffix and reject arbitrary private entry; isolated proxy restrictions.",
+      "app/services/alert_metrics.py": "Exclude archived rules for save/list/dedupe/cap; serialization remains PublicMetricRule.",
+      "app/routers/web_projects.py": "New owner workspace identities route; other handler signatures/shapes unchanged.",
+      "app/services/web_projects.py": "Manifest corrupt metadata409; ancestry-only identities and optional guarded image hints.",
+      "app/services/backup_archive.py": "Closed InvalidArchive reason lookup; resources ZIP_STORED, all validators unchanged.",
+      "app/services/backup_center.py": "Closed failure code and execution stage, safe fixed log fields, nullable initial diagnostics, ownership fences preserved.",
+      "app/schemas/backups.py": "Nullable ReasonCode/FailedStage on Job and nested Status, exact standalone serialization schema frozen.",
+      "app/backup_diagnostics.py": "Reviewed closed reason and stage vocabulary; fixed guard labels only.",
+      "app/services/backup_postgres.py": "Known PG client/dump errors become closed BackupFailure; command execution unchanged.",
+      "app/services/alert_history.py": "Read-only adjacent transition projection before filter/pagination; incomplete gaps and raw internal notification context.",
+      "app/services/monitor_groups.py": "Advisory serialized explicit membership CRUD; bounded unique children and no probe/history rewrite.",
+      "app/services/notifications.py": "Trusted deduped terminal-result admission only, no new HTTP/auth; current JSONB writers do not validate legacy context."
+    }
+  },
+  "sources": {
+    "app.routers.monitor.list_monitor_groups": {
+      "file": "app/routers/monitor.py",
+      "sha256": "6dde15cd9c97c4ef692747060b12dedd0e85c0b98714678f4cb18cddf86fd06d",
+      "line": 414,
+      "end_line": 416,
+      "symbol": "app.routers.monitor.list_monitor_groups"
+    },
+    "app/services/monitor_groups.py:feedback-review": {
+      "file": "app/services/monitor_groups.py",
+      "sha256": "6f354a2efcdb17808764b799e60a4279632667763be65712f9814868128b5a6d",
+      "line": 1,
+      "end_line": 78,
+      "symbol": "app/services/monitor_groups.py:feedback-review"
+    },
+    "app/models/monitor.py:feedback-review": {
+      "file": "app/models/monitor.py",
+      "sha256": "3ad4d34f8b4bf443363060ed8c07b68402eea82d4f03cbfd1d113bf5c48ff239",
+      "line": 1,
+      "end_line": 58,
+      "symbol": "app/models/monitor.py:feedback-review"
+    },
+    "app/schemas/monitor.py:feedback-review": {
+      "file": "app/schemas/monitor.py",
+      "sha256": "04d912a24c861fafda6776b502a0cf9ba791e8e0ff784059e0dc4ca93a03e1e0",
+      "line": 1,
+      "end_line": 372,
+      "symbol": "app/schemas/monitor.py:feedback-review"
+    },
+    "app/validation_errors.py:feedback-review": {
+      "file": "app/validation_errors.py",
+      "sha256": "8ae16922e96c2d92453f2a5d1fe47ea6fbdac0a4ee566fb3387703e9cc00bfef",
+      "line": 1,
+      "end_line": 235,
+      "symbol": "app/validation_errors.py:feedback-review"
+    },
+    "app.routers.monitor.create_monitor_group": {
+      "file": "app/routers/monitor.py",
+      "sha256": "6dde15cd9c97c4ef692747060b12dedd0e85c0b98714678f4cb18cddf86fd06d",
+      "line": 420,
+      "end_line": 425,
+      "symbol": "app.routers.monitor.create_monitor_group"
+    },
+    "app.routers.monitor.update_monitor_group": {
+      "file": "app/routers/monitor.py",
+      "sha256": "6dde15cd9c97c4ef692747060b12dedd0e85c0b98714678f4cb18cddf86fd06d",
+      "line": 429,
+      "end_line": 434,
+      "symbol": "app.routers.monitor.update_monitor_group"
+    },
+    "app.routers.monitor.dissolve_monitor_group": {
+      "file": "app/routers/monitor.py",
+      "sha256": "6dde15cd9c97c4ef692747060b12dedd0e85c0b98714678f4cb18cddf86fd06d",
+      "line": 438,
+      "end_line": 440,
+      "symbol": "app.routers.monitor.dissolve_monitor_group"
+    },
+    "app.routers.alerts.incident_list": {
+      "file": "app/routers/alerts.py",
+      "sha256": "792e4ed3d7f20c1d45d263323c89a7c085097fb2d913d796374dc165e700bd80",
+      "line": 91,
+      "end_line": 101,
+      "symbol": "app.routers.alerts.incident_list"
+    },
+    "app/services/alert_history.py:feedback-review": {
+      "file": "app/services/alert_history.py",
+      "sha256": "bc0bc070ad7970ef360d3b77f118d860adda5d143487f75eff6ae277a486d179",
+      "line": 1,
+      "end_line": 111,
+      "symbol": "app/services/alert_history.py:feedback-review"
+    },
+    "app/models/alert.py:feedback-review": {
+      "file": "app/models/alert.py",
+      "sha256": "512c265b7d608ffda76c593c21cca0cea56bfea69a9646de7e4970d51ab13f28",
+      "line": 1,
+      "end_line": 96,
+      "symbol": "app/models/alert.py:feedback-review"
+    },
+    "app.routers.alerts.incident_detail": {
+      "file": "app/routers/alerts.py",
+      "sha256": "792e4ed3d7f20c1d45d263323c89a7c085097fb2d913d796374dc165e700bd80",
+      "line": 105,
+      "end_line": 109,
+      "symbol": "app.routers.alerts.incident_detail"
+    },
+    "app.routers.alerts.notification_detail": {
+      "file": "app/routers/alerts.py",
+      "sha256": "792e4ed3d7f20c1d45d263323c89a7c085097fb2d913d796374dc165e700bd80",
+      "line": 176,
+      "end_line": 193,
+      "symbol": "app.routers.alerts.notification_detail"
+    },
+    "app.routers.task.create_mtr_job": {
+      "file": "app/routers/task.py",
+      "sha256": "f96359463f880fd0c217aefa84f6d7be5e3b6247e2b685ddcfc3a3885a899431",
+      "line": 86,
+      "end_line": 90,
+      "symbol": "app.routers.task.create_mtr_job"
+    },
+    "app/services/task.py:feedback-review": {
+      "file": "app/services/task.py",
+      "sha256": "451f4e58566d6bb2da00861903dedf5ede07cb29d21a06ab42482ef76c32edc3",
+      "line": 1,
+      "end_line": 485,
+      "symbol": "app/services/task.py:feedback-review"
+    },
+    "app/repositories/task.py:feedback-review": {
+      "file": "app/repositories/task.py",
+      "sha256": "4db9c1b68bafdc3b1978c39786713c10835770f01a1a304524e77681527de50d",
+      "line": 1,
+      "end_line": 347,
+      "symbol": "app/repositories/task.py:feedback-review"
+    },
+    "app/models/task.py:feedback-review": {
+      "file": "app/models/task.py",
+      "sha256": "2979f33e92cd7c56b85374146ec3b498c6fb017d21674efbc823f44d194244b4",
+      "line": 1,
+      "end_line": 107,
+      "symbol": "app/models/task.py:feedback-review"
+    },
+    "app.routers.task.get_mtr": {
+      "file": "app/routers/task.py",
+      "sha256": "f96359463f880fd0c217aefa84f6d7be5e3b6247e2b685ddcfc3a3885a899431",
+      "line": 94,
+      "end_line": 98,
+      "symbol": "app.routers.task.get_mtr"
+    },
+    "app.routers.web_projects.identities": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "508498f351820afa1b11116a932ac4fd9d6b5f1dcb99dc227e88c0148632ffce",
+      "line": 23,
+      "end_line": 25,
+      "symbol": "app.routers.web_projects.identities"
+    },
+    "app/services/web_projects.py:feedback-review": {
+      "file": "app/services/web_projects.py",
+      "sha256": "7a26dea2d729629f18d13f504a9e67d0a360ce9c993456faddfba22e2bd1201c",
+      "line": 1,
+      "end_line": 308,
+      "symbol": "app/services/web_projects.py:feedback-review"
+    },
+    "app/routers/web_projects.py:feedback-review": {
+      "file": "app/routers/web_projects.py",
+      "sha256": "508498f351820afa1b11116a932ac4fd9d6b5f1dcb99dc227e88c0148632ffce",
+      "line": 1,
+      "end_line": 139,
+      "symbol": "app/routers/web_projects.py:feedback-review"
+    },
+    "app/services/document.py:feedback-review": {
+      "file": "app/services/document.py",
+      "sha256": "bef67d35ab35726ef89dea237c5629a8ceccbb9c553451fd8f1a37ea3a116af6",
+      "line": 1,
+      "end_line": 448,
+      "symbol": "app/services/document.py:feedback-review"
+    },
+    "app/services/result_notifications.py:followup-review": {
+      "file": "app/services/result_notifications.py",
+      "sha256": "a6916608bda64b0eff1d16451ca9008f3922bf4c1ecb7a0e7c7c4fbbab3a2eb7",
+      "line": 1,
+      "end_line": 74,
+      "symbol": "app/services/result_notifications.py:followup-review"
+    },
+    "app/services/notifications.py:followup-review": {
+      "file": "app/services/notifications.py",
+      "sha256": "3bcff83a5fd51531fa474e5fafd620be5ca276108eb2d20f9d3043b37f717dc7",
+      "line": 1,
+      "end_line": 37,
+      "symbol": "app/services/notifications.py:followup-review"
+    }
+  },
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/monitors/groups",
+      "endpoint": "app.routers.monitor.list_monitor_groups",
+      "status_code": "200",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.repositories.node.get_by_id",
+        "app.routers.auth.current_user",
+        "app.routers.monitor.list_monitor_groups",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.server_status.age_seconds",
+        "app.services.server_status.monitor_status",
+        "app.services.server_status.node_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/monitor.py:feedback-review",
+        "app/schemas/monitor.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/services/monitor_groups.py:feedback-review",
+        "app/validation_errors.py:feedback-review"
+      ],
+      "error_statuses": [
+        "401",
+        "403",
+        "503"
+      ],
+      "request_validation": true,
+      "model": "list[MonitorGroupRead]"
+    },
+    {
+      "method": "POST",
+      "path": "/monitors/groups",
+      "endpoint": "app.routers.monitor.create_monitor_group",
+      "status_code": "201",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.models.monitor.Monitor",
+        "app.repositories.config.bump_monitors_version",
+        "app.repositories.config.get",
+        "app.repositories.config.get_monitors_version",
+        "app.repositories.config.put",
+        "app.repositories.node.get_by_id",
+        "app.routers.auth.admin_user",
+        "app.routers.auth.current_user",
+        "app.routers.monitor.create_monitor_group",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_admin",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.admin_security.security_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/monitor.py:feedback-review",
+        "app/routers/web_project_host.py:web-project-review",
+        "app/schemas/monitor.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/services/entry_registry.py:web-project-review",
+        "app/services/monitor_groups.py:feedback-review",
+        "app/validation_errors.py:feedback-review",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "503"
+      ],
+      "request_validation": true,
+      "model": "MonitorGroupRead"
+    },
+    {
+      "method": "PUT",
+      "path": "/monitors/groups/{group_id}",
+      "endpoint": "app.routers.monitor.update_monitor_group",
+      "status_code": "200",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.models.monitor.Monitor",
+        "app.repositories.config.bump_monitors_version",
+        "app.repositories.config.get",
+        "app.repositories.config.get_monitors_version",
+        "app.repositories.config.put",
+        "app.repositories.node.get_by_id",
+        "app.routers.auth.admin_user",
+        "app.routers.auth.current_user",
+        "app.routers.monitor.update_monitor_group",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_admin",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.admin_security.security_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/monitor.py:feedback-review",
+        "app/routers/web_project_host.py:web-project-review",
+        "app/schemas/monitor.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/services/entry_registry.py:web-project-review",
+        "app/services/monitor_groups.py:feedback-review",
+        "app/validation_errors.py:feedback-review",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "503"
+      ],
+      "request_validation": true,
+      "model": "MonitorGroupRead"
+    },
+    {
+      "method": "DELETE",
+      "path": "/monitors/groups/{group_id}",
+      "endpoint": "app.routers.monitor.dissolve_monitor_group",
+      "status_code": "204",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.models.monitor.Monitor",
+        "app.repositories.config.bump_monitors_version",
+        "app.repositories.config.get",
+        "app.repositories.config.get_monitors_version",
+        "app.repositories.config.put",
+        "app.repositories.node.get_by_id",
+        "app.routers.auth.admin_user",
+        "app.routers.auth.current_user",
+        "app.routers.monitor.dissolve_monitor_group",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_admin",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.admin_security.security_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/monitor.py:feedback-review",
+        "app/routers/web_project_host.py:web-project-review",
+        "app/schemas/monitor.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/services/entry_registry.py:web-project-review",
+        "app/services/monitor_groups.py:feedback-review",
+        "app/validation_errors.py:feedback-review",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "401",
+        "403",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "GET",
+      "path": "/alerts/incidents",
+      "endpoint": "app.routers.alerts.incident_list",
+      "status_code": "200",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.repositories.node.get_by_id",
+        "app.routers.alerts.incident_list",
+        "app.routers.auth.current_user",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.server_status.age_seconds",
+        "app.services.server_status.monitor_status",
+        "app.services.server_status.node_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/alert.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/services/alert_history.py:feedback-review",
+        "app/validation_errors.py:feedback-review"
+      ],
+      "error_statuses": [
+        "401",
+        "403",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "GET",
+      "path": "/alerts/incidents/{incident_id}",
+      "endpoint": "app.routers.alerts.incident_detail",
+      "status_code": "200",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.repositories.node.get_by_id",
+        "app.routers.alerts.incident_detail",
+        "app.routers.auth.current_user",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.server_status.age_seconds",
+        "app.services.server_status.monitor_status",
+        "app.services.server_status.node_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/alert.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/services/alert_history.py:feedback-review",
+        "app/validation_errors.py:feedback-review"
+      ],
+      "error_statuses": [
+        "401",
+        "403",
+        "404",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "GET",
+      "path": "/notifications/{notification_id}",
+      "endpoint": "app.routers.alerts.notification_detail",
+      "status_code": "200",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.repositories.node.get_by_id",
+        "app.routers.alerts.notification_detail",
+        "app.routers.auth.current_user",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.server_status.age_seconds",
+        "app.services.server_status.monitor_status",
+        "app.services.server_status.node_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/alert.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/services/alert_history.py:feedback-review",
+        "app/validation_errors.py:feedback-review",
+        "app/services/result_notifications.py:followup-review",
+        "app/services/notifications.py:followup-review"
+      ],
+      "error_statuses": [
+        "401",
+        "403",
+        "404",
+        "503"
+      ],
+      "request_validation": true
+    },
+    {
+      "method": "POST",
+      "path": "/mtr-jobs",
+      "endpoint": "app.routers.task.create_mtr_job",
+      "status_code": "201",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.repositories.node.get_by_id",
+        "app.routers.auth.current_user",
+        "app.routers.task.create_mtr_job",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.server_status.age_seconds",
+        "app.services.server_status.monitor_status",
+        "app.services.server_status.node_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/task.py:feedback-review",
+        "app/repositories/task.py:feedback-review",
+        "app/schemas/monitor.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/services/task.py:feedback-review",
+        "app/validation_errors.py:feedback-review"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "409",
+        "503"
+      ],
+      "request_validation": true,
+      "model": "list[MtrTaskRead]"
+    },
+    {
+      "method": "GET",
+      "path": "/mtr-tasks/{task_id}",
+      "endpoint": "app.routers.task.get_mtr",
+      "status_code": "200",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.repositories.node.get_by_id",
+        "app.routers.auth.current_user",
+        "app.routers.task.get_mtr",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.server_status.age_seconds",
+        "app.services.server_status.monitor_status",
+        "app.services.server_status.node_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/task.py:feedback-review",
+        "app/repositories/task.py:feedback-review",
+        "app/schemas/monitor.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/validation_errors.py:feedback-review"
+      ],
+      "error_statuses": [
+        "401",
+        "403",
+        "404",
+        "503"
+      ],
+      "request_validation": true,
+      "model": "MtrTaskRead"
+    },
+    {
+      "method": "GET",
+      "path": "/web-projects/workspace/{workspace_id}/identities",
+      "endpoint": "app.routers.web_projects.identities",
+      "status_code": "200",
+      "sources": [
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.repositories.node.get_by_id",
+        "app.routers.auth.current_user",
+        "app.routers.web_projects.identities",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.server_status.age_seconds",
+        "app.services.server_status.monitor_status",
+        "app.services.server_status.node_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/routers/web_projects.py:feedback-review",
+        "app/schemas/monitor.py:schema",
+        "app/services/document.py:feedback-review",
+        "app/services/web_projects.py:feedback-review",
+        "app/validation_errors.py:feedback-review"
+      ],
+      "error_statuses": [
+        "401",
+        "403",
+        "404",
+        "503"
+      ],
+      "request_validation": true
+    }
+  ],
+  "reviews": {
+    "followup-20261019": {
+      "audit": "docs/api-response-followup-review.md",
+      "scope": {
+        "agent/stella_agent.py": "Manual capability emitted only on real discovery; fixed argv ip route read + bound ping, fresh ownership check, 8 targets/2 workers/deadline unchanged. AGENT_VERSION remains 0.6.15; no installer invocation.",
+        "app/routers/alerts.py": "RuleCreate accepts strict ManualProbeIntent; admin write/current-user read unchanged, ValueError400 and validation422 preserved.",
+        "app/services/alerts.py": "Prepare bound manual rule in existing v1 JSONB; list adds optional binding/observation; missing/old samples unknown and duplicate checked_at does not re-debounce; archived transition semantics retained.",
+        "app/services/server_map.py": "Strict capability/manual probe fields, live interface+peer fingerprint and unique longest AllowedIPs binding; token scoped bounded rotating target admission; topology still discovery only.",
+        "app/services/wg_manual.py": "Reject stale/replaced binding; <=8 per-source serialized admission; old agent without explicit manual_probe_version=1 gets zero manual targets and unknown agent_upgrade_required.",
+        "app/services/backup_center.py": "Trusted owned terminal and safe scalar notification intent same Connection commit; terminal cannot be rewritten; existing OFF maintenance timer retries durable delivery. No config/read notifications, no email.",
+        "app/services/task.py": "Locked actual running manual terminal only; job advisory serialization after task row lock, flush and populate_existing fanout; all <=8 terminal -> one safe summary, original token/role router fences unchanged.",
+        "app/services/result_notifications.py": "Immutable source+identity intent in result transaction; independent owned Session notification+delete commit; bounded16 / 3s new admission, finite SQL/lock timeouts, SKIP LOCKED and retry, no public API/email.",
+        "app/services/notifications.py": "Existing closed terminal-result admission and operation dedupe; aftercommit best-effort invalidation; historic JSONB still incomplete."
+      },
+      "commits": [
+        "efbf02e3808fa97fa285b6ec10224a6fe77f1438",
+        "5856465be55962363b46c3f71cfdd53634f3ab21",
+        "68fb2d722961ca4cf3f933c2f0d25cfe2c83353c"
+      ]
+    }
+  }
+}

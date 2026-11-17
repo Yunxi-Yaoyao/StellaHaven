@@ -1,212 +1,130 @@
 <script setup lang="ts">
-// 单用户集中设置；危险操作权限来自服务器会话管理授权。
-import { ref, computed, onMounted, watch } from "vue";
-import { auth, isAdmin, currentAvatar, logout } from "../home/auth";
-import { useRouter, useRoute } from "vue-router";
-import AvatarCropper from "./AvatarCropper.vue";
-import SecuritySettings from "./SecuritySettings.vue";
+import {toast} from "../../composables/useToast";
+// 单用户集中设置；权限来自有效用户会话，危险操作保留对象确认。
+import { ref, computed, onMounted, watch, onBeforeUnmount, onActivated, onDeactivated, inject, nextTick } from "vue";
+import { auth, logout } from "../home/auth";
+import { useRouter, useRoute, onBeforeRouteLeave, onBeforeRouteUpdate, matchedRouteKey } from "vue-router";
+import ProfileSettings, {type ProfileRecord} from "./ProfileSettings.vue";
+import HelpHint from "./HelpHint.vue";
+import SettingsNavigation from './SettingsNavigation.vue';
+import FirstUseChecklist from './FirstUseChecklist.vue';
+import SessionRecordRow from './SessionRecordRow.vue';
+import AuthProviderSettings from "./AuthProviderSettings.vue";
 import NavigationSettings from "./NavigationSettings.vue";
 import SettingsPanel from "../../shell/SettingsPanel.vue";
 import PerformanceSettings from "./PerformanceSettings.vue";
+import AppearanceSettings from './AppearanceSettings.vue';
+import BackupCenter from './BackupCenter.vue';
+import AccessEntrySettings from './AccessEntrySettings.vue';
+
+import './settings-experience.css';
 import { api } from "../../api/client";
-import { getPublicHost, setPublicHost } from "../../api/servers";
 
 const router = useRouter();
 const route = useRoute();
 
 /* ---------- 标签页 ---------- */
-const tab = computed(() => String(route.query.section || (route.query.tab === "admin" ? "services" : route.query.tab === "misc" ? "performance" : "profile")));
-const tabs = [{key:"profile",label:"资料与安全"},{key:"navigation",label:"导航与网站"},{key:"services",label:"服务与通知"},{key:"performance",label:"性能与数据"}];
-function chooseSection(key:string){router.replace({path:"/settings",query:{section:key}}); }
+function canonicalSection(section:unknown,legacy:unknown){const key=String(section||(legacy==='servers'?'servers':legacy==='admin'?'services':legacy==='misc'?'performance':'account'));return ['profile','authentication'].includes(key)?'account':key==='access'?'services':key;}
+const tab = computed(() => canonicalSection(route.query.section,route.query.tab));
+function chooseSection(key:string,hash=''){router.replace({path:"/settings",query:{section:key},hash});}
+watch(()=>[route.fullPath,tab.value],async()=>{await nextTick();const hash=route.hash||(route.query.section==='authentication'?'#login-security':route.query.section==='access'?'#site-addresses':'');if(hash)document.getElementById(hash.slice(1))?.scrollIntoView?.({block:'start'});},{immediate:true,flush:'post'});
+// Legacy bookmarks open the local Notes drawer; no duplicate global settings tab.
+watch(()=>route.query.section,section=>{if(section==='notes')void router.replace('/notes?settings=open');if(section==='access')void router.replace({path:'/settings',query:{...route.query,section:'services'},hash:route.hash||'#site-addresses'});},{immediate:true});
+watch(()=>[route.query.section,route.query.tab],([section,legacy])=>{if(section==='servers'||(!section&&legacy==='servers'))void router.replace('/status?view=overview#service-monitors');},{immediate:true});
 
-/* ---------- 我的资料 ---------- */
-const editingName = ref(false);
-const nameDraft = ref("");
-const profileMsg = ref("");
-const cropperOpen = ref(false);
-const pwdOpen = ref(false);
-const mailOpen = ref(false);
-const mailDraft = ref("");
-const mailMsg = ref("");
-const mailStage = ref<"input" | "code">("input"); // 邮箱浮窗两阶段
-const mailCode = ref("");
-const emailSvc = ref({ ready: true, configured: true, enabled: true });
-
-async function checkEmailService() {
-  try {
-    const r = await fetch("/auth/email-service");
-    emailSvc.value = await r.json();
-  } catch { /* 静默 */ }
+/* ---------- 资料及离开保护 ---------- */
+const profileDirty=ref(false);
+const callbackSettings=ref<InstanceType<typeof AuthProviderSettings>|null>(null);
+const entrySettings=ref<InstanceType<typeof AccessEntrySettings>|null>(null);
+const profileRequest:typeof fetch=(...args)=>fetch(...args);
+function confirmProfile(value:ProfileRecord){if(auth.me&&auth.me.id===value.id)auth.me={...auth.me,username:value.username,display_name:value.display_name,email:value.email??'',email_verified:!!value.email_verified,avatar_url:value.avatar_url??''};}
+const pwdOpen=ref(false),oldPwd=ref(''),newPwd=ref(''),pwdMsg=ref('');
+const pwdBusy=ref(false);let pwdGeneration=0,pwdController=new AbortController();
+const pwdDialog=ref<HTMLElement>(),revokeDialog=ref<HTMLElement>();
+let actionDialogOrigin:HTMLElement|null=null;
+function closeActionDialog(kind:'password'|'revoke'){if(kind==='password'){if(!pwdBusy.value)pwdOpen.value=false;}else if(!revokeBusy.value)revokeTarget.value=null;}
+function actionDialogKeys(event:KeyboardEvent,kind:'password'|'revoke'){
+ if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeActionDialog(kind);return;}
+ if(event.key!=='Tab')return;const dialog=kind==='password'?pwdDialog.value:revokeDialog.value;
+ const items=[...dialog?.querySelectorAll<HTMLElement>('input:not(:disabled),button:not(:disabled),a[href]')??[]];if(!items.length)return;
+ const first=items[0]!,last=items.at(-1)!;
+ if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
 }
-
-const oldPwd = ref("");
-const newPwd = ref("");
-const pwdMsg = ref("");
-
-/* ---------- 头像历史（近 5 个） ---------- */
-const avatarHistory = ref<string[]>([]);
-async function loadAvatarHistory() {
-  const r = await fetch("/auth/avatars");
-  if (r.ok) avatarHistory.value = await r.json();
+const discardOpen=ref(false), discardDialog=ref<HTMLElement|null>(null);
+let discardOrigin:HTMLElement|null=null;
+watch(discardOpen,async open=>{if(open){await nextTick();discardDialog.value?.querySelector<HTMLButtonElement>('button')?.focus();}});
+function discardKeys(event:KeyboardEvent){if(event.key!=='Tab')return;const buttons=Array.from(discardDialog.value?.querySelectorAll<HTMLButtonElement>('button')??[]);if(!buttons.length)return;event.preventDefault();const index=buttons.indexOf(document.activeElement as HTMLButtonElement);buttons[(index+(event.shiftKey?-1:1)+buttons.length)%buttons.length]?.focus();}
+let discardResolve:((value:boolean)=>void)|null=null;
+async function beforeLeave(){
+ if(tab.value==='services')return entrySettings.value?.beforeLeave?.()??true;
+ if(!profileDirty.value)return tab.value==='account'?(callbackSettings.value?.beforeLeave?.()??true):true;
+ if(discardResolve)return false;
+ discardOrigin=document.activeElement as HTMLElement;
+ discardOpen.value=true;
+ const discard=await new Promise<boolean>(resolve=>{discardResolve=resolve;});
+ return discard&&(tab.value!=='account'||(await callbackSettings.value?.beforeLeave?.()??true));
 }
-async function pickAvatar(url: string) {
-  const r = await fetch("/auth/avatar-pick", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
-  });
-  if (r.ok) {
-    auth.me = await r.json();
-    profileMsg.value = "换回老头像啦";
-    loadAvatarHistory();
-  }
-}
-
-async function saveName() {
-  profileMsg.value = "";
-  const name = nameDraft.value.trim();
-  if (!name) return;
-  const r = await fetch("/auth/me", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ display_name: name }),
-  });
-  if (r.ok) {
-    auth.me = await r.json();
-    editingName.value = false;
-    profileMsg.value = "昵称改好啦";
-  }
-}
-
-async function saveMail() {
-  // 暂不验证：直接存（未验证状态）
-  mailMsg.value = "";
-  const r = await fetch("/auth/me", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: mailDraft.value.trim() }),
-  });
-  const d = await r.json();
-  if (r.ok) {
-    auth.me = d;
-    mailOpen.value = false;
-    mailStage.value = "input";
-    profileMsg.value = "邮箱存好啦（未验证）";
-  } else {
-    mailMsg.value = d.detail ?? "失败";
-  }
-}
-
-async function sendMailCode() {
-  mailMsg.value = "";
-  if (!emailSvc.value.ready) {
-    // 分三种情况给精准提示
-    if (isAdmin.value) {
-      if (emailSvc.value.configured && !emailSvc.value.enabled) {
-        mailMsg.value = "邮箱服务已配置但未启用，请前往「设置 → 服务与通知」开启 SMTP。";
-      } else {
-        mailMsg.value = "邮箱服务尚未配置，请前往「设置 → 服务与通知」配置 SMTP。";
-      }
-    } else {
-      mailMsg.value = "邮箱服务尚未配置，请前往设置 → 服务与通知。";
-    }
-    return;
-  }
-  const r = await fetch("/auth/email/send-code", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: mailDraft.value.trim() }),
-  });
-  const d = await r.json();
-  if (r.ok) {
-    mailStage.value = "code";
-    mailMsg.value = "验证码飞过去啦，10 分钟内有效喵~";
-  } else {
-    mailMsg.value = d.detail ?? "发送失败";
-  }
-}
-
-async function verifyMail() {
-  mailMsg.value = "";
-  const r = await fetch("/auth/email/verify", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: mailDraft.value.trim(), code: mailCode.value.trim() }),
-  });
-  const d = await r.json();
-  if (r.ok) {
-    auth.me = d;
-    mailOpen.value = false;
-    mailStage.value = "input";
-    mailCode.value = "";
-    profileMsg.value = "邮箱验证通过 ✅";
-  } else {
-    mailMsg.value = d.detail ?? "验证失败";
-  }
-}
-
-async function resendBindCode() {
-  mailMsg.value = "";
-  const r = await fetch("/auth/email/resend", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: mailDraft.value.trim(), purpose: "bind" }),
-  });
-  const d = await r.json();
-  if (r.ok) {
-    mailMsg.value = "新验证码飞过去啦（旧码作废）";
-  } else {
-    mailMsg.value = d.detail ?? "重发失败";
-  }
-}
-
+function resolveDiscard(value:boolean){discardOpen.value=false;const resolve=discardResolve;discardResolve=null;resolve?.(value);if(!value)void nextTick(()=>discardOrigin?.isConnected&&discardOrigin.focus());}
+if(inject(matchedRouteKey,null)){onBeforeRouteLeave(beforeLeave);onBeforeRouteUpdate((to,from)=>to.fullPath===from.fullPath||canonicalSection(to.query.section,to.query.tab)===tab.value?true:beforeLeave());}
+function beforeUnload(event:BeforeUnloadEvent){if(profileDirty.value){event.preventDefault();event.returnValue='';}}
+onMounted(()=>window.addEventListener('beforeunload',beforeUnload));
+onBeforeUnmount(()=>{window.removeEventListener('beforeunload',beforeUnload);resolveDiscard(false);});
+watch([()=>auth.me?.id,()=>auth.sessionGeneration,()=>auth.requestEpoch,()=>auth.suspended,()=>auth.sessionClosing],()=>{profileDirty.value=false;resolveDiscard(false);pwdGeneration++;pwdController.abort();pwdController=new AbortController();pwdBusy.value=false;pwdMsg.value='';pwdOpen.value=false;oldPwd.value='';newPwd.value='';},{flush:'sync'});
+onBeforeUnmount(()=>{pwdGeneration++;pwdController.abort();});
 async function changePwd() {
-  pwdMsg.value = "";
-  const r = await fetch("/auth/password", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ old_password: oldPwd.value, new_password: newPwd.value }),
-  });
-  const d = await r.json();
-  if (r.ok) {
-    pwdMsg.value = d.hint ?? "已改";
-    oldPwd.value = "";
-    newPwd.value = "";
-    setTimeout(() => { void doLogout(); }, 1200);
-  } else {
-    pwdMsg.value = d.detail ?? "失败";
-  }
-}
-
-function onAvatarDone(url: string) {
-  if (auth.me) auth.me.avatar_url = url;
-  profileMsg.value = "头像换好啦";
-  loadAvatarHistory();
-}
-
-function openMailEditor() {
-  mailDraft.value = auth.me?.email ?? "";
-  mailStage.value = "input";
-  mailMsg.value = "";
-  mailCode.value = "";
-  mailOpen.value = true;
-  checkEmailService();
+ if(pwdBusy.value||!auth.me||auth.suspended||auth.sessionClosing)return;
+ if(newPwd.value.length<6){pwdMsg.value='新密码至少 6 位';return;}
+ const generation=pwdGeneration;pwdBusy.value=true;pwdMsg.value='';
+ try{
+  const r=await fetch('/auth/password',{method:'POST',signal:pwdController.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({old_password:oldPwd.value,new_password:newPwd.value})});
+  const d=await r.json();if(generation!==pwdGeneration)return;
+  if(!r.ok){pwdMsg.value=typeof d.detail==='string'?d.detail:'修改失败，请重试';return;}
+  oldPwd.value='';newPwd.value='';toast('密码已修改，所有会话已下线，请重新登录');await doLogout();
+ }catch{if(generation===pwdGeneration)pwdMsg.value='修改失败，尚未确认结果；请重试或用新密码重新登录';}
+ finally{if(generation===pwdGeneration)pwdBusy.value=false;}
 }
 
 async function doLogout() {
   try { await logout(); void router.push("/login"); }
   catch { /* auth.logoutError remains visible beside the retry button. */ }
 }
-
-watch([isAdmin, tab], () => { if (isAdmin.value && tab.value === "services") void loadEmailCfg(); });
-
 /* ---------- 登录记录 ---------- */
 interface SessionRow {
   id: string; device: string; ip: string; remember: boolean;
-  created_at: string; last_seen: string; current: boolean;
+  created_at: string; last_seen: string; expires_at: string | null; current: boolean;
   owner: string; mine: boolean; state?: 'expired' | 'revoked';
+  browser_name?: string | null; os_name?: string | null; login_origin?: string | null; ip_location?: string | null;
 }
 const sessions = ref<SessionRow[]>([]);
+const currentSessions = ref<SessionRow[]>([]);
+const sessionsActive = ref(true);
+const documentVisible=ref(document.visibilityState==='visible'),windowFocused=ref(document.hasFocus());
+const sessionsAllowed = computed(() => sessionsActive.value && documentVisible.value && windowFocused.value && tab.value === 'account' && !!auth.me && !auth.suspended && !auth.sessionClosing);
+const sessionsBusy=ref(false),sessionsLoaded=ref(false),activeHasMore=ref(false);
+let refreshTimer:ReturnType<typeof setTimeout>|undefined,sessionRun:Promise<void>|null=null,refreshQueued=false,refreshFailures=0;
+function stopSessionRefresh(){clearTimeout(refreshTimer);refreshTimer=undefined;sessionLifetime++;listRequest++;historyRequest++;sessionsBusy.value=false;historyBusy.value=false;locationBusy.value=[];}
+function scheduleSessionRefresh(){clearTimeout(refreshTimer);if(sessionsAllowed.value)refreshTimer=setTimeout(()=>void loadSessions(),Math.min(120000,30000*2**Math.min(refreshFailures,2)));}
+function visibilityChanged(){documentVisible.value=document.visibilityState==='visible';windowFocused.value=document.hasFocus();}
+function windowFocus(){windowFocused.value=true;}
+function windowBlur(){windowFocused.value=false;}
+let sessionLifetime = 0, listRequest = 0, historyRequest = 0;
+function sessionTicket() { return {lifetime:sessionLifetime,owner:auth.me?.id,generation:auth.sessionGeneration,epoch:auth.requestEpoch}; }
+function sessionCurrent(t:ReturnType<typeof sessionTicket>) { return sessionsAllowed.value && t.lifetime===sessionLifetime && t.owner===auth.me?.id && t.generation===auth.sessionGeneration && t.epoch===auth.requestEpoch; }
+function invalidateSessions() {
+  stopSessionRefresh();refreshQueued=false;
+  sessionLifetime++; listRequest++; historyRequest++;
+  sessions.value=[]; currentSessions.value=[]; historyRows.value=[]; historyBusy.value=false;
+  historyError.value=''; sessMsg.value=''; locationBusy.value=[]; locationError.value={}; revokeTarget.value=null;revokeError.value='';
+  sessionsLoaded.value=false;activePage.value=1;historyPage.value=1;activeHasMore.value=false;historyTotal.value=0;
+}
+watch([()=>auth.me?.id,()=>auth.sessionGeneration,()=>auth.requestEpoch,()=>auth.suspended,()=>auth.sessionClosing], ()=>{
+  invalidateSessions();
+  if(sessionsAllowed.value)void loadSessions();
+}, {flush:'sync'});
+watch(sessionsAllowed,allowed=>{stopSessionRefresh();if(allowed)void loadSessions();},{flush:'sync'});
+onDeactivated(()=>{sessionsActive.value=false;});
+onActivated(()=>{sessionsActive.value=true;});
+onBeforeUnmount(()=>{sessionsActive.value=false;invalidateSessions();document.removeEventListener('visibilitychange',visibilityChanged);window.removeEventListener('focus',windowFocus);window.removeEventListener('blur',windowBlur);});
 const sessMsg = ref("");
 const activePage = ref(1);
 const historyPage = ref(1);
@@ -216,45 +134,89 @@ const historyOpen = ref(false);
 const historyBusy = ref(false);
 const historyError = ref('');
 async function loadHistory(page = historyPage.value) {
-  if (historyBusy.value) return;
+  if (!sessionsAllowed.value || historyBusy.value) return;
+  const ticket=sessionTicket(), request=++historyRequest;
+  const current=()=>sessionCurrent(ticket)&&request===historyRequest;
   historyBusy.value = true;
   historyError.value = '';
   try {
     const r = await fetch(`/auth/sessions/history?page=${page}&page_size=20`);
     if (!r.ok) throw new Error('加载历史失败');
     const data = await r.json();
-    historyRows.value = data.items;
+    if (!current()) return;
+    historyRows.value = mergeSessions(data.items,historyRows.value);
     historyTotal.value = data.total;
     historyPage.value = data.page;
-  } catch { historyError.value = '加载历史失败，请重试'; }
-  finally { historyBusy.value = false; }
+  } catch { if(current()) historyError.value = '加载历史失败，请重试'; }
+  finally { if(current()) historyBusy.value = false; }
 }
 function toggleHistory(event: Event) {
   historyOpen.value = (event.target as HTMLDetailsElement).open;
   if (historyOpen.value) void loadHistory();
 }
-const mineSessions = computed(() => sessions.value);
+function mergeSessions(rows:SessionRow[],old:SessionRow[]){return rows.map(row=>{const previous=old.find(s=>s.id===row.id);return {...row,ip_location:row.ip_location||(previous?.ip===row.ip?previous.ip_location:null)};});}
+const locationBusy = ref<string[]>([]), locationError = ref<Record<string,string>>({});
+async function loadLocation(s:SessionRow) {
+  if(!sessionsAllowed.value || locationBusy.value.includes(s.id))return;
+  const ticket=sessionTicket();
+  locationBusy.value.push(s.id);delete locationError.value[s.id];
+  try {
+    const r=await fetch(`/auth/sessions/${encodeURIComponent(s.id)}/location`);
+    if(!r.ok)throw Error('location');
+    const data=await r.json();
+    // A late answer for an older IP must not overwrite the latest network metadata.
+    if(sessionCurrent(ticket))for(const row of [...sessions.value,...currentSessions.value,...historyRows.value])if(row.id===s.id&&data.ip===row.ip)row.ip_location=data.ip_location || '地点未知';
+  } catch { if(sessionCurrent(ticket)) locationError.value[s.id]='地点查询失败，可重试'; }
+  finally {if(sessionCurrent(ticket))locationBusy.value=locationBusy.value.filter(id=>id!==s.id);}
+}
 
 async function loadSessions() {
-  const r = await fetch(`/auth/sessions?page=${activePage.value}&page_size=20`);
-  if (r.ok) sessions.value = await r.json();
+  if (!sessionsAllowed.value) return;
+  clearTimeout(refreshTimer);
+  if(sessionRun){refreshQueued=true;return sessionRun;}
+  sessionRun=refreshSessions();
+  try{await sessionRun;}finally{sessionRun=null;if(refreshQueued&&sessionsAllowed.value){refreshQueued=false;void loadSessions();}else{refreshQueued=false;scheduleSessionRefresh();}}
+}
+async function refreshSessions(){
+  const ticket=sessionTicket(), request=++listRequest, page=activePage.value;
+  const current=()=>sessionCurrent(ticket)&&request===listRequest;
+  sessionsBusy.value=true;
+  try {
+    // page_size also determines offset: a one-row query at page 20p+1 is the exact lookahead.
+    const [list,pinned,next]=await Promise.all([fetch(`/auth/sessions?page=${page}&page_size=20&exclude_current=true`),fetch('/auth/sessions?current_only=true'),fetch(`/auth/sessions?page=${page*20+1}&page_size=1&exclude_current=true`)]);
+    if(!list.ok || !pinned.ok || !next.ok)throw new Error('sessions');
+    const [rows,own,following]=await Promise.all([list.json(),pinned.json(),next.json()]);
+    if(!current())return;
+    if(!Array.isArray(rows)||!Array.isArray(own)||!Array.isArray(following))throw Error('invalid sessions');
+    sessions.value=mergeSessions(rows,sessions.value);currentSessions.value=mergeSessions(own.filter((s:SessionRow)=>s.current),currentSessions.value);activeHasMore.value=following.length>0;sessionsLoaded.value=true;sessMsg.value='';refreshFailures=0;
+    if(!rows.length&&page>1){activePage.value--;refreshQueued=true;}
+    if(historyOpen.value)await loadHistory();
+  } catch { if(current()){sessMsg.value='会话更新失败，保留上次记录';refreshFailures++;} }
+  finally{if(current())sessionsBusy.value=false;}
 }
 
 async function revoke(s: SessionRow) {
-  revokeTarget.value = s;
+  revokeTarget.value = s;revokeError.value='';
 }
 const revokeTarget = ref<SessionRow | null>(null);
+const revokeBusy=ref(false),revokeError=ref('');
+watch(()=>pwdOpen.value||!!revokeTarget.value,async open=>{if(open){actionDialogOrigin=document.activeElement as HTMLElement;await nextTick();(pwdOpen.value?pwdDialog.value:revokeDialog.value)?.querySelector<HTMLElement>('input,button')?.focus();}else{const origin=actionDialogOrigin;actionDialogOrigin=null;await nextTick();if(origin?.isConnected)origin.focus();}});
 async function confirmRevoke() {
-  const s = revokeTarget.value; if (!s) return;
+  const s = revokeTarget.value; if (!s || !sessionsAllowed.value || revokeBusy.value) return;
+  const ticket=sessionTicket();
+  revokeBusy.value=true;
+  try{
   const r = await fetch(`/auth/sessions/${s.id}`, { method: "DELETE" });
+  if(!sessionCurrent(ticket))return;
   if (r.ok) {
     revokeTarget.value = null;
-    sessMsg.value = "已踢下线";
+    toast('该会话已下线');
     loadSessions();
-    if (historyOpen.value) void loadHistory(1);
+
   } else {
-    sessMsg.value = (await r.json()).detail ?? "失败";
+    const data=await r.json();if(sessionCurrent(ticket))revokeError.value=typeof data.detail==='string'?data.detail:'下线失败，请重试';
   }
+  }catch{if(sessionCurrent(ticket))revokeError.value='下线失败，请重试';}finally{revokeBusy.value=false;}
 }
 
 /* ---------- Stella 邮箱服务（admin） ---------- */
@@ -264,276 +226,216 @@ const emailLoaded = ref(false), emailBusy = ref(false), smtpPassword = ref(""), 
 const testTo = ref("");
 const testMsg = ref("");
 
+const smtpInput = ref<HTMLInputElement | null>(null);
+const emailActive = ref(true);
+const emailAllowed = computed(() => emailActive.value && tab.value === 'services' && !!auth.me && !auth.suspended && !auth.sessionClosing);
+const emailReadback = ref(false);
+let emailGeneration = 0, secretEdit = 0, configEdit = 0;
+let configDirty = false;
+let emailController = new AbortController();
+let submittedEdit: {secret: number; config: number} | null = null;
+watch(smtpPassword, () => { secretEdit++; }, {flush:'sync'});
+function editEmailConfig() { configEdit++; configDirty = true; }
+function clearSmtpSecret() {
+  smtpPassword.value = '';
+  // Vue patches on the next tick; privacy boundaries must scrub the existing DOM now.
+  if (smtpInput.value) smtpInput.value.value = '';
+}
+function invalidateEmail() {
+  emailGeneration++;
+  emailController.abort(); emailController = new AbortController();
+  clearSmtpSecret(); emailBusy.value = false; emailLoaded.value = false;
+  emailMsg.value = ''; testMsg.value = '';
+}
+watch([emailAllowed, () => auth.me?.id, () => auth.sessionGeneration, () => auth.requestEpoch], (_now, old) => {
+  invalidateEmail();
+  if (old && (old[1] !== auth.me?.id || old[2] !== auth.sessionGeneration)) {
+    configDirty = false; emailReadback.value = false; submittedEdit = null;
+  }
+  if (emailAllowed.value) void loadEmailCfg();
+}, {flush:'sync'});
+onDeactivated(() => { emailActive.value = false; });
+onActivated(() => { emailActive.value = true; });
+onBeforeUnmount(() => { emailActive.value = false; invalidateEmail(); });
+const emailCurrent = (generation: number) => generation === emailGeneration && emailAllowed.value;
 async function loadEmailCfg() {
-  if (emailBusy.value) return; emailBusy.value = true;
-  try { emailCfg.value = await api("/admin/email/config"); smtpHasPassword.value = !!emailCfg.value.password; smtpPassword.value = ""; emailLoaded.value = true; return true; } catch { emailMsg.value = "邮箱配置读取失败"; return false; }
-  finally { emailBusy.value = false; }
+  if (!emailAllowed.value || emailBusy.value) return false;
+  const generation = emailGeneration, edit = configEdit, submitted = submittedEdit;
+  emailBusy.value = true; emailMsg.value = '';
+  try {
+    const config = await api<typeof emailCfg.value>('/admin/email/config', {signal:emailController.signal});
+    if (!emailCurrent(generation)) return false;
+    smtpHasPassword.value = !!config.password;
+    // Neither a lifecycle read nor an older save readback owns newer local edits.
+    if (edit === configEdit && (!configDirty || submitted?.config === configEdit)) {
+      emailCfg.value = {...config, password:''}; configDirty = false;
+    }
+    if (submitted && submitted.secret === secretEdit) clearSmtpSecret();
+    emailLoaded.value = true;
+    if (emailReadback.value) toast('配置已保存');
+    emailReadback.value = false; submittedEdit = null;
+    return true;
+  } catch {
+    if (emailCurrent(generation)) emailMsg.value = emailReadback.value ? '配置已提交，回读失败；请重试读取' : '邮箱配置读取失败';
+    return false;
+  } finally { if (emailCurrent(generation)) emailBusy.value = false; }
 }
 async function saveEmailCfg() {
-  if (!emailLoaded.value || emailBusy.value) return;
-  emailMsg.value = ""; emailBusy.value = true;
+  if (!emailAllowed.value || !emailLoaded.value || emailBusy.value) return;
+  if (emailReadback.value) { await loadEmailCfg(); return; }
+  const generation = emailGeneration;
+  const edit = {secret:secretEdit, config:configEdit};
+  emailMsg.value = ''; emailBusy.value = true;
   try {
-    await api("/admin/email/config", {method:"PUT",body:JSON.stringify({...emailCfg.value,password:smtpPassword.value || (smtpHasPassword.value ? "••••••" : "")})});
-    emailBusy.value=false; if (!await loadEmailCfg()) throw new Error("配置回读失败"); emailMsg.value = "配置已保存";
-  } catch { emailMsg.value = "未保存，请重试"; }
-  finally { smtpPassword.value = ""; emailBusy.value = false; }
+    await api('/admin/email/config', {method:'PUT',signal:emailController.signal,body:JSON.stringify({...emailCfg.value,password:smtpPassword.value || (smtpHasPassword.value ? '••••••' : '')})});
+    if (!emailCurrent(generation)) return;
+    submittedEdit = edit; emailReadback.value = true;
+    emailBusy.value = false; await loadEmailCfg();
+  } catch { if (emailCurrent(generation)) emailMsg.value = '未保存，请重试'; }
+  // Failed writes retain the draft only inside the active privileged editing lifetime.
+  finally { if (emailCurrent(generation)) emailBusy.value = false; }
 }
 async function sendTestMail() {
-  testMsg.value = "";
-  if (!testTo.value.includes("@")) { testMsg.value = "请填写收件邮箱"; return; }
-  try { await api("/admin/email/test",{method:"POST",body:JSON.stringify({to:testTo.value})}); testMsg.value="测试邮件已提交发送"; }
-  catch {testMsg.value="测试邮件未发送";}
-}
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-/* ---------- 公网地址（其他） ---------- */
-const publicHost = ref("");
-const publicHostMsg = ref("");
-
-async function loadPublicHost() {
-  try {
-    publicHost.value = (await getPublicHost()).value;
-  } catch { /* 静默 */ }
-}
-
-async function savePublicHost() {
-  publicHostMsg.value = "";
-  const v = publicHost.value.trim();
-  if (!v) {
-    publicHostMsg.value = "公网地址不能为空喵~";
-    return;
-  }
-  try {
-    await setPublicHost(v);
-    publicHostMsg.value = "已保存";
-  } catch {
-    publicHostMsg.value = "保存失败喵~";
-  }
+  if (!emailAllowed.value) return;
+  const generation = emailGeneration;
+  testMsg.value = '';
+  if (!testTo.value.includes('@')) { testMsg.value = '请填写收件邮箱'; return; }
+  try { await api('/admin/email/test',{method:'POST',signal:emailController.signal,body:JSON.stringify({to:testTo.value})}); if (emailCurrent(generation)) toast('测试邮件已提交发送'); }
+  catch { if (emailCurrent(generation)) testMsg.value='测试邮件未发送'; }
 }
 
 onMounted(() => {
-  nameDraft.value = auth.me?.display_name ?? "";
-  mailDraft.value = auth.me?.email ?? "";
+  document.addEventListener('visibilitychange',visibilityChanged);window.addEventListener('focus',windowFocus);window.addEventListener('blur',windowBlur);
   loadSessions();
-  loadAvatarHistory();
-  loadPublicHost();
-  if (isAdmin.value && tab.value === "services") loadEmailCfg();
+  if (emailAllowed.value) loadEmailCfg();
 });
 </script>
 
 <template>
   <div class="page">
-    <div class="wrap">
-      <h1 class="h1">设置</h1>
+    <SettingsNavigation :section="tab" @navigate="chooseSection">
+      <FirstUseChecklist v-if="tab==='first-use'" embedded />
 
-      <!-- 标签页 -->
-      <div class="tabs">
-        <button
-          v-for="t in tabs"
-          :key="t.key"
-          class="tab"
-          :class="{ on: tab === t.key }"
-          @click="chooseSection(t.key)"
-        >{{ t.label }}</button>
-      </div>
+      <ProfileSettings v-if="tab==='account' && auth.me && !auth.suspended && !auth.sessionClosing" :key="`${auth.me.id}:${auth.sessionGeneration}:${auth.requestEpoch}`" :initial-profile="auth.me" :request="profileRequest" @confirmed="confirmProfile" @dirty="profileDirty=$event" @security="chooseSection('account','#login-security')" @services="chooseSection('services','#email-service')" />
 
-      <!-- ═══ 我的资料 ═══ -->
-      <template v-if="tab === 'profile'">
-        <SecuritySettings />
-        <section class="card">
-          <div class="me-row">
-            <button class="me-avatar-btn" title="点我换头像" @click="cropperOpen = true">
-              <img class="me-avatar" :src="currentAvatar" alt="头像" />
-              <span class="me-avatar-hint">✎</span>
-            </button>
-            <div class="me-info">
-              <div v-if="!editingName" class="me-name-row">
-                <span class="me-name">{{ auth.me?.display_name }}</span>
-                <button class="mini" @click="editingName = true">改昵称</button>
-              </div>
-              <div v-else class="me-name-row">
-                <input v-model="nameDraft" class="input name-input" @keydown.enter="saveName" />
-                <button class="mini" @click="saveName">存</button>
-                <button class="mini" @click="editingName = false">取消</button>
-              </div>
-              <div class="me-sub">@{{ auth.me?.username }} · 单用户</div>
-              <div class="me-sub">
-                📮 {{ auth.me?.email || "未绑定邮箱" }}
-                <span v-if="auth.me?.email" class="mail-badge" :class="auth.me?.email_verified ? 'ok' : 'pending'">
-                  {{ auth.me?.email_verified ? "已验证" : "未验证" }}
-                </span>
-              </div>
-            </div>
-          </div>
-          <!-- 按钮行：绑定/改邮箱 / 修改密码 / 退出登录 -->
+      <template v-if="tab === 'account'">
+        <section id="login-security" class="card">
+          <h2 class="sec-t">登录与会话</h2>
           <div class="btn-row">
-            <button class="btn ghost" @click="openMailEditor">{{ auth.me?.email ? "修改邮箱" : "绑定邮箱" }}</button>
-            <button class="btn ghost" @click="pwdOpen = true">修改密码</button>
-            <button class="btn ghost" :disabled="auth.sessionClosing" @click="doLogout">退出登录</button>
+            <button class="btn ghost st-button is-ghost" @click="pwdOpen = true">修改密码</button>
+            <button class="btn ghost st-button is-ghost" :disabled="auth.sessionClosing" @click="doLogout">退出登录</button>
           </div>
           <p v-if="auth.logoutError" role="alert">{{ auth.logoutError }}（尚未确认退出，请再次点击退出登录）</p>
-          <div v-if="profileMsg" class="ok-msg">{{ profileMsg }}</div>
-
-          <!-- 头像历史（近 5 个，点选换回） -->
-          <div v-if="avatarHistory.length" class="avatar-history">
-            <div class="ah-label">近期头像（点选换回）</div>
-            <div class="ah-row">
-              <img
-                v-for="u in avatarHistory"
-                :key="u"
-                :src="u"
-                class="ah-thumb"
-                :class="{ on: u === auth.me?.avatar_url }"
-                @click="pickAvatar(u)"
-              />
-            </div>
-          </div>
         </section>
 
-        <section class="card">
-          <div class="sec-t">登录记录 <span class="sec-sub">自己的登录设备与历史</span></div>
-          <div v-if="sessMsg" class="ok-msg">{{ sessMsg }}</div>
-          <template v-if="mineSessions.length">
-            <div class="sess-group">当前账号</div>
-            <div v-for="s in mineSessions" :key="s.id" class="sess-row">
-              <div class="sess-main">
-                <span class="sess-device">{{ s.device }}</span>
-                <span v-if="s.current" class="cur">当前会话</span>
-                <span v-if="s.remember" class="rem">记住我</span>
-              </div>
-              <div class="sess-sub">{{ s.ip || "局域网" }} · 登录 {{ fmtTime(s.created_at) }} · 最近活动 {{ fmtTime(s.last_seen) }}</div>
-              <button v-if="!s.current" class="mini danger" @click="revoke(s)">踢下线</button>
-            </div>
-          </template>
-          <div v-if="!sessions.length" class="hint">暂无会话</div>
-          <div class="btn-row">
-            <button class="mini" :disabled="activePage <= 1" @click="activePage--; loadSessions()">上一页</button>
-            <span class="hint">有效会话 · 第 {{ activePage }} 页</span>
-            <button class="mini" :disabled="sessions.length < 20" @click="activePage++; loadSessions()">下一页</button>
+      </template>
+      <KeepAlive><AuthProviderSettings v-if="tab === 'account'" ref="callbackSettings" navigation-managed /></KeepAlive>
+      <p v-if="tab === 'account'" class="field-help"><RouterLink to="/settings?section=services#site-addresses">主站入口地址</RouterLink></p>
+      <template v-if="tab === 'account'">
+        <section id="sessions" class="card">
+          <div class="sec-t">登录记录 <HelpHint label="登录记录说明">当前会话独立读取，换页仍保留；其他有效会话按页展示。记住我：自登录起 30 天，不随 refresh 续期；否则自最后真实操作起 30 分钟。后台轮询不续期；有效会话不表示正在使用。</HelpHint></div>
+          <p class="hint" data-session-location-notice>查询归属地会将该会话的 IP 发送给 IPinfo；地点可能是代理出口，并非实际位置。</p>
+          <div v-if="sessMsg" class="session-update-error" role="status">{{sessMsg}} <button class="st-button is-ghost" :disabled="sessionsBusy" @click="loadSessions">重试</button></div>
+          <p v-if="!sessionsLoaded&&!sessMsg" class="session-loading" role="status">{{sessionsAllowed?'正在读取会话…':'等待页面激活后读取会话'}}</p>
+          <div class="session-records">
+            <SessionRecordRow v-for="s in currentSessions" :key="s.id" :row="s" :location-busy="locationBusy.includes(s.id)" :location-error="locationError[s.id]" @location="loadLocation(s)" />
+            <div v-if="sessions.length" data-other-sessions><h3 class="sess-group">其他有效会话</h3><SessionRecordRow v-for="s in sessions.filter(s=>!s.current&&!currentSessions.some(c=>c.id===s.id))" :key="s.id" :row="s" :location-busy="locationBusy.includes(s.id)" :location-error="locationError[s.id]" :revoke-busy="revokeBusy" @location="loadLocation(s)" @revoke="revoke(s)" /></div>
+            <p v-if="sessionsLoaded&&!sessions.length&&!currentSessions.length" class="session-loading">暂无有效会话</p>
+            <div v-if="activePage>1||activeHasMore" class="btn-row session-pagination" data-active-pagination><button class="st-button" :disabled="sessionsBusy||activePage<=1" @click="activePage--;loadSessions()">上一页</button><span>第 {{activePage}} 页</span><button class="st-button" :disabled="sessionsBusy||!activeHasMore" @click="activePage++;loadSessions()">下一页</button></div>
+            <details @toggle="toggleHistory">
+              <summary class="sess-group">历史登录记录（已过期 / 已下线）<span v-if="historyTotal"> · {{historyTotal}} 条</span></summary>
+              <p v-if="historyBusy&&!historyRows.length" role="status">正在读取历史…</p><p v-if="historyError" class="session-update-error" role="alert">{{historyError}} <button class="st-button" @click="loadHistory()">重试</button></p>
+              <SessionRecordRow v-for="s in historyRows" :key="s.id" :row="s" :location-busy="locationBusy.includes(s.id)" :location-error="locationError[s.id]" @location="loadLocation(s)" />
+              <p v-if="!historyBusy&&!historyError&&!historyRows.length" class="session-loading">暂无历史记录</p>
+              <div v-if="historyTotal>20" class="btn-row session-pagination"><button class="st-button" :disabled="historyBusy||historyPage<=1" @click="loadHistory(historyPage-1)">上一页</button><span>共 {{historyTotal}} 条 · {{historyPage}} / {{Math.ceil(historyTotal/20)}} 页</span><button class="st-button" :disabled="historyBusy||historyPage*20>=historyTotal" @click="loadHistory(historyPage+1)">下一页</button></div>
+            </details>
           </div>
-          <div class="hint">记住我：登录起 30 天；否则无操作 30 分钟退出。后台轮询不续期。</div>
-          <details @toggle="toggleHistory">
-            <summary class="sess-group">历史登录记录（已过期 / 已下线）</summary>
-            <div v-if="historyBusy" class="hint">加载中…</div>
-            <div v-if="historyError" role="alert">{{ historyError }} <button class="mini" @click="loadHistory()">重试</button></div>
-            <div v-for="s in historyRows" :key="s.id" class="sess-row">
-              <div class="sess-main">{{ s.owner }} · {{ s.device }} <span class="rem">{{ s.state === 'revoked' ? '已下线' : '已过期' }}</span></div>
-              <div class="sess-sub">{{ s.ip || '局域网' }} · 登录 {{ fmtTime(s.created_at) }} · 最近活动 {{ fmtTime(s.last_seen) }}</div>
-            </div>
-            <div v-if="!historyBusy && !historyError && !historyRows.length" class="hint">暂无历史记录</div>
-            <div class="btn-row">
-              <button class="mini" :disabled="historyBusy || historyPage <= 1" @click="loadHistory(historyPage - 1)">上一页</button>
-              <span class="hint">共 {{ historyTotal }} 条 · {{ historyPage }} / {{ Math.max(1, Math.ceil(historyTotal / 20)) }} 页</span>
-              <button class="mini" :disabled="historyBusy || historyPage * 20 >= historyTotal" @click="loadHistory(historyPage + 1)">下一页</button>
-            </div>
-          </details>
         </section>
       </template>
 
       <!-- ═══ 管理员设置 ═══ -->
-      <template v-else-if="tab === 'navigation'">
+      <template v-if="tab === 'navigation'">
         <NavigationSettings><template #builtin="{id}">
           <SettingsPanel v-if="id==='home'" embedded />
         </template></NavigationSettings>
       </template>
-      <template v-else-if="tab === 'services'">
-        <section class="card">
-          <div class="sec-t">公网地址 <span class="sec-sub">给远程服务器装 agent 时用</span></div>
-          <div class="field-row">
-            <span class="f-label">IP / 域名</span>
-            <input v-model="publicHost" class="input" placeholder="如 me.yaoyao.cfd 或 149.104.15.68" />
-            <button class="btn" @click="savePublicHost">保存</button>
-          </div>
-          <div class="hint">没填的话，给远程机器复制安装命令时会提示「未设置公网 IP/域名喵~」</div>
-          <div v-if="publicHostMsg" class="ok-msg">{{ publicHostMsg }}</div>
+
+      <template v-if="tab === 'services'">
+        <section id="site-addresses" class="entry-group" aria-label="主站域名与访问入口">
+          <h2 class="sec-t">主站域名与访问入口</h2>
+          <AccessEntrySettings ref="entrySettings" navigation-managed />
         </section>
-        <section class="card"><h2 class="sec-t">通知与已有 OIDC</h2><p class="hint">站内通知统一通过侧栏铃铛查看。邮件通知复用下方 SMTP 服务。Immich 保留原域名、原账号及已配置的 OIDC；Stella 不保存原服务密码。</p><div class="btn-row"><RouterLink :to="{path:'/settings',query:{section:'navigation',module:'gallery'}}">Immich / OIDC 接入</RouterLink><RouterLink to="/status?view=alerts">查看节点告警规则</RouterLink></div></section>
-        <section class="card">
-          <div class="sec-t">Stella 邮箱服务 <span class="sec-sub">网站外发邮件（重置密码验证码等）</span></div>
-          <button v-if="!emailLoaded" class="btn" :disabled="emailBusy" @click="loadEmailCfg">读取 SMTP 配置</button>
-          <template v-if="emailLoaded"><div class="smtp-fields">
-          <div class="field-row">
+        <section id="email-service" class="card mail-service">
+          <div class="sec-t">Stella 邮箱服务<HelpHint label="邮箱服务与通知说明">网站外发邮件（重置密码验证码等）使用 SMTP。站内通知通过侧栏铃铛查看，邮件通知使用下方 SMTP 服务。</HelpHint></div>
+          <p v-if="!emailAllowed" class="hint">登录后读取 SMTP 配置。</p>
+          <button v-else-if="!emailLoaded" class="btn st-button is-primary" :disabled="emailBusy" @click="loadEmailCfg">读取 SMTP 配置</button>
+          <template v-if="emailLoaded && emailAllowed"><div class="smtp-fields" @input="editEmailConfig">
+          <div class="field-row smtp-toggle">
             <span class="f-label">开关</span>
-            <button class="switch" :class="{ on: emailCfg.enabled }" role="switch" @click="emailCfg.enabled = !emailCfg.enabled"><i /></button>
+            <button class="switch" :class="{ on: emailCfg.enabled }" role="switch" aria-label="启用 SMTP 服务" :aria-checked="emailCfg.enabled" @click="emailCfg.enabled = !emailCfg.enabled; editEmailConfig()"><i /></button>
             <span class="f-hint">开启后启用邮箱认证登录 / 忘记密码</span>
           </div>
-          <div class="field-row"><span class="f-label">域名</span><input v-model="emailCfg.host" aria-label="SMTP 服务地址" class="input" placeholder="smtp.example.com" /></div>
-          <div class="field-row"><span class="f-label">端口</span><input v-model.number="emailCfg.port" type="number" class="input" placeholder="465" /></div>
-          <div class="field-row"><span class="f-label">账号</span><input v-model="emailCfg.username" class="input" placeholder="noreply@xiya.live" /></div>
-          <div class="field-row"><span class="f-label">密钥</span><input v-model="smtpPassword" type="password" aria-label="SMTP 密钥" class="input" :placeholder="smtpHasPassword ? '已保存 · 留空不修改' : 'SMTP 密码 / 授权码'" autocomplete="new-password" /></div>
-          <div class="field-row"><span class="f-label">签名</span><input v-model="emailCfg.from_name" class="input" placeholder="StellaHaven 港务局" /></div>
-          </div><button class="btn" :disabled="emailBusy" @click="saveEmailCfg">应用 SMTP 配置</button>
+          <div class="smtp-endpoint">
+          <div class="field-row smtp-host"><span class="f-label">域名</span><input v-model="emailCfg.host" aria-label="SMTP 服务地址" class="input" placeholder="smtp.example.com" /></div>
+          <div class="field-row smtp-port"><span class="f-label">端口</span><input v-model.number="emailCfg.port" aria-label="SMTP 端口" type="number" min="1" max="65535" class="input" placeholder="465" /></div>
+          </div>
+          <div class="field-row"><span class="f-label">账号</span><input v-model="emailCfg.username" aria-label="SMTP 账号" class="input" placeholder="noreply@xiya.live" /></div>
+          <div class="field-row"><span class="f-label">密钥</span><input ref="smtpInput" v-model="smtpPassword" @input.stop type="password" aria-label="SMTP 密钥" class="input" :placeholder="smtpHasPassword ? '已保存 · 留空不修改' : 'SMTP 密码 / 授权码'" autocomplete="new-password" /></div>
+          <div class="field-row"><span class="f-label">签名</span><input v-model="emailCfg.from_name" aria-label="SMTP 签名" class="input" placeholder="StellaHaven 港务局" /></div>
+          </div><button class="btn st-button is-primary" :disabled="emailBusy" @click="saveEmailCfg">{{ emailReadback ? '重试读取 SMTP 配置' : '应用 SMTP 配置' }}</button>
 
           <div class="mail-test">
-            <input v-model="testTo" class="input" placeholder="测试收件邮箱" />
-            <button class="btn" @click="sendTestMail">发送测试邮件</button>
+            <input v-model="testTo" type="email" aria-label="测试收件邮箱" class="input" placeholder="测试收件邮箱" />
+            <button class="btn st-button is-primary" @click="sendTestMail">发送测试邮件</button>
           </div>
           <div v-if="testMsg" class="ok-msg">{{ testMsg }}</div></template><p v-if="emailMsg" role="status">{{emailMsg}}</p>
         </section>
       </template>
 
-      <template v-else><PerformanceSettings /></template>
-    </div>
+      <section v-if="tab === 'services'" id="notifications" class="card" aria-label="通知"><h2 class="sec-t">通知</h2><p class="hint">站内通知通过侧栏铃铛查看；邮件通知使用上方 SMTP 服务。</p><div class="notification-note"><RouterLink to="/status?view=alerts">节点告警规则与通知</RouterLink></div></section>
+      <AppearanceSettings v-if="tab === 'appearance'" />
+      <KeepAlive><BackupCenter v-if="tab === 'backups'" /></KeepAlive>
+      <template v-if="!['first-use','account','profile','appearance','authentication','access','navigation','notes','servers','services','backups'].includes(tab)"><PerformanceSettings /></template>
+    </SettingsNavigation>
 
-    <Teleport to="body"><div v-if="revokeTarget" class="mini-mask" @click.self="revokeTarget = null"><section class="mini-pop" role="dialog" aria-label="确认下线设备"><h2>确认下线 {{ revokeTarget.device }}？</h2><p>此设备需要重新登录。</p><div class="mp-actions"><button class="btn ghost" @click="revokeTarget = null">取消</button><button class="btn" @click="confirmRevoke">确认下线</button></div></section></div></Teleport>
-    <AvatarCropper v-if="cropperOpen" @close="cropperOpen = false" @done="onAvatarDone" />
+    <Teleport to="body"><div v-if="revokeTarget" class="mini-mask" @click.self="closeActionDialog('revoke')" @keydown="actionDialogKeys($event,'revoke')"><section ref="revokeDialog" class="mini-pop" role="dialog" aria-modal="true" aria-label="确认下线设备"><h2>确认下线 {{ revokeTarget.browser_name || revokeTarget.device }}？</h2><p class="session-confirm-target">{{revokeTarget.ip}}<br>{{revokeTarget.login_origin || '入口未知'}}</p><p>此设备需要重新登录。</p><p v-if="revokeError" role="alert" class="session-update-error">{{revokeError}}</p><div class="mp-actions"><button class="btn ghost st-button is-ghost" :disabled="revokeBusy" @click="revokeTarget = null">取消</button><button class="btn st-button is-primary" :disabled="revokeBusy" :aria-busy="revokeBusy" @click="confirmRevoke">确认下线</button></div></section></div></Teleport>
+
 
     <!-- 修改密码浮窗 -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="pwdOpen" class="mini-mask" @click.self="pwdOpen = false">
-          <div class="mini-pop">
+        <div v-if="pwdOpen" class="mini-mask" @click.self="closeActionDialog('password')" @keydown="actionDialogKeys($event,'password')">
+          <form ref="pwdDialog" class="mini-pop" role="dialog" aria-modal="true" aria-label="修改用户密码" @submit.prevent="changePwd">
             <div class="mp-t">修改密码</div>
-            <input v-model="oldPwd" type="password" class="input" placeholder="原密码" />
-            <input v-model="newPwd" type="password" class="input" placeholder="新密码（至少 6 位）" style="margin-top:10px" />
-            <div v-if="pwdMsg" class="ok-msg">{{ pwdMsg }}</div>
+            <input v-model="oldPwd" aria-label="原用户密码" autocomplete="current-password" :readonly="pwdBusy" type="password" class="input" placeholder="原密码" />
+            <input v-model="newPwd" aria-label="新用户密码" autocomplete="new-password" :readonly="pwdBusy" type="password" class="input" placeholder="新密码（至少 6 位）" minlength="6" style="margin-top:10px" />
+            <div v-if="pwdMsg" data-password-error role="alert" class="session-update-error">{{pwdMsg}}</div>
             <div class="mp-actions">
-              <button class="btn ghost" @click="pwdOpen = false">取消</button>
-              <button class="btn" :disabled="!oldPwd || !newPwd" @click="changePwd">改</button>
+              <button type="button" class="btn ghost st-button is-ghost" :disabled="pwdBusy" @click="pwdOpen=false">取消</button>
+              <button data-password-submit type="submit" class="btn st-button is-primary" :aria-busy="pwdBusy" :disabled="pwdBusy||!oldPwd||newPwd.length<6">修改密码</button>
             </div>
-            <div class="hint">改完全部会话下线，要重新登录一次。</div>
-          </div>
+            <div class="session-loading">修改后所有会话下线，需要重新登录。</div>
+          </form>
         </div>
       </Transition>
     </Teleport>
 
-    <!-- 绑定/改邮箱浮窗：暂不验证 or 发验证码两阶段 -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div v-if="mailOpen" class="mini-mask" @click.self="mailOpen = false">
-          <div class="mini-pop">
-            <div class="mp-t">{{ auth.me?.email ? "修改邮箱" : "绑定邮箱" }}</div>
-            <template v-if="mailStage === 'input'">
-              <input v-model="mailDraft" class="input" placeholder="you@example.com" @keydown.enter="sendMailCode" />
-              <div v-if="mailMsg" class="ok-msg warn">{{ mailMsg }}</div>
-              <div class="mp-actions">
-                <button class="btn ghost" @click="saveMail">暂不验证</button>
-                <button class="btn" @click="sendMailCode">发送验证码</button>
-              </div>
-            </template>
-            <template v-else>
-              <div class="hint" style="margin:0 0 10px">验证码已发往 {{ mailDraft }}，10 分钟有效喵~</div>
-              <input v-model="mailCode" class="input" placeholder="6 位验证码" maxlength="6" @keydown.enter="verifyMail" />
-              <div v-if="mailMsg" class="ok-msg warn">{{ mailMsg }}</div>
-              <div class="mp-actions">
-                <button class="btn ghost" @click="mailStage = 'input'">返回</button>
-                <button class="btn ghost" @click="resendBindCode">重新发送</button>
-                <button class="btn" :disabled="mailCode.length !== 6" @click="verifyMail">完成验证</button>
-              </div>
-            </template>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <Teleport to="body"><div v-if="discardOpen" class="mini-mask" @click.self="resolveDiscard(false)" @keydown.esc.stop="resolveDiscard(false)"><section ref="discardDialog" class="mini-pop" role="alertdialog" @keydown="discardKeys" aria-modal="true" aria-label="离开未保存的资料"><h2>离开未保存的资料？</h2><p>当前昵称、用户名或邮箱草稿尚未保存。留在这里可继续编辑。</p><div class="mp-actions"><button class="btn ghost st-button is-ghost" autofocus @click="resolveDiscard(false)">继续编辑</button><button class="btn st-button is-primary" @click="resolveDiscard(true)">放弃草稿并离开</button></div></section></div></Teleport>
   </div>
 </template>
 
 <style scoped>
 .page { min-height:100%; padding: 8px 0 32px; min-width:0; }
 .smtp-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin:14px 0}.smtp-fields .field-row{margin:0}@media(max-width:650px){.smtp-fields{grid-template-columns:1fr}}
+.smtp-fields > .smtp-toggle, .smtp-endpoint{grid-column:1 / -1}
+.smtp-endpoint{display:flex;flex-wrap:wrap;gap:10px 20px;max-width:44rem}
+.smtp-host{flex:1 1 260px;min-width:0}.smtp-port{flex:0 0 auto}
+.smtp-port .input{width:9ch;min-width:9ch}
+.smtp-fields .input{min-width:0}.smtp-fields > .field-row{min-width:0}
+.public-host{max-width:none}.public-host .input{min-width:0}
+.entry-group{margin-bottom:28px;min-width:0}.entry-group .sec-t{font-size:16px;margin:0 0 12px;letter-spacing:0}.entry-setting-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,380px);gap:16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--control-border)}.entry-setting-row label{display:flex;align-items:center;gap:4px;font-size:14px;color:var(--text-hi)}.entry-setting-row .input{box-sizing:border-box;font-size:14px;min-height:38px;width:100%;border-radius:7px;background:var(--bg-base);border:1px solid var(--control-border)}.entry-actions{display:flex;justify-content:flex-end;margin-top:12px}.entry-group>p{font-size:14px;color:var(--text-lo);line-height:1.7}@media(max-width:600px){.entry-setting-row{grid-template-columns:minmax(0,1fr);gap:6px;padding:10px 0}.entry-setting-row .input{min-height:44px}}
+.notification-note{display:flex;flex-wrap:wrap;gap:6px 16px}.notification-note a{overflow-wrap:anywhere}
+.mail-service .mail-test{max-width:44rem;flex-wrap:wrap}.mail-service .mail-test .input{min-width:0;flex:1 1 220px}
 .wrap { max-width: 1040px; margin: 0 auto; min-width:0; }
 .h1 { font-size: 24px; font-weight: 600; color: var(--text-hi); letter-spacing: 3px; margin-bottom: 20px; }
 
@@ -589,7 +491,8 @@ onMounted(() => {
 .me-name { font-size: 16px; font-weight: 600; color: var(--text-hi); }
 .me-sub { font-size: 12px; color: var(--text-lo); margin-top: 3px; }
 .hint { margin-top: 12px; font-size: 11.5px; color: var(--text-faint); line-height: 1.6; }
-.ok-msg { margin: 10px 0 0; font-size: 12.5px; color: #a8d8b0; }
+[data-session-location-notice] { font-size: 12px; color: var(--text-hi); }
+.ok-msg { margin: 10px 0 0; font-size: 12.5px; color: var(--success); }
 .field { margin-bottom: 10px; }
 .input {
   width: 100%; padding: 9px 12px; border-radius: 10px;
@@ -599,37 +502,29 @@ onMounted(() => {
 }
 .input:focus { border-color: var(--accent-dim); }
 .name-input { width: 160px; }
-.sess-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px; border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  margin-bottom: 8px;
-}
-.sess-main { display: flex; align-items: center; gap: 8px; }
-.sess-device { font-size: 13.5px; color: var(--text-hi); }
-.cur { font-size: 10px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
-.rem { font-size: 10px; padding: 1px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); color: var(--text-lo); }
-.sess-sub { flex: 1; font-size: 11.5px; color: var(--text-faint); }
-.mini {
+.session-records{container: sessions / inline-size;}
+.session-update-error{font-size:14px;color:var(--danger);margin:12px 0;}.session-loading{font-size:14px;color:var(--text-lo);line-height:1.6;}.session-pagination{align-items:center;flex-wrap:wrap;font-size:13px;}
+summary { cursor:pointer; }
+.mini:not(.st-button) {
   padding: 4px 12px; border-radius: 8px; border: none;
   font-size: 11.5px; cursor: pointer; font-family: inherit;
   background: rgba(255, 255, 255, 0.06); color: var(--text-lo);
 }
-.mini:hover { color: var(--text-hi); }
-.mini.danger:hover { background: rgba(150, 60, 75, 0.5); color: #f0c8d0; }
+.mini:not(.st-button):hover { color: var(--text-hi); }
+.mini:not(.st-button).danger:not(.st-button):hover { background: rgba(150, 60, 75, 0.5); color: var(--danger); }
 .user-row { display: flex; align-items: baseline; gap: 10px; padding: 8px 4px; }
 .u-name { font-size: 14px; color: var(--text-hi); }
 .u-sub { font-size: 11.5px; color: var(--text-faint); }
-.u-admin { font-size: 10px; padding: 1px 8px; border-radius: 999px; background: rgba(232, 160, 191, 0.15); color: #e8a0bf; }
-.btn {
+.u-admin { font-size: 10px; padding: 1px 8px; border-radius: 999px; background: rgba(232, 160, 191, 0.15); color: var(--pink); }
+.btn:not(.st-button) {
   padding: 8px 18px; border-radius: 10px; border: none;
   background: var(--accent); color: #141824;
   font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
   white-space: nowrap; flex-shrink: 0;
 }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn.ghost { background: transparent; color: var(--text-lo); border: 1px solid rgba(255, 255, 255, 0.12); font-weight: 400; }
-.btn.ghost:hover { color: var(--text-hi); }
+.btn:not(.st-button):disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:not(.st-button).ghost { background: transparent; color: var(--text-lo); border: 1px solid rgba(255, 255, 255, 0.12); font-weight: 400; }
+.btn:not(.st-button).ghost:hover { color: var(--text-hi); }
 .btn-row { display: flex; gap: 10px; margin-top: 16px; }
 .avatar-history { margin-top: 16px; }
 .ah-label { font-size: 11.5px; color: var(--text-faint); letter-spacing: 1px; margin-bottom: 8px; }
@@ -644,8 +539,7 @@ onMounted(() => {
 .ah-thumb:hover { opacity: 1; transform: scale(1.08); }
 .ah-thumb.on { border-color: var(--accent); opacity: 1; }
 .sess-group {
-  font-size: 11px; color: var(--text-faint); letter-spacing: 2px;
-  margin: 10px 0 8px;
+  font-size:14px;color:var(--text-lo);font-weight:500;letter-spacing:0;margin:18px 0 0;min-height:36px;align-content:center;
 }
 .sess-group:first-of-type { margin-top: 0; }
 .field-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
@@ -673,7 +567,7 @@ onMounted(() => {
   display: flex; align-items: center; justify-content: center;
 }
 .mini-pop {
-  width: 320px;
+  box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;
   background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
   backdrop-filter: var(--blur);
   border: 1px solid rgba(255, 255, 255, 0.09);
@@ -681,6 +575,7 @@ onMounted(() => {
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   padding: 20px 22px;
 }
+.session-confirm-target{overflow-wrap:anywhere;font-size:14px;line-height:1.6;}
 .mail-badge {
   font-size: 10px;
   padding: 1px 8px;
@@ -688,9 +583,9 @@ onMounted(() => {
   margin-left: 4px;
   vertical-align: 1px;
 }
-.mail-badge.pending { color: #e89aa8; background: rgba(220, 120, 140, 0.14); border: 1px solid rgba(220, 120, 140, 0.3); }
-.mail-badge.ok { color: #9ed8b0; background: rgba(130, 210, 150, 0.12); border: 1px solid rgba(130, 210, 150, 0.3); }
-.ok-msg.warn { color: #e8c9a0; }
+.mail-badge.pending { color: var(--warning); background: rgba(220, 120, 140, 0.14); border: 1px solid rgba(220, 120, 140, 0.3); }
+.mail-badge.ok { color: var(--success); background: rgba(130, 210, 150, 0.12); border: 1px solid rgba(130, 210, 150, 0.3); }
+.ok-msg.warn { color: var(--warning); }
 .mp-t { font-size: 14px; font-weight: 600; color: var(--text-hi); letter-spacing: 2px; margin-bottom: 12px; }
 .mp-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 .fade-enter-active, .fade-leave-active { transition: opacity 240ms; }

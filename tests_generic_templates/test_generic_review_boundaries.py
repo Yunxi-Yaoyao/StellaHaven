@@ -114,6 +114,7 @@ def test_direct_http_loader_cannot_be_saved_as_https_proxy(api_env, upstream, mo
     c, _, _, _ = api_env
     root, _, _ = upstream
     monkeypatch.setenv('STELLA_MAIN_ORIGIN','https://stella.test')
+    c.base_url='https://stella.test'  # Match the actual request source to the configured HTTPS parent.
     result = c.post('/website-settings',json={'address':root+'/', 'idempotency_key':'review-direct-mixed',
         'connection':{'transport':'direct','auth_mode':'original','injection_delivery':'loader'},
         'custom':{'enabled':True,'css':'body{color:red}','js':''}})

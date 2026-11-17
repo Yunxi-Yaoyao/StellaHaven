@@ -230,12 +230,14 @@ class ProductionTests(unittest.TestCase):
         ci=yaml.safe_load((ROOT.parents[1]/'.gitlab-ci.yml').read_text())
         job=ci['local-ha-production-app']
         self.assertEqual(job['resource_group'],ci['deploy-k3s']['resource_group'])
-        self.assertEqual(job['rules'][0]['when'],'on_success')
-        self.assertIn('$STELLA_AUTO_DEPLOY == "true"',job['rules'][0]['if'])
-        self.assertEqual(job['rules'][1]['when'],'manual')
+        self.assertEqual(job['rules'][0]['when'],'manual')
+        self.assertIn('$STELLA_RUNNER_ISOLATION_READY == "true"',job['rules'][0]['if'])
+        self.assertNotIn('STELLA_AUTO_DEPLOY', job['rules'][0]['if'])
+        self.assertFalse(job['rules'][0]['allow_failure'])
+        self.assertEqual(job['rules'][1], {'when': 'never'})
         self.assertIn('$CI_COMMIT_REF_PROTECTED == "true"',job['rules'][0]['if'])
         self.assertIn('$STELLA_DEPLOY_TARGET == "local-ha"',job['rules'][0]['if'])
-        self.assertEqual(ci['build-images']['artifacts']['reports']['dotenv'],'production-image.env')
+        self.assertEqual(ci['build-image-receipt']['artifacts']['reports']['dotenv'],'production-image.env')
 
 if __name__ == '__main__':
     unittest.main()

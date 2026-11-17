@@ -1,5 +1,6 @@
 # PG + Patroni 镜像：PostgreSQL 18 + Patroni（etcd DCS）+ kubectl（回调打标签用）
-FROM postgres:18-bookworm
+ARG STELLA_POSTGRES_BASE=postgres:18-bookworm
+FROM ${STELLA_POSTGRES_BASE}
 
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
       python3-pip python3-venv curl ca-certificates \

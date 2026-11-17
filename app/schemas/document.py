@@ -1,6 +1,30 @@
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel
+from typing import Literal
+from pydantic import BaseModel, Field, model_validator
+
+
+class DeletePreviewRequest(BaseModel):
+    model_config = {'extra': 'forbid'}
+    workspace_id: UUID
+    doc_id: UUID | None = None
+    mode: Literal['trash', 'permanent', 'empty-trash']
+    cascade: bool = Field(default=True, strict=True)
+
+    @model_validator(mode='after')
+    def valid_scope(self):
+        if self.mode == 'empty-trash':
+            if self.doc_id is not None or not self.cascade:
+                raise ValueError('empty-trash requires no doc_id and cascade=true')
+        elif self.doc_id is None:
+            raise ValueError('doc_id is required')
+        return self
+
+
+class DeletePreviewRead(DeletePreviewRequest):
+    scope_token: str
+    target_ids: list[UUID]
+    descendant_count: int
 
 
 class DocumentCreate(BaseModel):
@@ -19,8 +43,15 @@ class DocumentCreate(BaseModel):
     content_hash: str | None = None  # 兼容旧调用；有 content 时被服务端覆盖
 
 
+class ConsumedDraft(BaseModel):
+    model_config = {'extra': 'forbid'}
+    draft_updated_at: datetime
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
 class DocumentUpdate(BaseModel):
     updated_at: datetime
+    consumed_draft: ConsumedDraft | None = None
     title: str | None = None
     content: str | None = None  # 传了 → 服务端重算 content_hash
     content_hash: str | None = None
@@ -32,6 +63,12 @@ class DocumentUpdate(BaseModel):
     status: str | None = None
     word_count: int | None = None
     parent_id: UUID | None = None
+
+    @model_validator(mode='after')
+    def reject_null_body(self):
+        if 'content' in self.model_fields_set and self.content is None:
+            raise ValueError('Use an empty string to clear content; omit to preserve it')
+        return self
 
 
 class DocumentListItem(BaseModel):
@@ -51,6 +88,9 @@ class DocumentListItem(BaseModel):
     content_hash: str
     created_at: datetime
     updated_at: datetime
+    # NULL means no database-observed save event (historical time unknown).
+    # Display only: clients must continue returning raw updated_at for CAS.
+    updated_at_display: datetime | None = None
     # 草稿元信息（内容不随文档返回，要看走 /documents/{id}/draft）
     draft_updated_at: datetime | None = None
     draft_device: str | None = None

@@ -9,6 +9,9 @@ from app.services.agent_install import install_privileges, remove_legacy_docker_
 
 AGENT_SERVICE = "stella-agent"
 AGENT_DIR = "/opt/stella-agent"
+# Explicit host role slot, scoped again by authenticated center_id in installer.
+# Never use the center's default slot (which may belong to a demonstration node).
+HOST_INSTANCE = 'host'
 
 
 def detect_os() -> str:
@@ -73,59 +76,41 @@ def _is_agent_installed() -> bool:
     return False
 
 
-def install_host(token: str, center_url: str = "http://127.0.0.1:12031") -> dict:
-    """本机一键安装 agent：创建独立用户 + 复制脚本 + 写 systemd 单元 + 启动。"""
-    _ensure_user()
-    install_privileges()
-    _ensure_sudoers()
-
-    src = Path(__file__).resolve().parents[2] / "agent" / "stella_agent.py"
-    dst_dir = Path(AGENT_DIR)
-    dst_dir.mkdir(parents=True, exist_ok=True)
-    dst = dst_dir / "stella_agent.py"
-    dst.write_text(src.read_text(encoding="utf-8"))
-    dst.chmod(0o755)
-
-    if any(c in token + center_url for c in '\r\n'):
-        raise ValueError('invalid agent configuration')
-    _root_file(Path('/etc/stella-agent/agent.env'),
-               f'STELLA_URL={json.dumps(center_url)}\nSTELLA_TOKEN={json.dumps(token)}\n', 0o600)
-
-    unit = (
-        "[Unit]\n"
-        "Description=Stella Agent\n"
-        "After=network-online.target\n"
-        "Wants=network-online.target\n\n"
-        "[Service]\n"
-        "Type=simple\n"
-        "User=stella\n"
-        "AmbientCapabilities=CAP_NET_RAW\n"
-        f"ExecStart=/usr/bin/env python3 {dst}\n"
-        "EnvironmentFile=/etc/stella-agent/agent.env\n"
-        "Restart=always\n"
-        "RestartSec=5\n\n"
-        "[Install]\n"
-        "WantedBy=multi-user.target\n"
-    )
-    Path(f"/etc/systemd/system/{AGENT_SERVICE}.service").write_text(unit)
-
-    subprocess.run(["systemctl", "daemon-reload"], check=False)
-    subprocess.run(["systemctl", "enable", AGENT_SERVICE], check=False, capture_output=True)
-    subprocess.run(["systemctl", "restart", AGENT_SERVICE], check=False, capture_output=True)
-
-    return {"installed": True, "service": AGENT_SERVICE}
+def install_host(token: str, center_url: str) -> dict:
+    """Use the authenticated per-center installer; never claim a global process."""
+    import re
+    if not supports_local_install():
+        raise ValueError('Stella 运行在容器内；请在真实宿主机执行本站安装命令')
+    if platform.system() != 'Linux':
+        raise ValueError('本机自动安装仅支持 Linux；请在宿主机执行对应平台安装命令')
+    if os.geteuid() != 0:
+        raise ValueError('本站进程没有 root 权限；请在真实宿主机以管理员执行本站安装命令')
+    missing = [name for name in ('bash', 'python3', 'systemctl', 'visudo', 'useradd') if not shutil.which(name)]
+    if missing:
+        raise ValueError('本机缺少安装依赖：' + ', '.join(missing) + '；请准备依赖后重试')
+    if not token or not center_url or any(c in token + center_url for c in '\r\n'):
+        raise ValueError('本站安装地址或节点凭证无效')
+    script = Path(__file__).resolve().parents[2] / 'agent' / 'install.sh'
+    try:
+        result = subprocess.run(['/bin/bash', str(script), '--url', center_url, '--instance', HOST_INSTANCE, '--no-deps'],
+            env={**os.environ, 'STELLA_TOKEN': token}, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        raise ValueError('本机安装超时（180 秒），不能确认安装完成；请检查本站实例服务后重试，未接管原 Agent') from None
+    except OSError:
+        raise ValueError('无法启动本机安装器；请检查执行权限与本站安装脚本') from None
+    if result.returncode != 0:
+        # Installer output can contain capability material. Expose its outcome,
+        # not raw stdout/stderr; existing instances remain installer-owned.
+        raise ValueError(f'本机安装器失败（退出码 {result.returncode}）：中心认证、工件校验或实例安装未完成；请检查本站地址与宿主依赖，未接管原 Agent')
+    match = re.search(r'stella-agent-[a-f0-9]{24}', result.stdout)
+    if not match:
+        raise ValueError('安装器未返回本站实例服务凭据，不能确认安装完成')
+    return {'installed': True, 'service': match.group(0)}
 
 
 def uninstall_host() -> None:
-    """卸载本机 agent：disable → 删 unit → daemon-reload → 删目录 → stop（防 Restart=always 复活）。"""
-    if shutil.which("systemctl"):
-        subprocess.run(["systemctl", "disable", AGENT_SERVICE], check=False, capture_output=True)
-    Path(f"/etc/systemd/system/{AGENT_SERVICE}.service").unlink(missing_ok=True)
-    if shutil.which("systemctl"):
-        subprocess.run(["systemctl", "daemon-reload"], check=False, capture_output=True)
-    shutil.rmtree(AGENT_DIR, ignore_errors=True)
-    if shutil.which("systemctl"):
-        subprocess.run(["systemctl", "stop", AGENT_SERVICE], check=False, capture_output=True)
+    """Unscoped center-side removal must never target the legacy host service."""
+    raise ValueError('Explicit authenticated agent instance is required for uninstall')
 
 
 def _ensure_user() -> None:

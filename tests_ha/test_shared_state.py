@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from qa.isolated_legacy_backends.owned_target import owned_target
 
 
 @pytest.fixture
@@ -75,7 +76,7 @@ def pg(safe_modules, monkeypatch):
 
 def test_real_pg_exchange_once_across_workers(pg, safe_modules):
     oidc, _ = safe_modules
-    secret = oidc.get_client_secret('rp')
+    secret = oidc.create_client('rp', name='RP', redirect_uris=['https://rp/cb'])['client_secret']
     code = oidc.create_authorization_code('rp', 'https://rp/cb', '123', 'user', 'a@b', 'nonce')
     assert oidc.exchange_code(code, 'rp', 'bad', 'https://rp/cb') is None
     assert oidc.exchange_code(code, 'rp', secret, 'https://wrong') is None
@@ -103,7 +104,20 @@ def test_smtp_postgres_transaction_and_mask(pg, safe_modules):
     mail.put_config(mail.EmailConfigIn(host='smtp.test', username='test', password='secret'), None)
     assert not mail.CONFIG_FILE.exists()
     mail.put_config(mail.EmailConfigIn(host='smtp.changed', username='test', password='••••••'), None)
-    assert mail.get_config(None)['password'] == '••••••'
+    from app.services.small_public_outputs import PublicSMTPConfig
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    typed = mail.get_config(None)
+    assert isinstance(typed, PublicSMTPConfig) and typed.password == '••••••'
+    app = FastAPI(); app.include_router(mail.router)
+    with TestClient(app) as http:
+        response = http.get('/admin/email/config')
+        assert response.status_code == 200 and response.json() == typed.model_dump()
+        response = http.put('/admin/email/config', json={'host': 'smtp.changed', 'username': 'test', 'password': '••••••'})
+        assert response.status_code == 200
+        assert response.json() == {'ok': True}
+        assert http.get('/admin/email/config').json()['password'] == '••••••'
+        assert 'secret' not in response.text
     assert mail._load()['password'] == 'secret'
     assert mail._load()['host'] == 'smtp.changed'
     with pytest.raises(RuntimeError):
@@ -111,6 +125,9 @@ def test_smtp_postgres_transaction_and_mask(pg, safe_modules):
             state['password'] = 'must-rollback'
             raise RuntimeError('rollback')
     assert mail._load()['password'] == 'secret'
+    with pg.connect() as fresh:
+        saved = fresh.execute(ha_state.state_table.select().where(ha_state.state_table.c.key == 'smtp.config')).mappings().one()['payload']
+        assert saved['password'] == 'secret' and saved['host'] == 'smtp.changed'
 
 
 def test_import_explicit_atomic_no_overwrite(pg, safe_modules, tmp_path):
@@ -140,7 +157,7 @@ def test_import_explicit_atomic_no_overwrite(pg, safe_modules, tmp_path):
         assert conn.scalar(text("select count(*) from ha_shared_state where key='oidc.clients'")) == 0
 
 
-def test_import_cli_private_output(pg, tmp_path, capsys):
+def test_import_cli_private_output(pg, tmp_path, capsys, owned_target):
     from scripts import import_shared_state as importer
     dsn = tmp_path / 'dsn'
     dsn.write_text(pg.url.update_query_dict({'options': pg.dialect.create_connect_args(pg.url)[1].get('options', '')}).render_as_string(hide_password=False))
@@ -149,13 +166,24 @@ def test_import_cli_private_output(pg, tmp_path, capsys):
     dsn.chmod(0o600)
     source = tmp_path / 'smtp.json'
     source.write_text(json.dumps({'password': 'NEVER_PRINT_THIS'}))
-    args = ['import_shared_state', '--database-url-file', str(dsn), '--confirm-database', 'stella_ha_poc', '--smtp', str(source)]
+    confirmation = 'stella_ha_poc' if owned_target is None else owned_target.confirmation(pg)
+    args = ['import_shared_state', '--database-url-file', str(dsn), '--confirm-database', confirmation, '--smtp', str(source)]
     with patch.object(importer, 'create_engine', return_value=pg), patch.object(sys, 'argv', args):
+        # Wrong confirmation must be rejected before any write, also in owned mode.
+        wrong = list(args); wrong[wrong.index('--confirm-database')+1] = 'wrong-owned-name'
+        with patch.object(sys, 'argv', wrong):
+            assert importer.main() == 1
+        with pg.connect() as fresh:
+            assert fresh.scalar(text('select count(*) from ha_shared_state')) == 0
         assert importer.main() == 0
         assert importer.main() == 1
+    with pg.connect() as fresh:
+        assert fresh.scalar(text("select payload from ha_shared_state where key='smtp.config'")) == {'password': 'NEVER_PRINT_THIS'}
     output = capsys.readouterr().out
     assert 'Imported and verified: smtp.config' in output
     assert 'NEVER_PRINT_THIS' not in output
+    assert pg.url.password not in output
+    dsn.unlink()
 
 
 def test_pg_requires_provisioned_signing_key(pg, safe_modules):
@@ -197,6 +225,15 @@ def test_pg_expiry_and_no_implicit_json_import(pg, safe_modules):
 
 def test_pg_concurrent_client_creation_and_masked_smtp(pg, safe_modules):
     oidc, mail = safe_modules
+    def register(_):
+        try:
+            return oidc.create_client('race', name='Race', redirect_uris=['https://rp/cb'])
+        except ValueError as exc:
+            assert str(exc) == 'client already exists'
+            return None
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        created = list(pool.map(register, range(16)))
+    assert len([item for item in created if item]) == 1
     with ThreadPoolExecutor(max_workers=8) as pool:
         secrets = list(pool.map(lambda _: oidc.get_client_secret('race'), range(16)))
     assert len(set(secrets)) == 1
@@ -222,11 +259,11 @@ def test_pg_failure_never_falls_back(safe_modules, monkeypatch):
 
 def test_default_legacy_unchanged(safe_modules):
     oidc, mail = safe_modules
-    secret = oidc.get_client_secret('rp')
+    secret = oidc.create_client('rp', name='RP', redirect_uris=['https://rp/cb'])['client_secret']
     assert oidc.CLIENT_FILE.exists()
-    code = oidc.create_authorization_code('rp', 'cb', 'u', 'user', '', None)
-    token = oidc.exchange_code(code, 'rp', secret, 'cb')
-    assert token and oidc.exchange_code(code, 'rp', secret, 'cb') is None
+    code = oidc.create_authorization_code('rp', 'https://rp/cb', 'u', 'user', '', None)
+    token = oidc.exchange_code(code, 'rp', secret, 'https://rp/cb')
+    assert token and oidc.exchange_code(code, 'rp', secret, 'https://rp/cb') is None
     mail._save({**mail.DEFAULTS, 'password': 'old'})
     mail.put_config(mail.EmailConfigIn(host='h', username='u', password='••••••'), None)
     assert mail.CONFIG_FILE.exists() and mail._load()['password'] == 'old'

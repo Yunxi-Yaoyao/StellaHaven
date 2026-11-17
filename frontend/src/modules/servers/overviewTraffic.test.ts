@@ -8,7 +8,7 @@ const charts = vi.hoisted(() => ({ init: vi.fn(), setOption: vi.fn(), resize: vi
 vi.mock('./chartRuntime', () => ({ init: charts.init, getInstanceByDom: () => undefined }));
 vi.mock('./ServerWorldMap.vue', () => ({ __esModule: true, default: { render: () => null } }));
 vi.mock('../../shell/Dropdown.vue', () => ({ default: { props: ['modelValue','options'], emits:['update:modelValue'], render(this:any) { return h('select', { value: this.modelValue, onChange: (e:any) => this.$emit('update:modelValue', this.options.find((o:any) => String(o.value) === e.target.value)?.value) }, this.options.map((o:any) => h('option', {value:o.value}, o.label))); } } }));
-vi.mock('../../api/servers', () => ({ listNodes: vi.fn(), getNodeDetail: vi.fn(), getNodeMetrics: vi.fn(), listMonitors: vi.fn(async()=>[]), getMonitorSeries: vi.fn(async()=>[]), createMonitor: vi.fn(), removeMonitor: vi.fn() }));
+vi.mock('../../api/servers', () => ({ listNodes: vi.fn(), getNodeDetail: vi.fn(), getNodeMetrics: vi.fn(), listMonitors: vi.fn(async()=>[]), listMonitorGroups: vi.fn(async()=>[]), getMonitorSeries: vi.fn(async()=>[]), createMonitor: vi.fn(), removeMonitor: vi.fn() }));
 let app: ReturnType<typeof createApp> | undefined, host: HTMLElement;
 let width = 942;
 let observers: { callback: ResizeObserverCallback; disconnect: ReturnType<typeof vi.fn> }[];
@@ -25,7 +25,7 @@ async function choose(selector:string,value:string) { const el=host.querySelecto
 beforeEach(()=>{
   vi.useFakeTimers(); vi.clearAllMocks(); width=942; observers=[];
   Object.defineProperty(document,'hidden',{configurable:true,value:false});
-  vi.stubGlobal('ResizeObserver', class { entry:any; constructor(callback:ResizeObserverCallback) { this.entry={callback,disconnect:vi.fn()}; observers.push(this.entry); } observe() {} disconnect(){this.entry.disconnect();} });
+  vi.stubGlobal('ResizeObserver', class { entry:any; constructor(callback:ResizeObserverCallback) { this.entry={callback,disconnect:vi.fn()}; observers.push(this.entry); } observe() {} unobserve() {} disconnect(){this.entry.disconnect();} });
   vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){ return {width:this.classList.contains('ov-chart')?width:100,height:200,x:0,y:0,top:0,left:0,right:width,bottom:200,toJSON(){}} as DOMRect; });
   charts.init.mockImplementation(()=>({setOption:charts.setOption,resize:charts.resize,dispose:charts.dispose}));
   vi.mocked(api.listNodes).mockResolvedValue([node(54)] as any);
@@ -179,4 +179,29 @@ test('late old-node response cannot replace current curve; hidden and unmount ne
   await vi.advanceTimersByTimeAsync(15000);await settle();expect(api.getNodeMetrics).toHaveBeenCalledTimes(before);
   app!.unmount();app=undefined;Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));
   await vi.advanceTimersByTimeAsync(15000);await settle();expect(api.getNodeMetrics).toHaveBeenCalledTimes(before);
+});
+test('explicit parent keeps its name and all failures visible while selected child changes',async()=>{
+  vi.mocked(api.listMonitors).mockResolvedValue([
+    {id:1,name:'ICMP child',node_id:54,type:'ping',target:'same.invalid',status:'up',last_latency_ms:12,last_check_at:new Date().toISOString()},
+    {id:2,name:'TCP child',node_id:57,type:'tcp',target:'same.invalid:443',status:'down',last_latency_ms:null,last_check_at:new Date().toISOString()},
+  ] as any);
+  vi.mocked(api.listMonitorGroups).mockResolvedValue([{id:1,name:'固定父名',child_ids:[1,2],failure_policy:'any',rotation_seconds:8,status:'down',down_count:1,unknown_count:0}] as any);
+  await mount();expect(host.querySelectorAll('.mon-card')).toHaveLength(1);
+  const parent=host.querySelector('.mon-card')!;expect(parent.querySelector('.mon-name')?.textContent).toBe('固定父名');
+  expect(parent.textContent).toContain('异常 1');
+  expect(parent.querySelectorAll('[data-child-id]')).toHaveLength(0); // closed menu does not lay out every child
+  const trigger=parent.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')!;
+  trigger.click();await settle();
+  // The real picker portals its listbox to body; bind the exact accessible menu.
+  const menu=document.getElementById(trigger.getAttribute('aria-controls')!);
+  expect(menu?.getAttribute('role')).toBe('listbox');
+  const option=menu?.querySelector<HTMLButtonElement>('button[data-child-id="2"]');
+  expect(option).not.toBeNull();option!.click();await vi.advanceTimersByTimeAsync(400);await settle();
+  expect(parent.querySelector('.mon-name')?.textContent).toBe('固定父名');expect(parent.querySelector('.mon-target')?.textContent).toContain('tcp');
+  expect(parent.querySelector('[role="listbox"]')).toBeNull();expect(parent.textContent).not.toContain('恢复轮转');
+  await vi.advanceTimersByTimeAsync(9000);await settle();
+  expect(parent.querySelector('.mon-target')?.textContent).toContain('tcp');
+  await vi.advanceTimersByTimeAsync(1000);await settle();
+  expect(parent.querySelector('.mon-target')?.textContent).toContain('ping'); // idle ten seconds resumes automatically
+  expect(parent.textContent).toContain('异常 1');
 });

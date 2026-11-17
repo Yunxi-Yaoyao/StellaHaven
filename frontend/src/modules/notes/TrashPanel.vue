@@ -2,7 +2,7 @@
 import { ref, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useNotesStore } from "../../stores/notes";
-import { toast } from "../../composables/useToast";
+
 import type { Doc } from "../../api/notes";
 
 const emit = defineEmits<{ close: [] }>();
@@ -11,14 +11,7 @@ const { trash } = storeToRefs(store);
 
 // 有下挂的还原前要先选：确认中的条目 id
 const confirming = ref<string | null>(null);
-// 一键清空的二次确认弹窗
-const emptyConfirm = ref(false);
 
-async function onEmptyAll() {
-  const n = await store.emptyAllTrash();
-  emptyConfirm.value = false;
-  toast(n > 0 ? `已永久删除 ${n} 篇` : "回收站已经是空的");
-}
 
 onMounted(() => store.refreshTrash());
 
@@ -48,8 +41,8 @@ function fmtTime(iso: string) {
   <div class="trash-panel">
     <div class="head">
       <span>🗑 回收站</span>
-      <span class="tip">超过 30 天的会被自动清理</span>
-      <button v-if="trash.length" class="empty-btn" @click="emptyConfirm = true">清空回收站</button>
+      <span class="tip">保留至你明确选择永久删除</span>
+      <button v-if="trash.length" class="empty-btn" @click="store.requestEmptyTrash">清空回收站</button>
       <button class="back" @click="emit('close')">← 返回</button>
     </div>
 
@@ -68,23 +61,13 @@ function fmtTime(iso: string) {
         </template>
         <template v-else>
           <button class="restore" @click="onRestore(doc)">还原</button>
-          <button class="purge" @click="store.purge(doc.id)">彻底删除</button>
+          <button class="purge" @click="store.requestPurge(doc)">永久删除</button>
         </template>
       </div>
       <div v-if="trash.length === 0" class="empty">回收站是空的 ✨</div>
     </div>
 
-    <!-- 一键清空：二次确认 -->
-    <div v-if="emptyConfirm" class="mask" @click.self="emptyConfirm = false">
-      <div class="dialog">
-        <div class="head danger-text">清空回收站？</div>
-        <div class="body">回收站里 {{ trash.length }} 篇笔记将被<strong>永久删除，不可恢复</strong>。</div>
-        <div class="btns">
-          <button class="danger" @click="onEmptyAll">永久清空（{{ trash.length }} 篇）</button>
-          <button class="cancel" @click="emptyConfirm = false">取消</button>
-        </div>
-      </div>
-    </div>
+
   </div>
 </template>
 

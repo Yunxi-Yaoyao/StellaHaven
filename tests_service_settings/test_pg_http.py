@@ -30,9 +30,10 @@ def test_daily_then_elevated_real_http_save_readback_and_legacy_rollback(pg_engi
         assert r.status_code==201,r.text
         daily=client.get('/service-settings/drive')
         assert daily.status_code==200 and daily.headers['cache-control']=='no-store'
-        assert client.put('/service-settings/drive',json=payload()).status_code==403
-        assert client.post('/auth/admin/setup',json={'user_password':'http-daily-synthetic-123','new_password':'http-admin-synthetic-456'}).status_code==200
-        assert client.post('/auth/admin/unlock',json={'password':'http-admin-synthetic-456'}).status_code==200
+        with httpx.Client(base_url=origin,trust_env=False) as anonymous:
+            assert anonymous.put('/service-settings/drive',json=payload()).status_code==401
+        assert client.post('/auth/admin/setup',json={'user_password':'http-daily-synthetic-123','new_password':'http-admin-synthetic-456'}).status_code==410
+        assert client.post('/auth/admin/unlock',json={'password':'http-admin-synthetic-456'}).status_code==410
         draft={'enabled':True,'css':'body{color:blue}','js':'window.httpProof=1;'}
         for site in ('drive','gallery'):
             data=payload(site)|{'custom':draft}
@@ -48,9 +49,9 @@ def test_daily_then_elevated_real_http_save_readback_and_legacy_rollback(pg_engi
         assert back.status_code==200
         state=client.get('/service-settings/drive').json()['injection']
         assert state['active']['version']=='preset-v1' and state['draft']['js']=='window.draftOnly=1;'
-        assert client.post('/auth/admin/lock').status_code==200
+        assert client.post('/auth/admin/lock').status_code==410
         assert client.get('/service-settings/gallery').status_code==200
-        assert client.post('/builtin-injections/gallery/rollback').status_code==403
+        assert client.post('/builtin-injections/gallery/rollback').status_code==200
         token=client.cookies.get('stella_at');assert token
         assert client.post('/auth/logout').status_code==200
         assert client.get('/service-settings/gallery',headers={'Cookie':'stella_at='+token}).status_code==401

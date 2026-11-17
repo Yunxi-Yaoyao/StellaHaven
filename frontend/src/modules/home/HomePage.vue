@@ -1,19 +1,26 @@
 <script setup lang="ts">
-// 主页外壳：主题切换器。reactive 驱动，设置面板切主题免刷新
-import { computed, defineAsyncComponent } from "vue";
-import { homeSettings } from "./settings";
+// One stable trigger survives theme changes; the appearance store stays shared.
+import { computed, defineAsyncComponent, onDeactivated, onBeforeUnmount, ref, watch } from "vue";
+import { homeSettings, settingsOpen, bgManagerOpen } from "./settings";
+import { loggedIn } from "./auth";
+const SettingsPanel = defineAsyncComponent(() => import("../../shell/SettingsPanel.vue"));
+const requested = ref(settingsOpen.value);
+watch(settingsOpen, open => { if (open) requested.value = true; });
 const HomeClassic = defineAsyncComponent(() => import("./themes/HomeClassic.vue"));
-const HomeCoastline = defineAsyncComponent(() => import("./themes/HomeCoastline.vue"));
 const HomeDaybreak = defineAsyncComponent(() => import("./themes/HomeDaybreak.vue"));
-
-// daybreak/nightfall 同一组件两套皮肤（.daybreak / .daybreak.night 变量切换）
-const Active = computed(() =>
-  homeSettings.theme === "classic" ? HomeClassic :
-  homeSettings.theme === "coastline" ? HomeCoastline :
-  HomeDaybreak
-);
+const Active = computed(() => homeSettings.theme === "classic" ? HomeClassic : HomeDaybreak);
+function closeOverlays() { settingsOpen.value = false; bgManagerOpen.value = false; }
+onDeactivated(closeOverlays);
+onBeforeUnmount(closeOverlays);
 </script>
 
 <template>
-  <component :is="Active" />
+  <div class="home-page" :data-home-theme="homeSettings.theme">
+    <component :is="Active" />
+    <SettingsPanel v-if="requested && loggedIn" :key="'home-panel'" />
+  </div>
 </template>
+
+<style scoped>
+.home-page { position:relative; width:100%; height:100%; min-height:100%; background:var(--bg-base); color:var(--text-hi); }
+</style>

@@ -1,11 +1,22 @@
 import {api} from './client';
-import type {Website,Injection} from '../stores/navigation';
-export type {Website,Injection};
+import type {Website,WebsiteSummary,Injection} from '../stores/navigation';
+export type {Website,WebsiteSummary,Injection};
 export interface WebsiteInput {name:string;icon:string;mode:Website['mode'];adapter:Website['adapter'];browser_url:string;target_id:string|null;initial_path:string;enabled:boolean;keep_alive?:boolean}
-export interface Launch {mode:Website['mode'];url:string;method:'GET'|'POST';fields?:Record<string,string>;expires_in?:number}
+export interface Launch {mode:Website['mode'];url:string;method:'GET'|'POST';fields?:Record<string,string>;expires_in?:number;source_origin?:string;target_origin?:string}
 export interface Target {id:string;name:string;upstream_url:string;controlled:boolean;allowed_ips?:string[]}
 const endpoint=(id:string)=>`/external-modules/${encodeURIComponent(id)}`;
-export const getWebsite=(id:string,signal?:AbortSignal)=>api<Website>(endpoint(id),{signal});
+export async function getWebsite(id:string,signal?:AbortSignal){
+ let revision:number|undefined;
+ const item=await api<Website>(endpoint(id),{signal},undefined,response=>{
+  const tag=response.headers.get('ETag');
+  // No token on a legacy response is distinct from a malformed advertised token.
+  if(tag===null)return;
+  const match=/^"(0|[1-9][0-9]*)"$/.exec(tag);
+  if(!match||!Number.isSafeInteger(Number(match[1])))throw new Error('网站版本无效，请重新读取');
+  revision=Number(match[1]);
+ });
+ return revision===undefined?item:{...item,read_revision:revision};
+}
 export const createWebsite=(input:WebsiteInput)=>api<Website>('/external-modules',{method:'POST',body:JSON.stringify(input)});
 export const updateWebsite=(id:string,input:WebsiteInput)=>api<Website>(endpoint(id),{method:'PATCH',body:JSON.stringify(input)});
 export const deleteWebsite=(id:string)=>api<void>(endpoint(id),{method:'DELETE'});

@@ -20,10 +20,10 @@ it('target creation preserves frozen IPs and does not assume controlled',async()
  const body={name:'site',upstream_url:'http://10.66.0.2:12020',allowed_ips:['10.66.0.2'],controlled:false,headers:{}};
  await createTarget(body);expect(fetchMock.mock.calls[0]).toEqual(['/integration-targets',expect.objectContaining({method:'POST',body:JSON.stringify(body)})]);
 });
-it('admin 403 waits for explicit global modal confirmation and retries resolver only once',async()=>{
+it('legacy admin 403 stays visible and never retries the resolver',async()=>{
  const fetchMock=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({detail:{code:'admin_elevation_required'}}),{status:403})).mockResolvedValue(new Response(JSON.stringify({status:'resolved'})));vi.stubGlobal('fetch',fetchMock);
- const confirm=vi.fn(async()=>true);setElevationHandler(confirm);await resolveTarget('https://example.test');
- expect(confirm).toHaveBeenCalledWith('admin_elevation_required','/integration-targets/resolve');expect(fetchMock).toHaveBeenCalledTimes(2);
+ const confirm=vi.fn(async()=>true);setElevationHandler(confirm);await expect(resolveTarget('https://example.test')).rejects.toMatchObject({status:403});
+ expect(confirm).not.toHaveBeenCalled();expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 it('declined elevation never retries or creates anything',async()=>{
  const fetchMock=vi.fn(async()=>new Response(JSON.stringify({detail:{code:'admin_elevation_required'}}),{status:403}));vi.stubGlobal('fetch',fetchMock);setElevationHandler(async()=>false);

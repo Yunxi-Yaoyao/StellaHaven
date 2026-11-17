@@ -33,6 +33,7 @@ function setBg() {
 /* ================= Live2D 挂件（Miku，戳她播报今日塔罗） ================= */
 const Live2dWidget = defineAsyncComponent(() => import("../Live2dWidget.vue"));
 
+const live2dForeground = ref(false);
 const tarotBubble = ref(false);
 let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -111,8 +112,8 @@ const dateLine = computed(() =>
     </div>
 
     <!-- Live2D 挂件（Miku）坐镇右侧；戳她播报今日塔罗 -->
-    <div class="shinano">
-      <Live2dWidget v-if="homeSettings.live2d" @poke="showTarotBubble" />
+    <div class="shinano" :class="{ 'is-foreground': live2dForeground }">
+      <Live2dWidget v-if="homeSettings.live2d" :inactive="settingsOpen" :interaction-key="homeSettings.theme" @foreground="live2dForeground = $event" @poke="showTarotBubble" />
     </div>
     <Transition name="bubble">
       <div v-if="tarotBubble" class="tarot-bubble">
@@ -123,9 +124,11 @@ const dateLine = computed(() =>
 
     <!-- 斜悬浮碎语条已撤（老婆定的：主页不登录也可见，不放笔记内容） -->
 
-    <!-- 背景设置入口（右下角小齿轮） -->
-    <button v-if="loggedIn" class="bg-btn" title="主页设置" @click="setBg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2.2"/><circle cx="9" cy="16" r="2.2"/></svg></button>
+    <div class="home-controls">
+    <button class="bg-btn" title="今日塔罗" aria-label="今日塔罗" @click="showTarotBubble">✧</button>
+    <button v-if="loggedIn" class="bg-btn" title="主页设置" aria-label="主页设置" aria-haspopup="dialog" :aria-expanded="settingsOpen" @click="setBg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2.2"/><circle cx="9" cy="16" r="2.2"/></svg></button>
 
+    </div>
     <div class="date-line">{{ dateLine }}</div>
   </div>
 </template>
@@ -135,6 +138,7 @@ const dateLine = computed(() =>
   position: relative;
   height: 100%;
   overflow: hidden;
+  background: var(--home-page);
 }
 .bg-img {
   position: absolute;
@@ -159,7 +163,7 @@ const dateLine = computed(() =>
   top: 12%;
   padding: 84px 118px;
   min-width: 560px;
-  background: color-mix(in srgb, var(--bg-panel) 72%, transparent);
+  background: var(--bg-panel);
   backdrop-filter: var(--blur);
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 22px;
@@ -178,8 +182,8 @@ const dateLine = computed(() =>
   margin: 0 auto 24px;
   border-radius: 50%;
   overflow: hidden;
-  box-shadow: 0 0 40px rgba(201, 212, 232, 0.35);
-  border: 2px solid rgba(201, 212, 232, 0.4);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--accent) 20%, transparent);
+  border: 2px solid var(--accent-dim);
 }
 .avatar img {
   width: 100%;
@@ -188,6 +192,7 @@ const dateLine = computed(() =>
   display: block;
 }
 .name {
+  color: var(--accent);
   font-size: 30px;
   font-weight: 600;
   letter-spacing: 6px;
@@ -256,7 +261,7 @@ const dateLine = computed(() =>
   top: 10%;
   max-width: 250px;
   padding: 14px 18px;
-  background: rgba(27, 31, 42, 0.75);
+  background: var(--bg-panel);
   backdrop-filter: blur(14px);
   border: 1px solid var(--accent-dim);
   border-radius: 14px 14px 4px 14px;
@@ -284,11 +289,8 @@ const dateLine = computed(() =>
   line-height: 1.7;
 }
 
+.home-controls { position:absolute; left:22px; bottom:18px; z-index:20; display:flex; gap:10px; }
 .bg-btn {
-  position: absolute;
-  left: 22px;
-  bottom: 18px;
-  z-index: 20;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -305,7 +307,7 @@ const dateLine = computed(() =>
 
 .date-line {
   position: absolute;
-  left: 70px;
+  left: 120px;
   bottom: 24px;
   font-size: 11.5px;
   color: var(--text-faint);
@@ -316,5 +318,10 @@ const dateLine = computed(() =>
 @media (max-width: 768px) {
   .sig-card { left: 50%; top: 8%; transform: translateX(-50%) rotate(-1.2deg); width: 84vw; padding: 36px 24px; min-width: 0; }
 }
+@media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
+  .tarot-bubble { position: fixed; top: 72px; right: 16px; width: calc(100% - 32px); max-width: 320px; }
+}
+.shinano { pointer-events: none; }
+.shinano.is-foreground { z-index: 25; } /* Above home cards, below global drawers/modals. */
 .locked { cursor: default !important; opacity: 0.75; }
 </style>

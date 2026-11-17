@@ -4,7 +4,7 @@
 // 惰性缓存：打开先读最近一次扫描快照，超过 10 分钟自动后台重扫。
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { waitForTask } from "./taskWait";
-import { reachable, errorDetail } from "./serverState";
+import { reachable, errorDetail, componentInstalled } from "./serverState";
 import {
   listNodes, latestNetTask, scanDocker, getNetTask, ctlDocker, dockerLogs, dockerInspect,
   type NetTask, type Node,
@@ -45,7 +45,7 @@ const inspData = ref<Record<string, any> | null>(null);
 const inspLoading = ref(false);
 
 const dockerNodes = computed(() =>
-  nodes.value.filter((n) => (n.components as any)?.docker?.installed === true));
+  nodes.value.filter((n) => componentInstalled(n.components?.docker) === true));
 const selectedReachable = computed(() => {
   const n = nodes.value.find(n => n.id === nodeId.value);
   return !!n && reachable(n, clock.value);
@@ -57,8 +57,8 @@ async function refreshNodes() {
   if (disposed) return;
   nodes.value = fresh;
   if (!nodeId.value && dockerNodes.value.length) nodeId.value = (dockerNodes.value.find(n => reachable(n)) || dockerNodes.value[0]).id;
-  if (nodeId.value && !dockerNodes.value.some((n) => n.id === nodeId.value) && dockerNodes.value.length)
-    nodeId.value = dockerNodes.value[0].id;
+  if (nodeId.value && !dockerNodes.value.some((n) => n.id === nodeId.value))
+    nodeId.value = dockerNodes.value[0]?.id ?? null;
 }
 
 async function pollTask(tid: number, timeoutMs = 40000): Promise<NetTask | null> {
@@ -163,7 +163,7 @@ async function refreshNodeLoop() {
   if (!disposed) nodeTimer = setTimeout(refreshNodeLoop, 15000);
 }
 onMounted(refreshNodeLoop);
-watch(nodeId, () => { lifecycle.abort(); lifecycle = new AbortController(); busy.value = {}; logLoading.value = false; inspLoading.value = false; generation++; containers.value = []; scannedAt.value = ""; logOpen.value = false; inspOpen.value = false; loadContainers(); });
+watch(nodeId, () => { lifecycle.abort(); lifecycle = new AbortController(); busy.value = {}; loading.value = false; scanError.value = ''; logLoading.value = false; inspLoading.value = false; generation++; containers.value = []; scannedAt.value = ""; logOpen.value = false; inspOpen.value = false; loadContainers(); });
 </script>
 
 <template>

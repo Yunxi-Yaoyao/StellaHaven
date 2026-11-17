@@ -17,6 +17,7 @@ const nodes = ref<Node[]>([]);
 const iperfTasks = ref<IperfTask[]>([]);
 const mtrTasks = ref<MtrTask[]>([]);
 const commands = ref<Command[]>([]);
+const refreshError = ref('');
 
 // ── 过滤 ──
 type Kind = "all" | "iperf" | "mtr" | "command";
@@ -108,8 +109,8 @@ async function refreshStatus(signal: AbortSignal) {
   try {
     const [n, i, m, c] = await Promise.all([listNodes(signal), listIperfTasks(signal), listMtrTasks(signal), listCommands(signal)]);
     if (signal.aborted) return;
-    nodes.value = n; iperfTasks.value = i; mtrTasks.value = m; commands.value = c;
-  } catch { /* 静默 */ }
+    nodes.value = n; iperfTasks.value = i; mtrTasks.value = m; commands.value = c; refreshError.value='';
+  } catch { if(!signal.aborted) refreshError.value='记录刷新失败，已保留上次结果；稍后自动重试。'; }
 }
 onMounted(() => { if (!document.hidden) statusPoll.start(); document.addEventListener("visibilitychange", onVisibility); });
 onUnmounted(() => { statusPoll.stop(); document.removeEventListener("visibilitychange", onVisibility); });
@@ -118,9 +119,10 @@ watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immedia
 </script>
 
 <template>
-  <div class="rec-page">
+  <div class="rec-page server-content">
     <h2>记录</h2>
-    <p class="rec-sub">打流 / MTR / 命令 统一时间线 · 每类保留最近 100 条</p>
+    <p class="rec-sub">手动测试与命令记录 · 自动 MTR 请在对应监控详情查看</p>
+    <p v-if="refreshError" class="r-err" role="status">{{ refreshError }}</p>
 
     <!-- 过滤器 -->
     <div class="rec-filter">
@@ -136,7 +138,7 @@ watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immedia
         <div class="rec-row" :class="{ open: expanded === r.key }" @click="toggle(r.key)">
           <span class="r-kind" :class="`k-${r.kind}`">{{ KIND_LABEL[r.kind] }}</span>
           <span class="r-node">{{ r.kind === 'command' ? nodeName((r.raw as Command).node_id) : r.kind === 'mtr' ? nodeName((r.raw as MtrTask).node_id) : '' }}</span>
-          <span class="r-summary">{{ r.summary }}</span>
+          <span class="r-summary" :class="{ 'is-command': r.kind==='command' }">{{ r.summary }}</span>
           <span v-if="r.result" class="r-result">{{ r.result }}</span>
           <span class="r-time" :title="new Date(r.ts).toLocaleString('zh-CN')">{{ fmtTime(r.ts) }}</span>
           <span class="r-st" :class="TASK_STATUS[r.status]?.cls">{{ TASK_STATUS[r.status]?.label || r.status }}</span>
@@ -188,8 +190,8 @@ watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immedia
   </div>
 </template>
 
+<style scoped src="./serverPage.css"></style>
 <style scoped>
-.rec-page { padding: 4px 2px; }
 .rec-sub { margin: 2px 0 14px; font-size: 12px; color: var(--text-faint); font-weight: 400; }
 
 /* 过滤器 */
@@ -220,7 +222,8 @@ watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immedia
 .r-kind.k-mtr { background: rgba(255,158,199,0.12); color: var(--pink); }
 .r-kind.k-command { background: rgba(158,229,178,0.10); color: #9ee5b2; }
 .r-node { flex-shrink: 0; font-size: 11.5px; color: var(--text-faint); min-width: 0; }
-.r-summary { flex: 1; min-width: 0; font-size: 13px; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono, monospace); }
+.r-summary { flex: 1; min-width: 0; font-size: 13px; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r-summary.is-command { font-family: var(--font-mono, monospace); }
 .r-result { flex-shrink: 0; font-size: 12px; color: var(--accent); font-weight: 475; }
 .r-time { flex-shrink: 0; font-size: 11.5px; color: var(--text-faint); }
 .r-st { flex-shrink: 0; font-size: 11.5px; }
@@ -245,6 +248,9 @@ watch(() => props.presetNode, (v) => { if (v) filterNode.value = v; }, { immedia
 .mtr-table { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
 .mtr-row { display: grid; grid-template-columns: 40px 1fr 70px 56px 90px; gap: 8px; padding: 4px 6px; border-radius: 4px; }
 @media (max-width: 768px) {
+  .rec-row { flex-wrap: wrap; gap: 6px; padding: 10px; }
+  .r-summary { flex-basis: calc(100% - 90px); white-space: normal; overflow-wrap: anywhere; }
+  .kind-tabs { flex-wrap: wrap; border-radius: var(--radius-sm); }
   .mtr-table { overflow-x: auto; }
   .mtr-table .mtr-row { min-width: 380px; }
 }

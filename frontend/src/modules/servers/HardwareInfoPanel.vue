@@ -1,16 +1,31 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { HardwareInfo, SysMetricPoint } from '../../api/servers';
+import type { HardwareInfo, HardwareMemory, SysMetricPoint } from '../../api/servers';
 import Icon from '../../shell/Icon.vue';
 import { hasValue, hasGpuMetrics, gpuTelemetryValid, metric, bytes, cpuFrequency, joinSpec, measuredFrequency, sensorLabel } from './hardwareDisplay';
 const props = defineProps<{ hardware?: HardwareInfo | null; status: string; now: number; refreshFailed?: boolean; latestSysMetric?: SysMetricPoint | null }>();
 const isPhysical = computed(() => props.hardware?.machine?.kind === 'physical');
 const inventory = computed(() => isPhysical.value ? props.hardware?.physical_inventory : null);
+const memory = computed(() => props.hardware?.memory);
+const platformInventory = computed(() => {
+  const value = props.hardware?.platform_inventory;
+  return !inventory.value && value?.source && ['platform_reported', 'host_visible'].includes(value.scope)
+    && (joinSpec(value.board?.vendor, value.board?.model) || joinSpec(value.bios?.vendor, value.bios?.version)) ? value : null;
+});
+function memoryStatus(value: HardwareMemory): string {
+  const messages: string[] = [];
+  if (value.state === 'query_failed' || props.refreshFailed) messages.push('刷新失败');
+  const time = value.sampled_at ? Date.parse(value.sampled_at) : NaN;
+  if (props.status !== 'online' || (Number.isFinite(time) && props.now - time > 120000)) messages.push('数据已过期');
+  else if (!Number.isFinite(time) || time - props.now > 5000) messages.push('采样状态未知');
+  return messages.join(' · ');
+}
 const metricGpus = computed(() => (props.hardware?.gpus || []).filter(hasGpuMetrics));
 const inventoryGpus = computed(() => (props.hardware?.gpus || []).filter(gpu => !hasGpuMetrics(gpu)));
-const sensors = computed(() => isPhysical.value ? (props.hardware?.sensors || []).filter(s => hasValue(s.value)
+const sensors = computed(() => (props.hardware?.sensors || []).filter(s => hasValue(s.value)
+  && (isPhysical.value || (s.source && ['os_visible', 'host_visible'].includes(s.scope || '')))
   && !(hasValue(props.hardware?.cpu.temperature_c) && s.kind === 'temperature'
-    && /Tctl|Package id|(?:^| \/ )Tdie$/i.test(s.name))) : []);
+    && /Tctl|Package id|(?:^| \/ )Tdie$/i.test(s.name))));
 const coreSpec = computed(() => joinSpec(metric(props.hardware?.cpu.physical_cores, '核'), metric(props.hardware?.cpu.logical_cores, '线程')).replace(' · ', ' / '));
 const failureLabels: Record<string, string> = {
   sensors_file_missing: '传感器文件尚未生成', sensors_file_stale: '传感器文件过期',
@@ -52,7 +67,7 @@ const emptyGpuLabel = computed(() => {
 </script>
 
 <template>
-  <section class="hardware-panel" aria-label="硬件信息">
+  <section class="hardware-panel" :class="{ 'cpu-memory': hardware && !hardware.gpus.length && hardware.availability.gpu === 'no_gpu' && memory?.state === 'available' && hasValue(memory.total_bytes) && memory.total_bytes > 0 && !memoryStatus(memory) }" aria-label="硬件信息">
     <header class="hardware-head"><span class="hardware-title"><Icon name="server" :size="14" />硬件信息</span><span v-if="sampleStatus" class="sample-status" role="status" :title="statusTitle">{{ sampleStatus }}</span></header>
     <p v-if="!hardware" class="hardware-note">硬件尚未采集</p>
     <div v-if="hardware" class="hardware-grid" :class="{ 'cpu-only': !metricGpus.length }">
@@ -95,7 +110,7 @@ const emptyGpuLabel = computed(() => {
       </div>
     </div>
     <section v-if="sensors.length" class="sensors-card" aria-label="主板温度 / 风扇">
-      <header class="hardware-head"><span class="hardware-title">传感器</span></header>
+      <header class="hardware-head"><span class="hardware-title">传感器</span><span v-if="sensors.some(s => s.scope === 'host_visible')" class="hardware-note">宿主可见 · 非容器独占硬件</span></header>
       <template v-for="kind in (['temperature', 'fan'] as const)" :key="kind">
         <section v-if="sensors.some(sensor => sensor.kind === kind)" class="sensor-group" :aria-label="kind === 'temperature' ? '温度传感器' : '风扇传感器'">
           <h4>{{ kind === 'temperature' ? '温度 · Temperature' : '风扇 · Fan' }}</h4>
@@ -105,6 +120,31 @@ const emptyGpuLabel = computed(() => {
         </section>
       </template>
     </section>
+    <section v-if="memory" class="system-memory" aria-label="系统内存">
+      <header class="hardware-head"><span class="hardware-title">系统内存</span><span class="hardware-note">{{ memory.scope === 'host_visible' ? '宿主可见 · 非容器配额' : memory.scope === 'os_visible' ? '系统可见容量' : '作用域未确定' }}</span><span v-if="memoryStatus(memory)" class="memory-status" role="status">{{ memoryStatus(memory) }}</span></header>
+      <dl class="memory-capacity">
+        <div v-if="hasValue(memory.total_bytes) && memory.total_bytes > 0"><dt>总量</dt><dd>{{ bytes(memory.total_bytes) }}</dd></div>
+        <div v-if="hasValue(memory.used_bytes)"><dt>已用</dt><dd>{{ bytes(memory.used_bytes) }}</dd></div>
+        <div v-if="hasValue(memory.available_bytes)"><dt>可用</dt><dd>{{ bytes(memory.available_bytes) }}</dd></div>
+      </dl>
+      <section v-if="memory.cgroup" class="cgroup-memory" aria-label="控制组内存">
+        <header class="hardware-head"><span class="hardware-title">控制组限额</span><span class="hardware-note">可见层级 · 可能由组内进程共享</span><span v-if="memoryStatus(memory.cgroup)" class="memory-status" role="status">{{ memoryStatus(memory.cgroup) }}</span></header>
+        <dl class="memory-capacity">
+          <div v-if="hasValue(memory.cgroup.total_bytes)"><dt>限额</dt><dd>{{ bytes(memory.cgroup.total_bytes) }}</dd></div>
+          <div v-if="hasValue(memory.cgroup.used_bytes)"><dt>组内已用</dt><dd>{{ bytes(memory.cgroup.used_bytes) }}</dd></div>
+          <div v-if="hasValue(memory.cgroup.available_bytes)"><dt>限额余量</dt><dd>{{ bytes(memory.cgroup.available_bytes) }}</dd></div>
+        </dl>
+        <p v-if="memory.cgroup.state === 'unlimited'" class="hardware-note">可见层级未设置限额</p>
+        <p v-else-if="!hasValue(memory.cgroup.total_bytes)" class="hardware-note">限额未确定</p>
+      </section>
+    </section>
+    <section v-if="platformInventory" class="platform-inventory" aria-label="平台报告信息">
+      <header class="hardware-head"><span class="hardware-title">平台报告信息</span><span class="hardware-note">{{ platformInventory.scope === 'host_visible' ? '宿主可见 · 非容器独占硬件' : '平台提供 · 不作为物理机判据' }}</span></header>
+      <dl class="spec-board">
+        <div v-if="joinSpec(platformInventory.board?.vendor, platformInventory.board?.model)"><dt>报告的板卡</dt><dd>{{ joinSpec(platformInventory.board?.vendor, platformInventory.board?.model) }}</dd></div>
+        <div v-if="joinSpec(platformInventory.bios?.vendor, platformInventory.bios?.version)"><dt>BIOS</dt><dd>{{ joinSpec(platformInventory.bios?.vendor, platformInventory.bios?.version) }}</dd></div>
+      </dl>
+    </section>
     <section v-if="inventory" class="physical-inventory" aria-label="物理机清单">
       <header class="hardware-head"><span class="hardware-title">设备规格</span><span class="hardware-note">{{ joinSpec(hardware?.machine?.vendor, hardware?.machine?.model) }}</span></header>
       <div class="spec-grid">
@@ -113,6 +153,7 @@ const emptyGpuLabel = computed(() => {
           <div v-if="joinSpec(inventory.bios?.vendor, inventory.bios?.version)"><dt>BIOS</dt><dd>{{ joinSpec(inventory.bios?.vendor, inventory.bios?.version) }}</dd></div>
         </dl>
         <div v-if="inventory.memory_modules?.length" class="memory-list" aria-label="内存条">
+          <p class="hardware-note dimm-caption">DIMM 安装容量 · 非系统可用容量</p>
           <div v-for="(module, index) in inventory.memory_modules" :key="index" class="memory-item">
             <span class="hardware-note">{{ module.slot || '内存条' }}</span><strong v-if="hasValue(module.capacity_bytes)">{{ bytes(module.capacity_bytes) }}</strong>
             <span v-if="joinSpec(module.vendor, module.part_number)" class="memory-model">{{ joinSpec(module.vendor, module.part_number) }}</span>
@@ -126,11 +167,26 @@ const emptyGpuLabel = computed(() => {
 </template>
 
 <style scoped>
+.system-memory, .platform-inventory { margin-top: 20px; padding-top: 18px; border-top: 1px solid rgba(158,183,229,.08); }
+.memory-capacity { display: flex; flex-wrap: wrap; gap: 16px 36px; }
+.memory-capacity dt { font-size: 12px; }
+.memory-capacity dd { font-size: 18px; line-height: 1.4; }
+.memory-status { color: #d5af80; font-size: 12px; }
+.system-memory .hardware-note, .platform-inventory .hardware-note, .sensors-card .hardware-head .hardware-note, .dimm-caption { color: var(--text-lo); font-size: 12px; }
+.dimm-caption { grid-column: 1 / -1; }
+.cgroup-memory { margin-top: 16px; }
 .hardware-panel { min-width: 0; margin: 16px 0; }
 .hardware-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 12px; }
 .hardware-title { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--text-hi); }
 .hardware-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 14px; align-items: start; }
 .cpu-only { max-width: 560px; }
+@media (min-width:1100px) {
+  .cpu-memory { display:grid; grid-template-columns:minmax(0, 560px) minmax(240px, 1fr); column-gap:28px; align-items:start; }
+  .cpu-memory > * { grid-column:1 / -1; min-width:0; }
+  .cpu-memory > .hardware-grid { grid-column:1; grid-row:2; }
+  .cpu-memory > .system-memory { grid-column:2; grid-row:2; margin-top:0; padding-top:0; border-top:0; }
+  .cpu-memory > .gpu-state { grid-column:1; grid-row:3; }
+}
 .hardware-card { min-width: 0; padding: 20px; background: linear-gradient(140deg, rgba(158,183,229,.045), transparent 75%), var(--bg-panel); border: 1px solid rgba(158,183,229,.1); border-radius: 12px; }
 .device-card-head { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin-bottom: 12px; }
 .device-kind { color: var(--accent); font-size: 11px; font-weight: 650; letter-spacing: .08em; }

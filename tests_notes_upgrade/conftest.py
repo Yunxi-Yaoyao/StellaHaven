@@ -1,4 +1,9 @@
-"""Isolated notes contracts: no main, settings, PostgreSQL or side effects."""
+"""SQLite service/projection contracts, NOT PostgreSQL migration/trigger proofs.
+
+make_doc supplies explicit UTC observation-event INPUT for timeline service tests.
+Real trigger generation is accepted separately on fully migrated owned PG.
+No production config, main, credentials or network is permitted.
+"""
 import sys
 import types
 from uuid import uuid4
@@ -25,6 +30,12 @@ from pathlib import Path
 routers = types.ModuleType('app.routers')
 routers.__path__ = [str(Path(__file__).resolve().parents[1] / 'app' / 'routers')]
 sys.modules['app.routers'] = routers
+
+# Isolate eager registries before importing real model/service implementations.
+for name in ['app.services', 'app.repositories']:
+    namespace = types.ModuleType(name)
+    namespace.__path__ = [str(Path(__file__).resolve().parents[1].joinpath(*name.split('.')))]
+    sys.modules[name] = namespace
 
 from app.models import Document, Workspace, User
 from app.models.config import AppConfig
@@ -79,8 +90,10 @@ def workspace(db):
 @pytest.fixture
 def make_doc(db, workspace):
     def create(**kw):
-        from datetime import datetime
+        from datetime import datetime, timezone
         kw.setdefault('updated_at', datetime.now())
+        # Explicit event input; SQLite create_all does not install the PG trigger.
+        kw.setdefault('saved_event_at', datetime.now(timezone.utc))
         d = Document(id=uuid4(), title='note', content='before', content_hash='hash', file_path='/test.md', workspace_id=workspace.id, **kw)
         db.add(d); db.commit(); db.refresh(d)
         return d

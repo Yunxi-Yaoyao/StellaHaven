@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from app.routers.auth import admin_user
 from app.models.user import User
 from app.services import ha_state
+from app.services.small_public_outputs import PublicSMTPConfig, public_smtp_config
 
 router = APIRouter(prefix="/admin/email", tags=["admin-email"])
 
@@ -59,11 +60,17 @@ class EmailConfigIn(BaseModel):
     enabled: bool = False
 
 
-@router.get("/config")
+@router.get("/config", response_model=PublicSMTPConfig)
 def get_config(user: User = Depends(admin_user)):
-    cfg = _load()
-    cfg["password"] = "••••••" if cfg.get("password") else ""  # 掩码回显
-    return cfg
+    # A dedicated read projection keeps SMTP send/write behavior unchanged.
+    try:
+        if ha_state.enabled():
+            with ha_state.locked_state('smtp.config', DEFAULTS) as cfg:
+                return public_smtp_config(cfg, DEFAULTS)
+        cfg = json.loads(CONFIG_FILE.read_text(encoding='utf-8')) if CONFIG_FILE.exists() else {}
+        return public_smtp_config(cfg, DEFAULTS)
+    except (ValueError, TypeError, OSError, RecursionError):
+        raise HTTPException(503, '邮箱服务配置无效，请检查服务器配置') from None
 
 
 @router.put("/config")

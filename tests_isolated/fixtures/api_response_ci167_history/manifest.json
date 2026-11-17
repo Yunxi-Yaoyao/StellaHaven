@@ -1,0 +1,74 @@
+[
+  {
+    "file": "agent/stella_agent.py",
+    "sha256": "e0c5f1264fafbf9e07c868b9a554ebe4d00a3f13cdfe026943f2645ca989bc57",
+    "size": 232372,
+    "commit": "4462964db68e681435d4796ff23b0ab658114371",
+    "git_blob": "790f80527fcee873066b552c6bdd9fb50416bd5c",
+    "fixture": "agent__stella_agent.py.gz"
+  },
+  {
+    "file": "app/monitor_targets.py",
+    "sha256": "538494023c5e4a1b29984e16ac894630366894d074f139131129bd7f05d7ada8",
+    "size": 3402,
+    "commit": "a7145d001d528ab1e01d58684f80a69f3163d710",
+    "git_blob": "3efcf631f02af8a02819b56558458111bd22fe0f",
+    "fixture": "app__monitor_targets.py.gz"
+  },
+  {
+    "file": "app/repositories/workspace.py",
+    "sha256": "faafc28e178acbb43eb82632b9046a66778e6fd79d28078cdbb329eb2dad7def",
+    "size": 2292,
+    "commit": "4621299b0a52061128cf2aa7548063f4605cd6ab",
+    "git_blob": "7025f9425ce77fcb5228c9938789a632e5d1ef52",
+    "fixture": "app__repositories__workspace.py.gz"
+  },
+  {
+    "file": "app/routers/monitor.py",
+    "sha256": "f13e37855c8e5c0334cac5bfcd897f1dfc23472d803bef0ff940d078f77904fd",
+    "size": 32687,
+    "commit": "b51d52c98fde5098f10392c9019a7c69444761ba",
+    "git_blob": "94e13954c7405b44f2bbc26f19dd40459946f4d0",
+    "fixture": "app__routers__monitor.py.gz"
+  },
+  {
+    "file": "app/schemas/monitor.py",
+    "sha256": "66df1c46dcee72d3059741e7515523cea54a1348585b0229f915170ee100c678",
+    "size": 16727,
+    "commit": "4462964db68e681435d4796ff23b0ab658114371",
+    "git_blob": "eea8a1986b65f161484c0cb23f1dc040dece9a89",
+    "fixture": "app__schemas__monitor.py.gz"
+  },
+  {
+    "file": "app/services/entry_monitoring.py",
+    "sha256": "7efb637a2ff269aadec7f46cb48938ebcf58b506125d7023099c0cdfe50ae897",
+    "size": 26263,
+    "commit": "4462964db68e681435d4796ff23b0ab658114371",
+    "git_blob": "73bb0664f2decb414a4197680b1861f6a7330d17",
+    "fixture": "app__services__entry_monitoring.py.gz"
+  },
+  {
+    "file": "app/services/monitor.py",
+    "sha256": "4ed87a3354722558be05c786d65e9e7bd638d333ae66dcf26f5b6fd4d0bd87bc",
+    "size": 8526,
+    "commit": "ba11051c01751745d4edc245cc3d99c891395d78",
+    "git_blob": "d6c95d805702e74766aa0146e9d3340ab09d0af3",
+    "fixture": "app__services__monitor.py.gz"
+  },
+  {
+    "file": "app/services/monitor_groups.py",
+    "sha256": "d903a59157b2cd874a671aca1729bc796b8452518ef3f1735cc5ed2eeb142e82",
+    "size": 12034,
+    "commit": "ba11051c01751745d4edc245cc3d99c891395d78",
+    "git_blob": "6c1fcde6fdf65cdb8a286f6ed7af602f11f8e080",
+    "fixture": "app__services__monitor_groups.py.gz"
+  },
+  {
+    "file": "app/api_response_contracts.py",
+    "sha256": "80ba3f4dec6e164e129946d93b373e41ff036e62a83ecab3ecdc3dafe99a259e",
+    "size": 72721,
+    "commit": "a1f847a8b58b51e64345020aa705b48a61f2d37f",
+    "git_blob": "19a6335602c4379e50abbe40e37865af5baffda1",
+    "fixture": "app__api_response_contracts.py.gz"
+  }
+]

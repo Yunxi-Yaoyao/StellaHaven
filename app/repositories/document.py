@@ -84,11 +84,14 @@ def search(db: Session, workspace_id: UUID, keyword: str, limit: int = 50) -> li
     ).order_by(Document.updated_at.desc()).limit(limit).all()
 
 
-def create(db: Session, data: DocumentCreate) -> Document:
+def create(db: Session, data: DocumentCreate, *, commit: bool = True) -> Document:
     doc = Document(**data.model_dump())
     db.add(doc)
-    db.commit()
-    db.refresh(doc)
+    if commit:
+        db.commit()
+        db.refresh(doc)
+    else:
+        db.flush()
     return doc
 
 
@@ -99,7 +102,7 @@ def update(db: Session, doc_id: UUID, data: DocumentUpdate, *, commit: bool = Tr
         sql_update(Document)
         .where(Document.id == doc_id, Document.updated_at == data.updated_at)
         .values(
-            **data.model_dump(exclude={"updated_at"}, exclude_unset=True),
+            **data.model_dump(exclude={"updated_at", "consumed_draft"}, exclude_unset=True),
             updated_at=datetime.now(),
         )
     )

@@ -138,7 +138,7 @@ class HardwareAgentTests(unittest.TestCase):
         self.assertEqual(hardware['cpu']['frequency_mhz'], 5408.0)
         self.assertEqual(hardware['cpu']['temperature_source'], data['cpu_temperature_source'])
         self.assertEqual(hardware['cpu']['frequency_source'], data['cpu_frequency_source'])
-        self.assertEqual(hardware['sensors'], data['sensors'])
+        self.assertEqual(hardware['sensors'], [dict(row, scope='os_visible') for row in data['sensors']])
         self.assertEqual(hardware['availability']['cpu_temperature'], 'available')
 
 
@@ -195,7 +195,7 @@ class HardwareAgentTests(unittest.TestCase):
                     patch.object(agent.shutil, 'which', return_value=None), \
                     patch.object(agent, '_map_command', side_effect=ValueError('offline WMI')):
                 hardware = instance()._collect_hardware()
-        self.assertEqual(hardware['sensors'], [data['sensors'][0]])
+        self.assertEqual(hardware['sensors'], [dict(data['sensors'][0], scope='os_visible')])
         self.assertIsNone(hardware['cpu']['temperature_c'])
         self.assertIsNone(hardware['cpu']['frequency_mhz'])
         json.dumps(hardware, allow_nan=False)
@@ -397,13 +397,13 @@ class HardwareAgentTests(unittest.TestCase):
 
 
     def test_release_version_refuses_same_version_update_and_accepts_newer(self):
-        self.assertEqual(agent.AGENT_VERSION, '0.6.12')
+        self.assertEqual(agent.AGENT_VERSION, '0.6.20')
         obj = instance()
-        with patch.object(obj, '_get', return_value={'version': '0.6.12'}), \
+        with patch.object(obj, '_get', return_value={'version': '0.6.20'}), \
                 patch.object(obj, '_download_and_restart') as download:
             obj.check_update()
             download.assert_not_called()
-        with patch.object(obj, '_get', return_value={'version': '0.6.13'}), \
+        with patch.object(obj, '_get', return_value={'version': '0.6.21'}), \
                 patch.object(obj, '_download_and_restart') as download:
             obj.check_update()
             download.assert_called_once()

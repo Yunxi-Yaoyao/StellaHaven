@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import HelpHint from "../settings/HelpHint.vue";
+import NodeCenterChannel from './NodeCenterChannel.vue';
 // 节点详情页：基本信息 + 流量图（时间范围/时区/网卡多选/单位/统计卡）+ 系统指标 + 监控项
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, defineAsyncComponent } from "vue";
 import { waitForTask } from "./taskWait";
@@ -6,6 +8,7 @@ import { summarizeMonitorPoints } from "./monitorStats";
 import { createRequestLane, createPoller, mapBounded } from "./polling";
 import { useRouter, useRoute } from "vue-router";
 import * as echarts from "./chartRuntime";
+import { metricColors } from '../../stores/appearance';
 import Icon from "../../shell/Icon.vue";
 import HardwareInfoPanel from "./HardwareInfoPanel.vue";
 import StoragePanel from "./StoragePanel.vue";
@@ -579,6 +582,7 @@ async function load(signal: AbortSignal) {
     const id = nodeId.value;
     const d = await getNodeDetail(id, signal);
     if (signal.aborted) return;
+    if (d.status !== 'online') throw {status:409};
     detail.value = d;
     detailError.value = false;
     netType.value = detail.value.net_type === "public" ? "public" : "internal";
@@ -592,8 +596,16 @@ async function load(signal: AbortSignal) {
       void viewFirewall(false);
       void loadPbr(false);
     }
-  } catch {
-    if (!signal.aborted) detailError.value = true;
+  } catch (error) {
+    if (!signal.aborted) {
+      detailError.value = true;
+      if ((error as {status?:number})?.status === 409) {
+        detail.value = null; metricsCompareOpen.value = false;
+        taskLifecycle.abort(); statusPoll.stop(); monitorPoll.stop(); stopLive();
+        toast('节点尚未正常在线，已返回服务器列表');
+        void router.replace({path:'/status',query:{view:'nodes'}});
+      }
+    }
   } finally {
     if (!signal.aborted) detailPending.value = false;
   }
@@ -650,7 +662,7 @@ async function fetchChartGroup(full: boolean, signal: AbortSignal) {
   }
 }
 
-const COLORS = ["#ff9ec7", "#7be39a", "#7bd0e3", "#f0c060", "#bf7aff", "#ff8f8f"];
+const COLORS = computed(() => [metricColors.value.cpu, metricColors.value.memory, metricColors.value.disk, '#e5c18c', '#9ac8ad', '#ef939d']);
 
 // ── 基本信息面板（OS/内核/CPU/负载/运行时间，来自 agent os_info）──
 const si = computed(() => detail.value?.sys_info || null);
@@ -733,7 +745,7 @@ function paintTraffic() {
   ifaces.forEach((iface, i) => {
     const points = trafficPoints.value[iface];
     if (!times.length) times = points.map((pt) => fmtAxisTime(new Date(pt.ts).getTime()));
-    const color = COLORS[i % COLORS.length];
+    const color = COLORS.value[i % COLORS.value.length];
     series.push({
       name: `${iface} ↓`, type: "line", smooth: true, showSymbol: false, animation: false,
       data: points.map((pt) => chartRate(pt.rx_delta, trafficIntervals[iface] || 5)),
@@ -892,9 +904,9 @@ function paintSys() {
     xAxis: { type: "category", data: times, boundaryGap: false, axisLine: { lineStyle: { color: "#2a2d35" } }, axisLabel: { color: "#9aa0aa" } },
     yAxis: { type: "value", name: "%", max: 100, axisLabel: { color: "#9aa0aa" }, splitLine: { lineStyle: { color: "#1f2229" } } },
     series: [
-      { name: "CPU", type: "line", smooth: true, showSymbol: false, animation: false, data: points.map((pt) => pt.cpu_pct), lineStyle: { width: 1.5 }, itemStyle: { color: "#ff9ec7" } },
-      { name: "内存", type: "line", smooth: true, showSymbol: false, animation: false, data: points.map((pt) => pt.mem_pct), lineStyle: { width: 1.5 }, itemStyle: { color: "#f0c060" } },
-      { name: "磁盘", type: "line", smooth: true, showSymbol: false, animation: false, data: points.map((pt) => pt.disk_pct), lineStyle: { width: 1.5 }, itemStyle: { color: "#7bd0e3" } },
+      { name: "CPU", type: "line", smooth: true, showSymbol: false, animation: false, data: points.map((pt) => pt.cpu_pct), lineStyle: { width: 1.5 }, itemStyle: { color: metricColors.value.cpu } },
+      { name: "内存", type: "line", smooth: true, showSymbol: false, animation: false, data: points.map((pt) => pt.mem_pct), lineStyle: { width: 1.5 }, itemStyle: { color: metricColors.value.memory } },
+      { name: "磁盘", type: "line", smooth: true, showSymbol: false, animation: false, data: points.map((pt) => pt.disk_pct), lineStyle: { width: 1.5 }, itemStyle: { color: metricColors.value.disk } },
     ],
   }, { notMerge: true });  // notMerge：切时间范围彻底替换 xAxis/series；animation:false 增量不闪
 }
@@ -917,6 +929,7 @@ async function saveIfaces() {
 }
 // 切换时间/单位/时区/网卡时刷新
 
+watch(metricColors, () => { if (sysChart) paintSys(); if (trafficChart) paintTraffic(); });
 watch(unitMode, () => { paintTraffic(); });  // 单位只影响格式化，不重拉数据
 watch(tzOffset, (_off, previousOffset) => {
   if (timeRange.value === "custom" && !liveMode.value) {
@@ -1139,6 +1152,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
       <div class="system-meta"><span v-if="detail.arch">{{ detail.arch }}</span><span v-if="detail.agent_version">Agent v{{ detail.agent_version }}</span></div>
       <span v-if="si?.cpu_model && !si.hardware?.cpu.model" class="legacy-cpu">{{ si.cpu_model }}<template v-if="si.cpu_logical_cores != null"> · <span v-if="si.cpu_cores != null">{{ si.cpu_cores }} 核 / </span>{{ si.cpu_logical_cores }} 线程</template><template v-else-if="si.cpu_cores != null"> · {{ si.cpu_cores }} 线程</template></span>
     </section>
+    <NodeCenterChannel :node="detail" :now="hardwareNow" />
     <HardwareInfoPanel :hardware="si?.hardware" :status="detail.status" :now="hardwareNow" :refresh-failed="detailError" :latest-sys-metric="detail.latest_sys_metric" />
     <StoragePanel :storage="detail.storage" :storage-status="si?.storage_status" :inventory="si?.hardware?.machine?.kind === 'physical' ? si.hardware.physical_inventory : null" :now="hardwareNow" />
 
@@ -1531,7 +1545,7 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
     <section class="panel">
       <div class="panel-head">
         <span class="ph-title">服务监控</span>
-        <span class="ph-hint">增删在总览页 · 点击展开延迟曲线</span>
+        <HelpHint label="监控图表说明">增删在总览页 · 点击展开延迟曲线</HelpHint>
       </div>
       <div class="mon-list">
         <div v-if="!monitorsReady && monitorsPending" class="empty" role="status">正在加载监控项…</div>
@@ -1570,8 +1584,11 @@ function goTool(t: "iperf" | "mtr" | "command" | "records") {
     <!-- 监控项详情浮窗（图表 / MTR 记录 / 编辑） -->
     <MonitorDetailModal
       v-if="monModal"
+      :key="monModal.id"
       :monitor="monModal"
       :node-name="detail?.name ?? ''"
+      :node="detail ?? undefined"
+      @refresh="statusPoll.run()"
       @close="monModal = null"
       @saved="monModal = null; statusPoll.run()"
     />

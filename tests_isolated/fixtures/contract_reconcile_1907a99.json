@@ -1,0 +1,719 @@
+{
+  "provenance": {
+    "evidence_level": "full-main TCP HTTP; real auth; owned PostgreSQL; no dependency overrides",
+    "revision": "1907a99bca24264c50f9b145a21cef0cfda631ad",
+    "migration_head": "47c1d9e2ab60",
+    "source": "/opt/hermes-workstation/docs/Stella-完整收尾/contract-reconcile-1907a99/runtime-http.json",
+    "sha256": "27db48c88a4ce29834eab1970753270db84b84f57e23cb4c369260336de1759c"
+  },
+  "responses": [
+    {
+      "method": "POST",
+      "path": "/documents/",
+      "status": 201,
+      "body": {
+        "id": "0759a872-9a2f-4cf5-8053-d6dc54472d7d",
+        "title": "contract",
+        "file_path": "/contract.md",
+        "workspace_id": "2245ad26-6f5d-4eeb-905e-0667fa2bba98",
+        "parent_id": null,
+        "frontmatter": null,
+        "is_folder": false,
+        "visibility": "private",
+        "is_pinned": false,
+        "is_favorite": false,
+        "status": "draft",
+        "word_count": null,
+        "content_hash": "ac1b5c0961a7269b6a053ee64276ed0e20a7f48aefb9f67519539d23aaf10149",
+        "created_at": "2026-10-16T06:50:12.334520",
+        "updated_at": "2026-10-16T06:50:12.334520",
+        "updated_at_display": "2026-10-16T06:50:12.339321Z",
+        "draft_updated_at": null,
+        "draft_device": null,
+        "has_draft": false,
+        "content": "initial"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{doc_id}",
+      "status": 200,
+      "body": {
+        "id": "0759a872-9a2f-4cf5-8053-d6dc54472d7d",
+        "title": "contract",
+        "file_path": "/contract.md",
+        "workspace_id": "2245ad26-6f5d-4eeb-905e-0667fa2bba98",
+        "parent_id": null,
+        "frontmatter": null,
+        "is_folder": false,
+        "visibility": "private",
+        "is_pinned": false,
+        "is_favorite": false,
+        "status": "draft",
+        "word_count": null,
+        "content_hash": "ac1b5c0961a7269b6a053ee64276ed0e20a7f48aefb9f67519539d23aaf10149",
+        "created_at": "2026-10-16T06:50:12.334520",
+        "updated_at": "2026-10-16T06:50:12.334520",
+        "updated_at_display": "2026-10-16T06:50:12.339321Z",
+        "draft_updated_at": null,
+        "draft_device": null,
+        "has_draft": false,
+        "content": "initial"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/documents/{doc_id}",
+      "status": 200,
+      "body": {
+        "deleted_at": null,
+        "content_hash": "d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a",
+        "draft_content": "retained-slot",
+        "frontmatter": null,
+        "created_at": "2026-10-16T06:50:12.334520",
+        "draft_updated_at": "2026-10-16T06:50:12.361151",
+        "is_folder": false,
+        "updated_at": "2026-10-16T14:50:12.372144",
+        "draft_device": "contract",
+        "visibility": "private",
+        "title": "contract",
+        "is_pinned": false,
+        "last_viewed_at": "2026-10-16T14:50:12.350632",
+        "id": "0759a872-9a2f-4cf5-8053-d6dc54472d7d",
+        "is_favorite": false,
+        "workspace_id": "2245ad26-6f5d-4eeb-905e-0667fa2bba98",
+        "file_path": "/contract.md",
+        "status": "draft",
+        "parent_id": null,
+        "content": "saved",
+        "word_count": null,
+        "updated_at_display": "2026-10-16T06:50:12.372802+00:00"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/documents/{doc_id}",
+      "status": 409,
+      "body": {
+        "detail": {
+          "message": "Conflict",
+          "editor": {
+            "ip": "127.0.0.1",
+            "ua": "python-httpx/0.28.1"
+          }
+        }
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/documents/{doc_id}",
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "loc": [
+              "body"
+            ],
+            "type": "value_error",
+            "msg": "Invalid value"
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{doc_id}/draft",
+      "status": 404,
+      "body": {
+        "detail": "没有未保存草稿"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/timeline",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "kind": "note_updated",
+            "id": "0759a872-9a2f-4cf5-8053-d6dc54472d7d",
+            "label": "contract",
+            "ts": "2026-10-16T06:50:12.372802+00:00",
+            "node_id": 2,
+            "path": "/notes?doc=0759a872-9a2f-4cf5-8053-d6dc54472d7d",
+            "state": null
+          }
+        ],
+        "has_more": false,
+        "unknown_notes_present": false,
+        "history_path": null
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{doc_id}",
+      "status": 200,
+      "body": {
+        "id": "0759a872-9a2f-4cf5-8053-d6dc54472d7d",
+        "title": "contract",
+        "file_path": "/contract.md",
+        "workspace_id": "2245ad26-6f5d-4eeb-905e-0667fa2bba98",
+        "parent_id": null,
+        "frontmatter": null,
+        "is_folder": false,
+        "visibility": "private",
+        "is_pinned": false,
+        "is_favorite": false,
+        "status": "draft",
+        "word_count": null,
+        "content_hash": "d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a",
+        "created_at": "2026-10-16T06:50:12.334520",
+        "updated_at": "2026-10-16T14:50:12.372144",
+        "updated_at_display": null,
+        "draft_updated_at": "2026-10-16T06:50:12.361151",
+        "draft_device": "contract",
+        "has_draft": false,
+        "content": "saved"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/timeline",
+      "status": 200,
+      "body": {
+        "items": [],
+        "has_more": false,
+        "unknown_notes_present": true,
+        "history_path": "/notes"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/documents/",
+      "status": 200,
+      "body": [
+        {
+          "id": "027becf6-ad42-4519-bb3b-e6f6459a718a",
+          "title": "🎨 Stella 样式展示厅",
+          "file_path": "/notes/showcase.md",
+          "workspace_id": "2245ad26-6f5d-4eeb-905e-0667fa2bba98",
+          "parent_id": null,
+          "frontmatter": null,
+          "is_folder": false,
+          "visibility": "private",
+          "is_pinned": false,
+          "is_favorite": false,
+          "status": "draft",
+          "word_count": null,
+          "content_hash": "68c1b39bbc40759878a728c7300feeceb91196f4325437c3e93ca964f8b30ec6",
+          "created_at": "2026-10-16T06:50:12.313861",
+          "updated_at": "2026-10-16T06:50:12.313861",
+          "updated_at_display": "2026-10-16T06:50:12.316184Z",
+          "draft_updated_at": null,
+          "draft_device": null,
+          "has_draft": false
+        },
+        {
+          "id": "0759a872-9a2f-4cf5-8053-d6dc54472d7d",
+          "title": "contract",
+          "file_path": "/contract.md",
+          "workspace_id": "2245ad26-6f5d-4eeb-905e-0667fa2bba98",
+          "parent_id": null,
+          "frontmatter": null,
+          "is_folder": false,
+          "visibility": "private",
+          "is_pinned": false,
+          "is_favorite": false,
+          "status": "draft",
+          "word_count": null,
+          "content_hash": "d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a",
+          "created_at": "2026-10-16T06:50:12.334520",
+          "updated_at": "2026-10-16T14:50:12.372144",
+          "updated_at_display": null,
+          "draft_updated_at": "2026-10-16T06:50:12.361151",
+          "draft_device": "contract",
+          "has_draft": false
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/timeline",
+      "status": 200,
+      "body": {
+        "items": [],
+        "has_more": false,
+        "unknown_notes_present": false,
+        "history_path": null
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/timeline",
+      "status": 401,
+      "body": {
+        "detail": "未登录"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/timeline",
+      "status": 404,
+      "body": {
+        "detail": "工作区不存在"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/timeline",
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "loc": [
+              "query",
+              "limit"
+            ],
+            "type": "less_than_equal",
+            "msg": "Invalid value"
+          }
+        ]
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/documents/{doc_id}",
+      "status": 401,
+      "body": {
+        "detail": "未登录"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/website-settings",
+      "status": 201,
+      "body": {
+        "id": "7985bfa956a746dba1299f66a2c9e63d",
+        "name": "Owned proxy",
+        "icon": "globe",
+        "mode": "isolated_proxy",
+        "adapter": "generic",
+        "browser_url": "http://127.0.0.1:18081/first",
+        "target_id": "147f504c9e684c26b008a48d0cea592b",
+        "initial_path": "/first",
+        "enabled": true,
+        "keep_alive": false,
+        "origin": "https://app-7985bfa956a746dba1299f66a2c9e63d.xiya.live",
+        "injection": {
+          "draft": {
+            "enabled": true,
+            "css": "body {color: blue}",
+            "js": "",
+            "timing": "dom_ready",
+            "csp_policy": "reject"
+          },
+          "active": {
+            "enabled": true,
+            "css": "body {color: blue}",
+            "js": "",
+            "timing": "dom_ready",
+            "csp_policy": "reject",
+            "version": "d0f36fbe6a664c61bc83e56a2567a1b4"
+          },
+          "previous": null
+        },
+        "template_id": null,
+        "connection": {
+          "transport": "auto",
+          "auth_mode": "original",
+          "header_name": "Authorization",
+          "injection_delivery": "proxy",
+          "has_token": false
+        },
+        "background": "solid",
+        "request_policy": {
+          "management_prefixes": [],
+          "read_post_paths": [],
+          "protect_other_writes": false
+        },
+        "route": "/apps/7985bfa956a746dba1299f66a2c9e63d",
+        "capabilities": {
+          "injection": true,
+          "browser_status": "unobservable",
+          "managed_settings": null
+        },
+        "check": {
+          "normalized_url": "http://127.0.0.1:18081/first",
+          "name_suggestion": "Owned target",
+          "access": {
+            "status": "reachable",
+            "http_status": 200
+          },
+          "embedding": {
+            "status": "allowed",
+            "reason_code": "no_observed_restriction",
+            "reason": "未发现响应策略阻断，浏览器内容及登录仍需验证"
+          },
+          "injection": {
+            "status": "supported",
+            "reason": "匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"
+          },
+          "help": null,
+          "can_save": true,
+          "recommended_behavior": "embedded",
+          "issues": []
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/website-settings",
+      "status": 201,
+      "body": {
+        "id": "7985bfa956a746dba1299f66a2c9e63d",
+        "name": "Owned proxy",
+        "icon": "globe",
+        "mode": "isolated_proxy",
+        "adapter": "generic",
+        "browser_url": "http://127.0.0.1:18081/first",
+        "target_id": "147f504c9e684c26b008a48d0cea592b",
+        "initial_path": "/first",
+        "enabled": true,
+        "keep_alive": false,
+        "origin": "https://app-7985bfa956a746dba1299f66a2c9e63d.xiya.live",
+        "injection": {
+          "draft": {
+            "enabled": true,
+            "css": "body {color: blue}",
+            "js": "",
+            "timing": "dom_ready",
+            "csp_policy": "reject"
+          },
+          "active": {
+            "enabled": true,
+            "css": "body {color: blue}",
+            "js": "",
+            "timing": "dom_ready",
+            "csp_policy": "reject",
+            "version": "d0f36fbe6a664c61bc83e56a2567a1b4"
+          },
+          "previous": null
+        },
+        "template_id": null,
+        "connection": {
+          "transport": "auto",
+          "auth_mode": "original",
+          "header_name": "Authorization",
+          "injection_delivery": "proxy",
+          "has_token": false
+        },
+        "background": "solid",
+        "request_policy": {
+          "management_prefixes": [],
+          "read_post_paths": [],
+          "protect_other_writes": false
+        },
+        "route": "/apps/7985bfa956a746dba1299f66a2c9e63d",
+        "capabilities": {
+          "injection": true,
+          "browser_status": "unobservable",
+          "managed_settings": null
+        },
+        "check": {
+          "normalized_url": "http://127.0.0.1:18081/first",
+          "name_suggestion": "Owned target",
+          "access": {
+            "status": "reachable",
+            "http_status": 200
+          },
+          "embedding": {
+            "status": "allowed",
+            "reason_code": "no_observed_restriction",
+            "reason": "未发现响应策略阻断，浏览器内容及登录仍需验证"
+          },
+          "injection": {
+            "status": "supported",
+            "reason": "匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"
+          },
+          "help": null,
+          "can_save": true,
+          "recommended_behavior": "embedded",
+          "issues": []
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/website-settings/check",
+      "status": 200,
+      "body": {
+        "normalized_url": "http://127.0.0.1:18081/second",
+        "name_suggestion": "Owned target",
+        "access": {
+          "status": "reachable",
+          "http_status": 200
+        },
+        "embedding": {
+          "status": "allowed",
+          "reason_code": "no_observed_restriction",
+          "reason": "未发现响应策略阻断，浏览器内容及登录仍需验证"
+        },
+        "injection": {
+          "status": "supported",
+          "reason": "匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"
+        },
+        "help": null,
+        "can_save": true,
+        "recommended_behavior": "embedded",
+        "issues": []
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/website-settings/{mid}",
+      "status": 200,
+      "body": {
+        "id": "7985bfa956a746dba1299f66a2c9e63d",
+        "name": "Edited",
+        "icon": "globe",
+        "mode": "isolated_proxy",
+        "adapter": "generic",
+        "browser_url": "http://127.0.0.1:18081/second",
+        "target_id": "147f504c9e684c26b008a48d0cea592b",
+        "initial_path": "/second",
+        "enabled": true,
+        "keep_alive": false,
+        "origin": "https://app-7985bfa956a746dba1299f66a2c9e63d.xiya.live",
+        "injection": {
+          "draft": {
+            "enabled": true,
+            "css": "body {color: blue}",
+            "js": "",
+            "timing": "dom_ready",
+            "csp_policy": "reject"
+          },
+          "active": {
+            "enabled": true,
+            "css": "body {color: blue}",
+            "js": "",
+            "timing": "dom_ready",
+            "csp_policy": "reject",
+            "version": "d0f36fbe6a664c61bc83e56a2567a1b4"
+          },
+          "previous": null
+        },
+        "template_id": null,
+        "connection": {
+          "transport": "auto",
+          "auth_mode": "original",
+          "header_name": "Authorization",
+          "injection_delivery": "proxy",
+          "has_token": false
+        },
+        "background": "solid",
+        "request_policy": {
+          "management_prefixes": [],
+          "read_post_paths": [],
+          "protect_other_writes": false
+        },
+        "route": "/apps/7985bfa956a746dba1299f66a2c9e63d",
+        "capabilities": {
+          "injection": true,
+          "browser_status": "unobservable",
+          "managed_settings": null
+        },
+        "check": {
+          "normalized_url": "http://127.0.0.1:18081/second",
+          "name_suggestion": "Owned target",
+          "access": {
+            "status": "reachable",
+            "http_status": 200
+          },
+          "embedding": {
+            "status": "allowed",
+            "reason_code": "no_observed_restriction",
+            "reason": "未发现响应策略阻断，浏览器内容及登录仍需验证"
+          },
+          "injection": {
+            "status": "supported",
+            "reason": "匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"
+          },
+          "help": null,
+          "can_save": true,
+          "recommended_behavior": "embedded",
+          "issues": []
+        }
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/website-settings/{mid}",
+      "status": 200,
+      "body": {
+        "id": "7985bfa956a746dba1299f66a2c9e63d",
+        "name": "Edited",
+        "icon": "globe",
+        "mode": "isolated_proxy",
+        "adapter": "generic",
+        "browser_url": "http://127.0.0.1:18081/second",
+        "target_id": "147f504c9e684c26b008a48d0cea592b",
+        "initial_path": "/second",
+        "enabled": true,
+        "keep_alive": false,
+        "origin": "https://app-7985bfa956a746dba1299f66a2c9e63d.xiya.live",
+        "injection": {
+          "draft": {
+            "enabled": false,
+            "css": "body {color: blue}",
+            "js": "",
+            "timing": "dom_ready",
+            "csp_policy": "reject"
+          },
+          "active": {
+            "enabled": false,
+            "css": "body {color: blue}",
+            "js": "",
+            "timing": "dom_ready",
+            "csp_policy": "reject",
+            "version": "5f793d361c934da19d224986fe7fe3b1"
+          },
+          "previous": {
+            "enabled": true,
+            "css": "body {color: blue}",
+            "js": "",
+            "timing": "dom_ready",
+            "csp_policy": "reject",
+            "version": "d0f36fbe6a664c61bc83e56a2567a1b4"
+          }
+        },
+        "template_id": null,
+        "connection": {
+          "transport": "auto",
+          "auth_mode": "original",
+          "header_name": "Authorization",
+          "injection_delivery": "proxy",
+          "has_token": false
+        },
+        "background": "solid",
+        "request_policy": {
+          "management_prefixes": [],
+          "read_post_paths": [],
+          "protect_other_writes": false
+        },
+        "route": "/apps/7985bfa956a746dba1299f66a2c9e63d",
+        "capabilities": {
+          "injection": true,
+          "browser_status": "unobservable",
+          "managed_settings": null
+        },
+        "check": {
+          "normalized_url": "http://127.0.0.1:18081/second",
+          "name_suggestion": "Owned target",
+          "access": {
+            "status": "reachable",
+            "http_status": 200
+          },
+          "embedding": {
+            "status": "allowed",
+            "reason_code": "no_observed_restriction",
+            "reason": "未发现响应策略阻断，浏览器内容及登录仍需验证"
+          },
+          "injection": {
+            "status": "supported",
+            "reason": "匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"
+          },
+          "help": null,
+          "can_save": true,
+          "recommended_behavior": "embedded",
+          "issues": []
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/website-settings/check",
+      "status": 200,
+      "body": {
+        "normalized_url": "http://127.0.0.1:18081/",
+        "name_suggestion": "Owned target",
+        "access": {
+          "status": "reachable",
+          "http_status": 200
+        },
+        "embedding": {
+          "status": "allowed",
+          "reason_code": "no_observed_restriction",
+          "reason": "未发现响应策略阻断，浏览器内容及登录仍需验证"
+        },
+        "injection": {
+          "status": "supported",
+          "reason": "匿名 HTML 未发现 CSP/XFO/meta 限制；仍需隔离页面浏览器验证"
+        },
+        "help": null,
+        "can_save": true,
+        "recommended_behavior": "embedded",
+        "issues": []
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/website-settings/{mid}",
+      "status": 403,
+      "body": {
+        "detail": {
+          "code": "admin_elevation_required",
+          "message": "请验证独立管理密码"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/website-settings/check",
+      "status": 401,
+      "body": {
+        "detail": "未登录"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/website-settings/check",
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "connection"
+            ],
+            "type": "value_error",
+            "msg": "Invalid value"
+          }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/website-settings",
+      "status": 422,
+      "body": {
+        "detail": "新增网站需要 idempotency_key"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/website-settings/{mid}",
+      "status": 404,
+      "body": {
+        "detail": "模块不存在"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/website-settings",
+      "status": 409,
+      "body": {
+        "detail": "幂等键已用于不同的网站草稿"
+      }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import {test as base,expect,type Page} from '@playwright/test';
 import fs from 'node:fs';
+import {createClientPreferencesFixture} from '../tests/fixtures/clientPreferences';
 export const MAIN='http://127.0.0.1:15487';
 export const CHILD='http://127.0.0.1:15488'; // Intercepted, genuinely different origin; no server/proxy.
 export const ID='qa-drive';
@@ -8,8 +9,10 @@ export const expected=[
  {id:ID,label:'测试网盘',href:'/apps/'+ID},
  {id:'quota',label:'测试额度',href:'/apps/quota'},
  {id:'settings',label:'控制中心',href:'/settings'},
+ {id:'nav',label:'导航',href:'/nav'},
 ];
-export const entries=[{id:'home',title:'首页'},{id:ID,title:'测试网盘'},{id:'quota',title:'测试额度'},{id:'settings',title:'控制中心'},{id:'notes',visible:false},{id:'status',visible:false}];
+export const entries=[{id:'home',title:'首页',icon:'home',visible:true},{id:ID,title:'测试网盘',icon:'drive',visible:true},{id:'quota',title:'测试额度',icon:'globe',visible:true},{id:'settings',title:'控制中心',icon:'settings',visible:true},{id:'notes',title:'笔记',icon:'note',visible:false},{id:'status',title:'服务器',icon:'server',visible:false}];
+export function summary(module:any){const {id,name,icon,mode,adapter,browser_url,enabled,keep_alive,background,template_id}=module;return {id,name,icon,mode,adapter,browser_url,enabled,keep_alive,background,template_id};}
 export const defaultModule=()=>({id:ID,name:'测试网盘',icon:'drive',mode:'isolated_proxy',adapter:'generic',browser_url:CHILD+'/frame',origin:CHILD,enabled:true,keep_alive:true,background:'solid',injection:{active:null,draft:null,previous:null}});
 type GateName='auth'|'navigation'|'modules';
 export class Gate {
@@ -27,6 +30,11 @@ export async function setup(page:Page,options:HarnessOptions={}){
  const modules=[options.module||defaultModule(),{...defaultModule(),id:'quota',name:'测试额度',mode:'link'}];
  const user={id:'qa-owner',username:'qa-owner',display_name:'隔离QA',is_admin:false,avatar_url:'/avatar.png',home_bg:options.background||MAIN+'/qa-pattern.svg',email:'',email_verified:false};
  const requests:any[]=[],unknown:string[]=[],errors:string[]=[],consoleErrors:string[]=[];
+ const storage:Record<string,string>={stella_live2d:'off',stella_home_particles:'off',...options.storage};
+ // Ordinary fixtures represent an explicitly configured website, not a legacy
+ // device override. Dedicated legacy cases keep their exact raw storage input.
+ if(!('stella_drive_bg_mode' in storage)&&!('__stella_drive_bg_mode__' in storage))storage['stella_website_background_explicit:qa-owner:'+modules[0].id]='1';
+ const preferences=createClientPreferencesFixture({storage,allowWrite:true});
  await page.context().addInitScript(({storage,main})=>{
   if(location.origin===main){localStorage.setItem('stella_live2d','off');localStorage.setItem('stella_home_particles','off');for(const [k,v]of Object.entries(storage))localStorage.setItem(k,v);}
   const w=window as any;w.__experience={navigation:[],messages:[],frames:[],events:[],start:performance.timeOrigin};
@@ -34,18 +42,19 @@ export async function setup(page:Page,options:HarnessOptions={}){
   window.addEventListener('message',e=>{if(e.data?.type?.startsWith('stella-bg-'))w.__experience.messages.push({t:stamp(),origin:e.origin,sourceParent:e.source===parent,data:e.data});});
   document.addEventListener('DOMContentLoaded',()=>w.__experience.events.push({type:'DCL',t:stamp()}));
   window.addEventListener('load',()=>w.__experience.events.push({type:'load',t:stamp()}));
-  let prev='',framePrev='';
+  let prev='',framePrev='';const loadedFrames=new WeakSet<Element>();
+  document.addEventListener('load',e=>{if(e.target instanceof HTMLIFrameElement){loadedFrames.add(e.target);sample();}},{capture:true});
   function sample(){
    const rows=[...document.querySelectorAll<HTMLAnchorElement>('.sidebar nav a.nav-item')].filter(el=>{const s=getComputedStyle(el),r=el.getBoundingClientRect();return s.visibility!=='hidden'&&s.display!=='none'&&Number(s.opacity)!==0&&s.pointerEvents!=='none'&&r.width>0&&r.height>0&&!el.closest('[inert]');}).map(el=>{
     const href=el.getAttribute('href')||'',r=el.getBoundingClientRect();return {id:href.startsWith('/apps/')?href.split('/')[2]:href==='/'?'home':href.slice(1),label:el.querySelector('.label')?.textContent?.trim()||el.textContent?.trim(),href,x:r.x,y:r.y,width:r.width,height:r.height};
    });
    const next=JSON.stringify(rows);if(next!==prev){prev=next;w.__experience.navigation.push({t:stamp(),path:location.pathname,rows});}
-   const frames=[...document.querySelectorAll<HTMLIFrameElement>('.external-page iframe')].map(f=>{const s=getComputedStyle(f),r=f.getBoundingClientRect();return {src:f.src,opacity:s.opacity,visibility:s.visibility,display:s.display,x:r.x,y:r.y,width:r.width,height:r.height};});
+   const frames=[...document.querySelectorAll<HTMLIFrameElement>('.external-page iframe')].map(f=>{const s=getComputedStyle(f),r=f.getBoundingClientRect(),overlay=f.parentElement?.querySelector('.external-loading'),cover=overlay&&getComputedStyle(overlay);return {src:f.src,loaded:loadedFrames.has(f),covered:!!cover&&cover.display!=='none'&&cover.visibility!=='hidden'&&Number(cover.opacity)>0,opacity:s.opacity,visibility:s.visibility,display:s.display,x:r.x,y:r.y,width:r.width,height:r.height};});
    const fp=JSON.stringify(frames);if(fp!==framePrev){framePrev=fp;w.__experience.frames.push({t:stamp(),frames});}
   }
   new MutationObserver(sample).observe(document,{childList:true,attributes:true,subtree:true,characterData:true});
   function tick(){sample();requestAnimationFrame(tick);}requestAnimationFrame(tick);
- },{storage:options.storage||{},main:MAIN});
+ },{storage,main:MAIN});
  page.on('pageerror',e=>errors.push(e.stack||e.message));
  page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});
  await page.context().routeWebSocket('**/*',ws=>{
@@ -62,8 +71,10 @@ export async function setup(page:Page,options:HarnessOptions={}){
   if(m==='GET'&&req.isNavigationRequest()&&req.frame()===page.mainFrame()&&(p==='/'||p==='/drive'||p==='/settings'||p==='/notes'||p.startsWith('/apps/')||p==='/login'))return route.continue();
   if(p==='/qa-pattern.svg')return route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1000"><rect width="600" height="1000" fill="#e43c50"/><rect x="600" width="600" height="1000" fill="#28b8ca"/></svg>'});
   requests.push({t:Date.now(),path:p,method:m});
+  const preferenceResponse=preferences.respond(m,p+u.search,req.postDataJSON());
+  if(preferenceResponse)return route.fulfill(preferenceResponse);
   if(p==='/auth/me'&&m==='GET'){await gates.auth.wait();return json(user,gates.auth.status);}
-  if(p==='/navigation'&&m==='GET'){await gates.navigation.wait();return json({entries,legacy_routes:{drive:ID}},gates.navigation.status);}
+  if(p==='/navigation'&&m==='GET'){await gates.navigation.wait();return json({entries,modules:modules.map(summary),legacy_routes:{drive:ID},revision:0,mutation_id:null},gates.navigation.status);}
   if(p==='/external-modules'&&m==='GET'){await gates.modules.wait();return json(modules,gates.modules.status);}
   if(p==='/auth/status'&&m==='GET')return json({initialized:true,has_users:true,single_user:true,email_enabled:false});
   if(p==='/auth/security'&&m==='GET')return json({enabled:true,configured:true,elevated:false,single_user:true,setup_required:false});

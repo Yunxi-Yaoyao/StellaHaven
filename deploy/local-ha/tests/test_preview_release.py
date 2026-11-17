@@ -136,11 +136,11 @@ class PreviewTests(unittest.TestCase):
         ci = yaml.safe_load((ROOT.parents[1] / '.gitlab-ci.yml').read_text())
         job = ci['local-ha-preview']
         self.assertEqual(job['resource_group'], 'stella-ha-preview')
-        self.assertEqual(job['rules'][0]['when'], 'manual')
+        self.assertEqual(job['rules'], [{'when': 'never'}])
         self.assertEqual(job['environment']['deployment_tier'], 'testing')
         self.assertEqual(job['artifacts']['when'], 'always')
         self.assertFalse(job['interruptible'])
-        self.assertIn('feature/local-ha-20260915', job['rules'][0]['if'])
+        self.assertEqual(job['tags'], ['stella-isolated-deploy'])
         self.assertNotIn('local-ha-apply', ci)
 
 

@@ -26,6 +26,44 @@ def capture(data: QuickRecord, db: Session = Depends(get_db), user: User = Depen
     return result
 
 
+class TemplateCreate(BaseModel):
+    template_id: UUID
+    parent_id: UUID | None = None
+    title: str = Field(min_length=1, max_length=200)
+
+
+@router.post('/templates/{workspace_id}/initialize')
+def initialize_templates(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    require_ws_owner(db, workspace_id, user)
+    from app.services.notes_templates import initialize, catalog
+    initialize(db, workspace_id)
+    return catalog(db, workspace_id)
+
+
+@router.get('/templates/{workspace_id}')
+def list_templates(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    require_ws_owner(db, workspace_id, user)
+    from app.services.notes_templates import catalog
+    return catalog(db, workspace_id)
+
+
+@router.post('/templates/{workspace_id}/create', response_model=DocumentRead, status_code=201)
+def copy_template(workspace_id: UUID, data: TemplateCreate, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    require_ws_owner(db, workspace_id, user)
+    from app.services.notes_templates import create_from_template
+    doc = create_from_template(db, workspace_id, data.template_id, data.parent_id, data.title)
+    from app.routers.document import notify_list
+    notify_list(workspace_id, doc.id)
+    return doc
+
+
+@router.post('/templates/{workspace_id}/copy/{source_id}', response_model=DocumentRead, status_code=201)
+def save_template(workspace_id: UUID, source_id: UUID, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    require_ws_owner(db, workspace_id, user)
+    from app.services.notes_templates import copy_into_templates
+    return copy_into_templates(db, workspace_id, source_id)
+
+
 class NoteNode(BaseModel):
     node_id: int | None = Field(default=None, ge=1)
 

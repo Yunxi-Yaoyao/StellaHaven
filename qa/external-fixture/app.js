@@ -1,0 +1,1 @@
+const out=document.getElementById('state');out.textContent=localStorage.getItem('acceptance')||'EMPTY';document.getElementById('save').onclick=()=>{localStorage.setItem('acceptance','REAL-RUNTIME-PERSISTED-20261019');out.textContent=localStorage.getItem('acceptance')};document.body.dataset.realScript='executed';

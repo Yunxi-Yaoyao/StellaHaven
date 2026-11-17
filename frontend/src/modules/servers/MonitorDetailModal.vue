@@ -9,19 +9,30 @@ import { createRequestLane } from "./polling";
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import * as echarts from "./chartRuntime";
 import {
-  getMonitorSeries, updateMonitor, listMonitorMtr, runMonitorMtr,
-  mtrHopRows, type Monitor, type MtrTask, type MonitorCheckPoint, type MtrHopRow,
+  getMonitorSeries, updateMonitor, listMonitors, listMonitorMtr, runMonitorMtr,
+  mtrHopRows, type Monitor, type Node, type MtrTask, type MonitorCheckPoint, type MtrHopRow,
 } from "../../api/servers";
+import NodeComponents from "./NodeComponents.vue";
+import { reachable, componentInstalled, errorDetail } from "./serverState";
 import { toast } from "../../composables/useToast";
 import Icon from "../../shell/Icon.vue";
 import Dropdown from "../../shell/Dropdown.vue";
+import {monitorTarget,monitorTargetError,monitorWriteError} from './monitorTarget';
+import {monitorStatusReason} from './monitorStatusLabel';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   monitor: Monitor;
   nodeName: string;
+  node?: Node;
   initialTab?: "chart" | "mtr" | "edit";
-}>();
-const emit = defineEmits<{ close: []; saved: [] }>();
+  allowEdit?: boolean;
+}>(), {allowEdit:true});
+const emit = defineEmits<{ close: []; saved: []; refresh: [] }>();
+const clock = ref(Date.now());
+const clockTimer = setInterval(() => { clock.value = Date.now(); }, 1000);
+onUnmounted(() => clearInterval(clockTimer));
+const canRunMtr = computed(() => !!props.node && reachable(props.node, clock.value) && componentInstalled(props.node.components?.mtr) !== false);
+const missingMtr = computed(() => componentInstalled(props.node?.components?.mtr) === false);
 
 const tab = ref<"chart" | "mtr" | "edit">(props.initialTab ?? "chart");
 
@@ -32,6 +43,9 @@ const RANGES = [
   { s: 3600, label: "1h" }, { s: 21600, label: "6h" }, { s: 86400, label: "24h" }, { s: 604800, label: "7d" },
 ];
 const range = ref(86400);
+const seriesError = ref('');
+const hourError = ref('');
+const mtrError = ref('');
 const points = ref<MonitorCheckPoint[]>([]);
 const chartEl = ref<HTMLElement | null>(null);
 let chart: echarts.ECharts | null = null;
@@ -59,9 +73,10 @@ async function loadSeries() {
     const rows = await getMonitorSeries(props.monitor.id, { ...opts, signal });
     if (signal.aborted) return;
     points.value = rows;
+    seriesError.value = '';
     await nextTick();
     paintChart();
-  } catch { /* 静默 */ }
+  } catch (e) { if (!signal.aborted) seriesError.value = errorDetail(e, '图表加载失败，请重试'); }
   });
 }
 
@@ -73,8 +88,8 @@ async function loadHourBuckets() {
     const rows = await getMonitorSeries(props.monitor.id, {
       start: start.toISOString(), end: end.toISOString(), step: 3600, signal,
     });
-    if (!signal.aborted) hourBuckets.value = rows;
-  } catch { /* 静默 */ }
+    if (!signal.aborted) { hourBuckets.value = rows; hourError.value = ''; }
+  } catch (e) { if (!signal.aborted) hourError.value = errorDetail(e, '可用率加载失败，请重试'); }
   });
 }
 
@@ -131,8 +146,8 @@ function paintChart() {
       },
       {
         name: "丢包率", type: "line", yAxisIndex: 1, showSymbol: false, step: "end",
-        // 失败=100%；ping 有逐次真实丢包率
-        data: pts.map((p) => (!p.success ? 100 : +(p.loss_pct ?? 0).toFixed(1))),
+        // Connection failure is not a packet measurement; keep missing samples as gaps.
+        data: pts.map((p) => (p.loss_pct != null ? +p.loss_pct.toFixed(1) : null)),
         lineStyle: { width: 1, color: "#e58aa5" }, itemStyle: { color: "#e58aa5" },
         areaStyle: { color: "#e58aa5", opacity: 0.06 },
       },
@@ -169,16 +184,21 @@ function hopRows(t: MtrTask): MtrHopRow[] {
 }
 
 async function loadMtr() {
+  if (mtrLoading.value) return;
+  const signal = mtrLifecycle.signal;
   mtrLoading.value = true;
-  try { mtrList.value = await listMonitorMtr(props.monitor.id); }
-  catch { /* 静默 */ } finally { mtrLoading.value = false; }
+  try {
+    const rows = await listMonitorMtr(props.monitor.id, signal);
+    if (!signal.aborted) { mtrList.value = rows; mtrError.value = ''; }
+  } catch (e) { if (!signal.aborted) mtrError.value = errorDetail(e, 'MTR 记录加载失败，请重试'); }
+  finally { if (!signal.aborted) mtrLoading.value = false; }
 }
 
 let mtrLifecycle = new AbortController();
 watch(() => props.monitor.id, () => { mtrLifecycle.abort(); mtrLifecycle = new AbortController(); mtrRunning.value = false; }, { flush: "sync" });
 onUnmounted(() => mtrLifecycle.abort());
 async function runMtrNow() {
-  if (mtrRunning.value) return;
+  if (mtrRunning.value || !canRunMtr.value) return;
   const signal = mtrLifecycle.signal;
   const id = props.monitor.id;
   mtrRunning.value = true;
@@ -212,7 +232,7 @@ const MON_TYPES = [
   { value: "tcp", label: "TCP 端口" }, { value: "http", label: "HTTP" }, { value: "https", label: "HTTPS" },
   { value: "ping", label: "Ping" }, { value: "udp", label: "UDP" },
 ];
-const monNeedPort = computed(() => monType.value !== "ping");
+const monNeedPort = computed(() => monType.value === "tcp" || monType.value === "udp");
 const monPortRequired = computed(() => monType.value === "tcp" || monType.value === "udp");
 const monPortPlaceholder = computed(() =>
   monType.value === "https" ? "默认 443" : monType.value === "http" ? "默认 80" : "1-65535");
@@ -225,34 +245,34 @@ function splitTarget(target: string): { host: string; port: string } {
   }
   return { host: target, port: "" };
 }
-const initTarget = splitTarget(props.monitor.target);
+const initTarget = ["tcp","udp"].includes(props.monitor.type) ? splitTarget(props.monitor.target) : {host:props.monitor.target,port:""};
 monHost.value = initTarget.host;
 monPort.value = initTarget.port;
 
 const saving = ref(false);
+const saveError = ref('');
+const automatic = computed(()=>props.monitor.management === 'entry_icmp');
+const editTarget = computed(()=>monNeedPort.value ? `${monHost.value}:${monPort.value}` : monHost.value);
+const targetError = computed(()=>automatic.value?'':monitorTargetError(monType.value,editTarget.value));
 async function saveEdit() {
   if (saving.value) return;
-  const host = monHost.value.replace(/：/g, ":").replace(/\s+/g, "").trim();
-  const port = monPort.value.replace(/\D/g, "");
-  if (!monName.value.trim()) { toast("名称要填喵~"); return; }
-  if (!host) { toast("主机要填喵~"); return; }
-  let target = host;
-  if (monType.value !== "ping") {
-    if (!port && monPortRequired.value) { toast("TCP/UDP 必须填端口喵~"); return; }
-    if (port) {
-      const p = Number(port);
-      if (p < 1 || p > 65535) { toast("端口范围是 1-65535 喵~"); return; }
-      target = `${host}:${p}`;
-    }
+  saveError.value='';
+  if (!monName.value.trim()) { saveError.value='名称不能为空'; return; }
+  const changed=monType.value!==props.monitor.type||editTarget.value!==props.monitor.target;
+  if(!automatic.value&&changed&&targetError.value){saveError.value=targetError.value;return;}
+  const fields: {name:string;interval?:number;type?:string;target?:string} = {name:monName.value.trim()};
+  if(!automatic.value){
+    fields.interval=monInterval.value;
+    if(changed){fields.type=monType.value;fields.target=monitorTarget(monType.value,editTarget.value);}
   }
   saving.value = true;
   try {
-    await updateMonitor(props.monitor.id, {
-      name: monName.value.trim(), type: monType.value, target, interval: monInterval.value,
-    });
+    await updateMonitor(props.monitor.id,fields);
+    const stored=(await listMonitors()).find(m=>m.id===props.monitor.id);
+    if(!stored||stored.name!==fields.name||(!automatic.value&&(stored.target!==(fields.target??props.monitor.target)||stored.type!==monType.value||stored.interval!==monInterval.value)))throw new Error('保存尚未确认，请刷新后重试');
     toast("已保存喵~");
     emit("saved");
-  } catch { toast("保存失败"); } finally { saving.value = false; }
+  } catch(e:any) { saveError.value=monitorWriteError(e,'保存失败，请重试'); } finally { saving.value = false; }
 }
 
 // ═══════════ 生命周期 ═══════════
@@ -285,22 +305,26 @@ onUnmounted(() => {
       <div class="mdl-tabs">
         <button class="mdl-tab" :class="{ active: tab === 'chart' }" @click="tab = 'chart'">图表</button>
         <button class="mdl-tab" :class="{ active: tab === 'mtr' }" @click="tab = 'mtr'">MTR 记录</button>
-        <button class="mdl-tab" :class="{ active: tab === 'edit' }" @click="tab = 'edit'">编辑</button>
+        <button v-if="allowEdit!==false" class="mdl-tab" :class="{ active: tab === 'edit' }" @click="tab = 'edit'">编辑</button>
       </div>
 
       <!-- Tab1 图表 -->
       <div v-show="tab === 'chart'" class="mdl-body">
+        <p data-sampling-meta class="sampling-meta">每 {{ monitor.interval }} 秒检测 · 超时 {{ monitor.timeout }} 秒<span v-if="monitor.last_check_at"> · 最近 {{ new Date(monitor.last_check_at).toLocaleString('zh-CN') }}</span></p>
+        <p v-if="monitor.status!=='up' && monitorStatusReason(monitor)" data-monitor-cause class="sampling-cause">{{ monitorStatusReason(monitor) }}</p>
         <div v-if="stats" class="stat-row">
           <div class="stat"><span class="s-label">可用率</span><span class="s-value">{{ stats.avail.toFixed(1) }}%</span></div>
           <div class="stat"><span class="s-label">平均延迟</span><span class="s-value">{{ stats.avgLat != null ? stats.avgLat.toFixed(1) + "ms" : "—" }}</span></div>
-          <div class="stat"><span class="s-label">丢包率</span><span class="s-value">{{ stats.loss.toFixed(1) }}%</span></div>
+          <div class="stat"><span class="s-label">丢包率</span><span class="s-value">{{ stats.loss != null ? stats.loss.toFixed(1) + '%' : '未测量' }}</span></div>
           <div class="stat"><span class="s-label">探测次数</span><span class="s-value">{{ stats.total }}</span></div>
           <span class="flex-spacer" />
           <div class="range-switch">
             <button v-for="r in RANGES" :key="r.s" class="rg-btn" :class="{ active: range === r.s }" @click="range = r.s">{{ r.label }}</button>
           </div>
         </div>
+        <p v-if="seriesError" class="sampling-cause" role="alert">{{ seriesError }} <button class="mini-btn" @click="loadSeries">重试</button></p>
         <div ref="chartEl" class="mdl-chart" />
+        <p v-if="hourError" class="sampling-cause" role="alert">{{ hourError }} <button class="mini-btn" @click="loadHourBuckets">重试</button></p>
         <div class="avail-row">
           <span class="a-label">24h 可用率</span>
           <div class="blocks">
@@ -311,14 +335,20 @@ onUnmounted(() => {
 
       <!-- Tab2 MTR -->
       <div v-show="tab === 'mtr'" class="mdl-body">
+        <p v-if="!node || !reachable(node, clock)" class="sampling-cause">探测节点尚未在线，恢复连接后可执行 MTR。</p>
+        <template v-else-if="missingMtr">
+          <p class="sampling-cause">{{ nodeName }} 未安装 MTR，可在下方下发安装；完成并检测到组件后即可执行。</p>
+          <NodeComponents :nodes="[node]" :comps="['mtr']" @refresh="emit('refresh')" />
+        </template>
         <div class="mtr-bar">
           <span class="mtr-hint">近 60 天 · 每 30 分钟定时 + 失败自动触发</span>
           <span class="flex-spacer" />
-          <button class="mini-btn" :disabled="mtrRunning" @click="runMtrNow">
+          <button class="mini-btn" :disabled="mtrRunning || !canRunMtr" @click="runMtrNow">
             <Icon name="activity" :size="12" /> {{ mtrRunning ? "执行中…" : "立即 MTR" }}
           </button>
         </div>
-        <div v-if="!mtrList.length && !mtrLoading" class="empty">还没有 MTR 记录，点右上角跑一次喵~</div>
+        <p v-if="mtrError" class="sampling-cause" role="alert">{{ mtrError }} <button class="mini-btn" @click="loadMtr">重试</button></p>
+        <div v-if="!mtrList.length && !mtrLoading && !mtrError" class="empty">还没有 MTR 记录，点右上角跑一次喵~</div>
         <div class="mtr-list">
           <template v-for="t in mtrList" :key="t.id">
             <div class="mtr-row clickable" @click="mtrOpenId = mtrOpenId === t.id ? null : t.id">
@@ -350,20 +380,24 @@ onUnmounted(() => {
 
       <!-- Tab3 编辑 -->
       <div v-show="tab === 'edit'" class="mdl-body edit-body">
+        <p v-if="automatic" class="lbl-hint">自动入口 ICMP：固定每 60 秒采样，超时 1 秒。可改名称；更换目标、协议或节点请新建普通监控项。</p>
         <label>名称</label>
-        <input v-model="monName" />
+        <input v-model="monName" maxlength="64" :disabled="saving" />
         <label>类型</label>
-        <Dropdown v-model="monType" :options="MON_TYPES" />
-        <label>{{ monType.startsWith("http") ? "主机 / 域名（可带路径）" : "主机 / IP / 域名" }}</label>
-        <input v-model="monHost" :placeholder="monType.startsWith('http') ? '如 example.com/health' : '如 example.com 或 1.2.3.4'" />
+        <div v-if="automatic" class="node-fixed">Ping · 自动入口</div><Dropdown v-else v-model="monType" :options="MON_TYPES" />
+        <p v-if="monitorStatusReason(monitor)" class="lbl-hint">{{monitorStatusReason(monitor)}}</p>
+        <label>{{ monType.startsWith("http") ? "完整 URL（含协议，可带路径）" : "主机 / IP / 域名" }}</label>
+        <input v-model="monHost" :disabled="automatic||saving" :placeholder="monType.startsWith('http') ? monType+'://example.com/health' : '如 nas、1.2.3.4 或 [IPv6]'" :aria-invalid="!!targetError" />
         <template v-if="monNeedPort">
           <label>端口<span v-if="!monPortRequired" class="lbl-hint">（可空）</span></label>
           <input v-model="monPort" inputmode="numeric" :placeholder="monPortPlaceholder" />
         </template>
+        <p v-if="targetError" role="alert" class="save-error">{{targetError}}；原目标未更改时仍可保存名称。</p>
         <label>探测节点</label>
         <div class="node-fixed">{{ nodeName }}<span class="lbl-hint">不可换节点（历史数据挂在原节点上）</span></div>
         <label>探测间隔（秒）</label>
-        <input v-model.number="monInterval" type="number" min="10" />
+        <input v-model.number="monInterval" type="number" min="10" :disabled="automatic||saving" />
+        <p v-if="saveError" role="alert" class="save-error">{{saveError}}</p>
         <div class="edit-foot">
           <button class="confirm" :disabled="saving" @click="saveEdit">{{ saving ? "保存中…" : "保存" }}</button>
         </div>
@@ -373,6 +407,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+:deep(.c-install) { opacity: 1; }
+.sampling-meta{margin:0 0 10px;color:var(--text-lo);font-size:12px;line-height:1.6;overflow-wrap:anywhere}.sampling-cause{margin:0 0 12px;color:var(--danger,#ed9299);font-size:13px;line-height:1.6}
 .mask { position: fixed; inset: 0; background: rgba(10, 12, 18, 0.6); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .mdl { width: 720px; max-width: 92vw; max-height: 86vh; overflow-y: auto; background: var(--bg-raised, #1a1e2a); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 18px 22px; }
 .mdl-head { display: flex; align-items: baseline; gap: 10px; }
@@ -438,7 +474,9 @@ onUnmounted(() => {
 .edit-body input:focus { border-color: var(--pink, #e58aa5); }
 .lbl-hint { color: var(--text-faint, #5b6373); font-size: 11px; font-weight: 400; margin-left: 6px; }
 .node-fixed { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; color: var(--text-faint, #5b6373); font-size: 13px; padding: 8px 10px; cursor: not-allowed; }
-.edit-foot { margin-top: 18px; display: flex; justify-content: flex-end; }
+.edit-foot { position:sticky;bottom:0;z-index:1;margin-top:12px;padding-block:10px;display:flex;justify-content:flex-end;background:var(--bg-raised,#1a1e2a);border-top:1px solid var(--accent-dim); }
+.edit-foot .confirm{min-height:40px}
+.save-error{font-size:13px;line-height:1.6;color:#e9a2a2;overflow-wrap:anywhere}
 .confirm { background: var(--pink, #e58aa5); border: none; color: #14171f; font-size: 13px; font-weight: 600; padding: 8px 22px; border-radius: 8px; cursor: pointer; }
 .confirm:disabled { opacity: 0.5; cursor: default; }
 </style>

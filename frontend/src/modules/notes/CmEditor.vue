@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
-import { EditorView, keymap, drawSelection } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { EditorView, keymap, drawSelection, lineNumbers } from "@codemirror/view";
+import { EditorState, Compartment } from "@codemirror/state";
+import { useNotesPreferencesStore } from '../../stores/notesPreferences';
+const preferences = useNotesPreferencesStore();
+const reading = new Compartment();
+const readingExtensions = () => [
+  ...(preferences.draft.code_line_numbers ? [lineNumbers()] : []),
+  ...((preferences.draft.code_wrap??true) ? [EditorView.lineWrapping] : []),
+];
+watch(() => [preferences.draft.code_line_numbers, preferences.draft.code_wrap], () => {
+  view?.dispatch({effects:reading.reconfigure(readingExtensions())});
+});
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { tags as cmTags } from "@lezer/highlight";
-import { searchKeymap } from "@codemirror/search";
+import { searchKeymap, openSearchPanel } from "@codemirror/search";
 
 // Stella 配色语法高亮（月白银/樱粉系，吃 design tokens 的色）
 const stellaHighlight = HighlightStyle.define([
@@ -49,12 +59,12 @@ const stellaTheme = EditorView.theme({
   "&": {
     backgroundColor: "transparent",
     color: "var(--text-hi)",
-    fontSize: "15px",
+    fontSize: "var(--notes-font-size, 16px)",
     height: "100%",
   },
   ".cm-content": {
     fontFamily: "var(--font-mono)",
-    lineHeight: "1.8",
+    lineHeight: "var(--notes-line-height, 1.8)",
     padding: "16px",
     caretColor: "var(--accent)",
   },
@@ -116,7 +126,7 @@ onMounted(() => {
           drop: (e) => emit("drop", e),
           dragover: (e) => e.preventDefault(),
         }),
-        EditorView.lineWrapping,
+        reading.of(readingExtensions()),
       ],
     }),
     parent: host.value!,
@@ -199,7 +209,7 @@ function scrollToPos(offset: number) {
   view.focus();
 }
 
-defineExpose({ wrapSelection, insertText, deleteBefore, linePrefix, getCursor, cursorPos, scrollToPos, focus: () => view?.focus() });
+defineExpose({ openFind: () => { if (view) openSearchPanel(view); }, wrapSelection, insertText, deleteBefore, linePrefix, getCursor, cursorPos, scrollToPos, focus: () => view?.focus() });
 </script>
 
 <template>

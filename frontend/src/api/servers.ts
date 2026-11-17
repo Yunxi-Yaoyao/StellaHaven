@@ -1,5 +1,6 @@
 // 服务器监控模块 API 封装
 import { api } from "./client";
+import type {ControlChannel} from './nodeMonitoringPolicy';
 
 // ── 类型 ──
 export interface StorageItem {
@@ -60,6 +61,7 @@ export interface HardwareSensor {
   value: number | null;
   unit: "°C" | "RPM";
   source: string;
+  scope?: 'os_visible' | 'host_visible';
 }
 export interface HardwareMachine {
   kind: "physical" | "virtual" | "container" | "unknown";
@@ -75,12 +77,13 @@ export function machineTypeLabel(machine?: HardwareMachine | null): string {
     case "physical": return "物理机";
     case "virtual": return "虚拟机";
     case "container": return "容器";
-    default: return "未确定";
+    default: return "未判定";
   }
 }
 export function machineTypeTitle(machine?: HardwareMachine | null): string {
   if (!machine) return "Agent 尚未上报机器类型";
   return [
+    machine.kind === 'unknown' ? '机器类型证据不足' : null,
     `判断依据：${machine.evidence?.length ? machine.evidence.join("；") : "未提供"}`,
     machine.vendor, machine.model,
     machine.virtualization ? `虚拟化：${machine.virtualization}` : null,
@@ -95,7 +98,28 @@ export interface PhysicalInventory {
   disks: { name: string | null; model: string | null; size_bytes: number | null;
     bus: string | null; rotational: boolean | null }[];
 }
+export interface HardwareMemory {
+  total_bytes: number | null;
+  available_bytes: number | null;
+  used_bytes: number | null;
+  source: string | null;
+  scope: 'os_visible' | 'host_visible' | 'cgroup' | 'unknown';
+  state: 'available' | 'query_failed' | 'unlimited' | 'unknown';
+  sampled_at: string | null;
+  attempted_at?: string | null;
+  cgroup?: HardwareMemory | null;
+}
+export interface PlatformInventory {
+  board: PhysicalInventory['board'];
+  bios: PhysicalInventory['bios'];
+  source: string;
+  scope: 'platform_reported' | 'host_visible';
+  state: string;
+  sampled_at: string | null;
+}
 export interface HardwareInfo {
+  memory?: HardwareMemory | null;
+  platform_inventory?: PlatformInventory | null;
   physical_inventory?: PhysicalInventory | null;
   machine?: HardwareMachine | null;
   sampled_at: string | null;
@@ -119,7 +143,8 @@ export interface Node {
   interfaces: Record<string, { is_default: boolean; up: boolean; is_physical?: boolean; docker?: boolean; ip?: string | null }> | null;
   monitored_ifaces: Record<string, unknown> | null;
   storage: StorageItem[] | null;
-  components: { iperf3: boolean; speedtest: boolean; firewall?: { ufw?: { installed: boolean; active?: boolean }; iptables?: { installed: boolean } } } | null;
+  components: { iperf3?: boolean | {installed: boolean; version?: string}; speedtest?: boolean | {installed: boolean; version?: string}; mtr?: boolean | {installed: boolean; version?: string}; docker?: boolean | {installed: boolean; version?: string}; monitoring?: {ready?:boolean|null;types?:('ping'|'tcp')[]|null;scope?:'host'|'container'|null;targets?:string[]|null;approved_ranges?:string[]|null}|null; firewall?: { ufw?: { installed: boolean; active?: boolean }; iptables?: { installed: boolean } } } | null;
+  control_channel?: ControlChannel | null;
   net_type: string;
   public_ip: string | null;
   public_ip_source: string | null;
@@ -134,6 +159,11 @@ export interface Node {
 }
 
 export interface Monitor {
+  visible?: boolean;
+  enabled?: boolean;
+  effective_enabled?: boolean;
+  management?: 'entry_icmp' | null;
+  status_reason?: 'healthy'|'failure'|'pending'|'source_pending'|'source_offline'|'dns_error'|'dns_timeout'|'outside_scope'|'too_many_ips'|'budget_exceeded'|'unavailable'|'restricted'|'stale'|'entry_removed'|'invalid_target'|'unsupported'|'scope_pending';
   id: number;
   name: string;
   node_id: number;
@@ -141,7 +171,7 @@ export interface Monitor {
   target: string;
   interval: number;
   timeout: number;
-  status: "up" | "down" | "unknown";
+  status: "up" | "down";
   last_check_at: string | null;
   last_latency_ms: number | null;
 }
@@ -211,6 +241,7 @@ export function mtrHopRows(hubs: MtrHop[] | undefined | null): MtrHopRow[] {
 export interface MtrParams { count?: number; interval?: number; max_hops?: number; psize?: number }
 export interface MtrTask {
   id: number;
+  job_id?: string | null;
   node_id: number;
   monitor_id?: number | null;      // 非空=挂在监控项上的 MTR 历史
   target: string;
@@ -332,9 +363,51 @@ export const ctlDocker = (id: number, action: "start" | "stop" | "restart", cont
 export const listMonitors = (signal?: AbortSignal) => api<Monitor[]>("/monitors/", { signal });
 export const createMonitor = (data: { name: string; type: string; target: string; node_id: number; interval?: number; timeout?: number }) =>
   api<Monitor>("/monitors/", { method: "POST", body: JSON.stringify(data) });
-export const updateMonitor = (id: number, data: Partial<{ name: string; type: string; target: string; node_id: number; interval: number; timeout: number }>) =>
+export const updateMonitor = (id: number, data: Partial<{ name: string; type: string; target: string; node_id: number; interval: number; timeout: number; visible: boolean; enabled: boolean }>) =>
   api<Monitor>(`/monitors/${id}`, { method: "PATCH", body: JSON.stringify(data) });
-export const removeMonitor = (id: number) => api<void>(`/monitors/${id}`, { method: "DELETE" });
+export const removeMonitor = (id: number,admit:()=>boolean=()=>true) => {
+  let sent=false;
+  return api<void>(`/monitors/${id}`, { method: "DELETE" },()=>{if(sent||!admit())return false;sent=true;return true;});
+};
+// Explicit parent metadata is separate from child probe/history identity.
+export interface MonitorGroup {
+  visible?: boolean; enabled?: boolean; eligible_child_ids?: number[];
+  id: number; name: string; child_ids: number[]; failure_policy: 'any' | 'all'; rotation_seconds: 0 | 8 | 15 | 30;
+  status: 'up' | 'down' | null; down_count: number; unknown_count: number; up_count?: number;
+  automatic?: boolean; source_node_id?: number | null;
+  entry_id?: 'public' | 'private' | null; target_origin?: string | null; availability_reason?: 'entry_not_configured' | 'no_connected_nodes' | null;
+}
+export type MonitorGroupWrite = Pick<MonitorGroup, 'name' | 'failure_policy' | 'rotation_seconds'> & {child_ids?:number[];visible?:boolean;enabled?:boolean};
+export const listMonitorGroups = (signal?: AbortSignal, includeEmpty=false) => api<MonitorGroup[]>(`/monitors/groups${includeEmpty?'?include_empty=true':''}`, {signal});
+export const saveMonitorGroup = (id: number | null, data: MonitorGroupWrite) => api<MonitorGroup>(id===null ? '/monitors/groups' : `/monitors/groups/${id}`, {method:id===null?'POST':'PUT',body:JSON.stringify(data)});
+export type NewMonitorDraft = Parameters<typeof createMonitor>[0];
+export interface MonitorBatchReceipt {group_id:number|null;monitor_ids:number[]}
+export const createMonitorBatch = (data:{items:NewMonitorDraft[];request_key:string;group_id:number|null;expected_group_uuid:string|null},admit:()=>boolean=()=>true) => {
+  let sent=false;
+  return api<MonitorBatchReceipt>('/monitors/batches',{method:'POST',body:JSON.stringify(data)},()=>{if(sent||!admit())return false;sent=true;return true;});
+};
+export const getMonitorBatchReceipt = (key:string) => api<MonitorBatchReceipt>(`/monitors/batches/receipts/${encodeURIComponent(key)}`);
+export const createMonitorGroup = (data:{name:string;items:NewMonitorDraft[];request_key:string;failure_policy:'any'|'all';rotation_seconds:0|8|15|30},admit:()=>boolean=()=>true) => {
+  let sent=false;
+  return api<MonitorGroup>('/monitors/groups',{method:'POST',body:JSON.stringify(data)},()=>{if(sent||!admit())return false;sent=true;return true;});
+};
+export const getMonitorGroupReceipt = (key:string) => api<{group_id:number;monitor_ids:number[]}>(`/monitors/groups/receipts/${encodeURIComponent(key)}`);
+export const dissolveMonitorGroup = (id: number) => api<void>(`/monitors/groups/${id}`, {method:'DELETE'});
+export interface MonitorGroupDeletionState {stable_uuid:string|null;identity_matches:boolean|null;group_exists:boolean;name:string|null;children:Pick<Monitor,'id'|'name'|'type'|'target'>[];protected:boolean;remaining_child_ids:number[]}
+export const getMonitorGroupDeletionState = (id:number, expectedChildIds:number[]=[], signal?:AbortSignal, expectedStableUuid?:string) => {
+  const query=new URLSearchParams();for(const mid of expectedChildIds)query.append('expected_child_ids',String(mid));
+  if(expectedStableUuid!==undefined)query.set('expected_stable_uuid',expectedStableUuid);
+  return api<MonitorGroupDeletionState>(`/monitors/groups/${id}/deletion-state${query.size?'?'+query:''}`,{signal});
+};
+export const deleteMonitorGroup = (id:number, expectedChildIds:number[], expectedStableUuid:string) => {
+  // api() may refresh authentication on 401; this destructive action must never
+  // be fetched twice. Unknown outcomes are resolved by scoped GET, not replay.
+  let sent=false;
+  return api<void>(`/monitors/groups/${id}/delete`,{method:'POST',body:JSON.stringify({expected_child_ids:expectedChildIds,expected_stable_uuid:expectedStableUuid})},()=>{if(sent)return false;sent=true;return true;});
+};
+export const createMonitorGroupChild = (id: number, data: Parameters<typeof createMonitor>[0]) =>
+  api<Monitor>(`/monitors/groups/${id}/children`, {method:'POST',body:JSON.stringify(data)});
+
 export const listMonitorChecks = (id: number) => api<MonitorCheck[]>(`/monitors/${id}/checks`);
 
 // 监控项的 MTR 历史（近 60 天）+ 手动触发
@@ -386,7 +459,10 @@ export const createIperfTask = (data: {
   speedtest_server?: string | null;
 }) => api<IperfTask>("/iperf-tasks", { method: "POST", body: JSON.stringify(data) });
 
-export const listMtrTasks = (signal?: AbortSignal) => api<MtrTask[]>("/mtr-tasks", {signal});
+export const listMtrTasks = (signal?: AbortSignal) => api<MtrTask[]>("/mtr-tasks?trigger=manual", {signal});
+export const getMtrTask = (id: number, signal?: AbortSignal) => api<MtrTask>(`/mtr-tasks/${id}`, {signal});
+export const createMtrJob = (data: { node_ids: number[]; target: string; protocol: string; params?: MtrParams }) =>
+  api<MtrTask[]>('/mtr-jobs', { method: 'POST', body: JSON.stringify(data) });
 export const createMtrTask = (data: { node_id: number; target: string; protocol?: string; params?: MtrParams }) =>
   api<MtrTask>("/mtr-tasks", { method: "POST", body: JSON.stringify(data) });
 
@@ -425,8 +501,22 @@ export interface HostInfo {
   os: string;
   installed: boolean;
   node_id: number | null;
+  installation_url?: string | null;
+  installation_address_error?: string | null;
+  installation?: { status: 'not_started' | 'queued' | 'installing' | 'installed' | 'failed' | 'interrupted' | 'manual_required' | 'address_required'; message: string; node_id?: number | null };
   node_status: string | null;
 }
+export interface InstallCommand { url: string; token: string; command: string }
+export async function getInstallCommand(id: number, signal?: AbortSignal): Promise<InstallCommand> {
+  const value = await api<InstallCommand>(`/nodes/${id}/install-command`, { method: 'POST', cache: 'no-store', signal });
+  if (!value || typeof value.url !== 'string' || !/^https?:\/\//.test(value.url) ||
+      typeof value.token !== 'string' || !value.token.trim() || ['undefined', 'null'].includes(value.token) ||
+      typeof value.command !== 'string' || !value.command.trim()) {
+    throw new Error('安装命令响应无效，请重新获取；不会拼接缺失凭证');
+  }
+  return value;
+}
+export const prepareHost = () => api<Node>('/nodes/host/prepare', { method: 'POST', cache: 'no-store' });
 export const getHost = () => api<HostInfo>("/nodes/host");
 export const installHost = () => api<Node>("/nodes/host/install", { method: "POST" });
 export const requestUninstall = (id: number) => api<Node>(`/nodes/${id}/uninstall`, { method: "POST" });

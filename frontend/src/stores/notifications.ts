@@ -42,7 +42,7 @@ function connectWs() {
       if (msg?.type === "notification") {
         state.unread += 1;
         state.items = state.loaded
-          ? [{ id: msg.id, rule_id: null, title: msg.title, body: msg.body,
+          ? [{ id: msg.id, rule_id: msg.rule_id??null, context:msg.context??null, title: msg.title, body: msg.body,
               severity: msg.severity, kind: msg.kind, link: msg.link,
               read: false, ts: msg.ts }, ...state.items].slice(0, 50)
           : state.items;

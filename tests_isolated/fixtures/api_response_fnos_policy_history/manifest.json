@@ -1,0 +1,8 @@
+{
+  "commit": "b545484dcfd9b9517c3b39230f7d912565f8165d",
+  "file": "app/services/node_files.py",
+  "fixture": "app__services__node_files.py.gz",
+  "size": 10018,
+  "sha256": "cdb19bfb2056b12bde670f469374b6f31fb974dfa651285d284fff30cdcb3dca",
+  "git_blob": "b2f76d85c08d592d5e2e79a78d4c99454faec619"
+}

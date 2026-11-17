@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, onDeactivated, watch, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { useNotesStore, buildTree, type TreeNode } from "../../stores/notes";
 import DocTreeNode from "./DocTreeNode.vue";
+import WorkspaceDeleteDialog from './WorkspaceDeleteDialog.vue';
 import Icon from "../../shell/Icon.vue";
-import { toast } from "../../composables/useToast";
 
 const importHover = ref(false);
 function hoverImport(e: DragEvent) {
@@ -15,7 +15,7 @@ const clearImportHover = () => { importHover.value = false; };
 onMounted(() => window.addEventListener('drop', clearImportHover, true));
 onUnmounted(() => window.removeEventListener('drop', clearImportHover, true));
 const emit = defineEmits<{
-  capture: [];
+  settings: [];
   open: [id: string];
   showTrash: [];
   showAttachments: [];
@@ -27,7 +27,7 @@ const emit = defineEmits<{
   fold: [];
   import: [];
 }>();
-const props = defineProps<{ currentId: string | null; trashOpen: boolean; attachOpen: boolean; graphOpen: boolean }>();
+const props = defineProps<{ currentId: string | null; trashOpen: boolean; attachOpen: boolean; graphOpen: boolean; beforeWorkspaceChange?: () => Promise<boolean>; beforeWorkspaceDelete?: () => Promise<boolean> }>();
 
 const store = useNotesStore();
 // 标签筛选状态从 store 读取（由搜索栏的高级筛选面板驱动，列表栏不再放标签行）
@@ -45,15 +45,30 @@ const flatMode = computed(() => searching.value || !!filterTagId.value);
 
 // ── 工作区切换器 ──
 const wsMenuOpen = ref(false);
+const batchMode = ref(false), selectedNotes = ref<string[]>([]);
+function clearSelection() { batchMode.value = false; selectedNotes.value = []; }
+watch(() => store.workspaceId, clearSelection, {flush:'sync'});
+onDeactivated(clearSelection);
+function deleteSelectedNotes() {
+  store.requestDeleteBatch(store.allDocs.filter(d => selectedNotes.value.includes(d.id)));
+  clearSelection();
+}
+function selectNote(id:string) {
+  if(id === store.templateRootId) return;
+  selectedNotes.value = selectedNotes.value.includes(id) ? selectedNotes.value.filter(v => v !== id) : [...selectedNotes.value,id];
+}
 const currentWsName = computed(() =>
   workspaces.value.find((w) => w.id === workspaceId.value)?.name ?? "…"
 );
 async function switchWs(id: string) {
+  if (id === workspaceId.value) { wsMenuOpen.value = false; return; }
+  if (props.beforeWorkspaceChange && !(await props.beforeWorkspaceChange())) return;
   wsMenuOpen.value = false;
   await store.switchWorkspace(id);
   emit("switched");
 }
 async function onNewWs() {
+  if (props.beforeWorkspaceChange && !(await props.beforeWorkspaceChange())) return;
   const name = prompt("新工作区名字", "");
   if (name?.trim()) {
     wsMenuOpen.value = false;
@@ -70,28 +85,12 @@ async function onRenameWs() {
 }
 async function onDeleteWs() {
   wsMenuOpen.value = false;
-  wsDeleteStep.value = "confirm"; // 第一次确认（点菜单=第一次，弹窗=第二次）
+  wsDeleteTargets.value = [{id:workspaceId.value,name:currentWsName.value}];
 }
 
-// 工作区删除弹窗状态：confirm 普通确认 / force 有笔记警告 / none 关闭
-const wsDeleteStep = ref<"none" | "confirm" | "force">("none");
-
-async function confirmDeleteWs(force: boolean) {
-  const result = await store.deleteCurrentWorkspace(force);
-  if (result === "has_trash") {
-    wsDeleteStep.value = "force"; // 升级成回收站警告
-  } else if (result === "not_empty") {
-    wsDeleteStep.value = "none";
-    toast("工作区里还有笔记，先清空再删");
-  } else if (result === "deleted") {
-    wsDeleteStep.value = "none";
-    toast("工作区已删除");
-    emit("switched");
-  } else {
-    wsDeleteStep.value = "none";
-    toast("删除失败，稍后再试");
-  }
-}
+const wsDeleteTargets = ref<{id:string;name:string}[]|null>(null);
+const wsCurrentButton = ref<HTMLButtonElement|null>(null);
+async function closeWorkspaceDelete() { wsDeleteTargets.value=null; await nextTick(); wsCurrentButton.value?.focus(); }
 
 // ── 区块折叠：⭐ 默认折叠 / 🕘 最近查看默认展开 / 全部笔记默认展开 ──
 const LS_SECTIONS = "stella_sections";
@@ -105,7 +104,19 @@ function toggleSection(key: string) {
 }
 
 // 树：客户端从平铺列表构建
-const tree = computed(() => buildTree(docs.value));
+import { useNotesPreferencesStore } from '../../stores/notesPreferences';
+const preferences = useNotesPreferencesStore();
+const tree = computed(() => {
+  const hidden = new Set(preferences.draft.hidden_folders??[]);
+  const prune = (nodes:TreeNode[]):TreeNode[] => nodes.filter(n => !hidden.has(n.id)).map(n => ({...n,children:prune(n.children)}));
+  const roots = prune(buildTree(docs.value));
+  const mode = preferences.draft.directory_sort??'updated';
+  const sort = (nodes:TreeNode[]) => {
+    if(mode!=='title') nodes.sort((a,b)=>(mode==='created'?b.created_at:b.updated_at).localeCompare(mode==='created'?a.created_at:a.updated_at));
+    nodes.forEach(n=>sort(n.children));
+  };
+  sort(roots);return roots;
+});
 const favorites = computed(() => docs.value.filter((d) => d.is_favorite));
 
 // 折叠状态记忆（localStorage）
@@ -188,23 +199,25 @@ function onSearchInput() {
   <div class="doc-list">
     <!-- 工作区切换器 -->
     <div class="ws-switcher">
-      <button class="ws-current" @click="wsMenuOpen = !wsMenuOpen">
+      <button ref="wsCurrentButton" class="ws-current" :aria-expanded="wsMenuOpen" @click="wsMenuOpen = !wsMenuOpen">
         <span class="ws-name">{{ currentWsName }}</span>
         <span class="ws-caret" :class="{ open: wsMenuOpen }">▾</span>
       </button>
       <button class="fold-list-btn" title="收起列表" @click="emit('fold')">«</button>
-      <div v-if="wsMenuOpen" class="ws-menu">
-        <div
+      <div v-if="wsMenuOpen" class="ws-menu" @keydown.esc.stop="wsMenuOpen = false">
+
+        <button
           v-for="w in workspaces"
           :key="w.id"
           class="ws-opt"
           :class="{ on: w.id === workspaceId }"
           @click="switchWs(w.id)"
-        >{{ w.name }}</div>
+        >{{ w.name }}</button>
         <div class="ws-divider" />
-        <div class="ws-opt action" @click="onNewWs"><Icon name="plus" :size="13" /> 新建工作区</div>
-        <div class="ws-opt action" @click="onRenameWs"><Icon name="edit" :size="13" /> 重命名工作区</div>
-        <div class="ws-opt action danger" @click="onDeleteWs"><Icon name="trash" :size="13" /> 删除工作区</div>
+        <button class="ws-opt action" @click="onNewWs"><Icon name="plus" :size="13" /> 新建工作区</button>
+        <button class="ws-opt action" @click="onRenameWs"><Icon name="edit" :size="13" /> 重命名工作区</button>
+        <button class="ws-opt action danger" @click="onDeleteWs"><Icon name="trash" :size="13" /> 删除工作区</button>
+
       </div>
     </div>
 
@@ -250,10 +263,18 @@ function onSearchInput() {
       </div>
     </div>
 
-    <button class="new-btn" @click="emit('newChild', null)"><Icon name="plus" :size="13" /> 新建笔记</button>
-    <button class="new-btn" @click="emit('capture')">快捷记录</button>
-    <button class="new-btn import-btn" :class="{ 'import-hover': importHover }" @dragenter="hoverImport" @dragover="hoverImport" @dragleave="importHover = false" @click="emit('import')">{{ importHover ? '松手导入 .md / .txt / .zip' : '导入 .md / .txt / .zip' }}</button>
+    <div class="creation-actions">
+    <button class="new-btn" @click="emit('newChild', null)"><Icon name="plus" :size="13" /> 新建</button>
+    <button class="new-btn import-btn" :class="{ 'import-hover': importHover }" @dragenter="hoverImport" @dragover="hoverImport" @dragleave="importHover = false" @click="emit('import')">{{ importHover ? '松手导入' : '导入' }}</button>
+    </div>
 
+    <div class="note-batch-actions">
+      <button v-if="!batchMode" @click="batchMode = true">批量删除笔记</button>
+      <template v-else>
+        <button :disabled="!selectedNotes.length || !!store.pendingDelete" @click="deleteSelectedNotes">删除所选（{{ selectedNotes.length }}）</button>
+        <button @click="clearSelection">取消选择</button>
+      </template>
+    </div>
     <div class="items" @dragover="onListDragOver" @drop="onDropToRoot">
       <!-- 筛选中（文本搜索 / 标签 / 叠加）：平铺结果 -->
       <template v-if="flatMode">
@@ -275,8 +296,9 @@ function onSearchInput() {
           class="flat-item with-path"
           :data-import-parent="doc.id"
           :class="{ active: doc.id === props.currentId }"
-          @click="emit('open', doc.id)"
+          @click="batchMode ? selectNote(doc.id) : emit('open', doc.id)"
         >
+          <input v-if="batchMode" type="checkbox" :aria-label="`选择笔记：${doc.title}`" :checked="selectedNotes.includes(doc.id)" :disabled="doc.id === store.templateRootId" @click.stop="selectNote(doc.id)" />
           <span class="fi-title" v-html="hl(doc.title)"></span>
           <span class="fi-path">{{ store.pathOf(doc.id) }}</span>
         </div>
@@ -331,6 +353,9 @@ function onSearchInput() {
               :depth="0"
               :current-id="props.currentId"
               :expanded="expanded"
+              :selecting="batchMode"
+              :selected="selectedNotes"
+              @select="selectNote"
               @open="emit('open', $event)"
               @toggle="toggle"
               @new-child="emit('newChild', $event)"
@@ -345,6 +370,7 @@ function onSearchInput() {
     </div>
 
     <div class="bottom-entries">
+      <button class="ghost-btn trash-entry notes-settings-link" @click="emit('settings')" aria-label="笔记设置"><Icon name="settings" :size="13" /> 笔记设置</button>
       <div class="trash-entry" :class="{ active: props.attachOpen }" @click="emit('showAttachments')">
         <Icon name="image" :size="13" /> 附件
       </div>
@@ -356,31 +382,14 @@ function onSearchInput() {
       </div>
     </div>
 
-    <!-- 工作区删除：二次确认弹窗 -->
-    <div v-if="wsDeleteStep !== 'none'" class="mask" @click.self="wsDeleteStep = 'none'">
-      <div class="dialog">
-        <template v-if="wsDeleteStep === 'confirm'">
-          <div class="head">删除工作区「{{ currentWsName }}」？</div>
-          <div class="body">删除后不可恢复。里面有笔记的话会先提醒你数量。</div>
-          <div class="btns">
-            <button class="danger" @click="confirmDeleteWs(false)">确认删除</button>
-            <button class="cancel" @click="wsDeleteStep = 'none'">取消</button>
-          </div>
-        </template>
-        <template v-else-if="wsDeleteStep === 'force'">
-          <div class="head danger-text">「{{ currentWsName }}」里有 {{ store.docs.length + store.trash.length }} 篇笔记</div>
-          <div class="body">删除工作区会将这些笔记<strong>一起永久删除，不可恢复</strong>。确定要删除吗？</div>
-          <div class="btns">
-            <button class="danger" @click="confirmDeleteWs(true)">确定删除（连笔记）</button>
-            <button class="cancel" @click="wsDeleteStep = 'none'">取消</button>
-          </div>
-        </template>
-      </div>
-    </div>
+    <WorkspaceDeleteDialog v-if="wsDeleteTargets" :targets="wsDeleteTargets" :before-delete="props.beforeWorkspaceDelete" @close="closeWorkspaceDelete" @changed="emit('switched')" />
   </div>
 </template>
 
 <style scoped>
+.note-batch-actions{display:flex;gap:8px;padding:0 12px 8px;flex-wrap:wrap}.note-batch-actions button{background:transparent;border:1px solid var(--accent-dim);color:var(--text-lo);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:12px}.note-batch-actions button:disabled{opacity:.5;cursor:not-allowed}
+.creation-actions{display:flex;gap:8px;padding:0 12px}.creation-actions .new-btn{flex:1;margin:8px 0;width:auto}
+
 .import-btn.import-hover { border: 1px dashed var(--accent); background: var(--bg-raised); color: var(--accent); }
 
 .doc-list {
@@ -557,6 +566,7 @@ function onSearchInput() {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 .ws-opt {
+  width:100%; border:0; background:transparent; text-align:left; font-family:inherit;
   padding: 9px 14px;
   font-size: 13px;
   color: var(--text-lo);
@@ -569,6 +579,10 @@ function onSearchInput() {
   gap: 8px;
 }
 .ws-opt:hover { background: var(--bg-panel); color: var(--text-hi); }
+.ws-opt:disabled{opacity:.5;cursor:not-allowed}
+.ws-check{box-sizing:border-box;white-space:normal;overflow-wrap:anywhere}
+.ws-check input{flex-shrink:0;accent-color:var(--accent)}
+.ws-batch-hint{padding:10px 14px;color:var(--text-faint);font-size:12px}
 .ws-opt.on { color: var(--accent); }
 .ws-opt.action { font-size: 12px; }
 .ws-opt.danger:hover { color: var(--pink); }
@@ -593,47 +607,13 @@ function onSearchInput() {
 .ftag:hover { color: var(--text-hi); }
 .ftag.on { background: var(--accent-dim); color: var(--bg-base); }
 
-/* 工作区删除弹窗 */
-.mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: grid;
-  place-items: center;
-  z-index: 100;
-}
-.dialog {
-  width: 380px;
-  background: var(--bg-panel);
-  border: 1px solid var(--bg-raised);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.dialog .head { padding: 14px 18px; font-size: 14px; font-weight: 600; }
-.dialog .head.danger-text { color: var(--pink); }
-.dialog .body { padding: 0 18px 14px; font-size: 13px; color: var(--text-lo); }
-.dialog .body strong { color: var(--pink); }
-.btns { display: flex; flex-direction: column; gap: 8px; padding: 0 18px 16px; }
-.btns button {
-  padding: 9px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--accent-dim);
-  background: transparent;
-  color: var(--accent);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-.btns button:hover { background: var(--bg-raised); }
-.btns button.danger { border-color: var(--pink); color: var(--pink); }
-.btns button.cancel { border-color: var(--text-faint); color: var(--text-faint); }
 .flat-item {
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   font-size: 14px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
   cursor: pointer;
   color: var(--text-lo);
   transition: background var(--transition);
@@ -642,9 +622,8 @@ function onSearchInput() {
 .flat-item.active { background: var(--bg-raised); color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
 .flat-item.with-path { display: flex; flex-direction: column; gap: 1px; align-items: stretch; }
 .flat-item .fi-title {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .flat-item .fi-path {
   font-size: 10.5px;
@@ -671,8 +650,11 @@ function onSearchInput() {
 }
 .bottom-entries {
   display: flex;
+  flex-wrap: wrap;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
+.notes-settings-link{appearance:none;background:transparent;border:0;border-radius:0;font-family:inherit;text-align:left;justify-content:flex-start;flex:0 0 100%;box-sizing:border-box;display:flex;align-items:center;gap:6px;text-decoration:none;min-height:40px}
+
 .trash-entry:hover, .trash-entry.active { color: var(--text-hi); background: var(--bg-raised); }
 
 @media (max-width: 768px) {

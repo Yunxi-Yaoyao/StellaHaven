@@ -9,30 +9,34 @@ async function firstComplete(page:Page){
  expect.soft(clickable.filter((s:any)=>JSON.stringify(simplified(s))!==JSON.stringify(expected)),'no partial/default/intermediate menu at any observed frame').toEqual([]);
 }
 for(const first of ['navigation','modules'] as const){
- test(`navigation startup holds auth and both sources; ${first} first`,async({page,evidence},info)=>{
+ test(`navigation startup holds auth and light snapshot; ${first} released first`,async({page,evidence},info)=>{
   const h=evidence.h=await setup(page,{held:['auth','navigation','modules']});
   await page.goto('/apps/'+ID,{waitUntil:'domcontentloaded'});
   await expect(page.locator('.sidebar')).toBeVisible();
   await expect.poll(()=>h.gates.auth.requests).toBe(1);await frames(page);
   expect.soft(await rows(page),'authentication unresolved: no clickable default menu').toEqual([]);
   await page.screenshot({path:info.outputPath('01-auth-held.png')});
-  h.gates.auth.release();await expect.poll(()=>h.gates.modules.requests).toBe(1);await frames(page);
+  h.gates.auth.release();await expect.poll(()=>h.gates.navigation.requests).toBe(1);await frames(page);
   expect.soft(await rows(page),'both sources pending: noninteractive placeholder only').toEqual([]);
   expect.soft(await page.locator('.sidebar [role=status]').count(),'visible sidebar loading status').toBeGreaterThan(0);
   h.gates[first].release();await frames(page,5);
-  expect.soft(await rows(page),'one source resolved: never publish a partial menu').toEqual([]);
+  if(first==='navigation')await expect.poll(()=>rows(page),'complete lightweight snapshot is independently usable').toEqual(expected);
+  else expect.soft(await rows(page),'detail/list response cannot publish a partial menu').toEqual([]);
   await page.screenshot({path:info.outputPath('02-one-source.png')});
   h.gates[first==='navigation'?'modules':'navigation'].release();
   await expect.poll(()=>rows(page)).toEqual(expected);await frames(page);await firstComplete(page);
  });
 }
 for(const failing of ['navigation','modules'] as const){
- test(`navigation ${failing} failure offers sidebar retry`,async({page,evidence})=>{
-  const h=evidence.h=await setup(page,{held:[failing]});await page.goto('/apps/'+ID);
-  await expect.poll(()=>h.gates[failing].requests).toBe(1);h.gates[failing].release(503);
+ test(failing==='navigation'?'navigation snapshot failure offers sidebar retry':'navigation snapshot retry remains complete when full modules are unavailable',async({page,evidence})=>{
+  const h=evidence.h=await setup(page,{held:['navigation','modules']});await page.goto('/apps/'+ID,{waitUntil:'domcontentloaded'});
+  // Both historical failure orders now exercise the only mandatory startup DTO.
+  if(failing==='modules')h.gates.modules.release(503);
+  const source=h.gates.navigation;
+  await expect.poll(()=>source.requests).toBe(1);source.release(503);
   // A sidebar error, not an unrelated page error or a Settings-only retry.
   await expect(page.locator('.sidebar [role=alert]')).toContainText(/失败|错误|重试/);
-  expect.soft(await rows(page)).toEqual([]);h.gates[failing].status=200;
+  expect.soft(await rows(page)).toEqual([]);source.status=200;
   await page.locator('.sidebar').getByRole('button',{name:/重试/}).click();
   await expect.poll(()=>rows(page)).toEqual(expected);await firstComplete(page);
  });
@@ -51,12 +55,18 @@ test('navigation same-session watchdog keeps menu identity and positions',async(
 for(const path of ['/settings?section=navigation','/drive']){
  test(`navigation concurrent entry single-flight ${path}`,async({page,evidence})=>{
   const h=evidence.h=await setup(page,{held:['navigation','modules']});await page.goto(path,{waitUntil:'domcontentloaded'});
-  await expect.poll(()=>h.gates.modules.requests).toBeGreaterThan(0);await frames(page,6);
+  await expect.poll(()=>h.gates.navigation.requests).toBeGreaterThan(0);await frames(page,6);
   // Hold until all startup consumers (App, guard, Settings) have actually mounted.
-  if(path.startsWith('/settings'))await expect(page.getByRole('heading',{name:'设置',exact:true})).toBeVisible();
+  if(path.startsWith('/settings')){
+   await expect(page.getByRole('heading',{name:'导航与网站',level:1,exact:true})).toBeVisible();
+   await expect(page.getByRole('navigation',{name:'设置分组'}).getByRole('link',{name:'导航与网站',exact:true})).toHaveAttribute('aria-current','page');
+   // The section consumer, not just its shell heading, must be mounted while
+   // both sources are still held, before checking shared single-flight reads.
+   await expect(page.locator('.nav-settings').getByRole('button',{name:'＋ 添加网站',exact:true})).toBeVisible();
+  }
   h.gates.navigation.release();h.gates.modules.release();await expect.poll(()=>rows(page)).toEqual(expected);
   expect.soft(h.gates.navigation.requests,'one request per source for concurrent startup').toBe(1);
-  expect.soft(h.gates.modules.requests,'one request per source for concurrent startup').toBe(1);
+  expect.soft(h.gates.modules.requests,'full code list is never a startup dependency').toBe(0);
   await firstComplete(page);
  });
 }

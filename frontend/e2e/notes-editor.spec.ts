@@ -1,14 +1,15 @@
+import {installLegacyBoundary} from './notes-legacy-boundary';
 import { test, expect, chromium } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 let browser: Browser;
 let page: Page;
 let saved: any[];
-const baseURL = process.env.STELLA_TEST_URL || 'http://127.0.0.1:5173';
+const baseURL = process.env.STELLA_TEST_URL || 'http://127.0.0.1:15186';
 const original = '---\ntitle: preserved\n---\n\n# 富文本验收\n\n你好 **Stella**\n\n[[目标页]]\n\n- [ ] 待办\n\n| 名称 | 值 |\n| --- | --- |\n| A | B |\n\n```mermaid\ngraph TD; A-->B\n```\n\n<div data-raw="keep">保留 HTML</div>\n';
 test.beforeAll(async () => { browser = await chromium.launch({ executablePath: '/usr/sbin/google-chrome-stable', args: ['--no-sandbox'], headless: true }); });
 test.afterAll(async () => { await browser?.close(); });
 test.beforeEach(async () => {
-  page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); saved = [];
+  page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); await page.routeWebSocket('**/*',socket=>socket.close()); saved = [];
   const doc: any = { id: 'doc-a', title: '编辑验收', file_path: '/test.md', workspace_id: 'ws-a', parent_id: null, content: original, updated_at: '2026-09-08T06:00:00Z', created_at: '2026-09-08T06:00:00Z', has_draft: false, status: 'published', is_folder: false, is_favorite: false, is_pinned: false };
   await page.route('**/*', async route => {
     const url = new URL(route.request().url()); const p = url.pathname;
@@ -26,7 +27,7 @@ test.beforeEach(async () => {
     if (p.startsWith('/auth/') || p.startsWith('/api/')) return fulfill({});
     return route.continue();
   });
-  await page.addInitScript(() => { localStorage.clear(); localStorage.setItem('stella_bootstrap', JSON.stringify({ userId:'user-a', workspaceId:'ws-a' })); });
+  await installLegacyBoundary(page);await page.addInitScript(() => { localStorage.clear(); localStorage.setItem('stella_bootstrap', JSON.stringify({ userId:'user-a', workspaceId:'ws-a' })); });
   page.on('pageerror', e => console.log('PAGE_ERROR:', e.message));
   await page.goto(`${baseURL}/notes`);
   await expect(page.getByText('编辑验收', { exact: true }).first()).toBeVisible();
@@ -56,7 +57,7 @@ test('rich edits save Markdown retaining opaque regions, wiki and code', async (
   expect(saved[0].content).toContain('[[目标页]]');
   expect(saved[0].content).toContain('graph TD; A-->B');
   expect(saved[0].content).toContain('<div data-raw="keep">保留 HTML</div>');
-  await page.screenshot({ path: '/tmp/stella-rich-editor.png', fullPage: true });
+  await page.screenshot({ path: process.env.NOTES_REFRESH_ARTIFACTS+'/stella-rich-editor.png', fullPage: true });
 });
 
 test('leaving rich edit for reading saves once without losing text', async () => {
@@ -118,7 +119,7 @@ test('picker imports md and txt as private separate notes without overwriting na
   for (const item of calls.created) { expect(item.parent_id).toBeNull(); expect(item.workspace_id).toBe('ws-a'); expect(item.visibility).toBe('private'); }
   await expect.poll(() => calls.finalized.length).toBe(1);
   expect(calls.attachments).toBe(0); expect(saved).toEqual([]);
-  await page.screenshot({ path: '/tmp/stella-note-import.png', fullPage: true });
+  await page.screenshot({ path: process.env.NOTES_REFRESH_ARTIFACTS+'/stella-note-import.png', fullPage: true });
 });
 test('dropping md into rich draft imports separately and does not upload or replace draft', async () => {
   const calls = await recordImports();
@@ -171,7 +172,7 @@ test('import button accepts OS drop with visible feedback and real item progress
   const progress = page.getByRole('progressbar', { name: '文件导入进度' });
   await expect(progress).toHaveAttribute('value', '0');
   await expect(page.getByRole('dialog')).toContainText('正在导入：button.md');
-  await page.screenshot({ path: '/tmp/stella-import-progress.png', fullPage: true });
+  await page.screenshot({ path: process.env.NOTES_REFRESH_ARTIFACTS+'/stella-import-progress.png', fullPage: true });
   release();
   await expect.poll(() => calls.created.length).toBe(1);
   await expect(progress).toHaveAttribute('value', '1');
@@ -209,9 +210,13 @@ test('slow tags and recent activity do not block note contents on first visit', 
 test('account change evicts cached notes instead of showing previous user content', async () => {
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await expect(page.locator('.rich-editor .ProseMirror')).toBeVisible();
-  await page.locator('.rich-editor').evaluate(el => { (window as any).__cachedRichInstance = (el as any).__vueParentComponent; });
+  const retained = await page.locator('.rich-editor').elementHandle();
+  expect(await retained!.evaluate(el => !!el.querySelector('.ProseMirror'))).toBe(true);
   await page.locator('a[href="/settings"]').first().click();
+  expect(await retained!.evaluate(el => !!el.querySelector('.ProseMirror'))).toBe(true);
   await page.getByRole('button', { name: '退出登录', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).__cachedRichInstance.isUnmounted)).toBe(true);
+  // Deactivation keeps the editor DOM alive; logout must destroy it, even
+  // though it is already detached in KeepAlive's storage container.
+  await expect.poll(() => retained!.evaluate(el => el.querySelector('.ProseMirror') === null)).toBe(true);
   await expect(page.locator('.notes-page')).toHaveCount(0);
 });

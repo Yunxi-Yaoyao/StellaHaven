@@ -35,4 +35,5 @@ async def test_connection(data: external.Connection, db: Session = Depends(get_d
 
 @router.get('/connect')
 def connect(request: Request, db: Session = Depends(get_db)):
-    return RedirectResponse(service.browser_url(db, request.url.hostname or ''), headers={'Cache-Control': 'no-store'})
+    from app.services.entry_registry import request_origin
+    return RedirectResponse(service.browser_url(db, request_origin(request)), headers={'Cache-Control': 'no-store'})

@@ -1,0 +1,16 @@
+{
+  "nyarch_0.6.15": {
+    "source_commit": "14b6677d37c6c1d54845c3628e67a66f2b479b4c",
+    "source_path": "agent/stella_agent.py",
+    "sha256": "515303074b3bb533baa5363ac5abc53310f7951710caa5d4a638260f2627e63a",
+    "size": 190273,
+    "fixture": "nyarch_0.6.15.py.gz"
+  },
+  "historical_0.6.12": {
+    "source_commit": "9f063572674c6a6eaa18838b2b0e72dc2ffb11f6",
+    "source_path": "agent/stella_agent.py",
+    "sha256": "ca4f83c370d6f5a99a9051c3088aae605d9cab4a2c0859456617dfd5056bb8ca",
+    "size": 189837,
+    "fixture": "historical_0.6.12.py.gz"
+  }
+}

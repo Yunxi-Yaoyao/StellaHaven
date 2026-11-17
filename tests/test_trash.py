@@ -60,31 +60,55 @@ def test_restore_from_trash(client, workspace_id):
     assert client.get(f"/documents/{doc['id']}").status_code == 200
 
 
-def test_delete_trashed_purges(client, workspace_id):
-    """对回收站里的再删一次 → 物理删除，回收站也没了"""
+def test_delete_trashed_purges(client, workspace_id, db_session):
+    """Historical ID: repeated DELETE stays soft; explicit permanent removes it."""
     doc = make_doc(client, workspace_id).json()
     client.delete(f"/documents/{doc['id']}")   # 进回收站
-    client.delete(f"/documents/{doc['id']}")   # 物理删
+    assert client.delete(f"/documents/{doc['id']}").status_code == 204
+    assert doc['id'] in {d['id'] for d in client.get(f"/documents/trash?workspace_id={workspace_id}").json()}
+    from sqlalchemy.orm import Session
+    with Session(db_session.get_bind()) as fresh:
+        assert fresh.get(Document, UUID(doc['id'])).deleted_at is not None
+    assert client.delete(f"/documents/{doc['id']}/permanent").status_code == 204
+    with Session(db_session.get_bind()) as fresh:
+        assert fresh.get(Document, UUID(doc['id'])) is None
+    assert client.delete(f"/documents/{doc['id']}/permanent").status_code == 204
 
     trash = client.get(f"/documents/trash?workspace_id={workspace_id}").json()
     assert doc["id"] not in {d["id"] for d in trash}
 
 
 def test_expired_trash_readonly_until_explicit_elevated_purge(client, db_session, workspace_id):
-    """GET is read-only even after retention; only explicit elevated purge deletes."""
-    from tests.conftest import ADMIN_PASSWORD
+    """GET stays read-only; explicit owner purge needs no elevation, not anonymous/foreign."""
     doc = make_doc(client, workspace_id, '保留过期回收站').json()
     assert client.delete(f"/documents/{doc['id']}").status_code == 204
     row = db_session.get(Document, UUID(doc['id']))
     row.deleted_at = datetime.now() - timedelta(days=31)
     db_session.commit(); db_session.expire_all()
-    assert client.post('/auth/admin/lock').status_code == 200
+    assert client.post('/auth/admin/lock').status_code == 410
     response = client.get(f'/documents/trash?workspace_id={workspace_id}')
     assert response.status_code == 200
     assert doc['id'] in {d['id'] for d in response.json()}
     assert db_session.get(Document,UUID(doc['id'])) is not None
-    assert client.post(f'/documents/trash/empty?workspace_id={workspace_id}').status_code == 403
-    assert db_session.get(Document,UUID(doc['id'])) is not None
-    assert client.post('/auth/admin/unlock',json={'password':ADMIN_PASSWORD}).status_code == 200
-    assert client.post(f'/documents/trash/empty?workspace_id={workspace_id}').json()['purged'] == 1
-    assert db_session.get(Document,UUID(doc['id'])) is None
+    from sqlalchemy.orm import Session
+    from fastapi.testclient import TestClient
+    from app.models.user import User
+    from app.models.workspace import Workspace
+    from main import app
+    assert client.get('/auth/security').json()['elevated'] is True
+    with Session(db_session.get_bind()) as fresh:
+        assert fresh.get(Document, UUID(doc['id'])) is not None
+        foreign = User(username='retained-'+uuid4().hex, display_name='retained')
+        fresh.add(foreign); fresh.flush()
+        workspace = Workspace(user_id=foreign.id, name='foreign')
+        fresh.add(workspace); fresh.commit(); foreign_id = workspace.id
+    with TestClient(app, headers={'Origin': 'http://testserver'}) as anonymous:
+        assert anonymous.post(f'/documents/trash/empty?workspace_id={workspace_id}').status_code == 401
+    assert client.post(f'/documents/trash/empty?workspace_id={foreign_id}').status_code == 404
+    with Session(db_session.get_bind()) as fresh:
+        assert fresh.get(Document, UUID(doc['id'])) is not None
+    response = client.post(f'/documents/trash/empty?workspace_id={workspace_id}')
+    assert response.status_code == 200 and response.json()['purged'] == 1
+    with Session(db_session.get_bind()) as fresh:
+        assert fresh.get(Document, UUID(doc['id'])) is None
+        assert fresh.get(Workspace, foreign_id) is not None

@@ -1,0 +1,54 @@
+{
+  "revision": "6b01e8e7714b7cd87c425ae71cb74ca3df956a65",
+  "method": "POST",
+  "path": "/documents/delete-preview",
+  "endpoint": "app.routers.document.delete_preview",
+  "auth": "cookie-access",
+  "elevation": "none",
+  "active": false,
+  "sources": [
+    {
+      "file": "app/services/notes_delete_scope.py",
+      "revision": "6b01e8e7714b7cd87c425ae71cb74ca3df956a65",
+      "line": 1,
+      "end_line": 98,
+      "sha256": "f63352c04892ebd8130a0d9126e032eef7a1f4c9aa545b855b2ee92795ea4150"
+    },
+    {
+      "file": "app/schemas/document.py",
+      "revision": "6b01e8e7714b7cd87c425ae71cb74ca3df956a65",
+      "line": 1,
+      "end_line": 110,
+      "sha256": "1126950f160b650bd192b70dd38f709f0efb2cbac2314a873688040b59630e2e"
+    },
+    {
+      "file": "app/routers/document.py",
+      "revision": "6b01e8e7714b7cd87c425ae71cb74ca3df956a65",
+      "line": 1,
+      "end_line": 300,
+      "sha256": "f26e5dde23cbd41047a9ddcc90d7bccce27187dfeacf1ccce980d1eb7e2aa9d1"
+    },
+    {
+      "file": "app/services/notes_lifecycle.py",
+      "revision": "6b01e8e7714b7cd87c425ae71cb74ca3df956a65",
+      "line": 1,
+      "end_line": 101,
+      "sha256": "57958f1809ba63b7c5ce548fe019b033d519c72252638a2bd2026a434ae551d5"
+    },
+    {
+      "file": "app/services/document.py",
+      "revision": "6b01e8e7714b7cd87c425ae71cb74ca3df956a65",
+      "line": 1,
+      "end_line": 410,
+      "sha256": "16f6ceb64b35d62472513125b5f082f88191c8fa80c487576fc11cba40ae5748"
+    },
+    {
+      "file": "app/services/doc_tag.py",
+      "revision": "6b01e8e7714b7cd87c425ae71cb74ca3df956a65",
+      "line": 1,
+      "end_line": 45,
+      "sha256": "f3d5a32b32cb7120cfe833f77016cf3945c75d9b1b16de0d7525f290e1049c7d"
+    }
+  ],
+  "integration_note": "Review after product merge; 231 active operations in this checkout do not include preview. Existing DELETE /documents/{doc_id}, DELETE /documents/{doc_id}/permanent and POST /documents/trash/empty gain optional scope_token query; preserve 204/204/purged success and model 409 delete_scope_changed. Re-read whole notes lifecycle/tag service changes before updating source pins."
+}

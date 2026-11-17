@@ -1,0 +1,53 @@
+{
+  "review": "Independent R1 source review; no deployment approval. Preserve all historical source records; retarget only live inventory supporting references, after auth overlay and before declaration generation.",
+  "sources": {
+    "agent/stella_agent.py:entry-scope-r1-review": {
+      "file": "agent/stella_agent.py",
+      "sha256": "b3962b46602f2f2a32109e4c009c6fee409507c06d583d27d8c72293bf09e009",
+      "line": 1,
+      "end_line": 3923,
+      "symbol": "agent/stella_agent.py:entry-scope-r1-review"
+    },
+    "app/services/entry_targets.py:entry-scope-r1-review": {
+      "file": "app/services/entry_targets.py",
+      "sha256": "3fa0ea51b18b40a0dd8790cacef6b09987dc69af9290b4d55f167de31bb027a3",
+      "line": 1,
+      "end_line": 54,
+      "symbol": "app/services/entry_targets.py:entry-scope-r1-review"
+    },
+    "app/services/entry_monitoring.py:entry-scope-r1-review": {
+      "file": "app/services/entry_monitoring.py",
+      "sha256": "c09640c2b22db00679b86ca06baad176ef3e1f91392f21124f2b9f3ae2f46b3a",
+      "line": 1,
+      "end_line": 179,
+      "symbol": "app/services/entry_monitoring.py:entry-scope-r1-review"
+    },
+    "app/schemas/control_channel.py:entry-scope-r1-review": {
+      "file": "app/schemas/control_channel.py",
+      "sha256": "39de9daa3c927d8c14ed09fd4ce5298ef07d5b922c5ee27c1e55200f1d94a533",
+      "line": 1,
+      "end_line": 79,
+      "symbol": "app/schemas/control_channel.py:entry-scope-r1-review"
+    }
+  },
+  "source_replacements": {
+    "agent/stella_agent.py:response-shapes": "agent/stella_agent.py:entry-scope-r1-review",
+    "agent/stella_agent.py:integrated-review": "agent/stella_agent.py:entry-scope-r1-review",
+    "agent/stella_agent.py:entry-monitoring-review": "agent/stella_agent.py:entry-scope-r1-review",
+    "app/schemas/control_channel.py:entry-monitoring-review": "app/schemas/control_channel.py:entry-scope-r1-review",
+    "app/services/entry_monitoring.py:entry-monitoring-review": "app/services/entry_monitoring.py:entry-scope-r1-review",
+    "app/services/entry_targets.py:entry-monitoring-review": "app/services/entry_targets.py:entry-scope-r1-review"
+  },
+  "models": {},
+  "product_commit": "23df29e647bc34d639e94d6885f58e216488514a",
+  "base": "a45d028ad33a06736dacc91ffeb2ff027cebab35",
+  "historical_source_records_preserved": [
+    "agent/stella_agent.py:response-shapes",
+    "agent/stella_agent.py:integrated-review",
+    "agent/stella_agent.py:entry-monitoring-review",
+    "app/schemas/control_channel.py:entry-monitoring-review",
+    "app/services/entry_monitoring.py:entry-monitoring-review",
+    "app/services/entry_targets.py:entry-monitoring-review"
+  ],
+  "approval_scope": "Exact four-file R1 delta; unchanged remainder inherits historical review; source approval is not deployment or strict-completeness approval."
+}

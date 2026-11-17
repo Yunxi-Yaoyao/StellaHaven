@@ -3,6 +3,7 @@ import json
 import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.requests import Request
 
 from app.database import get_db
@@ -55,8 +56,12 @@ async def authorize_socket(ws: WebSocket, db: Session, resource_id: UUID, *, wor
     try:
         db.expire_all()
         user = current_user(Request({**ws.scope, "type": "http"}), db)
-        if workspace: require_ws_owner(db, resource_id, user)
-        else: require_doc_owner(db, resource_id, user)
+        if workspace:
+            require_ws_owner(db, resource_id, user)
+        else:
+            doc = require_doc_owner(db, resource_id, user)
+            if doc.deleted_at is not None:
+                raise HTTPException(404, "文档不存在")
         db.rollback()  # Do not retain a connection/transaction while idle.
         return True
     except HTTPException:
@@ -112,6 +117,13 @@ async def document_ws(
     """
     global _worker_started
     if not await authorize_socket(ws, db, doc_id): return
+    try:
+        if not isinstance(device, str):
+            raise ValueError("String device required")
+        device.encode("utf-8")
+    except ValueError:
+        await ws.close(code=1008)
+        return
     await ws.accept()
 
     if not _worker_started:
@@ -123,20 +135,44 @@ async def document_ws(
     try:
         while True:
             try:
-                raw = await asyncio.wait_for(ws.receive_text(), timeout=15)
+                message = await asyncio.wait_for(ws.receive(), timeout=15)
             except asyncio.TimeoutError:
                 if not await authorize_socket(ws, db, doc_id): break
                 continue
+            if message["type"] == "websocket.disconnect":
+                break
             if not await authorize_socket(ws, db, doc_id): break
+            raw = message.get("text")
             try:
+                if not isinstance(raw, str):
+                    raise ValueError("Text message required")
                 data = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-
-            if data.get("type") == "draft":
+                if not isinstance(data, dict) or not isinstance(data.get("type"), str):
+                    raise ValueError("Object with string type required")
+                # Unknown valid message types remain forward-compatible.
+                if data["type"] != "draft":
+                    continue
                 content = data.get("content")
-                if isinstance(content, str):
-                    save_draft(db, doc_id, content, device)
+                if not isinstance(content, str):
+                    raise ValueError("String content required")
+                content.encode("utf-8")  # Reject lone surrogates before DB/ACK encoding.
+                if "request_id" in data:
+                    request_id = data["request_id"]
+                    if not isinstance(request_id, str) or not 1 <= len(request_id.encode("utf-8")) <= 128:
+                        raise ValueError("Invalid request_id")
+            except (ValueError, RecursionError):
+                await ws.close(code=1008)
+                break
+            try:
+                receipt = save_draft(db, doc_id, content, device)
+            except SQLAlchemyError:
+                # No durable confirmation on a failed/uncertain commit.
+                await ws.close(code=1011)
+                break
+            if receipt is None:
+                await ws.close(code=1008)
+                break
+            await ws.send_json({"type": "draft_ack", "request_id": data.get("request_id"), **receipt})
 
     except WebSocketDisconnect:
         pass

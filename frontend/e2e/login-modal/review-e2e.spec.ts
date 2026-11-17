@@ -1,22 +1,35 @@
 import {test,expect,type Page} from '@playwright/test';
 import {mock as settingsFixture} from '../settings-mocks';
+import {createClientPreferencesFixture} from '../../tests/fixtures/clientPreferences';
+import {createNotesStartupFixture} from '../../tests/fixtures/notesStartup.mjs';
 import path from 'node:path';
+const fixtureStates=new WeakMap<Page,{unexpected:string[];errors:string[]}>();
+test.afterEach(({page})=>{const state=fixtureStates.get(page);if(state){expect(state.unexpected).toEqual([]);expect(state.errors).toEqual([]);}});
 const evidence=process.env.STELLA_LOGIN_QA_OUTPUT||process.env.TMPDIR+'/stella-login-modal-evidence';
 const owner={id:'fixture-owner',username:'fixture',display_name:'Fixture owner',is_admin:false,avatar_url:'',home_bg:'/seed/showcase-image.svg',email:'',email_verified:false};
 const doc={id:'fixture-note',title:'Fixture private note',file_path:'/fixture.md',workspace_id:'fixture-workspace',parent_id:null,content:'# Fixture private body',content_hash:'fixture',status:'active',is_folder:false,is_pinned:false,is_favorite:false,created_at:'2026-10-14T00:00:00Z',updated_at:'2026-10-14T00:00:00Z',draft_updated_at:null,draft_device:null,has_draft:false};
 async function fixture(page:Page,{signed=false,initialized=true}={}){
+ const notesStartup=createNotesStartupFixture('fixture-workspace');
+ const clientPreferences=createClientPreferencesFixture({storage:{stella_note_edit_mode:'markdown',stella_home_theme:'daybreak'},allowWrite:true});
  const state={signed,expired:false,invalid:false,offline:false,privateRequests:[] as string[],unexpected:[] as string[],errors:[] as string[]};
+ fixtureStates.set(page,state);
  page.on('pageerror',e=>state.errors.push(e.message));
  await page.addInitScript(()=>{localStorage.setItem('stella_note_edit_mode','markdown');localStorage.setItem('stella_home_theme','daybreak');});
  await page.routeWebSocket('**/*',ws=>{ws.onMessage(()=>{});});
  await page.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url()),p=url.pathname;
-  if(url.origin!=='http://127.0.0.1:15274'){await route.abort();return;}
+  if(req.method()==='GET'&&['https://ipinfo.io/json','https://api.ip.sb/geoip'].includes(req.url()))return route.fulfill({json:{ip:'192.0.2.1',country:'Fixture'}});
+  if(url.origin!=='http://127.0.0.1:15274'){state.unexpected.push(req.method()+' '+req.url());await route.abort();return;}
   const send=(body:unknown,status=200)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(body)});
+  if(p==='/operations/backups/client-preferences'&&!url.search&&['GET','PUT'].includes(req.method())&&(!state.signed||state.expired))return send({detail:'fixture unauthenticated'},401);
+  const preference=clientPreferences.respond(req.method(),p+url.search,req.method()==='PUT'?req.postDataJSON():undefined);if(preference)return route.fulfill(preference);
+  const startup=notesStartup.respond(req.method(),p+url.search,state.signed&&!state.expired);
+  if(startup){state.privateRequests.push(req.method()+' '+p);return route.fulfill(startup);}
   if(p==='/auth/status')return send({has_users:initialized,initialized,email_enabled:true});
+  if(p==='/attachments/'&&req.method()==='GET')return send(state.signed&&!state.expired?[]:{detail:'fixture unauthenticated'},state.signed&&!state.expired?200:401);
   if(p==='/config/site-background')return send({value:'/seed/showcase-image.svg'});
   // Match the real router's public metadata GET; lists and writes remain protected below.
-  if(p==='/homebg/media'&&req.method()==='GET'){const value=url.searchParams.get('url');return send({url:value,status:'ready',poster:'/seed/showcase-image.svg',variants:{original:value,compressed1:'/assets/homebg/review-consumer-small.mp4'}});}
+  if(p==='/homebg/media'&&req.method()==='GET'){const value=url.searchParams.get('url');return send({url:value,status:'ready',poster:'/seed/showcase-image.svg',variants:{original:value,compressed1:'/assets/homebg/review-consumer-small.webm'}});}
   if(p==='/auth/me'||p==='/auth/refresh')return send(state.signed&&!state.expired?owner:{detail:'fixture unauthenticated'},state.signed&&!state.expired?200:401);
   if(['/auth/login','/auth/register','/auth/login-code'].includes(p)){
    if(state.offline)return route.abort('failed');
@@ -27,6 +40,7 @@ async function fixture(page:Page,{signed=false,initialized=true}={}){
   if(p.startsWith('/auth/')||/^\/(navigation|external-modules|workspaces|documents|tags|doc-tags|document-links|homebg|notifications|config)/.test(p)){
    state.privateRequests.push(req.method()+' '+p);
    if(!state.signed||state.expired)return send({detail:'fixture unauthenticated'},401);
+   if(p==='/auth/provider/config'&&req.method()==='GET'&&!url.search)return send({issuer:'https://stella.test',discovery_url:'https://stella.test/.well-known/openid-configuration',authorization_endpoint:'https://stella.test/auth/authorize',token_endpoint:'https://stella.test/auth/token',userinfo_endpoint:'https://stella.test/auth/userinfo',jwks_uri:'https://stella.test/auth/jwks',clients:[],capabilities:{}});
    if(p==='/auth/security')return send({enabled:true,configured:true,elevated:false,expires_at:null,single_user:true,setup_required:false});
    if(p==='/auth/activity')return send({ok:true});
    if(p==='/external-modules')return send([]);
@@ -44,7 +58,8 @@ async function fixture(page:Page,{signed=false,initialized=true}={}){
    if(p==='/auth/avatars'||p.startsWith('/tags')||p.startsWith('/doc-tags')||p.startsWith('/document-links')||p.startsWith('/homebg')||p==='/documents/trash')return send([]);
    state.unexpected.push(req.method()+' '+p);return send({detail:'unhandled fixture'},501);
   }
-  await route.continue();
+  if(req.method()==='GET'&&(req.isNavigationRequest()||/^\/(static|seed|assets)\//.test(p)||['/favicon.ico','/favicon.svg','/avatar.png','/live2dcubismcore.min.js'].includes(p)))return route.continue();
+  state.unexpected.push(req.method()+' '+p+url.search);await route.abort();
  });
  return state;
 }
@@ -96,9 +111,15 @@ test('review control: native attachment images and markdown zip export work whil
  await page.route('**/attachments/*',route=>route.fulfill({status:200,contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>'}));
  await page.goto('/notes');const image=page.locator('.preview img');await expect(image).toBeVisible();
  expect(await image.evaluate(el=>(el as HTMLImageElement).naturalWidth)).toBe(10);
- await page.getByRole('button',{name:'导出',exact:true}).click();
+ await page.getByRole('button',{name:'更多',exact:true}).click();await page.locator('#note-more-menu').getByRole('button',{name:'导出',exact:true}).click();
  const receipt=page.waitForEvent('download');await page.getByRole('button',{name:'确定导出',exact:true}).click();
- const download=await receipt;expect(download.suggestedFilename()).toContain('含附件.zip');expect(await download.failure()).toBeNull();expect(state.errors).toEqual([]);
+ const download=await receipt;expect(download.suggestedFilename()).toContain('含附件.zip');
+ const {readFile}=await import('node:fs/promises');const {default:JSZip}=await import('jszip');const zip=await JSZip.loadAsync(await readFile((await download.path())!));
+ const file=Object.values(zip.files).find(f=>f.name.endsWith('.md'))!;const markdown=await file.async('string');
+ expect(markdown).toContain('![Fixture image](attachments/01234567.svg)');expect(zip.file('attachments/01234567.svg')).not.toBeNull();
+ expect(markdown).not.toContain('/attachments/'+id);expect(markdown).not.toContain('blob:');expect(markdown).not.toContain('data-private-src');
+ await expect(image).toHaveAttribute('data-private-src','/attachments/'+id);
+ expect(await download.failure()).toBeNull();expect(state.errors).toEqual([]);
 });
 
 test('review: loaded attachment and unsaved markdown survive expiry while new private media is refused',async({page})=>{
@@ -134,18 +155,19 @@ test('review: rich attachment display keeps source URL and HTML zip export uses 
  state.expired=true;await page.clock.fastForward(31000);await page.clock.runFor(650);await modal(page);
  await expect(image).toHaveAttribute('data-instance','rich-kept');expect(await image.evaluate(el=>(el as HTMLImageElement).naturalWidth)).toBe(10);await screenshot(page,'rich-media-expired');
  await login(page);await expect(editor).toContainText('UNSAVED rich media');await expect(image).toHaveAttribute('data-instance','rich-kept');
- await page.getByRole('button',{name:'导出',exact:true}).click();await page.getByText('HTML 网页',{exact:true}).click();
+ await page.getByRole('button',{name:'更多',exact:true}).click();await page.locator('#note-more-menu').getByRole('button',{name:'导出',exact:true}).click();await page.getByText('HTML 网页',{exact:true}).click();
  const receipt=page.waitForEvent('download');await page.getByRole('button',{name:'确定导出',exact:true}).click();const download=await receipt;
  const {readFile}=await import('node:fs/promises');const {default:JSZip}=await import('jszip');const zip=await JSZip.loadAsync(await readFile((await download.path())!));
  const file=Object.values(zip.files).find(f=>f.name.endsWith('.html'))!;const html=await file.async('string');
+ expect(zip.file('attachments/01234567.svg')).not.toBeNull();expect(html).not.toContain('/attachments/'+id);await expect(image).toHaveAttribute('data-private-src','/attachments/'+id);
  expect(html).toContain('src="attachments/01234567.svg"');expect(html).not.toContain('blob:');expect(html).not.toContain('data-private-src');expect(html).toContain('UNSAVED rich media');expect(await download.failure()).toBeNull();expect(state.errors).toEqual([]);
 });
 
 test('review: guest background consumer selects compressed1 and poster from public metadata',async({page})=>{
  const state=await fixture(page);
  await page.route('**/config/site-background',route=>route.fulfill({json:{value:'/assets/homebg/review-consumer.mp4'}}));
- await page.route('**/assets/homebg/review-consumer-small.mp4',route=>route.fulfill({path:path.resolve('e2e/login-modal/fixture-video.mp4'),contentType:'video/mp4'}));
+ await page.route('**/assets/homebg/review-consumer-small.webm',route=>route.fulfill({path:path.resolve('e2e/login-modal/fixture-video.webm'),contentType:'video/webm'}));
  await page.goto('/');const video=page.locator('.bg-layer video');
- await expect(video).toHaveAttribute('src','/assets/homebg/review-consumer-small.mp4');await expect(video).toHaveAttribute('poster','/seed/showcase-image.svg');
+ await expect(video).toHaveAttribute('src','/assets/homebg/review-consumer-small.webm');await expect(video).toHaveAttribute('poster','/seed/showcase-image.svg');
  await screenshot(page,'guest-compressed-poster');expect(state.privateRequests).toEqual([]);expect(state.errors).toEqual([]);
 });

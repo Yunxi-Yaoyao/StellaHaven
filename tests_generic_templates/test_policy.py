@@ -46,7 +46,7 @@ def test_generic_policy_applies_to_actual_basepath_before_upstream(api_env, upst
     saved = c.post('/website-settings',json=draft)
     assert saved.status_code == 201,saved.text
     mid = saved.json()['id']; seen.clear()
-    monkeypatch.setattr(sessions,'authorize',lambda *a: {'sid':'bad-session'})
+    monkeypatch.setattr(sessions,'authorize',lambda *a: {'sid':'bad-session','source_origin':'http://stella.test'})
     host = IntegrationsHostMiddleware(app,db_factory=factory)
     with TestClient(host,base_url='https://app-'+mid+'.xiya.live') as browser:
         denied = browser.get('/drive/openlist/api/admin/settings')

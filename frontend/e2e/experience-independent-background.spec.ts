@@ -4,6 +4,7 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {observePresentation,settlePresentation,filmstrip,assertContinuousComposition} from './experience-independent-background-frames';
 const tools=fileURLToPath(new URL('../../tools/experience-fixture/',import.meta.url));
 // Re-extracted from the selected source on EVERY run; never a copied bridge.
 const exported=JSON.parse(execFileSync('python3',[path.join(tools,'export_template.py'),MAIN],{encoding:'utf8'}));
@@ -13,6 +14,7 @@ function childHTML(enabled=true){return `<!doctype html><html><head><meta charse
 async function start(page:Page,evidence:any,options:any={}){
  const enabled=options.enabled!==false;
  const h=evidence.h=await setup(page,{...options,module:moduleFor(options.background||'home',enabled),childHTML:()=>childHTML(enabled),childScript:code.js,background:options.media});
+ await observePresentation(page);
  await page.goto('/apps/'+ID,{waitUntil:'domcontentloaded'});
  await expect(page.locator('.external-page iframe')).toBeAttached();
  await expect.poll(()=>page.frames().some((f:any)=>f.url().startsWith(CHILD+'/frame'))).toBe(true);
@@ -30,28 +32,36 @@ async function pixels(page:Page,info:TestInfo,name:string,motionGrid=false){
  const result=JSON.parse(execFileSync('python3',[path.join(tools,'sample_pixels.py'),file,JSON.stringify(points)],{encoding:'utf8'}));
  await info.attach(name+'-pixels.json',{body:JSON.stringify({points,...result}),contentType:'application/json'});return result.pixels;
 }
+function assertCoveredBeforeDocument(history:any){
+ const early=history.frames.filter((s:any)=>s.frames.some((f:any)=>!f.loaded&&!f.covered&&f.visibility!=='hidden'&&f.display!=='none'&&Number(f.opacity)>0));
+ expect(early,'no uncovered native iframe snapshot before document load').toEqual([]);
+}
 function assertTransparent(value:any){expect(value.mode).toBe('image');for(const r of value.roots){expect(r.background).toBe('rgba(0, 0, 0, 0)');expect(r.image).toBe('none');}expect(value.roots[0].scheme).toBe('normal');expect(value.layers.every((v:string)=>v==='rgba(0, 0, 0, 0)')).toBe(true);expect(value.media).toBe(0);}
 test.beforeEach(async({},info)=>{await info.attach('template-provenance.json',{body:JSON.stringify(exported.provenance,null,2),contentType:'application/json'});});
 
-test('background actual template waits hidden until transparency ACK, not load',async({page,evidence},info)=>{
+test('background actual template prevents pre-document flash and verifies transparency ACK',async({page,evidence},info)=>{
  const {h,child,iframe}=await start(page,evidence,{holdChildScript:true});
  await expect.poll(()=>h.gates.script.requests).toBe(1);await frames(page,5);
  expect.soft(exported.provenance.has_ready_marker,'source export must carry the real readiness opt-in').toBe(true);
- expect.soft(await iframe.evaluate((el:any)=>getComputedStyle(el).visibility),'unready dark/white child must not be exposed').toBe('hidden');
+ expect.soft(await page.locator('.external-loading').isVisible(),'before document completion the steady loading canvas covers the native child').toBe(true);
  await page.screenshot({path:info.outputPath('01-template-held.png')});
+ const finishFilm=await filmstrip(page,info,'ack-transition');
  h.gates.script.release();
  await expect.poll(()=>child.evaluate(()=>document.documentElement.dataset.bgMode)).toBe('image');
  await expect(iframe).toBeVisible();assertTransparent(await roots(child));
  const history=await page.evaluate(()=> (window as any).__experience);
  const ack=history.messages.find((m:any)=>m.data.type==='stella-bg-ready');
  expect.soft(ack,'ACK must come from actual exported JS, not fixture code').toBeTruthy();
- if(ack){expect(ack.origin).toBe(CHILD);expect(ack.data).toMatchObject({mode:'image',module_id:ID});expect(typeof ack.data.request_id).toBe('string');const early=history.frames.filter((s:any)=>s.t<ack.t&&s.frames.some((f:any)=>f.visibility!=='hidden'&&f.display!=='none'&&Number(f.opacity)>0));expect(early,'no visible iframe snapshot before verified ACK').toEqual([]);}
+ if(ack){expect(ack.origin).toBe(CHILD);expect(ack.data).toMatchObject({mode:'image',module_id:ID});expect(typeof ack.data.request_id).toBe('string');assertCoveredBeforeDocument(history);}
+ await settlePresentation(page,info,'ack-transition');
+ const film=await finishFilm();assertContinuousComposition(film.frames,[[228,60,80],[40,184,202]],film.overlay);
  expect(await pixels(page,info,'transparent-image')).toEqual([[228,60,80],[40,184,202]]);
 });
 
 test('background real image composition stays continuous on resize',async({page,evidence},info)=>{
  const {child}=await start(page,evidence);
  await expect.poll(()=>child.evaluate(()=>document.documentElement.dataset.bgMode)).toBe('image');assertTransparent(await roots(child));
+ await settlePresentation(page,info,'image-wide');
  expect(await pixels(page,info,'image-wide')).toEqual([[228,60,80],[40,184,202]]);
  await page.setViewportSize({width:1100,height:800});await frames(page,4);
  expect(await pixels(page,info,'image-resized')).toEqual([[228,60,80],[40,184,202]]);
@@ -69,21 +79,22 @@ for(const input of [
   await child.waitForLoadState('load');await frames(page,4);
   expect.soft(await page.locator('.external-page').evaluate((el:any)=>el.classList.contains('home-background'))).toBe(input.want==='image');
   expect.soft((await roots(child)).mode).toBe(input.want);
-  if(input.want==='image')expect.soft(await pixels(page,info,'legacy-composite')).toEqual([[228,60,80],[40,184,202]]);
   expect(evidence.h!.requests.filter(r=>['PATCH','PUT','DELETE'].includes(r.method)),'legacy device choice must never silently publish server settings').toEqual([]);
+  if(input.want==='image'){await settlePresentation(page,info,'legacy-composite');expect.soft(await pixels(page,info,'legacy-composite')).toEqual([[228,60,80],[40,184,202]]);}
  });
 }
 
 test('background injection disabled preserves native child and is not readiness-gated',async({page,evidence},info)=>{
  const {child,iframe}=await start(page,evidence,{enabled:false});await expect(iframe).toBeVisible();
  const value=await roots(child);expect(value.mode).toBe('solid');expect(value.roots.map((r:any)=>r.background)).toEqual(['rgb(245, 245, 245)','rgb(245, 245, 245)','rgb(245, 245, 245)']);
+ await settlePresentation(page,info,'native-child');
  expect(await pixels(page,info,'native-child')).toEqual([[245,245,245],[245,245,245]]);
 });
 
 test('background retained page follows real navigation readback and solid is reversible',async({page,evidence},info)=>{
  const {h,child}=await start(page,evidence,{background:'solid'});await child.waitForLoadState('load');
  expect((await roots(child)).mode).toBe('solid');
- const refresh=()=>page.evaluate(async()=>{const source='/src/stores/navigation.ts';await (await import(source)).loadNavigation();});
+ const refresh=()=>page.evaluate(async()=>{const source='/src/stores/navigation.ts';await (await import(source)).loadNavigation({force:true});});
  // Simulate a server-side saved value. Readback goes through the REAL navigation
  // store and API; no mutation of Vue parent/child state and no settings write.
  h.modules[0].background='home';await refresh();
@@ -97,13 +108,14 @@ test('background retained page follows real navigation readback and solid is rev
 });
 
 test('background rejects wrong origin, wrong source, module and stale ACK',async({page,evidence})=>{
+ await page.clock.install();await page.clock.resume();
  const {h,child,iframe}=await start(page,evidence,{holdChildScript:true});
  await expect.poll(()=>h.gates.script.requests).toBe(1);
  // A real request from the current child elicits the parent's current nonce.
  await child.evaluate(origin=>parent.postMessage({type:'stella-bg-request'},origin),MAIN);await frames(page,4);
  const mode=await child.evaluate(()=> (window as any).__experience.messages.find((m:any)=>m.data.type==='stella-bg-mode')?.data);
  expect.soft(mode,'parent responds to the actual child').toBeTruthy();
- const valid={type:'stella-bg-ready',module_id:ID,mode:'image',request_id:mode?.request_id||'unissued'};
+ const valid={type:'stella-bg-ready',module_id:ID,mode:'image',request_id:mode?.request_id||'unissued',color_scheme:mode?.color_scheme};
  await page.evaluate(({childOrigin,data})=>{
   const source=document.querySelector('iframe')!.contentWindow;
   window.dispatchEvent(new MessageEvent('message',{origin:'https://wrong-origin.invalid',source,data}));
@@ -111,7 +123,8 @@ test('background rejects wrong origin, wrong source, module and stale ACK',async
  },{childOrigin:CHILD,data:valid});
  for(const payload of [{...valid,module_id:'different-module'},{...valid,request_id:'old-request'},{...valid,mode:'solid'}])await child.evaluate(({main,data})=>parent.postMessage(data,main),{main:MAIN,data:payload});
  await frames(page,4);
- expect.soft(await iframe.evaluate(el=>getComputedStyle(el).visibility),'untrusted ACKs cannot reveal the unstyled frame').toBe('hidden');
+ await page.clock.fastForward(20001);
+ await expect(page.locator('.connection-notice [role=alert]'),'untrusted ACK must not satisfy the appearance watchdog').toContainText('背景样式未就绪');
  h.gates.script.release();await expect.poll(()=>child.evaluate(()=>document.documentElement.dataset.bgMode)).toBe('image');await expect(iframe).toBeVisible();
  // Wrong parent source/origin must not reverse the child after real readiness.
  await child.evaluate(({main})=>{
@@ -126,10 +139,22 @@ test('background cross-site hidden iframe acknowledges without animation clock',
  const cross='http://child.localhost:15488';
  const module={...moduleFor(),origin:cross,browser_url:cross+'/frame'};
  evidence.h=await setup(page,{module,childOrigin:cross,childHTML:()=>childHTML(),childScript:code.js});
+ // Exposed content is not blocked on appearance readiness. Hold the real
+ // cross-site document until the iframe is visible to exercise that boundary.
+ let releaseDocument!:()=>void;const documentGate=new Promise<void>(r=>releaseDocument=r);
+ await page.route(cross+'/frame',async route=>{await documentGate;await route.fallback();});
+ await observePresentation(page);
  await page.goto('/apps/'+ID,{waitUntil:'domcontentloaded'});
  const iframe=page.locator('.external-page iframe');await expect(iframe).toBeVisible({timeout:5000});
+ releaseDocument();
+ // DOM visibility does not imply that the cross-site frame has navigated.
+ await expect.poll(()=>page.frames().some(f=>f.url().startsWith(cross+'/frame'))).toBe(true);
  const child=page.frames().find(f=>f.url().startsWith(cross+'/frame'))!;
+ await expect(child.locator('#root')).toBeAttached();
+ await expect.poll(()=>child.evaluate(()=>document.documentElement.dataset.bgMode)).toBe('image');
  assertTransparent(await roots(child));
+ await expect.poll(()=>page.evaluate(({cross,id})=>(window as any).__experience.messages.some((m:any)=>m.origin===cross&&m.data.type==='stella-bg-ready'&&m.data.module_id===id&&m.data.mode==='image'),{cross,id:ID})).toBe(true);
+ await settlePresentation(page,info,'cross-site-composite');
  expect(await pixels(page,info,'cross-site-composite')).toEqual([[228,60,80],[40,184,202]]);
 });
 
@@ -167,4 +192,68 @@ for(const original of [false,true])test('background shared quality '+(original?'
   await page.evaluate(async()=>{const p='/src/modules/home/backgroundMedia.ts';(await import(p)).setBackgroundQuality('compressed2');});
   await expect(page.locator('.bg-video')).toHaveAttribute('src',tiny);expect(requested).not.toContain(raw);
  }
+});
+
+// Sensitivity controls use real rendered mutations, never changed product files.
+test('background followup negative detects a transient white flash despite correct final pixels',async({page,evidence},info)=>{
+ const {h,child}=await start(page,evidence,{holdChildScript:true});
+ const finishFilm=await filmstrip(page,info,'mutant-flash');
+ await page.evaluate(()=>{
+  window.addEventListener('message',function flash(e){
+   if(e.data?.type!=='stella-bg-ready')return;window.removeEventListener('message',flash);
+   requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    const layer=document.createElement('div');layer.style.cssText='position:absolute;inset:0;z-index:999;background:white';document.querySelector('.external-page')!.append(layer);
+    let n=5;const remove=()=>{if(--n<=0)layer.remove();else requestAnimationFrame(remove);};requestAnimationFrame(remove);
+   }));
+  });
+ });
+ h.gates.script.release();await expect.poll(()=>child.evaluate(()=>document.documentElement.dataset.bgMode)).toBe('image');
+ await settlePresentation(page,info,'mutant-flash');
+ const film=await finishFilm();
+ expect(()=>assertContinuousComposition(film.frames,[[228,60,80],[40,184,202]],film.overlay),'settling must not erase a real intermediate flash').toThrow(/bright\/native flash|same continuous overlay blend/);
+ expect(await pixels(page,info,'mutant-final-still-correct')).toEqual([[228,60,80],[40,184,202]]);
+});
+
+test('background followup negative detects exposed native frame before document load',async({page,evidence})=>{
+ const {h,iframe}=await start(page,evidence,{holdChildScript:true});
+ await expect.poll(()=>h.gates.script.requests).toBe(1);
+ await page.locator('.external-loading').evaluate(el=>(el as HTMLElement).style.setProperty('display','none','important'));
+ await iframe.evaluate(el=>(el as HTMLElement).style.setProperty('visibility','visible','important'));await frames(page,4);
+ const history=await page.evaluate(()=>(window as any).__experience);
+ expect(history.messages.some((m:any)=>m.data.type==='stella-bg-ready')).toBe(false);
+ expect(()=>assertCoveredBeforeDocument(history),'pre-document safety oracle must reject an uncovered native frame independently of ACK').toThrow(/no uncovered native iframe snapshot/);
+ h.gates.script.release();
+});
+
+test('background followup isolates raw invalid legacy fallback after valid account bootstrap',async({page,evidence},info)=>{
+ const {h,child}=await start(page,evidence,{background:'solid'});
+ await page.evaluate(async()=>{const p='/src/modules/settings/clientPreferenceSync.ts';await(await import(p)).clientPreferenceSync.ensureConfirmed();});
+ await child.waitForLoadState('load');
+ // This diagnostic does NOT replace the original malformed-startup case.
+ // Raw browser storage only, then real API readback makes the website recompute.
+ await page.evaluate(()=>{localStorage.setItem('stella_drive_bg_mode','invalid');localStorage.setItem('__stella_drive_bg_mode__','image');localStorage.removeItem('stella_website_background_explicit:qa-owner:qa-drive');});
+ h.modules[0].name='readback still solid';
+ await page.evaluate(async()=>{(window as any).__backgroundFrames=[];const p='/src/stores/navigation.ts';await(await import(p)).loadNavigation({force:true});});
+ await expect.poll(()=>child.evaluate(()=>document.documentElement.dataset.bgMode)).toBe('image');assertTransparent(await roots(child));
+ expect(await page.evaluate(()=>({current:localStorage.getItem('stella_drive_bg_mode'),legacy:localStorage.getItem('__stella_drive_bg_mode__')}))).toEqual({current:'invalid',legacy:'image'});
+ // Raw readback creates a NEW presentation nonce when solid becomes home.
+ // The request can yield an old solid frame before that DOM change; retain it
+ // in the evidence, but start this image epoch at the first home sample.
+ await settlePresentation(page,info,'raw-invalid-readback',true);
+ expect(await pixels(page,info,'raw-invalid-composite')).toEqual([[228,60,80],[40,184,202]]);
+ expect(h.requests.filter(r=>['PATCH','PUT','DELETE'].includes(r.method))).toEqual([]);
+});
+
+test('background followup negative detects disappearance after target first presented frame',async({page,evidence},info)=>{
+ const {iframe}=await start(page,evidence);
+ await expect(iframe).toBeVisible();
+ await settlePresentation(page,info,'before-disappearance',true);
+ // Mutate the real rendered iframe, then restore the exact final presentation.
+ // The same scoped oracle must still reject the delivered hidden middle frames.
+ await iframe.evaluate(el=>(el as HTMLElement).style.setProperty('visibility','hidden','important'));
+ await frames(page,4);
+ await iframe.evaluate(el=>(el as HTMLElement).style.removeProperty('visibility'));
+ await frames(page,4);
+ await expect(settlePresentation(page,info,'after-disappearance',true)).rejects.toThrow(/stay continuously exposed/);
+ expect(await pixels(page,info,'disappearance-final-still-correct')).toEqual([[228,60,80],[40,184,202]]);
 });

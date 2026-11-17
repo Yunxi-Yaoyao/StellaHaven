@@ -228,27 +228,29 @@ def test_happy_path_is_single_use_and_never_grants_management(email_env,purpose)
     assert response.status_code == 200
     assert code not in response.text
     assert verify(c,purpose,code).status_code == 404
-    assert c.post('/danger').status_code in (401,403)
+    assert c.post('/danger').status_code == (401 if purpose=='reset' else 200)
 
 
 def test_email_reset_changes_only_daily_password_and_revokes_grants(email_env):
     from app.services.admin_security import STATE_KEY
-    from app.security import verify_password
+    from app.security import verify_password,hash_password
     c, db, app, delivered = email_env
-    assert c.post('/auth/admin/setup',json={'user_password':DAILY,'new_password':ADMIN}).status_code == 200
-    assert c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code == 200
+    assert c.post('/auth/admin/setup',json={'user_password':DAILY,'new_password':ADMIN}).status_code == 410
+    assert c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code == 410
     assert c.post('/danger').status_code == 200
-    before = json.loads(db.get(AppConfig,STATE_KEY).value)['password_hash']
+    legacy=db.get(AppConfig,STATE_KEY)
+    dormant=json.loads(legacy.value);dormant['password_hash']=hash_password(ADMIN)
+    dormant['grants']={'legacy':{'version':1,'expires_at':'2000-01-01T00:00:00+00:00'}}
+    legacy.value=json.dumps(dormant);db.commit();before=legacy.value
     code = issue(email_env,'reset')
     assert verify(c,'reset',code).status_code == 200
     state = json.loads(db.get(AppConfig,STATE_KEY).value)
-    assert state['password_hash'] == before
-    assert state['grants'] == {}
+    assert db.get(AppConfig,STATE_KEY).value == before
     assert all(s.revoked for s in db.query(AuthSession).all())
     assert c.post('/auth/login',json={'username':'owner','password':DAILY+'-reset'}).status_code == 200
-    assert c.post('/danger').status_code == 403
-    assert c.post('/auth/admin/unlock',json={'password':DAILY+'-reset'}).status_code == 401
-    assert c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code == 200
+    assert c.post('/danger').status_code == 200
+    assert c.post('/auth/admin/unlock',json={'password':DAILY+'-reset'}).status_code == 410
+    assert c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code == 410
 
 
 @pytest.mark.parametrize('purpose',['login','reset','bind'])

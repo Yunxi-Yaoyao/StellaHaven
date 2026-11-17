@@ -56,46 +56,27 @@ def owner(client):
 
 
 def test_default_login_is_not_management_elevation(auth_env):
+    # Historical ID retained; v6 has no distinct management elevation.
     c, db, app = auth_env
     owner(c)
-    response = c.post('/danger')
-    assert response.status_code == 403
-    assert response.json()['detail']['code'] == 'admin_setup_required'
+    assert c.post('/danger').status_code == 200
     assert c.get('/auth/security').json() == {
-        'enabled': True, 'configured': False, 'elevated': False,
-        'expires_at': None, 'single_user': True, 'setup_required': True,
+        'enabled':False,'configured':True,'elevated':True,
+        'expires_at':None,'single_user':True,'setup_required':False,
     }
 
 
 def test_setup_and_unlock_are_independent_session_bound_and_expiring(auth_env):
+    # Retired API cannot establish an alternative credential/grant.
     c, db, app = auth_env
     owner(c)
-    assert c.post('/auth/admin/setup', json={'user_password': 'wrong', 'new_password': ADMIN}).status_code == 401
-    assert c.post('/auth/admin/setup', json={'user_password': DAILY, 'new_password': DAILY}).status_code == 400
-    assert c.post('/auth/admin/setup', json={'user_password': DAILY, 'new_password': ADMIN}).status_code == 200
-    assert c.post('/danger').status_code == 403  # setup does not implicitly unlock
-    assert c.post('/auth/admin/unlock', json={'password': DAILY}).status_code == 401
-    assert c.post('/auth/admin/unlock', json={'password': ADMIN}).status_code == 200
+    assert c.post('/auth/admin/setup',json={'user_password':DAILY,'new_password':ADMIN}).status_code == 410
+    assert c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code == 410
+    second=TestClient(app)
+    assert second.post('/auth/login',json={'username':'owner','password':DAILY}).status_code == 200
+    assert second.post('/danger').status_code == 200
+    assert c.post('/auth/admin/lock').status_code == 410
     assert c.post('/danger').status_code == 200
-    info = c.get('/auth/security').json()
-    assert info['elevated'] and info['expires_at']
-    from app.services.admin_security import STATE_KEY
-    import json
-    row = db.get(AppConfig, STATE_KEY)
-    state = json.loads(row.value)
-    assert state['password_hash'].startswith('$argon2id$')
-    assert ADMIN not in row.value and DAILY not in row.value
-    for grant in state['grants'].values():
-        grant['expires_at'] = '2000-01-01T00:00:00+00:00'
-    row.value = json.dumps(state)
-    db.commit()
-    assert c.post('/danger').status_code == 403
-    c.post('/auth/admin/unlock', json={'password': ADMIN})
-    second = TestClient(app)
-    assert second.post('/auth/login', json={'username': 'owner', 'password': DAILY}).status_code == 200
-    assert second.post('/danger').status_code == 403
-    assert c.post('/auth/admin/lock').status_code == 200
-    assert c.post('/danger').status_code == 403
     second.close()
 
 
@@ -148,69 +129,44 @@ def test_existing_non_owner_session_cannot_access_owner_or_management(auth_env, 
 
 
 def configure(c):
+    # v6 approved migration: normal owner authentication is sufficient.
     owner(c)
-    assert c.post('/auth/admin/setup', json={'user_password': DAILY, 'new_password': ADMIN}).status_code == 200
-    assert c.post('/auth/admin/unlock', json={'password': ADMIN}).status_code == 200
+    assert c.post('/danger').status_code == 200
 
 
 def test_security_toggle_and_password_rotation_reverify_and_invalidate_all_grants(auth_env):
     c, db, app = auth_env
     configure(c)
-    assert c.put('/auth/security', json={'enabled':False}).status_code == 401
-    assert c.put('/auth/security', json={'enabled':False, 'password':DAILY}).status_code == 401
-    assert c.put('/auth/security', json={'enabled':False, 'password':ADMIN}).status_code == 200
+    for payload in ({'enabled':False},{'enabled':True,'password':ADMIN}):
+        assert c.put('/auth/security',json=payload).status_code == 410
+    assert c.post('/auth/admin/password',json={'current_password':ADMIN,'new_password':ADMIN+'2'}).status_code == 410
     assert c.post('/danger').status_code == 200
-    anonymous = TestClient(app)
+    anonymous=TestClient(app)
     assert anonymous.post('/danger').status_code == 401
     anonymous.close()
-    assert c.put('/auth/security', json={'enabled':True, 'password':ADMIN}).status_code == 200
-    assert c.post('/danger').status_code == 403
-    c.post('/auth/admin/unlock', json={'password':ADMIN})
-    second = TestClient(app)
-    second.post('/auth/login', json={'username':'owner','password':DAILY})
-    second.post('/auth/admin/unlock', json={'password':ADMIN})
-    assert c.post('/auth/admin/password', json={'current_password':DAILY,'new_password':ADMIN+'2'}).status_code == 401
-    assert c.post('/auth/admin/password', json={'current_password':ADMIN,'new_password':ADMIN+'2'}).status_code == 200
-    assert c.post('/danger').status_code == 403
-    assert second.post('/danger').status_code == 403
-    assert c.post('/auth/admin/unlock', json={'password':ADMIN}).status_code == 401
-    assert c.post('/auth/admin/unlock', json={'password':ADMIN+'2'}).status_code == 200
-    second.close()
 
 
 def test_logout_and_daily_password_change_revoke_elevation(auth_env):
     c, db, app = auth_env
     configure(c)
-    old_at = c.cookies.get('stella_at')
+    old_at=c.cookies.get('stella_at')
     assert c.post('/auth/logout').status_code == 200
-    c.cookies.set('stella_at', old_at)
+    c.cookies.set('stella_at',old_at)
     assert c.post('/danger').status_code == 401
     c.cookies.clear()
-    c.post('/auth/login', json={'username':'owner','password':DAILY})
-    c.post('/auth/admin/unlock', json={'password':ADMIN})
-    assert c.post('/auth/password', json={'old_password':DAILY,'new_password':ADMIN}).status_code == 400
-    assert c.post('/auth/password', json={'old_password':DAILY,'new_password':DAILY+'2'}).status_code == 200
+    assert c.post('/auth/login',json={'username':'owner','password':DAILY}).status_code == 200
+    assert c.post('/auth/password',json={'old_password':'wrong','new_password':DAILY+'2'}).status_code == 401
+    assert c.post('/auth/password',json={'old_password':DAILY,'new_password':DAILY+'2'}).status_code == 200
     assert c.post('/danger').status_code == 401
 
 
 def test_management_password_failures_have_bounded_shared_cooldown(auth_env):
+    # Retirement is unconditional: password guesses are never evaluated.
     c, db, app = auth_env
     configure(c)
-    c.post('/auth/admin/lock')
-    for _ in range(5):
-        assert c.post('/auth/admin/unlock', json={'password':'wrong'}).status_code == 401
-    limited = c.post('/auth/admin/unlock', json={'password':ADMIN})
-    assert limited.status_code == 429
-    assert 0 < int(limited.headers['retry-after']) <= 60
-    # Persisted cooldown expires; no permanent account lock or clock sleeps.
-    from app.services.admin_security import STATE_KEY
-    import json
-    row = db.get(AppConfig, STATE_KEY)
-    state = json.loads(row.value)
-    state['failures'] = [0.0] * 5
-    row.value = json.dumps(state)
-    db.commit()
-    assert c.post('/auth/admin/unlock', json={'password':ADMIN}).status_code == 200
+    for password in ['wrong']*6+[ADMIN]:
+        assert c.post('/auth/admin/unlock',json={'password':password}).status_code == 410
+    assert c.post('/danger').status_code == 200
 
 
 def test_invalid_password_hash_is_failed_auth_not_server_error(auth_env):
@@ -239,6 +195,7 @@ DANGEROUS = [
 
 @pytest.mark.parametrize('method,path', DANGEROUS)
 def test_every_management_route_denies_without_elevation_before_any_service_call(auth_env, method, path):
+    # Same installed route matrix; anonymous requests must still fail first.
     c, db, app = auth_env
     from app.routers.monitor import node_router, monitor_router
     from app.routers.task import router as tasks
@@ -247,12 +204,9 @@ def test_every_management_route_denies_without_elevation_before_any_service_call
     from app.routers.drive import router as drive
     from app.routers.gallery import router as gallery
     from app.routers.metrics_source import router as metrics
-    for r in [node_router, monitor_router, tasks, alerts, config, drive, gallery, metrics]:
-        app.include_router(r)
-    owner(c)
-    response = getattr(c, method)(path, **({'json':{}} if method not in ('get','delete') else {}))
-    assert response.status_code == 403, (method, path, response.text)
-    assert response.json()['detail']['code'] == 'admin_setup_required'
+    for r in [node_router,monitor_router,tasks,alerts,config,drive,gallery,metrics]:app.include_router(r)
+    response=getattr(c,method)(path,**({'json':{}} if method not in ('get','delete') else {}))
+    assert response.status_code == 401,(method,path,response.text)
 
 
 def test_nodes_do_not_disclose_tokens_to_daily_or_elevated_readers(auth_env, monkeypatch):
@@ -279,12 +233,21 @@ def test_agent_bearer_header_priority_and_json_command_results_keep_legacy_query
     from app.routers.task import agent_task_router, task_svc
     app.include_router(agent_task_router)
     calls = []
-    monkeypatch.setattr(task_svc, 'poll_tasks', lambda db,token: {'seen': token})
+    def poll_tasks(db, token):
+        calls.append(('poll', token))
+        return {'node_id': 1, 'uninstall': False, 'iperf_tasks': [], 'mtr_tasks': [],
+                'commands': [], 'component_installs': [], 'net_tasks': []}
+    monkeypatch.setattr(task_svc, 'poll_tasks', poll_tasks)
     monkeypatch.setattr(task_svc, 'authorize_agent_task', lambda *args,**kwargs: calls.append((args,kwargs)))
     monkeypatch.setattr(task_svc, 'finish_command', lambda *args: calls.append(args))
-    assert c.get('/agent/tasks',headers={'Authorization':'Bearer fixture-header'}).json() == {'seen':'fixture-header'}
-    assert c.get('/agent/tasks?token=fixture-query',headers={'Authorization':'Bearer fixture-header'}).json() == {'seen':'fixture-header'}
-    assert c.get('/agent/tasks?token=fixture-query').json() == {'seen':'fixture-query'}
+    expected = {'node_id': 1, 'uninstall': False, 'iperf_tasks': [], 'mtr_tasks': [],
+                'commands': [], 'component_installs': [], 'net_tasks': []}
+    assert c.get('/agent/tasks',headers={'Authorization':'Bearer fixture-header'}).json() == expected
+    assert calls[-1] == ('poll', 'fixture-header')
+    assert c.get('/agent/tasks?token=fixture-query',headers={'Authorization':'Bearer fixture-header'}).json() == expected
+    assert calls[-1] == ('poll', 'fixture-header')
+    assert c.get('/agent/tasks?token=fixture-query').json() == expected
+    assert calls[-1] == ('poll', 'fixture-query')
     assert c.get('/agent/tasks?token=fixture-query',headers={'Authorization':'Basic wrong'}).status_code == 401
     assert c.get('/agent/tasks').status_code == 401
     result = c.post('/agent/commands/1/result', headers={'Authorization':'Bearer fixture-header'},
@@ -311,29 +274,78 @@ def test_access_log_redacts_old_query_and_result_output_before_formatting():
     assert 'error-secret' not in record.getMessage()
 
 
-def test_node_install_credentials_are_only_available_by_explicit_elevated_action(auth_env, monkeypatch):
+@pytest.fixture
+def installation_settings(auth_env, monkeypatch):
+    """Real owner check/apply, with only its additional SQLite tables copied."""
+    from sqlalchemy import JSON, MetaData
+    from sqlalchemy.dialects.postgresql import JSONB
+    from app.models.node import Node
+    from app.models.monitor import MonitorGroup
+    from app.routers.config import router as config_router
+    c, db, app = auth_env
+    # Owner-applied entry settings intentionally require HTTPS, unlike the
+    # historical HTTP-only TestClient default. Keep real validators in place.
+    monkeypatch.setattr(c, 'base_url', 'https://testserver')
+    monkeypatch.delenv('STELLA_MAIN_ORIGIN', raising=False)
+    monkeypatch.delenv('STELLA_ENTRY_REGISTRY', raising=False)
+    metadata = MetaData()
+    for model in (Node, MonitorGroup):
+        table = model.__table__.to_metadata(metadata)
+        for column in table.columns:
+            if isinstance(column.type, JSONB):
+                column.type = JSON()
+    metadata.create_all(db.get_bind())
+    app.include_router(config_router)
+
+    def apply():
+        # Trust is only deployment permission, not an applied installation URL.
+        rejected = c.post('/nodes/1/install-command')
+        assert rejected.status_code == 409, rejected.text
+        monkeypatch.setenv('STELLA_MAIN_ORIGIN', 'https://testserver')
+        draft_response = c.get('/config/access-entries')
+        assert draft_response.status_code == 200, draft_response.text
+        draft = draft_response.json()['settings'] | {'public_origin': 'https://testserver'}
+        checked = c.post('/config/access-entries/check', json=draft)
+        assert checked.status_code == 200, checked.text
+        assert checked.json()['can_apply'] is True
+        assert set(app.dependency_overrides) == {get_db}
+        with TestClient(app, base_url='https://testserver') as anonymous:
+            assert anonymous.get('/config/access-entries').status_code == 401
+            assert anonymous.post('/config/access-entries/check', json=draft).status_code == 401
+            assert anonymous.put('/config/access-entries', json=draft | {'checked_digest': checked.json()['digest']}).status_code == 401
+        saved = c.put('/config/access-entries', json=draft | {'checked_digest': checked.json()['digest']})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()['settings'] == draft | {'revision': 1}
+        assert c.get('/config/access-entries').json()['settings'] == saved.json()['settings']
+        with Session(db.get_bind()) as fresh:
+            from app.services.access_entries import read
+            assert read(fresh) == saved.json()['settings']
+            assert fresh.query(Node).count() == 0
+            assert fresh.query(MonitorGroup).count() == 2
+    return apply
+
+
+def test_node_install_credentials_are_only_available_by_explicit_elevated_action(auth_env, monkeypatch, installation_settings):
     c, db, app = auth_env
     from app.routers.monitor import node_router
     from app.repositories import node as repo
     from types import SimpleNamespace
-    node = SimpleNamespace(id=1, token="fixture-node-secret",platform='linux',status='pending')
+    node=SimpleNamespace(id=1,token='fixture-node-secret',platform='linux',status='pending')
     monkeypatch.setattr(repo,'get_by_id',lambda db,id:node if id == 1 else None)
-    monkeypatch.setenv('STELLA_TRUSTED_ORIGINS','http://testserver')
+    monkeypatch.setenv('STELLA_TRUSTED_ORIGINS','https://testserver')
     app.include_router(node_router)
+    assert c.post('/nodes/1/install-command').status_code == 401
     owner(c)
-    assert c.post('/nodes/1/install-command').status_code == 403
-    assert c.post('/auth/admin/setup',json={'user_password':DAILY,'new_password':ADMIN}).status_code == 200
-    assert c.post('/nodes/1/install-command').status_code == 403
-    c.post('/auth/admin/unlock',json={'password':ADMIN})
-    response = c.post('/nodes/1/install-command')
-    assert response.status_code == 200, response.text
+    installation_settings()
+    response=c.post('/nodes/1/install-command')
+    assert response.status_code == 200,response.text
     assert response.headers['cache-control'] == 'no-store'
-    payload = response.json()
+    payload=response.json()
     assert payload['token'] == node.token and node.token in payload['command']
-    assert payload['url'] == 'http://testserver'
+    assert payload['url'] == 'https://testserver'
     assert c.post('/nodes/99/install-command').status_code == 404
-    c.post('/auth/admin/lock')
-    assert c.post('/nodes/1/install-command').status_code == 403
+    assert c.post('/auth/logout').status_code == 200
+    assert c.post('/nodes/1/install-command').status_code == 401
 
 
 def test_drive_login_url_cannot_bypass_token_reveal_with_legacy_admin_metadata(auth_env):
@@ -356,13 +368,10 @@ def test_single_owner_initialization_does_not_depend_on_legacy_admin_flag(auth_e
     c, db, app = auth_env
     from app.routers import admin_email
     monkeypatch.setattr(admin_email,'_load',lambda:{})
-    legacy = User(username='legacy',display_name='legacy',password_hash=hash_password(DAILY),is_admin=False)
-    db.add(legacy)
-    db.commit()
+    legacy=User(username='legacy',display_name='legacy',password_hash=hash_password(DAILY),is_admin=False)
+    db.add(legacy);db.commit()
     assert c.get('/auth/status').json()['initialized'] is True
     assert c.post('/auth/login',json={'username':'legacy','password':DAILY}).status_code == 200
-    assert c.post('/auth/admin/setup',json={'user_password':DAILY,'new_password':ADMIN}).status_code == 200
-    assert c.post('/auth/admin/unlock',json={'password':ADMIN}).status_code == 200
     assert c.post('/danger').status_code == 200
 
 
@@ -383,40 +392,32 @@ def test_corrupted_security_state_fails_closed_not_disabled_protection(auth_env,
 def test_security_changes_are_atomically_audited_without_password_values(auth_env):
     c, db, app = auth_env
     from app.routers.operations_status import router as operations
-    from app.services.backup_health import AUDIT_KEY, read_change_audit
+    from app.services.backup_health import AUDIT_KEY,read_change_audit
     app.include_router(operations)
     configure(c)
-    uid = c.get('/auth/me').json()['id']
-    c.post('/auth/admin/lock')
-    assert c.put('/auth/security',json={'enabled':False,'password':ADMIN}).status_code == 200
-    assert c.post('/auth/admin/password',json={'current_password':ADMIN,'new_password':ADMIN+'2'}).status_code == 200
-    events = read_change_audit(db)
-    assert [e['action'] for e in events] == ['security.password_change','security.update','security.lock','security.unlock','security.setup']
+    uid=c.get('/auth/me').json()['id']
+    assert c.post('/auth/password',json={'old_password':DAILY,'new_password':DAILY+'2'}).status_code == 200
+    events=read_change_audit(db)
+    assert [e['action'] for e in events] == ['security.password_change']
     assert all(e['actor_id'] == uid for e in events)
-    row = db.get(AppConfig,AUDIT_KEY)
-    assert row is not None and DAILY not in row.value and ADMIN not in row.value
-    assert 'password_hash' not in row.value
-    response = c.get('/operations/change-audit')
+    row=db.get(AppConfig,AUDIT_KEY)
+    assert row and DAILY not in row.value and ADMIN not in row.value and 'password_hash' not in row.value
+    c.cookies.clear();c.post('/auth/login',json={'username':'owner','password':DAILY+'2'})
+    response=c.get('/operations/change-audit')
     assert response.status_code == 200
     assert response.headers['cache-control'] == 'no-store'
 
 
 def test_audit_failure_rolls_back_security_mutation(auth_env):
     c, db, app = auth_env
-    from app.services.admin_security import STATE_KEY
     from app.services.backup_health import AUDIT_KEY
     configure(c)
-    audit = db.get(AppConfig,AUDIT_KEY)
-    if audit is None:
-        db.add(AppConfig(key=AUDIT_KEY,value='invalid-json'))
-    else:
-        audit.value = 'invalid-json'
-    db.commit()
-    before = db.get(AppConfig,STATE_KEY).value
-    failure_client = TestClient(app,raise_server_exceptions=False)
-    failure_client.cookies.update(c.cookies)
-    assert failure_client.put('/auth/security',json={'enabled':False,'password':ADMIN}).status_code == 500
-    assert db.get(AppConfig,STATE_KEY).value == before
+    db.add(AppConfig(key=AUDIT_KEY,value='invalid-json'));db.commit()
+    before=db.query(User).one().password_hash
+    failure_client=TestClient(app,raise_server_exceptions=False);failure_client.cookies.update(c.cookies)
+    assert failure_client.post('/auth/password',json={'old_password':DAILY,'new_password':DAILY+'2'}).status_code == 500
+    assert db.query(User).one().password_hash == before
+    assert c.post('/danger').status_code == 200
     failure_client.close()
 
 

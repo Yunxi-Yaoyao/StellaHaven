@@ -1,4 +1,7 @@
-import DOMPurify from 'dompurify';
+import createDOMPurify from 'dompurify';
+// Mermaid installs persistent hooks on the package singleton. Keep note display
+// policy independent: rendering a diagram must not change later imported HTML.
+const DOMPurify = createDOMPurify(window);
 /** Sanitize display HTML only; stored Markdown remains untouched. */
 export function sanitizeNoteHtml(html: string): string {
   const clean = DOMPurify.sanitize(html, {
@@ -20,7 +23,41 @@ export function sanitizeNoteHtml(html: string): string {
   return template.innerHTML;
 }
 
-export function sanitizeNoteSvg(svg: string): string {
-  // Only for SVG produced by Mermaid in strict mode, not imported HTML.
-  return DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true }, FORBID_TAGS: ['foreignObject'] });
+export function sanitizeNoteSvg(svg: string, generatedLabels = false): string {
+  // Mermaid output only: no navigation, image loaders or animated URL rewrites.
+  // Keep renderer typography/colors (unlike imported note HTML) and local markers.
+  const clean = DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true, mathMl: true },
+    ADD_TAGS: ['foreignObject', 'div', 'span', 'p', 'br', 'strong', 'em'],
+    HTML_INTEGRATION_POINTS: { foreignobject: true },
+    FORBID_TAGS: [...(generatedLabels ? [] : ['foreignObject']), 'image', 'feImage', 'use', 'animate', 'animateColor', 'animateMotion', 'animateTransform', 'set'],
+    FORBID_ATTR: ['href', 'xlink:href', 'src', 'srcset'],
+  });
+  const template = document.createElement('template');
+  template.innerHTML = clean;
+  // Re-sanitize foreignObject labels with a small inert vocabulary. Arbitrary
+  // embedded HTML/SVG is never retained, but native MathML needs this SVG bridge.
+  for (const label of template.content.querySelectorAll('foreignObject')) {
+    label.innerHTML = DOMPurify.sanitize(label.innerHTML, {
+      ALLOWED_TAGS: ['div', 'span', 'p', 'br', 'strong', 'em', 'math', 'mrow', 'msup',
+        'msub', 'msubsup', 'mfrac', 'mi', 'mn', 'mo', 'mtext', 'msqrt', 'mroot',
+        'mover', 'munder', 'munderover', 'mtable', 'mtr', 'mtd', 'mspace', 'mpadded',
+        'mstyle', 'mmultiscripts', 'mprescripts', 'none'],
+      ALLOWED_ATTR: ['xmlns', 'style', 'class', 'display', 'mathvariant', 'stretchy',
+        'fence', 'separator', 'accent', 'accentunder', 'linethickness', 'rowspacing', 'columnspacing'],
+      ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false,
+    });
+    if (!label.textContent?.trim()) label.remove();
+  }
+  const unsafeCss = (value: string) => /\\|@(?!keyframes\s)|image\s*\(|image-set\s*\(|src\s*\(/i.test(value) ||
+    /url\s*\(/i.test(value.replace(/url\(\s*['"]?#[\w.-]+['"]?\s*\)/gi, ''));
+  for (const style of template.content.querySelectorAll('style')) {
+    if (unsafeCss(style.textContent || '')) style.remove();
+  }
+  for (const el of template.content.querySelectorAll('*')) {
+    for (const attr of [...el.attributes]) {
+      if (unsafeCss(attr.value)) el.removeAttribute(attr.name);
+    }
+  }
+  return template.innerHTML;
 }

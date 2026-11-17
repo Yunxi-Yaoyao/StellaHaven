@@ -1,6 +1,8 @@
 import type {Page} from '@playwright/test';
+import {createClientPreferencesFixture} from '../tests/fixtures/clientPreferences';
 import {serviceFixture} from '../tests/fixtures/serviceSettings';
 export async function mock(page:Page, configured=true,root='http://127.0.0.1:15173') {
+ const clientPreferences=createClientPreferencesFixture({allowWrite:true});
  const state={enabled:true,configured,elevated:false,expires_at:null,single_user:true,setup_required:!configured};
  const requests:{path:string;method:string;body:any}[]=[];
  const me={id:'mock-owner',username:'demo',display_name:'Mock Owner',is_admin:true,avatar_url:'/avatar.png',home_bg:'',email:'',email_verified:false};
@@ -16,6 +18,8 @@ export async function mock(page:Page, configured=true,root='http://127.0.0.1:151
   if(url.origin!==root&&!(url.origin==='https://mock-embed.test'&&p==='/__stella/bootstrap')){unknown.push(method+' '+url.href);return route.abort('blockedbyclient');}
   const body=req.postDataJSON(); requests.push({path:p,method,body});
   const ok=(json:any)=>route.fulfill({json});
+  const preference=clientPreferences.respond(method,p+url.search,body);if(preference)return route.fulfill(preference);
+  if(method==='GET'&&p==='/auth/status')return ok({initialized:true,email_enabled:true});
   if(p==='/auth/me'||p==='/auth/refresh')return ok(me);
   if(p==='/auth/security') {if(method==='PUT'){if(!body.password)return route.fulfill({status:403,json:{detail:{code:'admin_password_required'}}});state.enabled=body.enabled;state.elevated=false;}return ok(state);}
   if(p==='/auth/admin/setup'){state.configured=true;state.setup_required=false;return ok(state);}

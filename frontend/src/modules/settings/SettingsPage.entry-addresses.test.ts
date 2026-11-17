@@ -1,0 +1,31 @@
+import {createApp,h,nextTick,type App} from 'vue';
+import {createMemoryHistory,createRouter,RouterView} from 'vue-router';
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+import SettingsPage from './SettingsPage.vue';
+import {toasts} from '../../composables/useToast';
+import {api} from '../../api/client';
+import {getPublicHost,setPublicHost} from '../../api/servers';
+vi.mock('../../api/client',()=>({api:vi.fn()}));
+vi.mock('../../api/servers',()=>({getPublicHost:vi.fn(),setPublicHost:vi.fn()}));
+vi.mock('../home/auth',async()=>{const {reactive,ref}=await import('vue');return {auth:reactive({me:{id:'owner',display_name:'云曦',username:'owner',email:'',avatar_url:''},sessionGeneration:0,requestEpoch:0,suspended:false,sessionClosing:false}),isAdmin:ref(true),currentAvatar:ref(''),logout:vi.fn()};});
+vi.mock('./NavigationSettings.vue',()=>({default:{render:()=>null}}));
+vi.mock('./AppearanceSettings.vue',()=>({default:{render:()=>null}}));
+vi.mock('./SecuritySettings.vue',()=>({default:{render:()=>null}}));
+vi.mock('./AuthProviderSettings.vue',()=>({default:{render:()=>null}}));
+vi.mock('./BackupCenter.vue',()=>({default:{render:()=>null}}));
+vi.mock('./NodeMonitoringPolicySettings.vue',()=>({default:{render:()=>null}}));
+vi.mock('./PerformanceSettings.vue',()=>({default:{render:()=>null}}));
+vi.mock('../../shell/SettingsPanel.vue',()=>({default:{render:()=>null}}));
+let app:App|undefined,root:HTMLDivElement,settings:ReturnType<typeof initial>,corrupt:boolean;
+const initial=()=>({revision:7,enabled:true,public_origin:'https://stella.example.test',private_origin:'https://stella.private.test'});
+const summary=()=>({settings:{...settings,revision:settings.revision+(corrupt?10:0)},issuer:'https://identity.example.test',deployed:{public:'https://stella.example.test',private:'https://stella.private.test'},websites:[{id:'hidden',name:'不该展示的工程清单',public_address:'https://upstream.test',private_address:'https://hidden.private.test'}]});
+const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve();await nextTick();await new Promise(r=>setTimeout(r,0));};
+beforeEach(()=>{vi.clearAllMocks();settings=initial();corrupt=false;vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>[]})));vi.mocked(api).mockImplementation(async(path,options)=>{if(path==='/config/access-entries/check')return {can_apply:true,digest:'a'.repeat(64),checks:[]} as any;if(path==='/config/access-entries'){if(options?.method==='PUT'){const body=JSON.parse(String(options.body));settings={...body,revision:body.revision+1};}return summary() as any;}if(path==='/admin/email/config')return {host:'',port:465,password:'',username:'',enabled:false,from_name:''} as any;throw new Error('Unexpected fixture API '+path);});});
+afterEach(()=>{toasts.splice(0);app?.unmount();document.body.replaceChildren();vi.unstubAllGlobals();});
+async function mount(section='services'){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/settings',component:SettingsPage},{path:'/:pathMatch(.*)*',component:{render:()=>null}}]});await router.push('/settings?section='+section);root=document.createElement('div');document.body.append(root);app=createApp({render:()=>h(RouterView)}).use(router);app.mount(root);await flush();return router;}
+function edit(label:string,value:string){const field=root.querySelector<HTMLInputElement>('[aria-label="'+label+'"]')!;field.value=value;field.dispatchEvent(new Event('input'));}
+const button=(name:string)=>[...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()===name);
+it('redirects old access bookmarks to the two main-site addresses without reading or writing agent configuration',async()=>{const router=await mount('access');expect(router.currentRoute.value.query.section).toBe('services');expect(root.querySelector<HTMLInputElement>('[aria-label="默认入口地址"]')!.value).toBe(settings.public_origin);expect(root.querySelector<HTMLInputElement>('[aria-label="其他入口地址"]')!.value).toBe(settings.private_origin);for(const detail of root.querySelectorAll('details'))detail.open=true;expect(root.textContent).not.toMatch(/节点连接主机名|应用节点地址|入口与网站详情|不该展示的工程清单/);expect(root.querySelector('[id="agent-public-host"]')).toBeNull();expect(getPublicHost).not.toHaveBeenCalled();expect(setPublicHost).not.toHaveBeenCalled();expect(vi.mocked(api).mock.calls.every(([,o])=>!o?.method||o.method==='GET')).toBe(true);});
+it('keeps check, apply and authoritative GET for the main-site entry without touching legacy agent host',async()=>{await mount();edit('默认入口地址','https://new-site.test');await flush();button('检查设置')!.click();await flush();button('应用设置')!.click();await flush();expect(settings.public_origin).toBe('https://new-site.test');expect(settings.private_origin).toBe(initial().private_origin);expect(root.textContent).toContain('已应用并回读');expect(setPublicHost).not.toHaveBeenCalled();expect(getPublicHost).not.toHaveBeenCalled();});
+it('keeps one managed leave barrier for the main-site draft and explicit discard',async()=>{const router=await mount();edit('默认入口地址','https://new-site.test');await flush();const navigate=router.push('/settings?section=navigation');await flush();expect(document.querySelectorAll('[role=dialog]')).toHaveLength(1);button('放弃并离开')!.click();await navigate;await flush();expect(router.currentRoute.value.query.section).toBe('navigation');expect(document.querySelectorAll('[role=dialog]')).toHaveLength(0);expect(setPublicHost).not.toHaveBeenCalled();});
+it('blocks navigation on unconfirmed main-site application and retries GET only',async()=>{const router=await mount();edit('默认入口地址','https://new-site.test');await flush();button('检查设置')!.click();await flush();corrupt=true;button('应用设置')!.click();await flush();expect(button('重试回读')).toBeDefined();await router.push('/settings?section=navigation');expect(router.currentRoute.value.query.section).toBe('services');corrupt=false;button('重试回读')!.click();await flush();expect(root.textContent).toContain('已应用并回读');expect(vi.mocked(api).mock.calls.filter(([,o])=>o?.method==='PUT')).toHaveLength(1);expect(setPublicHost).not.toHaveBeenCalled();});

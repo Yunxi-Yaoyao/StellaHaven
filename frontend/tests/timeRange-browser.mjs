@@ -20,6 +20,7 @@ const server = await createServer({ root, configFile: false, cacheDir: 'node_mod
   server: { host: '127.0.0.1', port: 0, proxy: {}, strictPort: false },
 });
 let browser;
+const { createClientPreferencesFixture } = await server.ssrLoadModule('/tests/fixtures/clientPreferences.ts');
 const report = { mode: baseline ? 'baseline' : 'candidate', fixture: true, sourceHash: hash(sourceBytes),
   commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root }).toString().trim(),
   dirty: execFileSync('git', ['status', '--short'], { cwd: root }).toString(), scenarios: [] };
@@ -31,6 +32,7 @@ try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1050 }, timezoneId });
     const page = await context.newPage();
     const requests = [], unknown = [], errors = [];
+    const preferences = createClientPreferencesFixture();
     page.on('pageerror', e => errors.push(e.message));
     await page.clock.install({ time: new Date('2026-10-10T08:00:00Z') });
     await page.clock.pauseAt(new Date('2026-10-10T08:00:01Z'));
@@ -41,9 +43,12 @@ try {
       if (req.resourceType() === 'document' || p.startsWith('/src/') || p.startsWith('/@') || p.startsWith('/node_modules/') || p === '/favicon.svg') return route.continue();
       requests.push({ path: p, method: req.method(), start: u.searchParams.get('start'), end: u.searchParams.get('end') });
       const ok = json => route.fulfill({ json });
+      const preferenceResponse = preferences.respond(req.method(), p, req.postDataJSON());
+      if (preferenceResponse) return route.fulfill(preferenceResponse);
       const node = { id: 7, name: 'Time fixture server', host: 'fixture.test', status: 'online', installed: true, platform: 'linux', net_type: 'internal',
         interfaces: { eth0: { is_default: true, up: true } }, storage: [], components: {},
         latest_metrics: [{ iface: 'eth0', ts: '2026-10-10T07:59:55Z' }], latest_sys_metric: { ts: '2026-10-10T07:59:55Z' } };
+      if (p === '/auth/status' && req.method() === 'GET') return ok({ initialized: true, has_users: true, email_enabled: false, single_user: true });
       if (p === '/auth/me' || p === '/auth/refresh') return ok({ id: 'fixture-owner', username: 'Fixture', display_name: 'Fixture', is_admin: false, home_bg: '' });
       if (p === '/nodes/7') return ok(node);
       if (p === '/nodes/') return ok([node]);
@@ -113,6 +118,8 @@ try {
       for (const c of scenario.mobile) { assert(c.canvasWidth > 0); assert.equal(c.chartWidth, c.container); assert(c.data.some(s => s.length > 0)); }
       await page.locator('.chart-toolbar').scrollIntoViewIfNeeded();
       await page.screenshot({ path: resolve(output, `candidate-${timezoneId.replace('/', '-')}-${initialTab}-mobile.png`) });
+      // Adversarial harness mode: it must hit the original deny-unknown assertion.
+      if (process.argv.includes('--unknown-negative-control')) await page.evaluate(() => fetch('/operations/backups/client-preferences/unknown'));
       assert.equal(errors.length, 0, errors.join('\n')); assert.equal(unknown.length, 0, unknown.join('\n'));
     }
     await context.close();

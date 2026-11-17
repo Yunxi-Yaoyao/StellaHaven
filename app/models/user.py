@@ -1,6 +1,6 @@
 from app.models import Base, Mapped, mapped_column, UUID, uuid4
 from datetime import datetime
-from sqlalchemy import ForeignKey, func
+from sqlalchemy import ForeignKey, func, Index
 from sqlalchemy.orm import relationship
 
 
@@ -27,12 +27,17 @@ class AuthSession(Base):
     """登录记录 = 一条会话。多地同时登录 = 多条并存，可单独吊销。"""
 
     __tablename__ = "auth_sessions"
+    __table_args__ = (Index('ix_auth_sessions_browser_group', 'user_id', 'login_origin', 'browser_id'),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     refresh_hash: Mapped[str] = mapped_column(unique=True, nullable=False)
     device: Mapped[str] = mapped_column(nullable=False, default="未知设备")  # UA 粗解析
     ip: Mapped[str] = mapped_column(nullable=False, default="")
+    browser_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    browser_name: Mapped[str | None] = mapped_column(nullable=True)
+    os_name: Mapped[str | None] = mapped_column(nullable=True)
+    login_origin: Mapped[str | None] = mapped_column(nullable=True)
     remember: Mapped[bool] = mapped_column(nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     last_seen: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())

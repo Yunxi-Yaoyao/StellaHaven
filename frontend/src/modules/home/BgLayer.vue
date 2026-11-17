@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Reuse the actual media element for dimensions; retain previous frame during quality changes.
-import { ref, computed, watch, onMounted, onUnmounted, toRef, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, toRef, nextTick } from 'vue';
 import { useBackgroundMedia } from './backgroundMedia';
 export interface BgCrop { cx: number; cy: number; w: number; h: number }
 const props = defineProps<{ url: string; crop: BgCrop }>();
@@ -12,6 +12,9 @@ const current = ref<Frame | null>(null);
 const pending = ref<Frame | null>(null);
 let ro: ResizeObserver | null = null;
 let dead = false;
+let active = true;
+onActivated(()=>{active=true;void nextTick(syncPlayback);});
+onDeactivated(()=>{active=false;syncPlayback();});
 const isVideo = (url: string) => /\.(mp4|webm)(?:[?#]|$)/i.test(url);
 const frames = computed(() => [current.value, pending.value].filter((item): item is Frame => !!item));
 watch(source, url => {
@@ -50,7 +53,7 @@ const posterStyle = computed(() => fit(posterSize.value.w || media.value?.width 
 function posterLoaded(event: Event) { const img=event.currentTarget as HTMLImageElement; posterSize.value={w:img.naturalWidth,h:img.naturalHeight}; }
 function syncPlayback() {
   for (const video of host.value?.querySelectorAll('video') ?? []) {
-    if (document.hidden || dead) video.pause();
+    if (document.hidden || dead || !active) video.pause();
     else void video.play().catch(() => {}); // muted autoplay failure leaves the poster visible
   }
 }

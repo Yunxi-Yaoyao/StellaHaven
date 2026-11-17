@@ -4,14 +4,15 @@ from app.services import integrations as store
 from app.services.integrations_injection import safe_json
 
 
-def asset_code(db, mid, *, custom_allowed=False):
+def asset_code(db, mid, *, custom_allowed=False, parent_origin=None):
     if not custom_allowed: return '/* Owner session required. */'
     module = store.state(db)['modules'].get(mid)
     if not module or not module.get('enabled') or module['mode'] != 'iframe' or module.get('connection',{}).get('injection_delivery') != 'loader':
         return '/* Website loader inactive. */'
     active = module.get('injection',{}).get('active')
     if not active or not active.get('enabled'): return '/* Website customization disabled. */'
-    url = urlsplit(module['browser_url'])
+    from app.services.entry_registry import browser_url
+    url = urlsplit(browser_url(module,parent_origin) if parent_origin else module['browser_url'])
     from app.services.request_security import canonical_origin
     payload = safe_json(dict(id=mid, origin=canonical_origin(url.scheme+'://'+url.netloc), version=active['version'], css=active['css'], js=active['js'], timing=active['timing']))
     return """(()=>{const p=PAYLOAD;if(location.origin!==p.origin)return;

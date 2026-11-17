@@ -6,6 +6,7 @@ from app.repositories.document_version import get_by_id, list_by_document
 from app.schemas.document_version import DocumentVersionCreate
 from app.models.document_version import DocumentVersion
 from app.models.document import Document
+from app.services.notes_lifecycle import lock_document, rollback_on_error
 
 SNAPSHOT_SECONDS = 300
 SNAPSHOT_CHARACTERS = 500
@@ -57,8 +58,9 @@ def checkpoint_save(db, doc, content, *, force=False):
         add_checkpoint(db, doc.id, content, latest)
 
 
+@rollback_on_error
 def create_version(db: Session, data: DocumentVersionCreate):
-    doc = db.query(Document).filter(Document.id == data.doc_id).with_for_update().first()
+    doc = lock_document(db, data.doc_id)
     if doc is None or doc.deleted_at is not None:
         raise ValueError('Document not found')
     latest = latest_version(db, doc.id)

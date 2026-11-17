@@ -1,0 +1,110 @@
+from datetime import datetime
+from uuid import UUID
+from typing import Literal
+from pydantic import BaseModel, Field, model_validator
+
+
+class DeletePreviewRequest(BaseModel):
+    model_config = {'extra': 'forbid'}
+    workspace_id: UUID
+    doc_id: UUID | None = None
+    mode: Literal['trash', 'permanent', 'empty-trash']
+    cascade: bool = Field(default=True, strict=True)
+
+    @model_validator(mode='after')
+    def valid_scope(self):
+        if self.mode == 'empty-trash':
+            if self.doc_id is not None or not self.cascade:
+                raise ValueError('empty-trash requires no doc_id and cascade=true')
+        elif self.doc_id is None:
+            raise ValueError('doc_id is required')
+        return self
+
+
+class DeletePreviewRead(DeletePreviewRequest):
+    scope_token: str
+    target_ids: list[UUID]
+    descendant_count: int
+
+
+class DocumentCreate(BaseModel):
+    title: str
+    file_path: str
+    workspace_id: UUID
+    parent_id: UUID | None = None
+    content: str | None = None  # 正文；传了服务端会自动算 content_hash
+    frontmatter: dict | None = None
+    is_folder: bool = False
+    visibility: str = "private"
+    is_pinned: bool = False
+    is_favorite: bool = False
+    status: str = "draft"
+    word_count: int | None = None
+    content_hash: str | None = None  # 兼容旧调用；有 content 时被服务端覆盖
+
+
+class ConsumedDraft(BaseModel):
+    model_config = {'extra': 'forbid'}
+    draft_updated_at: datetime
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+class DocumentUpdate(BaseModel):
+    updated_at: datetime
+    consumed_draft: ConsumedDraft | None = None
+    title: str | None = None
+    content: str | None = None  # 传了 → 服务端重算 content_hash
+    content_hash: str | None = None
+    frontmatter: dict | None = None
+    is_folder: bool | None = None
+    visibility: str | None = None
+    is_pinned: bool | None = None
+    is_favorite: bool | None = None
+    status: str | None = None
+    word_count: int | None = None
+    parent_id: UUID | None = None
+
+    @model_validator(mode='after')
+    def reject_null_body(self):
+        if 'content' in self.model_fields_set and self.content is None:
+            raise ValueError('Use an empty string to clear content; omit to preserve it')
+        return self
+
+
+class DocumentListItem(BaseModel):
+    """列表/树用摘要：不含正文。目录树只需要元数据，正文走 /documents/{id} 单篇取"""
+    id: UUID
+    title: str
+    file_path: str
+    workspace_id: UUID
+    parent_id: UUID | None
+    frontmatter: dict | None
+    is_folder: bool
+    visibility: str
+    is_pinned: bool
+    is_favorite: bool
+    status: str
+    word_count: int | None
+    content_hash: str
+    created_at: datetime
+    updated_at: datetime
+    # 草稿元信息（内容不随文档返回，要看走 /documents/{id}/draft）
+    draft_updated_at: datetime | None = None
+    draft_device: str | None = None
+    has_draft: bool = False  # 由 router 按 10 分钟惰性规则算好挂上去
+
+    model_config = {"from_attributes": True}
+
+
+class DocumentRead(DocumentListItem):
+    """单篇详情 = 摘要 + 正文"""
+    content: str | None = None  # 正文
+
+
+class DraftRead(BaseModel):
+    """草稿槽内容——只在「查看草稿」时单独取"""
+    content: str
+    updated_at: datetime
+    device: str | None
+
+

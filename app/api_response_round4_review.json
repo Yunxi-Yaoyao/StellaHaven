@@ -1,0 +1,2301 @@
+{
+  "kind": "bounded_independent_source_review",
+  "candidate": "667bb1d42936cf5ad8253c739e4775a656a8c7c5",
+  "base": "61f8715ec4bbadbd53ff81d1cd8c0c0761b2ad5a",
+  "source_approved": true,
+  "approval_scope": [
+    "alembic/versions/cd20261020_monitor_group_identity.py",
+    "app/models/monitor.py",
+    "app/repositories/monitor.py",
+    "app/routers/monitor.py",
+    "app/schemas/monitor.py",
+    "app/services/backup_projection.py",
+    "app/services/entry_monitor_groups.py",
+    "app/services/entry_monitoring.py",
+    "app/services/monitor.py",
+    "app/services/monitor_groups.py",
+    "app/services/node.py",
+    "app/services/website_settings.py"
+  ],
+  "sources": {
+    "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d": {
+      "file": "alembic/versions/cd20261020_monitor_group_identity.py",
+      "sha256": "ad010c1d0b4076f2c497c6e908bec009b28453eabf6e33f8f1a80b79e3534c43",
+      "line": 1,
+      "end_line": 31,
+      "symbol": "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d"
+    },
+    "app/models/monitor.py:round4-final-667bb1d": {
+      "file": "app/models/monitor.py",
+      "sha256": "81b762d2cff7d3a158ea439248136ceb2a361829d59e4ec8d9fb8aab484fade6",
+      "line": 1,
+      "end_line": 61,
+      "symbol": "app/models/monitor.py:round4-final-667bb1d"
+    },
+    "app/repositories/monitor.py:round4-final-667bb1d": {
+      "file": "app/repositories/monitor.py",
+      "sha256": "9905587574ce08eb06ec73a16ad4d019a4fea513a0a813be53c6e653300ace49",
+      "line": 1,
+      "end_line": 146,
+      "symbol": "app/repositories/monitor.py:round4-final-667bb1d"
+    },
+    "app/routers/monitor.py:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 1,
+      "end_line": 537,
+      "symbol": "app/routers/monitor.py:round4-final-667bb1d"
+    },
+    "app/schemas/monitor.py:round4-final-667bb1d": {
+      "file": "app/schemas/monitor.py",
+      "sha256": "d97b681b0be43cf14a8cfb9bd7c4dab0b677221027aca44cde1bf70122d012ee",
+      "line": 1,
+      "end_line": 389,
+      "symbol": "app/schemas/monitor.py:round4-final-667bb1d"
+    },
+    "app/services/backup_projection.py:round4-final-667bb1d": {
+      "file": "app/services/backup_projection.py",
+      "sha256": "197415426aa8b5cce70af9138c180a3f20934908bbfc64e70f85b4a44d41a172",
+      "line": 1,
+      "end_line": 455,
+      "symbol": "app/services/backup_projection.py:round4-final-667bb1d"
+    },
+    "app/services/entry_monitor_groups.py:round4-final-667bb1d": {
+      "file": "app/services/entry_monitor_groups.py",
+      "sha256": "5340ddac2070b65b8d592e63e727ad899de6548d406a86cd6667dc8586892c61",
+      "line": 1,
+      "end_line": 74,
+      "symbol": "app/services/entry_monitor_groups.py:round4-final-667bb1d"
+    },
+    "app/services/entry_monitoring.py:round4-final-667bb1d": {
+      "file": "app/services/entry_monitoring.py",
+      "sha256": "b3633470c9767f03413a4c822396bcd7684906054f416fcae78a34614b41d031",
+      "line": 1,
+      "end_line": 181,
+      "symbol": "app/services/entry_monitoring.py:round4-final-667bb1d"
+    },
+    "app/services/monitor.py:round4-final-667bb1d": {
+      "file": "app/services/monitor.py",
+      "sha256": "03df6d1b80921f4b64a1f1327c3f2c0121808f110266d76bcff965b953efcd93",
+      "line": 1,
+      "end_line": 141,
+      "symbol": "app/services/monitor.py:round4-final-667bb1d"
+    },
+    "app/services/monitor_groups.py:round4-final-667bb1d": {
+      "file": "app/services/monitor_groups.py",
+      "sha256": "5a0c58aea98ecca725b99835bbeec4fee85fe65ba7cf1e9d1d2dfa860750c797",
+      "line": 1,
+      "end_line": 113,
+      "symbol": "app/services/monitor_groups.py:round4-final-667bb1d"
+    },
+    "app/services/node.py:round4-final-667bb1d": {
+      "file": "app/services/node.py",
+      "sha256": "3361af7961406b01fa1c7b58d58145a61a790aa4c292c7744c24cce90f10058d",
+      "line": 1,
+      "end_line": 353,
+      "symbol": "app/services/node.py:round4-final-667bb1d"
+    },
+    "app/services/website_settings.py:round4-final-667bb1d": {
+      "file": "app/services/website_settings.py",
+      "sha256": "686d8621108a6ba002550eb48b9cba6a9453451035af9cfa61ca2d43fcb84c95",
+      "line": 1,
+      "end_line": 343,
+      "symbol": "app/services/website_settings.py:round4-final-667bb1d"
+    },
+    "app.routers.monitor.list_nodes:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 33,
+      "end_line": 34,
+      "symbol": "app.routers.monitor.list_nodes:round4-final-667bb1d"
+    },
+    "app.routers.monitor.create_node:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 38,
+      "end_line": 39,
+      "symbol": "app.routers.monitor.create_node:round4-final-667bb1d"
+    },
+    "app.routers.monitor.install_command:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 64,
+      "end_line": 92,
+      "symbol": "app.routers.monitor.install_command:round4-final-667bb1d"
+    },
+    "app.routers.monitor.read_map_topology:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 96,
+      "end_line": 98,
+      "symbol": "app.routers.monitor.read_map_topology:round4-final-667bb1d"
+    },
+    "app.routers.monitor.update_map_location:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 102,
+      "end_line": 108,
+      "symbol": "app.routers.monitor.update_map_location:round4-final-667bb1d"
+    },
+    "app.routers.monitor.get_host:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 112,
+      "end_line": 124,
+      "symbol": "app.routers.monitor.get_host:round4-final-667bb1d"
+    },
+    "app.routers.monitor.install_host:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 128,
+      "end_line": 134,
+      "symbol": "app.routers.monitor.install_host:round4-final-667bb1d"
+    },
+    "app.routers.monitor.uninstall_node:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 138,
+      "end_line": 143,
+      "symbol": "app.routers.monitor.uninstall_node:round4-final-667bb1d"
+    },
+    "app.routers.monitor.delete_node:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 147,
+      "end_line": 148,
+      "symbol": "app.routers.monitor.delete_node:round4-final-667bb1d"
+    },
+    "app.routers.monitor.read_node_metrics:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 152,
+      "end_line": 157,
+      "symbol": "app.routers.monitor.read_node_metrics:round4-final-667bb1d"
+    },
+    "app.routers.monitor.read_traffic_stats:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 161,
+      "end_line": 165,
+      "symbol": "app.routers.monitor.read_traffic_stats:round4-final-667bb1d"
+    },
+    "app.routers.monitor.read_node_sys_metrics:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 169,
+      "end_line": 174,
+      "symbol": "app.routers.monitor.read_node_sys_metrics:round4-final-667bb1d"
+    },
+    "app.routers.monitor.update_node:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 178,
+      "end_line": 184,
+      "symbol": "app.routers.monitor.update_node:round4-final-667bb1d"
+    },
+    "app.routers.monitor.update_net_type:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 188,
+      "end_line": 194,
+      "symbol": "app.routers.monitor.update_net_type:round4-final-667bb1d"
+    },
+    "app.routers.monitor.change_ip:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 198,
+      "end_line": 205,
+      "symbol": "app.routers.monitor.change_ip:round4-final-667bb1d"
+    },
+    "app.routers.monitor.firewall_scan:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 209,
+      "end_line": 214,
+      "symbol": "app.routers.monitor.firewall_scan:round4-final-667bb1d"
+    },
+    "app.routers.monitor.read_net_task:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 218,
+      "end_line": 223,
+      "symbol": "app.routers.monitor.read_net_task:round4-final-667bb1d"
+    },
+    "app.routers.monitor.docker_scan:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 227,
+      "end_line": 232,
+      "symbol": "app.routers.monitor.docker_scan:round4-final-667bb1d"
+    },
+    "app.routers.monitor.docker_ctl:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 236,
+      "end_line": 242,
+      "symbol": "app.routers.monitor.docker_ctl:round4-final-667bb1d"
+    },
+    "app.routers.monitor.pbr_scan:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 246,
+      "end_line": 251,
+      "symbol": "app.routers.monitor.pbr_scan:round4-final-667bb1d"
+    },
+    "app.routers.monitor.docker_logs:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 255,
+      "end_line": 261,
+      "symbol": "app.routers.monitor.docker_logs:round4-final-667bb1d"
+    },
+    "app.routers.monitor.docker_inspect:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 265,
+      "end_line": 271,
+      "symbol": "app.routers.monitor.docker_inspect:round4-final-667bb1d"
+    },
+    "app.routers.monitor.latest_net_task:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 275,
+      "end_line": 278,
+      "symbol": "app.routers.monitor.latest_net_task:round4-final-667bb1d"
+    },
+    "app.routers.monitor.read_node:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 282,
+      "end_line": 287,
+      "symbol": "app.routers.monitor.read_node:round4-final-667bb1d"
+    },
+    "app.routers.monitor.list_monitors:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 480,
+      "end_line": 481,
+      "symbol": "app.routers.monitor.list_monitors:round4-final-667bb1d"
+    },
+    "app.routers.monitor.create_monitor:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 485,
+      "end_line": 490,
+      "symbol": "app.routers.monitor.create_monitor:round4-final-667bb1d"
+    },
+    "app.routers.monitor.update_monitor:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 494,
+      "end_line": 500,
+      "symbol": "app.routers.monitor.update_monitor:round4-final-667bb1d"
+    },
+    "app.routers.monitor.delete_monitor:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 504,
+      "end_line": 505,
+      "symbol": "app.routers.monitor.delete_monitor:round4-final-667bb1d"
+    },
+    "app.routers.monitor.monitor_mtr_history:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 509,
+      "end_line": 514,
+      "symbol": "app.routers.monitor.monitor_mtr_history:round4-final-667bb1d"
+    },
+    "app.routers.monitor.monitor_mtr_run:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 518,
+      "end_line": 524,
+      "symbol": "app.routers.monitor.monitor_mtr_run:round4-final-667bb1d"
+    },
+    "app.routers.monitor.monitor_checks:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 528,
+      "end_line": 529,
+      "symbol": "app.routers.monitor.monitor_checks:round4-final-667bb1d"
+    },
+    "app.routers.monitor.monitor_series:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 533,
+      "end_line": 537,
+      "symbol": "app.routers.monitor.monitor_series:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_report:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 295,
+      "end_line": 306,
+      "symbol": "app.routers.monitor.agent_report:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_config:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 310,
+      "end_line": 323,
+      "symbol": "app.routers.monitor.agent_config:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_mtr_report:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 334,
+      "end_line": 342,
+      "symbol": "app.routers.monitor.agent_mtr_report:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_monitor_check:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 346,
+      "end_line": 357,
+      "symbol": "app.routers.monitor.agent_monitor_check:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_map_targets:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 361,
+      "end_line": 365,
+      "symbol": "app.routers.monitor.agent_map_targets:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_script:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 369,
+      "end_line": 374,
+      "symbol": "app.routers.monitor.agent_script:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_version:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 378,
+      "end_line": 395,
+      "symbol": "app.routers.monitor.agent_version:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_install_sh:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 399,
+      "end_line": 405,
+      "symbol": "app.routers.monitor.agent_install_sh:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_install_ps1:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 409,
+      "end_line": 415,
+      "symbol": "app.routers.monitor.agent_install_ps1:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_run_ps1:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 419,
+      "end_line": 424,
+      "symbol": "app.routers.monitor.agent_run_ps1:round4-final-667bb1d"
+    },
+    "app.routers.monitor.agent_hardware_sensors_ps1:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 428,
+      "end_line": 433,
+      "symbol": "app.routers.monitor.agent_hardware_sensors_ps1:round4-final-667bb1d"
+    },
+    "app.routers.monitor.list_monitor_groups:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 441,
+      "end_line": 443,
+      "symbol": "app.routers.monitor.list_monitor_groups:round4-final-667bb1d"
+    },
+    "app.routers.monitor.create_monitor_group:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 447,
+      "end_line": 452,
+      "symbol": "app.routers.monitor.create_monitor_group:round4-final-667bb1d"
+    },
+    "app.routers.monitor.update_monitor_group:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 465,
+      "end_line": 470,
+      "symbol": "app.routers.monitor.update_monitor_group:round4-final-667bb1d"
+    },
+    "app.routers.monitor.dissolve_monitor_group:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 474,
+      "end_line": 476,
+      "symbol": "app.routers.monitor.dissolve_monitor_group:round4-final-667bb1d"
+    },
+    "app.routers.monitor.read_node_monitoring_policy:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 48,
+      "end_line": 49,
+      "symbol": "app.routers.monitor.read_node_monitoring_policy:round4-final-667bb1d"
+    },
+    "app.routers.monitor.write_node_monitoring_policy:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 53,
+      "end_line": 54,
+      "symbol": "app.routers.monitor.write_node_monitoring_policy:round4-final-667bb1d"
+    },
+    "app.routers.monitor.pause_node_monitoring:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 58,
+      "end_line": 60,
+      "symbol": "app.routers.monitor.pause_node_monitoring:round4-final-667bb1d"
+    },
+    "app.routers.monitor.entry_monitoring_summary:round4-final-667bb1d": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 43,
+      "end_line": 44,
+      "symbol": "app.routers.monitor.entry_monitoring_summary:round4-final-667bb1d"
+    },
+    "app.routers.monitor.create_monitor_group_child": {
+      "file": "app/routers/monitor.py",
+      "sha256": "3ed68dba219e3b25215df10a9ef2218417d945acd162c3ff58faa790aaaf9b2a",
+      "line": 456,
+      "end_line": 461,
+      "symbol": "app.routers.monitor.create_monitor_group_child"
+    }
+  },
+  "source_replacements": {
+    "app.routers.monitor.list_nodes": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.list_nodes": "app/services/node.py:round4-final-667bb1d",
+    "app/schemas/monitor.py:schema": "app/schemas/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.create_node": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.create_node": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.install_command": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.read_map_topology": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.update_map_location": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.get_host": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.get_host_node": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.install_host": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.ensure_host_node": "app/services/node.py:round4-final-667bb1d",
+    "app.services.node.install_host_node": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.uninstall_node": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.request_uninstall": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.delete_node": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.remove_node": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.read_node_metrics": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.schemas.monitor.MetricPoint": "app/schemas/monitor.py:round4-final-667bb1d",
+    "app.services.node.get_node_metrics": "app/services/node.py:round4-final-667bb1d",
+    "app.services.node.query_window": "app/services/node.py:round4-final-667bb1d",
+    "app.services.node.run_history_query": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.read_traffic_stats": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.get_traffic_stats": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.read_node_sys_metrics": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.schemas.monitor.SysMetricPoint": "app/schemas/monitor.py:round4-final-667bb1d",
+    "app.services.node.get_node_sys_metrics": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.update_node": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.update_monitored_ifaces": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.update_net_type": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node._guess_ip_version": "app/services/node.py:round4-final-667bb1d",
+    "app.services.node._http_json": "app/services/node.py:round4-final-667bb1d",
+    "app.services.node.lookup_ip_region": "app/services/node.py:round4-final-667bb1d",
+    "app.services.node.update_net_type": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.change_ip": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.get_node": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.firewall_scan": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.read_net_task": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.docker_scan": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.docker_ctl": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.pbr_scan": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.docker_logs": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.docker_inspect": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.latest_net_task": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.read_node": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node._monitored_ifaces": "app/services/node.py:round4-final-667bb1d",
+    "app.services.node.get_node_detail": "app/services/node.py:round4-final-667bb1d",
+    "app.repositories.monitor.list_all": "app/repositories/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.list_monitors": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.list_monitors": "app/services/monitor.py:round4-final-667bb1d",
+    "app.models.monitor.Monitor": "app/models/monitor.py:round4-final-667bb1d",
+    "app.repositories.monitor.create": "app/repositories/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.create_monitor": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.monitor._normalize_target": "app/services/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.create_monitor": "app/services/monitor.py:round4-final-667bb1d",
+    "app.repositories.monitor.get_by_id": "app/repositories/monitor.py:round4-final-667bb1d",
+    "app.repositories.monitor.update": "app/repositories/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.update_monitor": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.update_monitor": "app/services/monitor.py:round4-final-667bb1d",
+    "app.repositories.monitor.remove": "app/repositories/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.delete_monitor": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.remove_monitor": "app/services/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.monitor_mtr_history": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.get_monitor": "app/services/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.monitor_mtr_run": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.mtr_spec": "app/services/monitor.py:round4-final-667bb1d",
+    "app.repositories.monitor.list_checks": "app/repositories/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.monitor_checks": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.list_checks": "app/services/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.monitor_series": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.list_checks_range": "app/services/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_report": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.apply_public_ip_info": "app/services/node.py:round4-final-667bb1d",
+    "app.services.node.handle_report": "app/services/node.py:round4-final-667bb1d",
+    "app.repositories.monitor.list_for_node": "app/repositories/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor._monitor_for_agent": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_config": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.schemas.monitor.AgentConfig": "app/schemas/monitor.py:round4-final-667bb1d",
+    "app.schemas.monitor.MonitorForAgent": "app/schemas/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.list_monitors_for_node": "app/services/monitor.py:round4-final-667bb1d",
+    "app.services.node.get_agent_config": "app/services/node.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_mtr_report": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.repositories.monitor.insert_check": "app/repositories/monitor.py:round4-final-667bb1d",
+    "app.repositories.monitor.update_last_result": "app/repositories/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_monitor_check": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.monitor.record_check": "app/services/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_map_targets": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_script": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_version": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_install_sh": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_install_ps1": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_run_ps1": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.agent_hardware_sensors_ps1": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.node.finish_uninstall": "app/services/node.py:round4-final-667bb1d",
+    "app/schemas/monitor.py:response-shapes": "app/schemas/monitor.py:round4-final-667bb1d",
+    "app/schemas/monitor.py:response-projection": "app/schemas/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.list_monitor_groups": "app/routers/monitor.py:round4-final-667bb1d",
+    "app/services/monitor_groups.py:feedback-review": "app/services/monitor_groups.py:round4-final-667bb1d",
+    "app/models/monitor.py:feedback-review": "app/models/monitor.py:round4-final-667bb1d",
+    "app/schemas/monitor.py:feedback-review": "app/schemas/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.create_monitor_group": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.update_monitor_group": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.dissolve_monitor_group": "app/routers/monitor.py:round4-final-667bb1d",
+    "app/services/node.py:integrated-review": "app/services/node.py:round4-final-667bb1d",
+    "app/services/monitor.py:integrated-review": "app/services/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.read_node_monitoring_policy": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.write_node_monitoring_policy": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.pause_node_monitoring": "app/routers/monitor.py:round4-final-667bb1d",
+    "app.services.website_settings.css_errors:round2-0a5f97c": "app/services/website_settings.py:round4-final-667bb1d",
+    "app.services.website_settings.fingerprint:round2-0a5f97c": "app/services/website_settings.py:round4-final-667bb1d",
+    "app.services.website_settings.retry_result:round2-0a5f97c": "app/services/website_settings.py:round4-final-667bb1d",
+    "app.services.website_settings.save_website:round2-0a5f97c": "app/services/website_settings.py:round4-final-667bb1d",
+    "app/services/website_settings.py:response-shapes:round2-0a5f97c": "app/services/website_settings.py:round4-final-667bb1d",
+    "app/services/website_settings.py:schema:round2-0a5f97c": "app/services/website_settings.py:round4-final-667bb1d",
+    "app/routers/monitor.py:entry-monitoring-review": "app/routers/monitor.py:round4-final-667bb1d",
+    "app/schemas/monitor.py:entry-monitoring-review": "app/schemas/monitor.py:round4-final-667bb1d",
+    "app/services/node.py:entry-monitoring-review": "app/services/node.py:round4-final-667bb1d",
+    "app/services/monitor.py:entry-monitoring-review": "app/services/monitor.py:round4-final-667bb1d",
+    "app.routers.monitor.entry_monitoring_summary": "app/routers/monitor.py:round4-final-667bb1d",
+    "app/services/backup_projection.py:entry-monitoring-review": "app/services/backup_projection.py:round4-final-667bb1d",
+    "app/services/entry_monitoring.py:entry-scope-r1-review": "app/services/entry_monitoring.py:round4-final-667bb1d"
+  },
+  "handler_source_replacements": {
+    "app.routers.monitor.list_nodes": "app.routers.monitor.list_nodes:round4-final-667bb1d",
+    "app.routers.monitor.create_node": "app.routers.monitor.create_node:round4-final-667bb1d",
+    "app.routers.monitor.install_command": "app.routers.monitor.install_command:round4-final-667bb1d",
+    "app.routers.monitor.read_map_topology": "app.routers.monitor.read_map_topology:round4-final-667bb1d",
+    "app.routers.monitor.update_map_location": "app.routers.monitor.update_map_location:round4-final-667bb1d",
+    "app.routers.monitor.get_host": "app.routers.monitor.get_host:round4-final-667bb1d",
+    "app.routers.monitor.install_host": "app.routers.monitor.install_host:round4-final-667bb1d",
+    "app.routers.monitor.uninstall_node": "app.routers.monitor.uninstall_node:round4-final-667bb1d",
+    "app.routers.monitor.delete_node": "app.routers.monitor.delete_node:round4-final-667bb1d",
+    "app.routers.monitor.read_node_metrics": "app.routers.monitor.read_node_metrics:round4-final-667bb1d",
+    "app.routers.monitor.read_traffic_stats": "app.routers.monitor.read_traffic_stats:round4-final-667bb1d",
+    "app.routers.monitor.read_node_sys_metrics": "app.routers.monitor.read_node_sys_metrics:round4-final-667bb1d",
+    "app.routers.monitor.update_node": "app.routers.monitor.update_node:round4-final-667bb1d",
+    "app.routers.monitor.update_net_type": "app.routers.monitor.update_net_type:round4-final-667bb1d",
+    "app.routers.monitor.change_ip": "app.routers.monitor.change_ip:round4-final-667bb1d",
+    "app.routers.monitor.firewall_scan": "app.routers.monitor.firewall_scan:round4-final-667bb1d",
+    "app.routers.monitor.read_net_task": "app.routers.monitor.read_net_task:round4-final-667bb1d",
+    "app.routers.monitor.docker_scan": "app.routers.monitor.docker_scan:round4-final-667bb1d",
+    "app.routers.monitor.docker_ctl": "app.routers.monitor.docker_ctl:round4-final-667bb1d",
+    "app.routers.monitor.pbr_scan": "app.routers.monitor.pbr_scan:round4-final-667bb1d",
+    "app.routers.monitor.docker_logs": "app.routers.monitor.docker_logs:round4-final-667bb1d",
+    "app.routers.monitor.docker_inspect": "app.routers.monitor.docker_inspect:round4-final-667bb1d",
+    "app.routers.monitor.latest_net_task": "app.routers.monitor.latest_net_task:round4-final-667bb1d",
+    "app.routers.monitor.read_node": "app.routers.monitor.read_node:round4-final-667bb1d",
+    "app.routers.monitor.list_monitors": "app.routers.monitor.list_monitors:round4-final-667bb1d",
+    "app.routers.monitor.create_monitor": "app.routers.monitor.create_monitor:round4-final-667bb1d",
+    "app.routers.monitor.update_monitor": "app.routers.monitor.update_monitor:round4-final-667bb1d",
+    "app.routers.monitor.delete_monitor": "app.routers.monitor.delete_monitor:round4-final-667bb1d",
+    "app.routers.monitor.monitor_mtr_history": "app.routers.monitor.monitor_mtr_history:round4-final-667bb1d",
+    "app.routers.monitor.monitor_mtr_run": "app.routers.monitor.monitor_mtr_run:round4-final-667bb1d",
+    "app.routers.monitor.monitor_checks": "app.routers.monitor.monitor_checks:round4-final-667bb1d",
+    "app.routers.monitor.monitor_series": "app.routers.monitor.monitor_series:round4-final-667bb1d",
+    "app.routers.monitor.agent_report": "app.routers.monitor.agent_report:round4-final-667bb1d",
+    "app.routers.monitor.agent_config": "app.routers.monitor.agent_config:round4-final-667bb1d",
+    "app.routers.monitor.agent_mtr_report": "app.routers.monitor.agent_mtr_report:round4-final-667bb1d",
+    "app.routers.monitor.agent_monitor_check": "app.routers.monitor.agent_monitor_check:round4-final-667bb1d",
+    "app.routers.monitor.agent_map_targets": "app.routers.monitor.agent_map_targets:round4-final-667bb1d",
+    "app.routers.monitor.agent_script": "app.routers.monitor.agent_script:round4-final-667bb1d",
+    "app.routers.monitor.agent_version": "app.routers.monitor.agent_version:round4-final-667bb1d",
+    "app.routers.monitor.agent_install_sh": "app.routers.monitor.agent_install_sh:round4-final-667bb1d",
+    "app.routers.monitor.agent_install_ps1": "app.routers.monitor.agent_install_ps1:round4-final-667bb1d",
+    "app.routers.monitor.agent_run_ps1": "app.routers.monitor.agent_run_ps1:round4-final-667bb1d",
+    "app.routers.monitor.agent_hardware_sensors_ps1": "app.routers.monitor.agent_hardware_sensors_ps1:round4-final-667bb1d",
+    "app.routers.monitor.list_monitor_groups": "app.routers.monitor.list_monitor_groups:round4-final-667bb1d",
+    "app.routers.monitor.create_monitor_group": "app.routers.monitor.create_monitor_group:round4-final-667bb1d",
+    "app.routers.monitor.update_monitor_group": "app.routers.monitor.update_monitor_group:round4-final-667bb1d",
+    "app.routers.monitor.dissolve_monitor_group": "app.routers.monitor.dissolve_monitor_group:round4-final-667bb1d",
+    "app.routers.monitor.read_node_monitoring_policy": "app.routers.monitor.read_node_monitoring_policy:round4-final-667bb1d",
+    "app.routers.monitor.write_node_monitoring_policy": "app.routers.monitor.write_node_monitoring_policy:round4-final-667bb1d",
+    "app.routers.monitor.pause_node_monitoring": "app.routers.monitor.pause_node_monitoring:round4-final-667bb1d",
+    "app.routers.monitor.entry_monitoring_summary": "app.routers.monitor.entry_monitoring_summary:round4-final-667bb1d"
+  },
+  "source_additions": {
+    "app.routers.monitor.list_nodes": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.create_node": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.install_command": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.read_map_topology": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.update_map_location": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.get_host": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.install_host": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.uninstall_node": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.delete_node": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.read_node_metrics": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.read_traffic_stats": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.read_node_sys_metrics": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.update_node": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.update_net_type": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.change_ip": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.firewall_scan": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.read_net_task": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.docker_scan": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.docker_ctl": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.pbr_scan": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.docker_logs": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.docker_inspect": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.latest_net_task": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.read_node": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.list_monitors": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.create_monitor": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.update_monitor": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.delete_monitor": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.monitor_mtr_history": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.monitor_mtr_run": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.monitor_checks": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.monitor_series": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_report": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_config": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_mtr_report": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_monitor_check": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_map_targets": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_script": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_version": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_install_sh": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_install_ps1": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_run_ps1": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.agent_hardware_sensors_ps1": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.list_iperf": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.get_iperf": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.cancel_iperf": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.create_iperf": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.list_mtr": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.create_mtr": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.list_commands": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.create_command": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.list_components": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.install_component": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.poll_tasks": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.get_iperf_status": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.finish_iperf": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.iperf_progress": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.finish_component": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.finish_net_task": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.download_speedtest_go": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.finish_mtr": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.mtr_live": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.finish_command": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.finish_uninstall": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.list_monitor_groups": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.create_monitor_group": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.update_monitor_group": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.dissolve_monitor_group": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.alerts.incident_list": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.alerts.incident_detail": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.alerts.notification_detail": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.create_mtr_job": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.task.get_mtr": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.web_projects.identities": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.read_node_monitoring_policy": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.write_node_monitoring_policy": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.pause_node_monitoring": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ],
+    "app.routers.monitor.entry_monitoring_summary": [
+      "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+      "app/models/monitor.py:round4-final-667bb1d",
+      "app/repositories/monitor.py:round4-final-667bb1d",
+      "app/routers/monitor.py:round4-final-667bb1d",
+      "app/schemas/monitor.py:round4-final-667bb1d",
+      "app/services/backup_projection.py:round4-final-667bb1d",
+      "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+      "app/services/entry_monitoring.py:round4-final-667bb1d",
+      "app/services/monitor.py:round4-final-667bb1d",
+      "app/services/monitor_groups.py:round4-final-667bb1d",
+      "app/services/node.py:round4-final-667bb1d"
+    ]
+  },
+  "affected_endpoints": [
+    "app.routers.alerts.incident_detail",
+    "app.routers.alerts.incident_list",
+    "app.routers.alerts.notification_detail",
+    "app.routers.monitor.agent_config",
+    "app.routers.monitor.agent_hardware_sensors_ps1",
+    "app.routers.monitor.agent_install_ps1",
+    "app.routers.monitor.agent_install_sh",
+    "app.routers.monitor.agent_map_targets",
+    "app.routers.monitor.agent_monitor_check",
+    "app.routers.monitor.agent_mtr_report",
+    "app.routers.monitor.agent_report",
+    "app.routers.monitor.agent_run_ps1",
+    "app.routers.monitor.agent_script",
+    "app.routers.monitor.agent_version",
+    "app.routers.monitor.change_ip",
+    "app.routers.monitor.create_monitor",
+    "app.routers.monitor.create_monitor_group",
+    "app.routers.monitor.create_monitor_group_child",
+    "app.routers.monitor.create_node",
+    "app.routers.monitor.delete_monitor",
+    "app.routers.monitor.delete_node",
+    "app.routers.monitor.dissolve_monitor_group",
+    "app.routers.monitor.docker_ctl",
+    "app.routers.monitor.docker_inspect",
+    "app.routers.monitor.docker_logs",
+    "app.routers.monitor.docker_scan",
+    "app.routers.monitor.entry_monitoring_summary",
+    "app.routers.monitor.firewall_scan",
+    "app.routers.monitor.get_host",
+    "app.routers.monitor.install_command",
+    "app.routers.monitor.install_host",
+    "app.routers.monitor.latest_net_task",
+    "app.routers.monitor.list_monitor_groups",
+    "app.routers.monitor.list_monitors",
+    "app.routers.monitor.list_nodes",
+    "app.routers.monitor.monitor_checks",
+    "app.routers.monitor.monitor_mtr_history",
+    "app.routers.monitor.monitor_mtr_run",
+    "app.routers.monitor.monitor_series",
+    "app.routers.monitor.pause_node_monitoring",
+    "app.routers.monitor.pbr_scan",
+    "app.routers.monitor.read_map_topology",
+    "app.routers.monitor.read_net_task",
+    "app.routers.monitor.read_node",
+    "app.routers.monitor.read_node_metrics",
+    "app.routers.monitor.read_node_monitoring_policy",
+    "app.routers.monitor.read_node_sys_metrics",
+    "app.routers.monitor.read_traffic_stats",
+    "app.routers.monitor.uninstall_node",
+    "app.routers.monitor.update_map_location",
+    "app.routers.monitor.update_monitor",
+    "app.routers.monitor.update_monitor_group",
+    "app.routers.monitor.update_net_type",
+    "app.routers.monitor.update_node",
+    "app.routers.monitor.write_node_monitoring_policy",
+    "app.routers.task.cancel_iperf",
+    "app.routers.task.create_command",
+    "app.routers.task.create_iperf",
+    "app.routers.task.create_mtr",
+    "app.routers.task.create_mtr_job",
+    "app.routers.task.download_speedtest_go",
+    "app.routers.task.finish_command",
+    "app.routers.task.finish_component",
+    "app.routers.task.finish_iperf",
+    "app.routers.task.finish_mtr",
+    "app.routers.task.finish_net_task",
+    "app.routers.task.finish_uninstall",
+    "app.routers.task.get_iperf",
+    "app.routers.task.get_iperf_status",
+    "app.routers.task.get_mtr",
+    "app.routers.task.install_component",
+    "app.routers.task.iperf_progress",
+    "app.routers.task.list_commands",
+    "app.routers.task.list_components",
+    "app.routers.task.list_iperf",
+    "app.routers.task.list_mtr",
+    "app.routers.task.mtr_live",
+    "app.routers.task.poll_tasks",
+    "app.routers.web_projects.identities",
+    "app.routers.website_settings.create",
+    "app.routers.website_settings.create_template",
+    "app.routers.website_settings.remove_template",
+    "app.routers.website_settings.update"
+  ],
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/monitors/groups/{group_id}/children",
+      "endpoint": "app.routers.monitor.create_monitor_group_child",
+      "status_code": "201",
+      "sources": [
+        "agent/stella_agent.py:entry-scope-r1-review",
+        "alembic/versions/cd20261020_monitor_group_identity.py:round4-final-667bb1d",
+        "app.database.get_db",
+        "app.models.config.AppConfig",
+        "app.repositories.config.bump_monitors_version",
+        "app.repositories.config.get",
+        "app.repositories.config.get_monitors_version",
+        "app.repositories.config.put",
+        "app.repositories.node.get_by_id",
+        "app.routers.auth.admin_user",
+        "app.routers.auth.current_user",
+        "app.routers.monitor.create_monitor_group_child",
+        "app.security.read_access_token",
+        "app.services.admin_security.decode_state",
+        "app.services.admin_security.locked_state",
+        "app.services.admin_security.owner_id",
+        "app.services.admin_security.read_state",
+        "app.services.admin_security.require_admin",
+        "app.services.admin_security.require_owner",
+        "app.services.admin_security.save",
+        "app.services.admin_security.security_status",
+        "app.services.session_policy.expired",
+        "app.services.session_policy.expires_at",
+        "app.services.session_policy.utc",
+        "app/models/monitor.py:round4-final-667bb1d",
+        "app/models/node.py:entry-monitoring-review",
+        "app/repositories/monitor.py:round4-final-667bb1d",
+        "app/repositories/node.py:integrated-review",
+        "app/routers/monitor.py:round4-final-667bb1d",
+        "app/routers/web_project_host.py:web-project-review",
+        "app/schemas/control_channel.py:entry-scope-r1-review",
+        "app/schemas/monitor.py:round4-final-667bb1d",
+        "app/schemas/node_monitor_policy.py:integrated-review",
+        "app/schemas/public_node.py:entry-monitoring-review",
+        "app/services/backup_projection.py:round4-final-667bb1d",
+        "app/services/entry_monitor_groups.py:round4-final-667bb1d",
+        "app/services/entry_monitoring.py:round4-final-667bb1d",
+        "app/services/entry_registry.py:web-project-review",
+        "app/services/entry_targets.py:entry-scope-r1-review",
+        "app/services/monitor.py:round4-final-667bb1d",
+        "app/services/monitor_groups.py:round4-final-667bb1d",
+        "app/services/node.py:round4-final-667bb1d",
+        "app/services/node_monitor_policy.py:entry-monitoring-review",
+        "app/services/node_monitor_policy.py:integrated-review",
+        "app/validation_errors.py:feedback-review",
+        "app/validation_errors.py:response-projection",
+        "main.py:response-projection"
+      ],
+      "error_statuses": [
+        "400",
+        "401",
+        "403",
+        "421",
+        "503"
+      ],
+      "request_validation": true,
+      "model": "MonitorRead"
+    }
+  ],
+  "models": {
+    "MonitorRead": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "integer"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "interval": {
+          "title": "Interval",
+          "type": "integer"
+        },
+        "timeout": {
+          "title": "Timeout",
+          "type": "integer"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "last_check_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Check At"
+        },
+        "last_latency_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Latency Ms"
+        },
+        "management": {
+          "anyOf": [
+            {
+              "const": "entry_icmp",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Management"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "node_id",
+        "type",
+        "target",
+        "interval",
+        "timeout",
+        "status"
+      ],
+      "title": "MonitorRead",
+      "type": "object"
+    },
+    "MonitorGroupRead": {
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "child_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Child Ids",
+          "type": "array"
+        },
+        "failure_policy": {
+          "default": "any",
+          "enum": [
+            "any",
+            "all"
+          ],
+          "title": "Failure Policy",
+          "type": "string"
+        },
+        "rotation_seconds": {
+          "default": 0,
+          "enum": [
+            0,
+            8,
+            15,
+            30
+          ],
+          "title": "Rotation Seconds",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "automatic": {
+          "default": false,
+          "title": "Automatic",
+          "type": "boolean"
+        },
+        "source_node_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Node Id"
+        },
+        "status": {
+          "enum": [
+            "up",
+            "down",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "down_count": {
+          "title": "Down Count",
+          "type": "integer"
+        },
+        "unknown_count": {
+          "title": "Unknown Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "child_ids",
+        "id",
+        "status",
+        "down_count",
+        "unknown_count"
+      ],
+      "title": "MonitorGroupRead",
+      "type": "object"
+    },
+    "list[MonitorRead]": {
+      "$defs": {
+        "MonitorRead": {
+          "properties": {
+            "id": {
+              "title": "Id",
+              "type": "integer"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "node_id": {
+              "title": "Node Id",
+              "type": "integer"
+            },
+            "type": {
+              "title": "Type",
+              "type": "string"
+            },
+            "target": {
+              "title": "Target",
+              "type": "string"
+            },
+            "interval": {
+              "title": "Interval",
+              "type": "integer"
+            },
+            "timeout": {
+              "title": "Timeout",
+              "type": "integer"
+            },
+            "status": {
+              "title": "Status",
+              "type": "string"
+            },
+            "last_check_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Last Check At"
+            },
+            "last_latency_ms": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Last Latency Ms"
+            },
+            "management": {
+              "anyOf": [
+                {
+                  "const": "entry_icmp",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Management"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "node_id",
+            "type",
+            "target",
+            "interval",
+            "timeout",
+            "status"
+          ],
+          "title": "MonitorRead",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/MonitorRead"
+      },
+      "type": "array"
+    },
+    "list[MonitorGroupRead]": {
+      "$defs": {
+        "MonitorGroupRead": {
+          "properties": {
+            "name": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            },
+            "child_ids": {
+              "items": {
+                "type": "integer"
+              },
+              "title": "Child Ids",
+              "type": "array"
+            },
+            "failure_policy": {
+              "default": "any",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "title": "Failure Policy",
+              "type": "string"
+            },
+            "rotation_seconds": {
+              "default": 0,
+              "enum": [
+                0,
+                8,
+                15,
+                30
+              ],
+              "title": "Rotation Seconds",
+              "type": "integer"
+            },
+            "id": {
+              "title": "Id",
+              "type": "integer"
+            },
+            "automatic": {
+              "default": false,
+              "title": "Automatic",
+              "type": "boolean"
+            },
+            "source_node_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Source Node Id"
+            },
+            "status": {
+              "enum": [
+                "up",
+                "down",
+                "unknown"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "down_count": {
+              "title": "Down Count",
+              "type": "integer"
+            },
+            "unknown_count": {
+              "title": "Unknown Count",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "child_ids",
+            "id",
+            "status",
+            "down_count",
+            "unknown_count"
+          ],
+          "title": "MonitorGroupRead",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/MonitorGroupRead"
+      },
+      "type": "array"
+    }
+  },
+  "request_models": {
+    "MonitorCreate": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "default": "tcp",
+          "title": "Type",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "interval": {
+          "default": 60,
+          "title": "Interval",
+          "type": "integer"
+        },
+        "timeout": {
+          "default": 5,
+          "title": "Timeout",
+          "type": "integer"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "target",
+        "node_id"
+      ],
+      "title": "MonitorCreate",
+      "type": "object"
+    },
+    "MonitorGroupWrite": {
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "child_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 12,
+          "title": "Child Ids",
+          "type": "array"
+        },
+        "failure_policy": {
+          "default": "any",
+          "enum": [
+            "any",
+            "all"
+          ],
+          "title": "Failure Policy",
+          "type": "string"
+        },
+        "rotation_seconds": {
+          "default": 0,
+          "enum": [
+            0,
+            8,
+            15,
+            30
+          ],
+          "title": "Rotation Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "child_ids"
+      ],
+      "title": "MonitorGroupWrite",
+      "type": "object"
+    }
+  },
+  "permission": {
+    "auth": "cookie-access",
+    "security": [
+      {
+        "StellaAccessCookie": []
+      }
+    ],
+    "elevation": "management-policy",
+    "dependency_closure": [
+      "app.database.get_db",
+      "app.routers.auth.admin_user",
+      "app.routers.auth.current_user"
+    ],
+    "owner": "current_user pinned-owner active nonrevoked unexpired AuthSession; admin_user requires actual versioned management grant when enabled; legacy is_admin is not authority",
+    "csrf": "MainSiteSecurityMiddleware host/origin checks; same-origin JSON cookie writes allowed without Origin; cross-origin Origin or foreign Referer / cross-site Fetch rejected, not a CSRF token promise"
+  },
+  "known_errors": {
+    "400": [
+      "父监控不存在",
+      "父监控最多 12 个子项",
+      "探测节点不存在"
+    ],
+    "401": "current_user invalid/missing/revoked/expired access session",
+    "403": "pinned-owner/management policy denial or unsafe Origin boundary",
+    "421": "main-site Host mismatch (middleware)",
+    "422": "typed path or MonitorCreate request validation; actual main shared loc/type/msg redaction",
+    "503": "trusted origin or auth/admin configuration unavailable (controlled dependency/middleware)"
+  },
+  "semantics": {
+    "request": "reuse exact MonitorCreate; do NOT invent enum/minimum restrictions absent from source",
+    "transaction": "lock -> group/count/source -> monitor+membership -> bump_monitors_version commits both; no POST idempotency guarantee",
+    "unknown_response": "client pendingCreation must only GET on retry, no second POST",
+    "automatic_patch": "current actual route maps protected field ValueError to 404, not guessed 400/409; name edit remains 200",
+    "empty_group": "automatic only allows 0/1; unknown health when empty; manual still 2..12 service constraint"
+  },
+  "inherited_reviews": {
+    "archive": "docs/Stella-界面收敛第四轮-20261020/archive-review-followup/RESULT.json",
+    "child_receipt": "docs/Stella-界面收敛第四轮-20261020/child-receipt-review/RESULT.json"
+  },
+  "limitations": [
+    "Read-only bounded source approval, not deployment/global gate approval.",
+    "Runtime TestClient uses SQLite and explicit fixture identities; not PG/auth lifecycle verification.",
+    "Original rejection receipts remain historical failures; no notification incomplete or unrelated range rewrites."
+  ]
+}

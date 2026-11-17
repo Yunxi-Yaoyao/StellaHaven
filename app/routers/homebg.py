@@ -15,7 +15,6 @@ from uuid import uuid4
 import mimetypes
 from copy import deepcopy
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 from app.database import get_db
@@ -112,10 +111,8 @@ def _pg_load(db):
 def _pg_index(db):
     # ha_state.locked_state opens a different transaction. AppConfig uses THIS
     # session so initialization, index and blobs publish atomically.
-    db.execute(insert(AppConfig).values(key=PG_INDEX_KEY, value='[]')
-               .on_conflict_do_nothing(index_elements=['key']))
-    row = db.execute(select(AppConfig).where(AppConfig.key == PG_INDEX_KEY)
-                     .with_for_update().execution_options(populate_existing=True)).scalar_one()
+    from app.services.homebg_references import lock_library
+    row = lock_library(db)
     entries = json.loads(row.value)
     yield entries
     row.value = json.dumps(entries, ensure_ascii=False)
@@ -282,6 +279,8 @@ def delete_homebg(entry_id: str, user: User = Depends(current_user), db: Session
                 raise HTTPException(404, '背景不存在')
             if e.get('isDefault') or e.get('isSystem'):
                 raise HTTPException(400, '系统自带背景不可删除')
+            from app.services.homebg_references import reject_referenced
+            reject_referenced(db, e)
             for key in homebg_media.pg_keys(e):
                 blob_store.delete(db, key)
             entries.remove(e)
@@ -294,6 +293,8 @@ def delete_homebg(entry_id: str, user: User = Depends(current_user), db: Session
                 raise HTTPException(400, "系统自带背景不可删除")
             if e.get("owner") not in (None, str(user.id)) and not user.is_admin:
                 raise HTTPException(404, "背景不存在")
+            from app.services.homebg_references import reject_referenced
+            reject_referenced(db, e)
             (HOMEBG_DIR / e["file"]).unlink(missing_ok=True)
             entries.pop(i)
             _save(entries)

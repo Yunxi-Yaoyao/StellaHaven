@@ -1,6 +1,7 @@
 """监控项域：监控项定义 + 探测结果（可用率历史）。"""
 from datetime import datetime
-from sqlalchemy import ForeignKey, Integer, BigInteger, DateTime, String, UniqueConstraint
+from uuid import uuid4
+from sqlalchemy import ForeignKey, Integer, BigInteger, DateTime, String, UniqueConstraint, Boolean, true
 from sqlalchemy.sql import func
 from app.models import Base, Mapped, mapped_column
 
@@ -16,6 +17,8 @@ class Monitor(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     node_id: Mapped[int] = mapped_column(Integer, ForeignKey("nodes.id"), nullable=False)
+    visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
     type: Mapped[str] = mapped_column(String(16), nullable=False)    # ping / tcp / udp / http / https
     target: Mapped[str] = mapped_column(String(256), nullable=False)  # IP、IP:port、URL
     interval: Mapped[int] = mapped_column(Integer, nullable=False, default=60)   # 探测间隔秒
@@ -23,6 +26,26 @@ class Monitor(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")  # up / down / unknown
     last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_latency_ms: Mapped[float | None] = mapped_column(nullable=True)
+
+
+class MonitorGroup(Base):
+    """Explicit display grouping only; does not create probes or rewrite child history."""
+    __tablename__ = 'monitor_groups'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Immutable archive identity: names, members and numeric IDs are not proof.
+    stable_uuid: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, default=lambda: str(uuid4()))
+    visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    failure_policy: Mapped[str] = mapped_column(String(8), nullable=False, default='any')
+    rotation_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class MonitorGroupMember(Base):
+    __tablename__ = 'monitor_group_members'
+    group_id: Mapped[int] = mapped_column(ForeignKey('monitor_groups.id', ondelete='CASCADE'), primary_key=True)
+    monitor_id: Mapped[int] = mapped_column(ForeignKey('monitors.id', ondelete='CASCADE'), primary_key=True, unique=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class MonitorCheck(Base):

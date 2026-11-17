@@ -42,16 +42,23 @@ async def _process() -> None:
             _clients.discard(ws)
 
 
-@router.websocket("/ws/notifications")
-async def notifications_ws(ws: WebSocket, db: Session = Depends(get_db)):
-    global _worker_started
+async def _authorize(ws: WebSocket, db: Session) -> bool:
     try:
         db.expire_all()
-        current_user(Request({**ws.scope, "type": "http"}), db)   # cookie 会话鉴权
+        # Validation is a read, not activity/refresh: never extend last_seen.
+        current_user(Request({**ws.scope, "type": "http"}), db)
         db.rollback()
+        return True
     except HTTPException:
         db.rollback()
         await ws.close(code=1008)
+        return False
+
+
+@router.websocket("/ws/notifications")
+async def notifications_ws(ws: WebSocket, db: Session = Depends(get_db)):
+    global _worker_started
+    if not await _authorize(ws, db):
         return
     await ws.accept()
     if not _worker_started:
@@ -60,7 +67,14 @@ async def notifications_ws(ws: WebSocket, db: Session = Depends(get_db)):
     _clients.add(ws)
     try:
         while True:
-            await ws.receive_text()   # 客户端只收不发；收消息只为检测断开
+            try:
+                message = await asyncio.wait_for(ws.receive(), timeout=15)
+                if message["type"] == "websocket.disconnect":
+                    break
+            except asyncio.TimeoutError:
+                pass
+            if not await _authorize(ws, db):
+                break
     except WebSocketDisconnect:
         pass
     finally:

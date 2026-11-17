@@ -1,0 +1,15 @@
+<script setup lang="ts">
+import {ref,watch,onBeforeUnmount} from 'vue';
+import DetailDialog from '../../shell/DetailDialog.vue';
+import {getIncident,fullTime,duration,incidentStatus,type IncidentDetail} from '../../api/alerts';
+const props=defineProps<{id:number}>();defineEmits<{close:[]}>();
+const value=ref<IncidentDetail>(),error=ref(''),loading=ref(true);
+let controller:AbortController|undefined;
+async function load(){controller?.abort();const c=new AbortController();controller=c;loading.value=true;error.value='';value.value=undefined;try{const v=await getIncident(props.id,c.signal);if(!c.signal.aborted)value.value=v;}catch{if(!c.signal.aborted)error.value='告警详情加载失败，请重试';}finally{if(!c.signal.aborted)loading.value=false;}}
+watch(()=>props.id,load,{immediate:true});onBeforeUnmount(()=>controller?.abort());
+const events:Record<string,string>={fired:'确认触发',resolved:'恢复',remind:'持续异常提醒'};
+</script>
+<template><DetailDialog title="告警详情" @close="$emit('close')"><div data-incident-detail><p v-if="loading" role="status">正在读取这一次告警…</p><p v-else-if="error" role="alert">{{error}} <button @click="load">重试</button></p><template v-else-if="value"><h3>{{value.label||'历史告警'}} <span :class="value.status">{{incidentStatus(value)}}</span></h3><p>{{value.message}}</p><dl><div><dt>开始时间（确认触发）</dt><dd>{{value.started_at?fullTime(value.started_at):'起始记录缺失'}}</dd></div><div><dt>恢复时间</dt><dd>{{value.resolved_at?fullTime(value.resolved_at):'未确认恢复'}}</dd></div><div><dt>持续时长</dt><dd>{{duration(value.duration_seconds)}}</dd></div><div><dt>程度</dt><dd>{{value.severity==='critical'?'严重':'普通'}}</dd></div><div><dt>最后评估</dt><dd>{{fullTime(value.evaluated_at)}}</dd></div><div><dt>最新观测</dt><dd>{{value.observation==='unknown'?'未知 / 可能过期':'最近有有效观测'}}</dd></div></dl><p v-if="value.archived" class="hint">规则已删除并归档；停止评估不代表恢复。</p><p v-if="value.metadata_source==='legacy_rule'" class="hint">旧记录未保存目标快照，名称取自保留的规则；不倒推更早的起始时刻。</p><h4>事件时间线</h4><ol><li v-for="e in value.timeline" :key="e.id"><time>{{fullTime(e.ts)}}</time><strong>{{events[e.event]||e.event}}</strong><p>{{e.message}}</p></li></ol><h4>本次通知 · {{value.notifications.length}}</h4><p class="hint">提醒属于同一次告警；已读只影响铃铛，不代表恢复。旧通知缺少关联时不猜测归属。</p><ol><li v-for="n in value.notifications" :key="n.id"><time>{{fullTime(n.ts)}}</time><strong>{{events[n.context?.event||'']||n.title}}</strong><p>{{n.body}}</p></li></ol></template></div></DetailDialog></template>
+<style scoped>
+h3{margin:0;font-size:18px}h3 span{font-size:13px;font-weight:450;margin-left:8px;color:#efb78b}h3 .resolved{color:#9bcbb6}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:22px 0}dt,.hint,time{color:var(--text-lo,#bdb6ac);font-size:13px}dd{margin:3px 0 0}h4{font-size:15px;margin:24px 0 10px}ol{list-style:none;padding:0}li{border-left:2px solid #ffffff25;padding:3px 0 3px 14px;margin:12px 0}li strong{display:block;font-weight:550}li p{margin:4px 0}button{font:inherit;color:inherit;background:#ffffff10;border:1px solid #ffffff30;border-radius:6px;padding:7px 12px;cursor:pointer}@media(max-width:500px){dl{grid-template-columns:1fr}}
+</style>

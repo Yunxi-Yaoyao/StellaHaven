@@ -8,7 +8,7 @@ test('R1 回退明确显示实际活动红色代码并保留蓝色草稿',async(
  await page.getByRole('button',{name:'编辑 额度',exact:true}).click();
  await showCode(page);
  await page.getByRole('button',{name:'回退上一版本',exact:true}).click();
- await expect(page.getByText('已回退并回读活动版本；已打开的网站请手动重载。',{exact:true})).toBeVisible();
+ await expect(page.getByText('已回退并回读活动版本；网站保活配置已刷新。',{exact:true})).toBeVisible();
  await showActive(page);await expect(page.getByLabel('活动版本 CSS',{exact:true})).toHaveValue('body{color:red}');
  await expect(page.getByLabel('活动版本 JavaScript',{exact:true})).toHaveValue('window.activeRed=true');
  await showActive(page);await expect(page.getByLabel('活动版本 CSS',{exact:true})).toHaveAttribute('readonly','');
@@ -89,7 +89,7 @@ test('回退版本回读不一致保留编辑器，只重试精确读取不重�
  await page.getByRole('button',{name:'回退上一版本',exact:true}).click();
  await expect(page.getByText('回退结果未确认，请刷新活动版本，不要重复回退。',{exact:true})).toBeVisible();
  await expect(page.getByLabel('自定义 CSS',{exact:true})).toHaveValue('body{color:green}');
- await expect(page.getByText('已回退并回读活动版本；已打开的网站请手动重载。',{exact:true})).toHaveCount(0);
+ await expect(page.getByText('已回退并回读活动版本；网站保活配置已刷新。',{exact:true})).toHaveCount(0);
  corrupt=false;await page.getByRole('button',{name:'回退结果回读',exact:true}).click();
  await showActive(page);await expect(page.getByLabel('活动版本 CSS',{exact:true})).toHaveValue('body{color:red}');
  await page.getByRole('button',{name:'已保存草稿',exact:true}).click();await expect(page.getByLabel('自定义 CSS',{exact:true})).toHaveValue('body{color:blue}');
@@ -264,7 +264,7 @@ for(const width of [1440,390])test('真实设置布局和关闭按钮 '+width,as
  await page.getByRole('button',{name:'选择图标'}).click();
  await expect(page.getByRole('radiogroup',{name:'图标选择'})).toBeVisible();
  const metrics=await page.evaluate(()=>({viewport:innerWidth,scroll:document.documentElement.scrollWidth,nameWidth:document.querySelector<HTMLInputElement>('[aria-label="显示名称"]')!.getBoundingClientRect().width,rowId:document.querySelector('.inline-editor')!.parentElement!.getAttribute('data-row-id'),closeButtons:document.querySelectorAll('[aria-label="收起编辑"]').length}));
- expect(metrics.nameWidth).toBeGreaterThanOrEqual(200);expect(metrics.nameWidth).toBeLessThanOrEqual(240);expect(metrics.scroll).toBeLessThanOrEqual(width);expect(metrics.rowId).toBe('quota');expect(metrics.closeButtons).toBe(1);
+ expect(metrics.nameWidth).toBeGreaterThanOrEqual(200);if(width===1440)expect(metrics.nameWidth).toBeLessThanOrEqual(240);else expect(metrics.nameWidth).toBe(width-92);expect(metrics.scroll).toBeLessThanOrEqual(width);expect(metrics.rowId).toBe('quota');expect(metrics.closeButtons).toBe(1);
  await testInfo.attach('DOM-widths',{body:JSON.stringify(metrics),contentType:'application/json'});
  await page.screenshot({path:process.env.TMPDIR+'/stella-website-'+width+'.png',fullPage:true});
  await page.getByRole('button',{name:'收起编辑',exact:true}).click();await expect(page.locator('.inline-editor')).toHaveCount(0);
@@ -289,7 +289,7 @@ test('回退保留既有API并核对活动版本，不把本地代码执行作�
  await page.getByRole('button',{name:'编辑 额度',exact:true}).click();
  await showCode(page);
  await page.getByRole('button',{name:'回退上一版本',exact:true}).click();
- await expect(page.getByText('已回退并回读活动版本；已打开的网站请手动重载。',{exact:true})).toBeVisible();
+ await expect(page.getByText('已回退并回读活动版本；网站保活配置已刷新。',{exact:true})).toBeVisible();
  await expect(page.getByLabel('自定义 CSS',{exact:true})).toHaveValue('previous');
  expect(f.requests.filter(x=>x.path.endsWith('/rollback'))).toHaveLength(1);
  expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);
@@ -376,7 +376,7 @@ test('名称清空仍只有地址必填，保存省略空名称给服务端建�
 test('切换设置分类也不能静默丢失草稿',async({page})=>{
  const f=await fixture(page,{full:true});
  await page.getByRole('button',{name:'编辑 额度',exact:true}).click();await page.getByLabel('网站地址',{exact:true}).fill('unsaved.example.test');
- await page.getByRole('button',{name:'资料与安全',exact:true}).click();
+ await page.getByRole('button',{name:'我的资料',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'未保存的修改'})).toBeVisible();await page.getByRole('button',{name:'继续编辑',exact:true}).click();
  await expect(page.getByLabel('网站地址',{exact:true})).toHaveValue('unsaved.example.test');
  expect(f.unknown).toEqual([]);expect(f.errors).toEqual([]);

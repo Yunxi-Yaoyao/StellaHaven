@@ -1,12 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createServer } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { chromium } from '@playwright/test';
 
 // Real Vue component, real browser; no store/backend/editor dependencies.
 test('auto directory: hierarchy, responsive defaults, scoped persistence and safe rendering', async t => {
-  const server = await createServer({ configFile: false, appType: 'custom', plugins: [vue()], server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
+  // This inline fixture only needs Vue, not Vite's default **/*.html app scan.
+  // Other native fixtures optimize the full app concurrently: never share their cache.
+  const cacheDir = await mkdtemp(join(tmpdir(), 'directory-vite-'));
+  let server;
+  t.after(async () => {
+    try { await server?.close(); }
+    finally { await rm(cacheDir, { recursive: true, force: true }); }
+  });
+  server = await createServer({ configFile: false, appType: 'custom', plugins: [vue()], cacheDir,
+    optimizeDeps: { entries: [], include: ['vue'] },
+    server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
   server.middlewares.use('/__directory_test', async (req, res, next) => {
     try {
       res.setHeader('Content-Type', 'text/html');
@@ -22,7 +35,7 @@ test('auto directory: hierarchy, responsive defaults, scoped persistence and saf
       </script>`));
     } catch (e) { next(e); }
   });
-  await server.listen(); t.after(() => server.close());
+  await server.listen();
   const browser = await chromium.launch({ args: ['--no-sandbox'], headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
@@ -30,6 +43,8 @@ test('auto directory: hierarchy, responsive defaults, scoped persistence and saf
   const errors=[]; page.on('pageerror', e=>errors.push(e.message));
   const url=`http://127.0.0.1:${server.httpServer.address().port}/__directory_test`;
   await page.goto(url);
+  assert.deepEqual(Object.keys(server.environments.client.depsOptimizer.metadata.optimized).sort(), ['vue'],
+    'the standalone directory fixture must not optimize unrelated application dependencies');
   const root = page.getByRole('button', { name: '目录 · 2 个子页面', exact: true });
   await root.waitFor();
   assert.equal(await root.getAttribute('aria-expanded'), 'true');

@@ -18,13 +18,13 @@ async function read(){
   if(pending.value&&pending.value!=='unknown'&&current.active.version!==pending.value)throw new Error('readback mismatch');
   const reconciled=!!pending.value;pending.value=null;state.value=current;draft.value=editable(current.draft||current.active);validated.value=false;
   if(reconciled)message.value='活动配置已回读；已打开页面请手动重载。';
- }catch(e){if(ticket!==generation)return;message.value=pending.value?'应用结果尚未确认；请刷新回读，暂不重复发布。':'无法读取内置注入；请先在集中安全设置完成管理解锁。';}
+ }catch(e){if(ticket!==generation)return;message.value=pending.value?'应用结果尚未确认；请刷新回读，暂不重复发布。':'无法读取内置注入；请确认用户登录与请求权限后重试。';}
  finally{if(ticket===generation)busy.value=false;}
 }
 watch(()=>props.site,value=>{if(value&&value!==site.value&&!busy.value&&!pending.value)site.value=value;});
 watch(site,()=>{pending.value=null;state.value=null;draft.value=fresh();validated.value=false;void read();},{immediate:true});
 onBeforeUnmount(()=>{generation++;controller?.abort();});
-async function validate(){if(busy.value||pending.value)return;busy.value=true;message.value='';try{const result=await validateBuiltin(site.value,draft.value);validated.value=result.valid;message.value=result.valid?'草稿校验通过，尚未应用。':result.errors.join('；');}catch{message.value='草稿未确认；请检查管理解锁与 JavaScript 语法。';}finally{busy.value=false;}}
+async function validate(){if(busy.value||pending.value)return;busy.value=true;message.value='';try{const result=await validateBuiltin(site.value,draft.value);validated.value=result.valid;message.value=result.valid?'草稿校验通过，尚未应用。':result.errors.join('；');}catch{message.value='草稿未确认；请检查登录权限与 JavaScript 语法。';}finally{busy.value=false;}}
 async function publish(rollback=false){if(busy.value||pending.value)return;busy.value=true;message.value='';try{
  const result=rollback?await rollbackBuiltin(site.value):await applyBuiltin(site.value);pending.value=result.active.version;
  const current=await getBuiltin(site.value);if(current.active.version!==pending.value)throw new Error('readback mismatch');

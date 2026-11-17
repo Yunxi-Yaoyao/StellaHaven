@@ -24,16 +24,18 @@ def test_repository_commits_do_not_pollute_next_schema(client, db_session):
 
 
 def test_unconfigured_management_fails_closed_in_actual_main(client, db_session):
+    # No independent password setup is required on a genuine single-owner DB.
     state=db_session.get(AppConfig,STATE_KEY)
-    db_session.delete(state); db_session.commit()
+    db_session.delete(state);db_session.commit()
     security=client.get('/auth/security')
-    assert security.status_code == 200
-    assert security.json()['setup_required'] is True
-    response=client.post('/nodes/',json={'name':'must-not-create','host':'192.0.2.1','platform':'linux'})
-    assert response.status_code == 403
-    assert response.json()['detail']['code'] == 'admin_setup_required'
-    assert client.get('/workspaces/').status_code == 200
-    assert client.get('/assets/homebg/no-such-upload.png').status_code == 404
+    assert security.status_code==200
+    assert security.json()['setup_required'] is False
+    assert security.json()['elevated'] is True
+    assert client.get('/integration-targets').status_code==200
+    assert client.get('/workspaces/').status_code==200
+    assert client.get('/assets/homebg/no-such-upload.png').status_code==404
+    assert client.post('/auth/logout').status_code==200
+    assert client.get('/integration-targets').status_code==401
 
 
 def test_retained_second_account_cannot_log_in_or_access_owner_data(client, db_session):

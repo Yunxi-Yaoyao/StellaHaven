@@ -1,0 +1,13 @@
+import {expect,test,vi,beforeEach} from 'vitest';
+import {ref} from 'vue';
+vi.mock('../modules/home/auth',()=>({auth:{checked:true,me:{id:'fixture-owner'},suspended:false},loggedIn:ref(true),fetchMe:vi.fn()}));
+vi.mock('./protectedPage',()=>({protectedPage:()=>({render:()=>null})}));
+vi.mock('../api/servers',()=>({getNodeDetail:vi.fn()}));
+vi.mock('../composables/useToast',()=>({toast:vi.fn()}));
+import router from './index';
+import {getNodeDetail} from '../api/servers';
+import {toast} from '../composables/useToast';
+beforeEach(async()=>{vi.resetAllMocks();await router.push('/');});
+test('direct pending route is redirected before mounting business detail',async()=>{vi.mocked(getNodeDetail).mockRejectedValue({status:409,detail:{code:'node_not_online',message:'节点尚未正常在线'}});await router.push('/status/7');expect(router.currentRoute.value.path).toBe('/status');expect(toast).toHaveBeenCalledWith(expect.stringContaining('正常在线'));});
+test('online direct route remains accessible',async()=>{vi.mocked(getNodeDetail).mockResolvedValue({id:7,status:'online'} as any);await router.push('/status/7');expect(router.currentRoute.value.path).toBe('/status/7');});
+test('failed status lookup is fail-closed with explicit reason',async()=>{vi.mocked(getNodeDetail).mockRejectedValue(new Error('network unavailable'));await router.push('/status/8');expect(router.currentRoute.value.path).toBe('/status');expect(toast).toHaveBeenCalledWith(expect.stringContaining('无法确认'));});

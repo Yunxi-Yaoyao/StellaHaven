@@ -1,0 +1,22 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { createApp, nextTick, type App } from 'vue';
+import { createRouter, createMemoryHistory } from 'vue-router';
+import NotificationBell from './NotificationBell.vue';
+vi.mock('../stores/notifications', () => ({ notifications:{unread:0,items:[]}, notificationActions:{refreshList:vi.fn(),readAll:vi.fn(),readOne:vi.fn()} }));
+let app:App, host:HTMLElement;
+afterEach(() => { app?.unmount(); host?.remove(); });
+it('teleports notifications outside sidebar, supports Escape and restores trigger focus', async () => {
+  host=document.createElement('aside'); document.body.append(host);
+  const router=createRouter({history:createMemoryHistory(),routes:[]});
+  app=createApp(NotificationBell).use(router);app.mount(host);
+  const trigger=host.querySelector('button')!;
+  vi.spyOn(trigger,'getBoundingClientRect').mockReturnValue({left:150,right:180,top:20,bottom:50,width:30,height:30,x:150,y:20,toJSON:()=>({})});
+  trigger.focus();trigger.click();
+  await nextTick();await nextTick();
+  const dialog=document.querySelector('[role=dialog][aria-label="通知"]');
+  expect(dialog).not.toBeNull();expect(host.contains(dialog)).toBe(false);
+  expect(dialog?.contains(document.activeElement)).toBe(true);
+  document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await nextTick();
+  await vi.waitFor(() => expect(document.querySelector('[role=dialog][aria-label="通知"]')).toBeNull());
+  expect(document.activeElement).toBe(trigger);
+});

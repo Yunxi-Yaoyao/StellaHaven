@@ -21,7 +21,8 @@ def test_catalog_exposes_complete_editable_code(api_env, monkeypatch):
     assert drive['custom']['enabled']
     assert len(drive['custom']['css']) > 1000
     assert '__stellaCacheFix' in drive['custom']['js']
-    assert 'stella-admin-required' in drive['custom']['js']
+    # The retired independent-management unlock UI must not be injected.
+    assert 'stella-admin-required' not in drive['custom']['js']
     assert 'event.source!==window.parent' in drive['custom']['js']
     assert 'event.origin!==location.origin' not in drive['custom']['js']
     assert 'Immich logo' in templates['immich']['draft']['custom']['css']

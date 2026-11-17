@@ -7,6 +7,7 @@ from app.models.config import AppConfig
 from app.models.document import Document
 from app.services.document import create_document
 from app.schemas.document import DocumentCreate
+from app.services.notes_lifecycle import lock_workspace, lock_document, rollback_on_error
 
 
 def lock_key(db, key):
@@ -24,7 +25,9 @@ def config_write(db, key, value):
     return row
 
 
-def inbox_for_write(db, workspace_id):
+@rollback_on_error
+def inbox_for_write(db, workspace_id, *, commit=True):
+    lock_workspace(db, workspace_id)
     key = 'notes-inbox:' + str(workspace_id)
     lock_key(db, key)
     row = db.get(AppConfig, key)
@@ -39,12 +42,14 @@ def inbox_for_write(db, workspace_id):
             workspace_id=workspace_id, content='', content_hash=sha256(b'').hexdigest(), is_folder=True)
         db.add(folder); db.flush()
         config_write(db, key, str(folder.id))
-    db.commit(); db.refresh(folder)
+    if commit:
+        db.commit(); db.refresh(folder)
     return folder
 
 
+@rollback_on_error
 def quick_record(db, workspace_id, title, content):
-    folder = inbox_for_write(db, workspace_id)
+    folder = inbox_for_write(db, workspace_id, commit=False)
     return create_document(db, DocumentCreate(workspace_id=workspace_id, parent_id=folder.id,
         title=title, content=content, file_path='/quick-record/' + str(uuid4()) + '.md'))
 
@@ -60,7 +65,12 @@ def note_node(db, doc_id):
         return None
 
 
+@rollback_on_error
 def set_note_node(db, doc_id, node_id):
+    from fastapi import HTTPException
+    doc = lock_document(db, doc_id)
+    if doc is None or doc.deleted_at is not None:
+        raise HTTPException(404, '文档不存在')
     key = 'note-node:' + str(doc_id)
     lock_key(db, key)
     row = db.get(AppConfig, key)

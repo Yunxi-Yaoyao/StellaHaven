@@ -1,0 +1,1396 @@
+{
+  "local_limitation": "Pinned Python/PG and exact lock dependencies, independent processes; 5 concurrent host replay lanes, not remote CI timings. Only previously unknown successful whole commands included; no failure/censor/skip-only weight.",
+  "local_observations": [
+    {
+      "command": [
+        "tests_isolated/test_agent_19_upgrade.py",
+        "--noconftest"
+      ],
+      "log": "docs/private-remediation/remainder/1/01-test_agent_19_upgrade.py.log",
+      "log_sha256": "bb3dfca8fd8bfbdfa583df09ec7685b1a4781cc68f1a944d7624042b7e22ae02",
+      "seconds": 14.1553576849401,
+      "source": "5787c955074ae520c9f3f885b10002b44b0a57f1"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_refresh_timeout_evidence.py",
+        "--noconftest"
+      ],
+      "log": "docs/private-remediation/remainder/2/01-test_api_response_refresh_timeout_evidence.py.log",
+      "log_sha256": "d8e22e1c5daae5f5fb44deca6ec214f30c5d26cf80eedf31401145d6b8667a61",
+      "seconds": 145.69222494680434,
+      "source": "5787c955074ae520c9f3f885b10002b44b0a57f1"
+    }
+  ],
+  "new_local_successful_command_seconds": {
+    "tests_isolated/test_agent_19_upgrade.py": 14.1553576849401,
+    "tests_isolated/test_api_response_refresh_timeout_evidence.py": 145.69222494680434
+  },
+  "observations": [
+    {
+      "command": [
+        "tests_isolated/test_api_response_completion.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:02:49.633671Z",
+      "job": 1106,
+      "seconds": 492.470374,
+      "start": "2026-10-25T11:54:37.163297Z",
+      "summary": "23 passed, 1 warning in 489.26s (0:08:09)",
+      "trace_sha256": "9a69e3e2088e5fcee043e34db02d0a60de1ead556369d74f20747e4671c9a347"
+    },
+    {
+      "command": [
+        "tests_isolated/test_web_project_response_contract.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:04:20.192675Z",
+      "job": 1106,
+      "seconds": 90.559004,
+      "start": "2026-10-25T12:02:49.633671Z",
+      "summary": "9 passed, 1 warning in 88.23s (0:01:28)",
+      "trace_sha256": "9a69e3e2088e5fcee043e34db02d0a60de1ead556369d74f20747e4671c9a347"
+    },
+    {
+      "command": [
+        "tests_node_files/test_build.py"
+      ],
+      "end": "2026-10-25T12:05:06.272446Z",
+      "job": 1106,
+      "seconds": 46.079771,
+      "start": "2026-10-25T12:04:20.192675Z",
+      "summary": "1 passed in 42.72s",
+      "trace_sha256": "9a69e3e2088e5fcee043e34db02d0a60de1ead556369d74f20747e4671c9a347"
+    },
+    {
+      "command": [
+        "tests_isolated/test_native_nav_completion_browser_pg.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:05:20.391667Z",
+      "job": 1106,
+      "seconds": 14.119221,
+      "start": "2026-10-25T12:05:06.272446Z",
+      "summary": "1 passed, 1 warning in 11.15s",
+      "trace_sha256": "9a69e3e2088e5fcee043e34db02d0a60de1ead556369d74f20747e4671c9a347"
+    },
+    {
+      "command": [
+        "tests_node_files/test_acl_browser.py"
+      ],
+      "end": "2026-10-25T12:05:29.292151Z",
+      "job": 1106,
+      "seconds": 8.900484,
+      "start": "2026-10-25T12:05:20.391667Z",
+      "summary": "1 passed in 5.43s",
+      "trace_sha256": "9a69e3e2088e5fcee043e34db02d0a60de1ead556369d74f20747e4671c9a347"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_contract.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:01:18.429702Z",
+      "job": 1107,
+      "seconds": 477.124393,
+      "start": "2026-10-25T11:53:21.305309Z",
+      "summary": "46 passed, 1 warning in 474.07s (0:07:54)",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_contract_save_event_reconciliation.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:02:45.809970Z",
+      "job": 1107,
+      "seconds": 87.380268,
+      "start": "2026-10-25T12:01:18.429702Z",
+      "summary": "4 passed, 1 warning in 85.67s (0:01:25)",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_v7_integration.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:03:50.464736Z",
+      "job": 1107,
+      "seconds": 64.654766,
+      "start": "2026-10-25T12:02:45.809970Z",
+      "summary": "18 passed, 1 warning in 63.22s (0:01:03)",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_agent_rollout_evidence.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:04:30.107837Z",
+      "job": 1107,
+      "seconds": 39.643101,
+      "start": "2026-10-25T12:03:50.464736Z",
+      "summary": "28 passed, 1 warning in 38.48s",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_v6_runtime.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:04:59.976294Z",
+      "job": 1107,
+      "seconds": 29.868457,
+      "start": "2026-10-25T12:04:30.107837Z",
+      "summary": "9 passed, 2 warnings in 28.33s",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_agent_unified/test_unified_agent.py"
+      ],
+      "end": "2026-10-25T12:05:15.659395Z",
+      "job": 1107,
+      "seconds": 15.683101,
+      "start": "2026-10-25T12:04:59.976294Z",
+      "summary": "19 passed in 15.28s",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_isolated/test_upgrade_handoff.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:05:31.037148Z",
+      "job": 1107,
+      "seconds": 15.377753,
+      "start": "2026-10-25T12:05:15.659395Z",
+      "summary": "11 passed, 3 warnings in 12.91s",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_node_files/test_parent_integration.py"
+      ],
+      "end": "2026-10-25T12:05:45.131338Z",
+      "job": 1107,
+      "seconds": 14.09419,
+      "start": "2026-10-25T12:05:31.037148Z",
+      "summary": "2 passed, 2 warnings in 10.02s",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_isolated/test_backup_group_identity.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:06:00.888244Z",
+      "job": 1107,
+      "seconds": 15.756906,
+      "start": "2026-10-25T12:05:45.131338Z",
+      "summary": "122 passed, 4 warnings in 14.30s",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_node_files/test_root_lifecycle.py"
+      ],
+      "end": "2026-10-25T12:06:08.231356Z",
+      "job": 1107,
+      "seconds": 7.343112,
+      "start": "2026-10-25T12:06:00.888244Z",
+      "summary": "1 passed, 1 warning in 5.00s",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_isolated/test_speedtest_duration_v13.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:06:23.466242Z",
+      "job": 1107,
+      "seconds": 15.234886,
+      "start": "2026-10-25T12:06:08.231356Z",
+      "summary": "127 passed, 1 warning in 14.54s",
+      "trace_sha256": "1684f2c771729e7bdb705d2d6e705af30dbbcc7e9a12811e7fa9efb858085d77"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_v11_integration.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T11:56:54.160863Z",
+      "job": 1108,
+      "seconds": 223.004231,
+      "start": "2026-10-25T11:53:11.156632Z",
+      "summary": "41 passed, 1 warning in 219.86s (0:03:39)",
+      "trace_sha256": "fd01a82afc5979aaad01804c96ac5cb3b42e42ab0ea48d9ff5f40a5adde5a7e1"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_v8_integration.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T11:59:40.179878Z",
+      "job": 1108,
+      "seconds": 166.019015,
+      "start": "2026-10-25T11:56:54.160863Z",
+      "summary": "30 passed, 1 warning in 162.51s (0:02:42)",
+      "trace_sha256": "fd01a82afc5979aaad01804c96ac5cb3b42e42ab0ea48d9ff5f40a5adde5a7e1"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_monitor_ux_evidence.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:02:17.253448Z",
+      "job": 1108,
+      "seconds": 157.07357,
+      "start": "2026-10-25T11:59:40.179878Z",
+      "summary": "50 passed, 1 warning in 154.28s (0:02:34)",
+      "trace_sha256": "fd01a82afc5979aaad01804c96ac5cb3b42e42ab0ea48d9ff5f40a5adde5a7e1"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_source_metadata_v13.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:03:58.498869Z",
+      "job": 1108,
+      "seconds": 101.245421,
+      "start": "2026-10-25T12:02:17.253448Z",
+      "summary": "208 passed, 1 warning in 100.11s (0:01:40)",
+      "trace_sha256": "fd01a82afc5979aaad01804c96ac5cb3b42e42ab0ea48d9ff5f40a5adde5a7e1"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_auth_gate.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:04:49.770741Z",
+      "job": 1108,
+      "seconds": 51.271872,
+      "start": "2026-10-25T12:03:58.498869Z",
+      "summary": "9 passed, 1 warning in 48.91s",
+      "trace_sha256": "fd01a82afc5979aaad01804c96ac5cb3b42e42ab0ea48d9ff5f40a5adde5a7e1"
+    },
+    {
+      "command": [
+        "tests_node_files/test_stdlib_pipeline.py"
+      ],
+      "end": "2026-10-25T12:05:11.110504Z",
+      "job": 1108,
+      "seconds": 21.339763,
+      "start": "2026-10-25T12:04:49.770741Z",
+      "summary": "9 passed in 17.45s",
+      "trace_sha256": "fd01a82afc5979aaad01804c96ac5cb3b42e42ab0ea48d9ff5f40a5adde5a7e1"
+    },
+    {
+      "command": [
+        "tests"
+      ],
+      "end": "2026-10-25T12:18:49.516284Z",
+      "job": 1109,
+      "seconds": 173.734428,
+      "start": "2026-10-25T12:15:55.781856Z",
+      "summary": "291 passed, 1 skipped, 3 warnings in 162.95s (0:02:42)",
+      "trace_sha256": "dbebdce72a0994fab6c5202160f11ff5f6e71f1b207219bfc17d921d5c74d623"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_v6_integration.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:54.245567Z",
+      "job": 1109,
+      "seconds": 184.729283,
+      "start": "2026-10-25T12:18:49.516284Z",
+      "summary": "35 passed, 1 warning in 183.12s (0:03:03)",
+      "trace_sha256": "dbebdce72a0994fab6c5202160f11ff5f6e71f1b207219bfc17d921d5c74d623"
+    },
+    {
+      "command": [
+        "tests_agent_unified/test_refresh_timeout.py"
+      ],
+      "end": "2026-10-25T12:23:14.947909Z",
+      "job": 1109,
+      "seconds": 80.702342,
+      "start": "2026-10-25T12:21:54.245567Z",
+      "summary": "30 passed in 80.30s (0:01:20)",
+      "trace_sha256": "dbebdce72a0994fab6c5202160f11ff5f6e71f1b207219bfc17d921d5c74d623"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_current_overlay_v13.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:24:53.410791Z",
+      "job": 1109,
+      "seconds": 98.462882,
+      "start": "2026-10-25T12:23:14.947909Z",
+      "summary": "193 passed, 1 warning in 97.01s (0:01:37)",
+      "trace_sha256": "dbebdce72a0994fab6c5202160f11ff5f6e71f1b207219bfc17d921d5c74d623"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_ci167_evidence.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:11:03.888857Z",
+      "job": 1110,
+      "seconds": 258.812825,
+      "start": "2026-10-25T12:06:45.076032Z",
+      "summary": "29 passed, 1 warning in 256.38s (0:04:16)",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_reconcile.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:14:05.625927Z",
+      "job": 1110,
+      "seconds": 181.73707,
+      "start": "2026-10-25T12:11:03.888857Z",
+      "summary": "28 passed, 1 warning in 179.39s (0:02:59)",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_website_settings",
+        "--confcutdir=tests_website_settings"
+      ],
+      "end": "2026-10-25T12:16:29.523841Z",
+      "job": 1110,
+      "seconds": 143.897914,
+      "start": "2026-10-25T12:14:05.625927Z",
+      "summary": "275 passed, 1 warning in 142.11s (0:02:22)",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_node_files/test_lifecycle_protocol.py"
+      ],
+      "end": "2026-10-25T12:17:21.511799Z",
+      "job": 1110,
+      "seconds": 51.987958,
+      "start": "2026-10-25T12:16:29.523841Z",
+      "summary": "12 passed, 1 warning in 48.98s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_node_files_delivery/test_delivery.py"
+      ],
+      "end": "2026-10-25T12:17:54.218344Z",
+      "job": 1110,
+      "seconds": 32.706545,
+      "start": "2026-10-25T12:17:21.511799Z",
+      "summary": "34 passed in 32.05s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_zip_reconciliation_sources.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:18:32.789838Z",
+      "job": 1110,
+      "seconds": 38.571494,
+      "start": "2026-10-25T12:17:54.218344Z",
+      "summary": "16 passed, 1 warning in 37.15s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_node_files/test_auto_config.py"
+      ],
+      "end": "2026-10-25T12:18:54.019954Z",
+      "job": 1110,
+      "seconds": 21.230116,
+      "start": "2026-10-25T12:18:32.789838Z",
+      "summary": "55 passed in 17.92s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_node_files/test_delivery_protocol.py"
+      ],
+      "end": "2026-10-25T12:19:08.584028Z",
+      "job": 1110,
+      "seconds": 14.564074,
+      "start": "2026-10-25T12:18:54.019954Z",
+      "summary": "3 passed in 12.14s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_agent_channel_tls.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:19:30.179883Z",
+      "job": 1110,
+      "seconds": 21.595855,
+      "start": "2026-10-25T12:19:08.584028Z",
+      "summary": "14 passed in 21.16s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_agent_installer_umask_v12.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:19:46.320500Z",
+      "job": 1110,
+      "seconds": 16.140617,
+      "start": "2026-10-25T12:19:30.179883Z",
+      "summary": "17 passed in 15.79s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_node_files/test_unprivileged_lifecycle.py"
+      ],
+      "end": "2026-10-25T12:19:53.646177Z",
+      "job": 1110,
+      "seconds": 7.325677,
+      "start": "2026-10-25T12:19:46.320500Z",
+      "summary": "1 passed, 1 warning in 4.64s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_node_files_delivery/test_lifecycle.py"
+      ],
+      "end": "2026-10-25T12:19:59.400043Z",
+      "job": 1110,
+      "seconds": 5.753866,
+      "start": "2026-10-25T12:19:53.646177Z",
+      "summary": "11 passed in 5.15s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_native_nav_assets_pg.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:03.946913Z",
+      "job": 1110,
+      "seconds": 4.54687,
+      "start": "2026-10-25T12:19:59.400043Z",
+      "summary": "5 passed, 1 warning in 3.14s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_session_list_identity.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:13.400369Z",
+      "job": 1110,
+      "seconds": 9.453456,
+      "start": "2026-10-25T12:20:03.946913Z",
+      "summary": "8 passed, 1 warning in 8.17s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_private_remediation_evidence.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:01.400539Z",
+      "job": 1110,
+      "seconds": 48.00017,
+      "start": "2026-10-25T12:20:13.400369Z",
+      "summary": "30 passed, 1 warning in 45.07s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_native_nav_package_pg.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:05.042399Z",
+      "job": 1110,
+      "seconds": 3.64186,
+      "start": "2026-10-25T12:21:01.400539Z",
+      "summary": "3 passed, 1 warning in 2.38s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_metrics_source.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:22.768240Z",
+      "job": 1110,
+      "seconds": 8.571018,
+      "start": "2026-10-25T12:21:14.197222Z",
+      "summary": "33 passed, 1 warning in 7.59s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_machine_agent.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:23.660034Z",
+      "job": 1110,
+      "seconds": 0.891794,
+      "start": "2026-10-25T12:21:22.768240Z",
+      "summary": "36 passed in 0.51s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_build_mirror.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:28.927198Z",
+      "job": 1110,
+      "seconds": 5.267164,
+      "start": "2026-10-25T12:21:23.660034Z",
+      "summary": "6 passed, 76 subtests passed in 4.93s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_access_entries.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:32.745496Z",
+      "job": 1110,
+      "seconds": 3.818298,
+      "start": "2026-10-25T12:21:28.927198Z",
+      "summary": "15 passed, 2 warnings in 2.86s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_host_registration_atomic_v12.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:35.814348Z",
+      "job": 1110,
+      "seconds": 3.068852,
+      "start": "2026-10-25T12:21:32.745496Z",
+      "summary": "5 passed, 1 warning in 2.25s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_profile_username.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:39.230852Z",
+      "job": 1110,
+      "seconds": 3.416504,
+      "start": "2026-10-25T12:21:35.814348Z",
+      "summary": "4 passed, 1 warning in 2.50s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_experience",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:43.222753Z",
+      "job": 1110,
+      "seconds": 3.991901,
+      "start": "2026-10-25T12:21:39.230852Z",
+      "summary": "30 passed, 20 subtests passed in 3.44s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_monitor_ux_batch.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:45.589901Z",
+      "job": 1110,
+      "seconds": 2.367148,
+      "start": "2026-10-25T12:21:43.222753Z",
+      "summary": "6 passed, 2 skipped, 1 warning in 1.60s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_public_node_tasks.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:48.481464Z",
+      "job": 1110,
+      "seconds": 2.891563,
+      "start": "2026-10-25T12:21:45.589901Z",
+      "summary": "64 passed, 1 warning in 2.36s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_monitor_performance.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:50.539651Z",
+      "job": 1110,
+      "seconds": 2.058187,
+      "start": "2026-10-25T12:21:48.481464Z",
+      "summary": "15 passed, 1 warning in 1.32s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_agent_rollout_compat.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:55.976710Z",
+      "job": 1110,
+      "seconds": 1.145492,
+      "start": "2026-10-25T12:21:54.831218Z",
+      "summary": "12 passed, 1 warning in 0.72s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_hardware_repository.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:56.656405Z",
+      "job": 1110,
+      "seconds": 0.679695,
+      "start": "2026-10-25T12:21:55.976710Z",
+      "summary": "7 passed in 0.31s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_traffic_query_fastpath.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:58.943820Z",
+      "job": 1110,
+      "seconds": 0.820932,
+      "start": "2026-10-25T12:21:58.122888Z",
+      "summary": "3 passed, 20 skipped in 0.35s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_capability_log_redaction.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:59.535376Z",
+      "job": 1110,
+      "seconds": 0.591556,
+      "start": "2026-10-25T12:21:58.943820Z",
+      "summary": "31 passed in 0.23s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_monitor_index_migration.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:22:01.119307Z",
+      "job": 1110,
+      "seconds": 1.583931,
+      "start": "2026-10-25T12:21:59.535376Z",
+      "summary": "4 passed in 0.81s",
+      "trace_sha256": "2eea912ec72c2ef3dd4b54e565b8c56e67430ee1e507a33f5dd4ba742573e114"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_final_gate.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:11:14.922487Z",
+      "job": 1111,
+      "seconds": 211.961624,
+      "start": "2026-10-25T12:07:42.960863Z",
+      "summary": "5 passed, 1 warning in 209.03s (0:03:29)",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_nav_files_evidence.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:14:06.073286Z",
+      "job": 1111,
+      "seconds": 171.150799,
+      "start": "2026-10-25T12:11:14.922487Z",
+      "summary": "88 passed, 1 warning in 168.92s (0:02:48)",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_node_files/test_lifecycle_stop_recovery.py"
+      ],
+      "end": "2026-10-25T12:15:28.266393Z",
+      "job": 1111,
+      "seconds": 82.193107,
+      "start": "2026-10-25T12:14:06.073286Z",
+      "summary": "17 passed, 1 warning in 78.17s (0:01:18)",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_fnos_policy_evidence.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:16:29.278175Z",
+      "job": 1111,
+      "seconds": 61.011782,
+      "start": "2026-10-25T12:15:28.266393Z",
+      "summary": "16 passed, 1 warning in 59.94s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_browser_sessions.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:17:14.445074Z",
+      "job": 1111,
+      "seconds": 45.166899,
+      "start": "2026-10-25T12:16:29.278175Z",
+      "summary": "41 passed, 1 warning in 41.28s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_oidc_authorize_errors.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:17:51.989184Z",
+      "job": 1111,
+      "seconds": 37.54411,
+      "start": "2026-10-25T12:17:14.445074Z",
+      "summary": "62 passed, 2 warnings in 34.61s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_draft_contract.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:18:21.266155Z",
+      "job": 1111,
+      "seconds": 29.276971,
+      "start": "2026-10-25T12:17:51.989184Z",
+      "summary": "76 passed, 1 warning in 25.02s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_feedback_integration_contract.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:18:47.252361Z",
+      "job": 1111,
+      "seconds": 25.986206,
+      "start": "2026-10-25T12:18:21.266155Z",
+      "summary": "4 passed, 1 warning in 23.46s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_documentation_export.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:19:05.127602Z",
+      "job": 1111,
+      "seconds": 17.875241,
+      "start": "2026-10-25T12:18:47.252361Z",
+      "summary": "4 passed in 17.53s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_followup_contract.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:19:22.273032Z",
+      "job": 1111,
+      "seconds": 17.14543,
+      "start": "2026-10-25T12:19:05.127602Z",
+      "summary": "2 passed, 1 warning in 15.90s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_email_attempts.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:19:34.285824Z",
+      "job": 1111,
+      "seconds": 12.012792,
+      "start": "2026-10-25T12:19:22.273032Z",
+      "summary": "50 passed, 1 warning in 10.98s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_nav_files_validation_evidence.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:19:44.880991Z",
+      "job": 1111,
+      "seconds": 10.595167,
+      "start": "2026-10-25T12:19:34.285824Z",
+      "summary": "14 passed, 1 warning in 9.62s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_request_security.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:19:57.737757Z",
+      "job": 1111,
+      "seconds": 12.856766,
+      "start": "2026-10-25T12:19:44.880991Z",
+      "summary": "6 passed, 2 warnings in 10.97s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_private_remediation_final.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:21.862641Z",
+      "job": 1111,
+      "seconds": 12.930786,
+      "start": "2026-10-25T12:20:08.931855Z",
+      "summary": "4 passed, 1 warning in 11.33s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_openlist_admin_gate.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:32.806647Z",
+      "job": 1111,
+      "seconds": 8.356175,
+      "start": "2026-10-25T12:20:24.450472Z",
+      "summary": "31 passed, 1 warning in 7.42s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_single_password_v6.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:38.801470Z",
+      "job": 1111,
+      "seconds": 5.994823,
+      "start": "2026-10-25T12:20:32.806647Z",
+      "summary": "16 passed, 1 warning in 5.09s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_entry_scope.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:43.974212Z",
+      "job": 1111,
+      "seconds": 5.172742,
+      "start": "2026-10-25T12:20:38.801470Z",
+      "summary": "66 passed, 1 warning in 4.19s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_drive_daily_access.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:48.499827Z",
+      "job": 1111,
+      "seconds": 4.525615,
+      "start": "2026-10-25T12:20:43.974212Z",
+      "summary": "11 passed, 1 warning in 3.54s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_iperf_atomic_budget.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:52.078531Z",
+      "job": 1111,
+      "seconds": 3.578704,
+      "start": "2026-10-25T12:20:48.499827Z",
+      "summary": "5 passed in 2.95s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_servers_feedback.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:55.433352Z",
+      "job": 1111,
+      "seconds": 3.354821,
+      "start": "2026-10-25T12:20:52.078531Z",
+      "summary": "13 passed, 1 warning in 2.48s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_agent_update.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:20:59.043563Z",
+      "job": 1111,
+      "seconds": 3.610211,
+      "start": "2026-10-25T12:20:55.433352Z",
+      "summary": "20 passed, 58 subtests passed in 3.09s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_monitor_validity_v6.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:01.876079Z",
+      "job": 1111,
+      "seconds": 2.832516,
+      "start": "2026-10-25T12:20:59.043563Z",
+      "summary": "55 passed, 1 warning in 1.98s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_throughput_fix2_v12.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:04.572850Z",
+      "job": 1111,
+      "seconds": 2.696771,
+      "start": "2026-10-25T12:21:01.876079Z",
+      "summary": "54 passed in 2.06s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_report_channels.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:09.937797Z",
+      "job": 1111,
+      "seconds": 2.930213,
+      "start": "2026-10-25T12:21:07.007584Z",
+      "summary": "13 passed, 1 warning in 1.88s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_agent_identity_v11.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:11.670365Z",
+      "job": 1111,
+      "seconds": 1.732568,
+      "start": "2026-10-25T12:21:09.937797Z",
+      "summary": "3 passed, 2 warnings in 1.13s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_agent_runtime_instances_v11.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:12.472880Z",
+      "job": 1111,
+      "seconds": 0.802515,
+      "start": "2026-10-25T12:21:11.670365Z",
+      "summary": "5 passed in 0.42s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_html_note_conversion.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:13.755749Z",
+      "job": 1111,
+      "seconds": 1.282869,
+      "start": "2026-10-25T12:21:12.472880Z",
+      "summary": "4 passed in 0.67s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_oidc_existing_native_callback.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:15.085819Z",
+      "job": 1111,
+      "seconds": 1.33007,
+      "start": "2026-10-25T12:21:13.755749Z",
+      "summary": "1 passed, 1 warning in 0.72s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_validation_redaction.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:16.529034Z",
+      "job": 1111,
+      "seconds": 1.443215,
+      "start": "2026-10-25T12:21:15.085819Z",
+      "summary": "24 passed, 1 warning in 0.96s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_channel_recovery_fence.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:17.178190Z",
+      "job": 1111,
+      "seconds": 0.649156,
+      "start": "2026-10-25T12:21:16.529034Z",
+      "summary": "7 passed in 0.25s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_native_nav_guard.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:21:17.760404Z",
+      "job": 1111,
+      "seconds": 0.582214,
+      "start": "2026-10-25T12:21:17.178190Z",
+      "summary": "4 passed in 0.06s",
+      "trace_sha256": "709ee914904b1b0a8b415eaaa647681b22248e3ed7d6422759c8705acf434d7a"
+    },
+    {
+      "command": [
+        "tests_isolated/test_web_project_7790dcf_response_contract.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:25:37.252993Z",
+      "job": 1112,
+      "seconds": 204.130292,
+      "start": "2026-10-25T12:22:13.122701Z",
+      "summary": "41 passed, 1 warning in 201.44s (0:03:21)",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_unified_files_evidence.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:28:36.652408Z",
+      "job": 1112,
+      "seconds": 179.399415,
+      "start": "2026-10-25T12:25:37.252993Z",
+      "summary": "44 passed, 1 warning in 177.61s (0:02:57)",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_backup_response_contract.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:30:42.482334Z",
+      "job": 1112,
+      "seconds": 125.829926,
+      "start": "2026-10-25T12:28:36.652408Z",
+      "summary": "27 passed, 1 warning in 123.54s (0:02:03)",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_agent_refresh_timeout/test_full_main.py"
+      ],
+      "end": "2026-10-25T12:31:22.428896Z",
+      "job": 1112,
+      "seconds": 39.946562,
+      "start": "2026-10-25T12:30:42.482334Z",
+      "summary": "2 passed, 1 warning in 37.76s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_openapi_contract.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:32:12.029652Z",
+      "job": 1112,
+      "seconds": 49.600756,
+      "start": "2026-10-25T12:31:22.428896Z",
+      "summary": "26 passed, 1 warning in 48.14s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_integration_security_hotfix.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:32:46.229995Z",
+      "job": 1112,
+      "seconds": 34.200343,
+      "start": "2026-10-25T12:32:12.029652Z",
+      "summary": "36 passed, 2 warnings in 32.39s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_homebg_references_pg.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:33:05.785813Z",
+      "job": 1112,
+      "seconds": 19.555818,
+      "start": "2026-10-25T12:32:46.229995Z",
+      "summary": "35 passed, 1 warning in 18.17s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_final_review_fixes.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:33:27.567407Z",
+      "job": 1112,
+      "seconds": 21.781594,
+      "start": "2026-10-25T12:33:05.785813Z",
+      "summary": "15 passed, 2 warnings in 20.03s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_v5_contract_integration.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:33:47.882241Z",
+      "job": 1112,
+      "seconds": 20.314834,
+      "start": "2026-10-25T12:33:27.567407Z",
+      "summary": "12 passed, 1 warning in 18.68s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_node_files/test_write_pipeline.py"
+      ],
+      "end": "2026-10-25T12:33:57.621819Z",
+      "job": 1112,
+      "seconds": 9.739578,
+      "start": "2026-10-25T12:33:47.882241Z",
+      "summary": "7 passed in 7.27s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_native_nav_completion_pg.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:34:04.755133Z",
+      "job": 1112,
+      "seconds": 7.133314,
+      "start": "2026-10-25T12:33:57.621819Z",
+      "summary": "3 passed, 1 deselected, 1 warning in 5.99s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_oidc_provider.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:34:14.530412Z",
+      "job": 1112,
+      "seconds": 9.775279,
+      "start": "2026-10-25T12:34:04.755133Z",
+      "summary": "60 passed, 2 warnings in 8.72s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_session_location_deadline.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:34:26.046536Z",
+      "job": 1112,
+      "seconds": 11.516124,
+      "start": "2026-10-25T12:34:14.530412Z",
+      "summary": "20 passed in 11.18s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_api_response_private_remediation_runtime.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:34:52.308054Z",
+      "job": 1112,
+      "seconds": 17.25694,
+      "start": "2026-10-25T12:34:35.051114Z",
+      "summary": "10 passed, 1 warning in 15.81s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_node_files/test_migration.py"
+      ],
+      "end": "2026-10-25T12:34:56.588986Z",
+      "job": 1112,
+      "seconds": 2.884259,
+      "start": "2026-10-25T12:34:53.704727Z",
+      "summary": "1 passed in 0.40s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_small_public_outputs.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:35:02.554031Z",
+      "job": 1112,
+      "seconds": 5.965045,
+      "start": "2026-10-25T12:34:56.588986Z",
+      "summary": "69 passed, 2 warnings in 5.18s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_agent_canary_tool.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:35:07.631054Z",
+      "job": 1112,
+      "seconds": 5.077023,
+      "start": "2026-10-25T12:35:02.554031Z",
+      "summary": "13 passed, 1 warning in 4.68s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    },
+    {
+      "command": [
+        "tests_isolated/test_monitor_group_delete.py",
+        "--noconftest"
+      ],
+      "end": "2026-10-25T12:35:11.905613Z",
+      "job": 1112,
+      "seconds": 4.274559,
+      "start": "2026-10-25T12:35:07.631054Z",
+      "summary": "35 passed, 4 skipped, 1 warning in 3.45s",
+      "trace_sha256": "8d9be0b9b2f8de245cdf9af542f31d276f6b38f1df90eeba4e91cfca8cac5c4f"
+    }
+  ],
+  "pipeline_id": 182,
+  "selection": "Only whole BACKEND_COMMAND intervals containing successful non-skip-only pytest summary; failed/censored commands excluded. Prior completed floors retained. Last command ends at the successful step_script section boundary, including command process teardown.",
+  "source_commit": "5787c955074ae520c9f3f885b10002b44b0a57f1",
+  "successful_command_seconds": {
+    "tests": 173.734428,
+    "tests_agent_refresh_timeout/test_full_main.py": 39.946562,
+    "tests_agent_unified/test_refresh_timeout.py": 80.702342,
+    "tests_agent_unified/test_unified_agent.py": 15.683101,
+    "tests_experience": 3.991901,
+    "tests_isolated/test_access_entries.py": 3.818298,
+    "tests_isolated/test_agent_canary_tool.py": 5.077023,
+    "tests_isolated/test_agent_channel_tls.py": 21.595855,
+    "tests_isolated/test_agent_identity_v11.py": 1.732568,
+    "tests_isolated/test_agent_installer_umask_v12.py": 16.140617,
+    "tests_isolated/test_agent_rollout_compat.py": 1.145492,
+    "tests_isolated/test_agent_runtime_instances_v11.py": 0.802515,
+    "tests_isolated/test_agent_update.py": 3.610211,
+    "tests_isolated/test_api_auth_gate.py": 51.271872,
+    "tests_isolated/test_api_contract_save_event_reconciliation.py": 87.380268,
+    "tests_isolated/test_api_draft_contract.py": 29.276971,
+    "tests_isolated/test_api_openapi_contract.py": 49.600756,
+    "tests_isolated/test_api_response_agent_rollout_evidence.py": 39.643101,
+    "tests_isolated/test_api_response_ci167_evidence.py": 258.812825,
+    "tests_isolated/test_api_response_completion.py": 492.470374,
+    "tests_isolated/test_api_response_contract.py": 477.124393,
+    "tests_isolated/test_api_response_current_overlay_v13.py": 98.462882,
+    "tests_isolated/test_api_response_final_gate.py": 211.961624,
+    "tests_isolated/test_api_response_fnos_policy_evidence.py": 61.011782,
+    "tests_isolated/test_api_response_monitor_ux_evidence.py": 157.07357,
+    "tests_isolated/test_api_response_nav_files_evidence.py": 171.150799,
+    "tests_isolated/test_api_response_nav_files_validation_evidence.py": 10.595167,
+    "tests_isolated/test_api_response_private_remediation_evidence.py": 48.00017,
+    "tests_isolated/test_api_response_private_remediation_final.py": 12.930786,
+    "tests_isolated/test_api_response_private_remediation_runtime.py": 17.25694,
+    "tests_isolated/test_api_response_reconcile.py": 181.73707,
+    "tests_isolated/test_api_response_source_metadata_v13.py": 101.245421,
+    "tests_isolated/test_api_response_unified_files_evidence.py": 179.399415,
+    "tests_isolated/test_api_response_v11_integration.py": 223.004231,
+    "tests_isolated/test_api_response_v6_integration.py": 184.729283,
+    "tests_isolated/test_api_response_v6_runtime.py": 29.868457,
+    "tests_isolated/test_api_response_v7_integration.py": 64.654766,
+    "tests_isolated/test_api_response_v8_integration.py": 166.019015,
+    "tests_isolated/test_api_zip_reconciliation_sources.py": 38.571494,
+    "tests_isolated/test_backup_group_identity.py": 15.756906,
+    "tests_isolated/test_backup_response_contract.py": 125.829926,
+    "tests_isolated/test_browser_sessions.py": 45.166899,
+    "tests_isolated/test_build_mirror.py": 5.267164,
+    "tests_isolated/test_capability_log_redaction.py": 0.591556,
+    "tests_isolated/test_channel_recovery_fence.py": 0.649156,
+    "tests_isolated/test_documentation_export.py": 17.875241,
+    "tests_isolated/test_drive_daily_access.py": 4.525615,
+    "tests_isolated/test_email_attempts.py": 12.012792,
+    "tests_isolated/test_entry_scope.py": 5.172742,
+    "tests_isolated/test_feedback_integration_contract.py": 25.986206,
+    "tests_isolated/test_final_review_fixes.py": 21.781594,
+    "tests_isolated/test_followup_contract.py": 17.14543,
+    "tests_isolated/test_hardware_repository.py": 0.679695,
+    "tests_isolated/test_homebg_references_pg.py": 19.555818,
+    "tests_isolated/test_host_registration_atomic_v12.py": 3.068852,
+    "tests_isolated/test_html_note_conversion.py": 1.282869,
+    "tests_isolated/test_integration_security_hotfix.py": 34.200343,
+    "tests_isolated/test_iperf_atomic_budget.py": 3.578704,
+    "tests_isolated/test_machine_agent.py": 0.891794,
+    "tests_isolated/test_metrics_source.py": 8.571018,
+    "tests_isolated/test_monitor_group_delete.py": 4.274559,
+    "tests_isolated/test_monitor_index_migration.py": 1.583931,
+    "tests_isolated/test_monitor_performance.py": 2.058187,
+    "tests_isolated/test_monitor_ux_batch.py": 2.367148,
+    "tests_isolated/test_monitor_validity_v6.py": 2.832516,
+    "tests_isolated/test_native_nav_assets_pg.py": 4.54687,
+    "tests_isolated/test_native_nav_completion_browser_pg.py": 14.119221,
+    "tests_isolated/test_native_nav_completion_pg.py": 7.133314,
+    "tests_isolated/test_native_nav_guard.py": 0.582214,
+    "tests_isolated/test_native_nav_package_pg.py": 3.64186,
+    "tests_isolated/test_oidc_authorize_errors.py": 37.54411,
+    "tests_isolated/test_oidc_existing_native_callback.py": 1.33007,
+    "tests_isolated/test_oidc_provider.py": 9.775279,
+    "tests_isolated/test_openlist_admin_gate.py": 8.356175,
+    "tests_isolated/test_profile_username.py": 3.416504,
+    "tests_isolated/test_public_node_tasks.py": 2.891563,
+    "tests_isolated/test_report_channels.py": 2.930213,
+    "tests_isolated/test_request_security.py": 12.856766,
+    "tests_isolated/test_servers_feedback.py": 3.354821,
+    "tests_isolated/test_session_list_identity.py": 9.453456,
+    "tests_isolated/test_session_location_deadline.py": 11.516124,
+    "tests_isolated/test_single_password_v6.py": 5.994823,
+    "tests_isolated/test_small_public_outputs.py": 5.965045,
+    "tests_isolated/test_speedtest_duration_v13.py": 15.234886,
+    "tests_isolated/test_throughput_fix2_v12.py": 2.696771,
+    "tests_isolated/test_traffic_query_fastpath.py": 0.820932,
+    "tests_isolated/test_upgrade_handoff.py": 15.377753,
+    "tests_isolated/test_v5_contract_integration.py": 20.314834,
+    "tests_isolated/test_validation_redaction.py": 1.443215,
+    "tests_isolated/test_web_project_7790dcf_response_contract.py": 204.130292,
+    "tests_isolated/test_web_project_response_contract.py": 90.559004,
+    "tests_node_files/test_acl_browser.py": 8.900484,
+    "tests_node_files/test_auto_config.py": 21.230116,
+    "tests_node_files/test_build.py": 46.079771,
+    "tests_node_files/test_delivery_protocol.py": 14.564074,
+    "tests_node_files/test_lifecycle_protocol.py": 51.987958,
+    "tests_node_files/test_lifecycle_stop_recovery.py": 82.193107,
+    "tests_node_files/test_migration.py": 2.884259,
+    "tests_node_files/test_parent_integration.py": 14.09419,
+    "tests_node_files/test_root_lifecycle.py": 7.343112,
+    "tests_node_files/test_stdlib_pipeline.py": 21.339763,
+    "tests_node_files/test_unprivileged_lifecycle.py": 7.325677,
+    "tests_node_files/test_write_pipeline.py": 9.739578,
+    "tests_node_files_delivery/test_delivery.py": 32.706545,
+    "tests_node_files_delivery/test_lifecycle.py": 5.753866,
+    "tests_website_settings": 143.897914
+  }
+}

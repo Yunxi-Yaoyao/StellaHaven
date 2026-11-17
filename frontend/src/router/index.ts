@@ -2,7 +2,9 @@ import { createRouter, createWebHistory } from "vue-router";
 import { auth, fetchMe, loggedIn } from "../modules/home/auth";
 import {loadNavigation,navigation,resolveLegacyModule} from "../stores/navigation";
 import {protectedPage} from "./protectedPage";
-import {openLogin,safeLoginTarget} from "../modules/auth/loginPrompt";
+import {openLogin,safeLoginTarget,oidcLoginTarget} from "../modules/auth/loginPrompt";
+import {getNodeDetail} from '../api/servers';
+import {toast} from '../composables/useToast';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -20,6 +22,14 @@ const router = createRouter({
       meta: { title: "登录", public: true, bare: true },
     },
     { path:"/apps/:id", name:"external-module", props:true, component:{render:()=>null}, meta:{title:"网站模块"} },
+    { path:'/nav', name:'nav', component:protectedPage('native-nav',()=>import('../modules/nav/NavPage.vue')), meta:{title:'导航'} },
+    {
+      path: "/help",
+      name: "documentation",
+      component: () => import("../modules/documentation/DocumentationPage.vue"),
+      // Static product help has no user data or authenticated request executor.
+      meta: { title: "文档中心", public: true },
+    },
     {
       path: "/settings",
       name: "settings",
@@ -75,11 +85,26 @@ router.beforeEach(async (to,from) => {
     }
   }
   if (!auth.checked) await fetchMe();
-  if (to.name==='login'){if(!loggedIn.value)openLogin();return {path:safeLoginTarget(to.query.next),replace:true};}
+  if (to.name==='login'){
+    const oidcTarget=oidcLoginTarget(to.query.next);
+    if(oidcTarget&&loggedIn.value){window.location.replace(oidcTarget);return false;}
+    if(!loggedIn.value)openLogin(oidcTarget);
+    // Native authorization must return through HTTP after login, not the SPA.
+    return {path:oidcTarget?'/':safeLoginTarget(to.query.next),replace:true};
+  }
   if (to.meta.public) {
     return true;
   }
   if (!loggedIn.value) return true;
+  if (to.name === 'status-node') {
+    try {
+      const node = await getNodeDetail(Number(to.params.id));
+      if (node.status !== 'online') throw {status:409};
+    } catch (error) {
+      toast((error as {status?:number})?.status === 409 ? '节点尚未正常在线，不能进入详情' : '无法确认节点正常在线，请稍后重试');
+      return {path:'/status',query:{view:'nodes'},replace:true};
+    }
+  }
   if(to.meta.legacyModule){
     if(!navigation.loaded)await loadNavigation();
     const id=resolveLegacyModule(String(to.meta.legacyModule));

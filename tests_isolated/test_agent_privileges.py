@@ -1,5 +1,6 @@
 """Offline privilege/transport contracts; never use real sudo/Docker/services."""
 import contextlib
+import ast
 import importlib.util
 import io
 import json
@@ -10,6 +11,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from types import ModuleType
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,14 +140,38 @@ class TransportTests(unittest.TestCase):
     def test_installed_service_does_not_expose_token_in_process_args(self):
         shell = (ROOT / 'agent/install.sh').read_text()
         host = (ROOT / 'app/services/host.py').read_text()
-        for source in (shell, host):
-            exec_lines = [line for line in source.splitlines() if 'ExecStart=' in line]
-            self.assertTrue(exec_lines)
-            self.assertTrue(all('--token' not in line for line in exec_lines))
-            self.assertIn('EnvironmentFile=', source)
+        exec_lines = [line for line in shell.splitlines() if 'ExecStart=' in line]
+        self.assertTrue(exec_lines)
+        self.assertTrue(all('--token' not in line for line in exec_lines))
+        self.assertIn('EnvironmentFile=', shell)
+        # V11 host installation delegates to the same per-center installer;
+        # credentials are inherited in its environment, never child arguments.
+        # Execute the exact inert host transport slice; package __init__ imports
+        # repositories/DB and must not be bootstrapped merely to test argv.
+        host_module = ModuleType('privilege_host_transport')
+        host_module.__dict__.update(__file__=str(ROOT / 'app/services/host.py'),
+                                    platform=agent.platform, os=os, shutil=agent.shutil,
+                                    subprocess=subprocess, Path=Path)
+        nodes = [node for node in ast.parse(host).body
+                 if isinstance(node, ast.FunctionDef) and node.name in {'supports_local_install', 'install_host'}
+                 or isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == 'HOST_INSTANCE' for target in node.targets)]
+        self.assertEqual(len(nodes), 3)
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), 'real-host-transport-slice', 'exec'), host_module.__dict__)
+        calls = []
+        def run(args, **kwargs):
+            calls.append((args, kwargs))
+            return subprocess.CompletedProcess(args, 0, 'stella-agent-' + 'a' * 24, '')
+        with patch.object(host_module, 'supports_local_install', return_value=True), patch.object(host_module.platform, 'system', return_value='Linux'), patch.object(host_module.os, 'geteuid', return_value=0), patch.object(host_module.shutil, 'which', return_value='/fixture/tool'), patch.object(host_module.subprocess, 'run', run):
+            self.assertEqual(host_module.install_host('credential-marker', 'https://center.invalid'),
+                             {'installed': True, 'service': 'stella-agent-' + 'a' * 24})
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], ['/bin/bash', str(ROOT / 'agent/install.sh'), '--url', 'https://center.invalid', '--instance', 'host', '--no-deps'])
+        self.assertNotIn('credential-marker', repr(calls[0][0]))
+        self.assertEqual(calls[0][1]['env']['STELLA_TOKEN'], 'credential-marker')
+        self.assertNotIn('ExecStart=', host)
 
     def test_new_protocol_version_and_windows_installer_header(self):
-        self.assertEqual(agent.AGENT_VERSION, '0.6.12')
+        self.assertEqual(agent.AGENT_VERSION, '0.6.20')
         script = (ROOT / 'agent/install.ps1').read_text()
         self.assertNotIn('/agent/config?token=', script)
         self.assertIn('Authorization', script)
@@ -210,12 +236,14 @@ class InstallerPrivilegeTests(unittest.TestCase):
 
     def test_installers_bundle_same_helper_and_per_command_sudo_rules(self):
         script = (ROOT / 'agent/install.sh').read_text()
-        self.assertIn("<<'STELLA_DOCKER_HELPER'", script)
-        embedded = script.split("<<'STELLA_DOCKER_HELPER'\n", 1)[1].split('\nSTELLA_DOCKER_HELPER', 1)[0] + '\n'
-        self.assertEqual(embedded, HELPER.read_text())
+        # V11 default installation has no Docker grant at all. The fixed
+        # Docker helper remains independently validated for legacy migration.
+        self.assertIn("<<'STELLA_INSTANCE_INSTALLER'", script)
+        self.assertNotIn('STELLA_DOCKER_HELPER', script)
+        self.assertNotIn('/usr/bin/docker', script)
         self.assertNotIn('_CMDS="${_CMDS}, ${_DOCKER}"', script)
         self.assertNotIn('--data-urlencode "token=$TOKEN"', script)
-        self.assertIn('Authorization: Bearer $TOKEN', script)
+        self.assertIn("headers = {'Authorization':'Bearer '+token} if token else {}", script)
         self.assertIn('visudo', script)
         module_path = ROOT / 'app/services/agent_install.py'
         self.assertTrue(module_path.exists(), 'local installer privilege module missing')
@@ -225,8 +253,7 @@ class InstallerPrivilegeTests(unittest.TestCase):
         self.assertNotIn('/usr/bin/docker', rules)
         for action in ('ps', 'inspect', 'logs', 'start', 'stop', 'restart'):
             self.assertIn('/usr/local/libexec/stella-docker-helper ' + action, rules)
-        host = (ROOT / 'app/services/host.py').read_text()
-        self.assertIn('install_privileges()', host)
+        self.assertEqual(installer.HELPER_SOURCE, HELPER)
 
 class AgentDockerTests(unittest.TestCase):
     def test_docker_detection_never_executes_a_path_selected_binary(self):
@@ -315,54 +342,48 @@ class DockerHelperTests(unittest.TestCase):
 
 legacy_installer_tests = load(ROOT / 'tests_isolated/test_agent_installer.py', 'legacy_installer_test_cases')
 
-class RelocatedInstallerRegressionTests(legacy_installer_tests.AgentInstallerTest):
-    """Replay EVERY existing installer acceptance case with all new writes relocated."""
-    def run_install(self, mode='', deps='--deps', missing=()):
-        import shutil
-        with tempfile.TemporaryDirectory(prefix='stella-installer-') as tmp:
-            root = Path(tmp)
-            bindir = root / 'bin'; bindir.mkdir()
-            prefixes = ('/opt/stella-agent', '/etc/sudoers.d', '/etc/systemd/system',
-                        '/usr/local/bin', '/usr/local/libexec', '/etc/stella-agent')
-            for prefix in prefixes:
-                (root / prefix.lstrip('/')).mkdir(parents=True, exist_ok=True)
-            old = root / 'opt/stella-agent/stella_agent.py'
-            old.write_text('# old working agent\n')
-            script = (ROOT / 'agent/install.sh').read_text()
-            for prefix in prefixes:
-                script = script.replace(prefix, str(root) + prefix)
-            for name in ('cat', 'chmod', 'mkdir', 'mktemp', 'mv', 'rm', 'head'):
-                executable = shutil.which(name)
-                assert executable is not None
-                (bindir / name).symlink_to(executable)
-            (bindir / 'visudo').symlink_to('/usr/sbin/visudo')
-            for name in ('id', 'useradd', 'chown', 'systemctl', 'apt-get', 'python3', 'curl', 'iperf3', 'speedtest-go', 'sleep', 'docker', 'ip', 'ufw', 'wg'):
-                if name in missing: continue
-                stub = bindir / name
-                stub.write_text(legacy_installer_tests.FAKE.replace('#!PYTHON', '#!' + sys.executable))
-                stub.chmod(0o755)
-            env = dict(os.environ, PATH=str(bindir), SANDBOX=tmp, MODE=mode)
-            result = subprocess.run(['/bin/bash', '-s', '--', '--url', 'https://example.invalid', '--token', 'secret-regression-token'] + ([deps] if deps else []), input=script, text=True, capture_output=True, env=env, start_new_session=True, timeout=20)
-            output = result.stdout + result.stderr
-            self.assertNotIn('secret-regression-token', output)
-            service = root / 'etc/systemd/system/stella-agent.service'
-            helper = root / 'usr/local/libexec/stella-docker-helper'
-            if result.returncode == 0:
-                self.assertEqual(helper.stat().st_mode & 0o777, 0o755)
-                self.assertEqual(helper.stat().st_uid, 0)
-                rules = (root / 'etc/sudoers.d/stella-docker').read_text()
-                self.assertNotIn(str(bindir / 'docker'), rules)
-                self.assertEqual(len(rules.splitlines()), 6)
-                retained = (root / 'etc/sudoers.d/stella-uninstall').read_text()
-                self.assertIn(str(bindir / 'ip'), retained)
-                self.assertIn(str(bindir / 'ufw'), retained)
-                self.assertNotIn(str(bindir / 'docker'), retained)
-                self.assertNotIn('secret-regression-token', service.read_text())
-                self.assertEqual((root / 'etc/stella-agent/agent.env').stat().st_mode & 0o777, 0o600)
-                self.assertIn('secret-regression-token', (root / 'etc/stella-agent/agent.env').read_text())
-            self.assertFalse(list((root / 'opt/stella-agent').glob('.stella_agent.*')))
-            self.assertFalse((root / 'opt/stella-agent/__pycache__').exists())
-            return result.returncode, output, old.read_text(), (root / 'calls').read_text(), service.exists()
+class RelocatedInstallerRegressionTests(legacy_installer_tests.LinuxInstances):
+    """Replay every current installer case; strengthen its actual install hook."""
+    def install(self, extra_env=None, origin=None, extra_args=()):
+        result = super().install(extra_env=extra_env, origin=origin, extra_args=extra_args)
+        if result.returncode == 0:
+            manifests = list((self.root / 'etc/stella-agents').glob('*/instance.json'))
+            self.assertTrue(manifests)
+            for manifest in manifests:
+                binding = json.loads(manifest.read_text())
+                iid, service = binding['instance_id'], binding['service']
+                helper = self.root / 'usr/local/libexec' / service
+                sudoers = self.root / 'etc/sudoers.d' / service
+                envfile = manifest.parent / 'agent.env'
+                unit = self.root / 'etc/systemd/system' / (service + '.service')
+                # Default per-instance grants permit only scheduled self-removal,
+                # not Docker, arbitrary systemctl, networking, or argument wildcards.
+                self.assertEqual(sudoers.read_text(), f'sta{iid} ALL=(root) NOPASSWD: {helper} --schedule\n')
+                for path, mode in ((helper, 0o755), (sudoers, 0o440), (envfile, 0o600)):
+                    self.assertEqual((path.stat().st_uid, path.stat().st_gid, path.stat().st_mode & 0o777), (0, 0, mode))
+                self.assertNotIn(legacy_installer_tests.TOKEN, unit.read_text())
+                self.assertNotIn(legacy_installer_tests.TOKEN, helper.read_text())
+                self.assertIn(legacy_installer_tests.TOKEN, envfile.read_text())
+                self.assertIn('EnvironmentFile=' + str(envfile) + '\n', unit.read_text())
+                self.assertEqual([line for line in unit.read_text().splitlines() if line.startswith('ExecStart=')],
+                                 ['ExecStart=/usr/bin/env python3 ' + str(self.root / 'opt/stella-agents' / iid / 'stella_agent.py')])
+                self.assertFalse(list(manifest.parent.glob('.install-*')))
+                self.assertFalse((self.root / 'opt/stella-agents' / iid / '__pycache__').exists())
+        return result
+
+    def test_current_instance_helper_rejects_ungranted_commands_without_side_effects(self):
+        self.assertEqual(self.install().returncode, 0)
+        helper = self.root / 'usr/local/libexec' / ('stella-agent-' + legacy_installer_tests.instance_id(self.center))
+        before, calls = self.snapshot(), self.calls()
+        for args in ([], ['docker', 'ps'], ['--remove', 'other'], ['--schedule', '--remove']):
+            with self.subTest(args=args):
+                result = subprocess.run([sys.executable, '-I', str(helper), *args], env=self.env,
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(result.stderr.strip(), 'Stella instance removal refused or failed')
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(self.calls(), calls)
 
 if __name__ == '__main__':
     unittest.main()

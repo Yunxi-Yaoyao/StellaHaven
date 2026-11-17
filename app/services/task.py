@@ -15,8 +15,8 @@ def _iperf_timeout_sec(t: IperfTask) -> int:
     if t.mode == "speedtest":
         return 150
     if t.bytes:
-        return 300
-    return t.duration + 60
+        return 3660  # bounded one-hour data test + report grace, not an 180s server timer
+    return t.duration + (t.omit or 0) + 60
 
 
 def sweep_stale_iperf(db: Session) -> None:
@@ -91,7 +91,9 @@ def get_iperf(db: Session, task_id: int) -> IperfTask | None:
 
 def cancel_iperf(db: Session, task_id: int) -> IperfTask | None:
     """中止打流任务：pending/running → cancelled。agent 检测到 cancelled 后 terminate iperf3 进程。"""
-    t = repo.get_iperf(db, task_id)
+    # Serialize with agent result authorization; a stale running read must not
+    # overwrite a result which committed while cancellation was waiting.
+    t = db.query(IperfTask).filter(IperfTask.id == task_id).with_for_update().first()
     if t is None:
         return None
     if t.status in ("pending", "running"):
@@ -131,7 +133,29 @@ def _valid_mtr_params(params: dict | None) -> dict | None:
 
 def create_mtr(db: Session, node_id: int, target: str, protocol: str,
                params: dict | None = None) -> MtrTask:
-    return repo.create_mtr(db, node_id, target, protocol, params=_valid_mtr_params(params))
+    return create_mtr_job(db, [node_id], target, protocol, params)[0]
+
+
+def _require_mtr_node(db: Session, node_id: int) -> None:
+    node = node_repo.get_by_id(db, node_id)
+    if node is None or node_status(node) != 'online':
+        raise ValueError(f'节点 {node_id} 不在线')
+    capability = (node.components or {}).get('mtr')
+    installed = capability if isinstance(capability, bool) else (
+        capability.get('installed') if isinstance(capability, dict) else None)
+    if installed is False:
+        raise ValueError(f'节点 {node_id} 未安装 MTR，请先下发组件安装')
+
+
+def create_mtr_job(db: Session, node_ids: list[int], target: str, protocol: str,
+                   params: dict | None = None) -> list[MtrTask]:
+    if not target.strip() or len(target) > 256 or protocol not in ('icmp', 'tcp', 'udp'):
+        raise ValueError('目标或协议不正确')
+    if not 1 <= len(node_ids) <= 8 or len(set(node_ids)) != len(node_ids):
+        raise ValueError('请选择 1–8 个不同节点')
+    for nid in node_ids:
+        _require_mtr_node(db, nid)
+    return repo.create_mtr_job(db, node_ids, target, protocol, _valid_mtr_params(params))
 
 
 def update_mtr_live(db: Session, task_id: int, live: dict) -> None:
@@ -141,6 +165,7 @@ def update_mtr_live(db: Session, task_id: int, live: dict) -> None:
 def create_mtr_for_monitor(db: Session, monitor) -> MtrTask:
     """监控项浮窗的「立即 MTR」：按类型映射协议（http→tcp:80/443），target 存 host[:port]。"""
     from app.services.monitor import mtr_spec
+    _require_mtr_node(db, monitor.node_id)
     host, proto, port = mtr_spec(monitor.type, monitor.target)
     target = f"{host}:{port}" if port else host
     return repo.create_mtr(db, monitor.node_id, target, proto,
@@ -168,8 +193,8 @@ def list_mtr_for_monitor(db: Session, monitor_id: int) -> list[MtrTask]:
     return repo.list_mtr_for_monitor(db, monitor_id)
 
 
-def list_mtr(db: Session) -> list[MtrTask]:
-    return repo.list_mtr(db)
+def list_mtr(db: Session, trigger: str | None = None) -> list[MtrTask]:
+    return repo.list_mtr(db, trigger=trigger)
 
 
 def create_command(db: Session, node_id: int, command: str) -> AgentCommand:
@@ -349,12 +374,179 @@ def authorize_agent_task(db: Session, token: str, kind: str, task_id: int,
 
 
 # ── 结果回传 ──
+def _validate_iperf_result(mode: str, payload: dict, selected_server=None) -> dict:
+    """Validate new writes, not the permissive historical read projection.
+
+    Accept only complete measured shapes: Stella summary/native iperf, Go,
+    Ookla bandwidth objects, or legacy speedtest-cli bit/s scalars. Never infer
+    success from a vendor key alone. Return a copy; callers keep failed evidence.
+    """
+    import math
+
+    def number(value, label, *, positive=False, maximum=None):
+        try:
+            valid = (not isinstance(value, bool) and isinstance(value, (int, float))
+                     and math.isfinite(value) and (value > 0 if positive else value >= 0)
+                     and (maximum is None or value <= maximum))
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError(f'无效测速结果字段 {label}')
+
+    def optional(obj, fields):
+        for key in fields:
+            if obj.get(key) is not None:
+                number(obj[key], key, maximum=100 if key in ('lost_pct', 'lost_percent') else None)
+
+    def optional_duration(obj):
+        duration = obj.get('test_duration')
+        if isinstance(duration, dict):
+            # Pinned Go struct: four non-omitempty *time.Duration
+            # fields, numeric nanoseconds or null. Never flatten it.
+            if set(duration) != {'ping', 'download', 'upload', 'total'}:
+                raise ValueError('无效测速结果字段 test_duration')
+            for key, value in duration.items():
+                if value is not None:
+                    number(value, 'test_duration.' + key)
+        elif duration is not None:
+            # Preserve the pre-existing optional/scalar contract.
+            number(duration, 'test_duration')
+
+    def clean(obj):
+        if not isinstance(obj, dict) or 'error' in obj:
+            raise ValueError('测速结果包含错误或缺少有效对象')
+
+    clean(payload)
+    r = dict(payload)
+    if mode == 'iperf3':
+        if any(key in r for key in ('servers', 'download', 'upload')):
+            raise ValueError('iperf3 任务不能接收 speedtest 结果')
+        optional(r, ('avg_bitrate', 'peak_bitrate', 'send_avg_bitrate', 'total_bytes',
+                     'jitter_ms', 'lost_pct', 'duration', 'retransmits'))
+        end = r.get('end')
+        if end is not None:
+            clean(end)
+        summaries = [obj[key] for obj in (r, end or {})
+                     for key in ('sum_received', 'sum', 'sum_sent') if key in obj]
+        for summary in summaries:
+            clean(summary)
+            for key in ('bits_per_second', 'bytes', 'seconds'):
+                number(summary.get(key), key, positive=key == 'seconds')
+            optional(summary, ('jitter_ms', 'lost_percent', 'lost_packets', 'packets', 'retransmits'))
+        if 'avg_bitrate' in r:
+            for key in ('avg_bitrate', 'total_bytes', 'duration'):
+                number(r.get(key), key, positive=key == 'duration')
+        elif not summaries:
+            raise ValueError('iperf3 缺少完整接收/发送汇总')
+        return r
+    if mode != 'speedtest':
+        raise ValueError('未知测速任务模式')
+    if any(key in r for key in ('avg_bitrate', 'peak_bitrate', 'total_bytes', 'end', 'sum_sent')):
+        raise ValueError('speedtest 任务不能接收 iperf3 结果')
+    optional_duration(r)
+    if 'servers' in r:
+        servers = r['servers']
+        if not isinstance(servers, list) or not servers:
+            raise ValueError('speedtest-go 缺少服务器测速结果')
+        for server in servers:
+            clean(server)
+            for key in ('dl_speed', 'ul_speed'):
+                number(server.get(key), key)
+            optional(server, ('latency', 'jitter'))
+            optional_duration(server)
+            if selected_server is not None and str(server.get('id')) != str(selected_server):
+                raise ValueError('测速服务器与任务指定 ID 不一致')
+    elif not all(key in r for key in ('download', 'upload')):
+        raise ValueError('speedtest 缺少完整下载/上传结果')
+    # Validate *every present known slot*, including mixed vendor payloads.
+    scalar = all(isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)
+                 for k in ('download', 'upload'))
+    for key in ('download', 'upload'):
+        if key in r:
+            if scalar:
+                number(r[key], key)
+            else:
+                clean(r[key])
+                number(r[key].get('bandwidth'), key + '.bandwidth')
+                optional(r[key], ('bytes', 'elapsed'))
+    if r.get('ping') is not None:
+        if scalar:
+            number(r['ping'], 'ping')
+        else:
+            clean(r['ping'])
+            optional(r['ping'], ('latency', 'jitter', 'low', 'high'))
+    if selected_server is not None and 'servers' not in r:
+        server = r.get('server')
+        if not isinstance(server, dict) or str(server.get('id')) != str(selected_server):
+            raise ValueError('测速服务器与任务指定 ID 不一致')
+    if scalar:
+        # Old CLI scalars are bit/s; repository/UI bandwidth objects are byte/s.
+        # Preserve original fields explicitly rather than changing their units silently.
+        r['legacy_speedtest_cli'] = {k: r[k] for k in ('download', 'upload', 'ping') if k in r}
+        for key in ('download', 'upload'):
+            r[key] = {'bandwidth': r[key] / 8}
+        if r.get('ping') is not None:
+            r['ping'] = {'latency': r['ping']}
+    return r
+
+
 def finish_iperf(db: Session, task_id: int, status: str, result_json: dict) -> None:
+    t = db.get(IperfTask, task_id)  # router already holds the row lock
+    if t is None or t.status not in ('pending', 'running'):
+        return
+    if result_json.get('role') == 'server':
+        if status == 'failed' and result_json.get('error'):
+            t.status, t.result_json = 'failed', result_json
+            db.commit()
+        return
+    reported_done = status == 'done'
+    if reported_done:
+        try:
+            result_json = _validate_iperf_result(t.mode, result_json, getattr(t, 'speedtest_server', None))
+        except ValueError as exc:
+            status = 'failed'
+            result_json = dict(result_json, error=result_json.get('error') or str(exc))
+    if reported_done and t.mode == 'iperf3' and t.direction == 'forward':
+        import math
+        rates = [p.get('bitrate') for p in (t.progress_json or [])
+                 if isinstance(p, dict) and p.get('role') == 'server' and not p.get('note') and not p.get('retry')]
+        rates = [r for r in rates if isinstance(r, (int, float)) and not isinstance(r, bool) and math.isfinite(r) and r >= 0]
+        result_json = dict(result_json, peak_bitrate=max(rates) if rates else None)
     repo.finish_iperf(db, task_id, status, result_json)
 
 
 def finish_mtr(db: Session, task_id: int, status: str, result_json: dict) -> None:
-    repo.finish_mtr(db, task_id, status, result_json)
+    """Commit the real result and one all-terminal manual-job intent atomically.
+
+    The router authenticates/locks the reporting node first. A job advisory lock
+    serializes sibling finishes; do not lock sibling rows here (the router may
+    already hold one, so that would reverse lock order and deadlock fan-out).
+    """
+    from sqlalchemy import text
+    from app.services.result_notifications import stage_result, deliver_pending
+    if status not in ('done', 'failed'):
+        raise ValueError('结果状态只能是 done / failed')
+    row = db.query(MtrTask).filter_by(id=task_id).with_for_update().populate_existing().first()
+    if row is None or row.status != 'running':
+        return  # unclaimed/unknown/replayed tasks are not new real terminals
+    operation = 'mtr:' + (row.job_id or str(row.id))
+    db.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key,0))'),
+               {'key': 'mtr-finish:' + operation})
+    row.status, row.result_json = status, result_json
+    db.flush()  # production Session has autoflush=False
+    if row.trigger == 'manual':
+        members = (db.query(MtrTask).filter_by(job_id=row.job_id).populate_existing().limit(9).all()
+                   if row.job_id else [row])
+        if 1 <= len(members) <= 8 and all(m.trigger == 'manual' and m.status in ('done', 'failed') for m in members):
+            failed = sum(m.status == 'failed' for m in members)
+            stage_result(db.connection(), source='manual_test', operation_id=operation,
+                         outcome='failure' if failed else 'success',
+                         title='手动 MTR 执行失败' if failed else '手动 MTR 执行完成',
+                         body=f'{len(members)} 个节点已全部结束：{len(members)-failed} 个完成，{failed} 个执行失败。执行完成不代表链路健康；请查看测试结果。',
+                         node_ids=sorted(m.node_id for m in members))
+    engine = db.get_bind().engine
+    db.commit()
+    deliver_pending(engine)
 
 
 def finish_command(db: Session, cmd_id: int, status: str,
@@ -363,6 +555,16 @@ def finish_command(db: Session, cmd_id: int, status: str,
 
 
 def append_iperf_progress(db: Session, task_id: int, point: dict) -> None:
+    import math
+    for key, limit in (('bitrate', 1e15), ('lost_pct', 100), ('jitter_ms', 1e9)):
+        value = point.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                  or not math.isfinite(value) or not 0 <= value <= limit):
+            raise ValueError(f'无效的 {key}')
+    for key, limit in (('ts', 64), ('note', 256), ('reason', 256)):
+        value = point.get(key)
+        if value is not None and (not isinstance(value, str) or len(value) > limit):
+            raise ValueError(f'无效的 {key}')
     repo.append_iperf_progress(db, task_id, point)
 
 

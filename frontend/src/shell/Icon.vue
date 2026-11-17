@@ -1,6 +1,10 @@
 <script setup lang="ts">
 // Feather 风格线性图标（参考 Outline 的图标语言），多段 path 用 | 分隔
+import { computed } from 'vue';
+import { navigationIcon, iconAliases } from '../icons/navigationIcons';
 const props = defineProps<{ name: string; size?: number }>();
+const legacyKey = computed(() => iconAliases[props.name] ?? props.name);
+const catalogIcon = computed(() => navigationIcon(props.name));
 
 const paths: Record<string, string> = {
   home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z|M9 22V12h6v10",
@@ -48,7 +52,12 @@ const paths: Record<string, string> = {
     stroke-linejoin="round"
     class="icon"
   >
-    <path v-for="(d, i) in (paths[name === 'file-text' ? 'note' : name === 'hard-drive' ? 'drive' : name] || paths.globe || '').split('|')" :key="i" :d="d" />
+    <template v-if="paths[legacyKey] || !catalogIcon">
+      <path v-for="(d, i) in (paths[legacyKey] || paths.globe || '').split('|')" :key="i" :d="d" />
+    </template>
+    <template v-else>
+      <component :is="tag" v-for="([tag, attrs], i) in catalogIcon.nodes" :key="i" v-bind="attrs" />
+    </template>
   </svg>
 </template>
 

@@ -1,0 +1,36 @@
+name: stella-live-test-nodes
+x-node: &node
+  image: stella-live-test-nodes:20261019
+  pull_policy: never
+  restart: unless-stopped
+  cap_drop: [ALL]
+  cap_add: [NET_RAW]
+  security_opt: [no-new-privileges:true]
+  read_only: true
+  tmpfs:
+    - /run:rw,noexec,nosuid,size=1m,mode=0700
+    - /tmp:rw,noexec,nosuid,size=8m
+  mem_limit: 192m
+  cpus: 0.35
+  pids_limit: 48
+  extra_hosts:
+    - stella-dev.p.xiya.live:192.168.160.1
+  entrypoint: [python, -u, /fixture/worker.py]
+  logging:
+    driver: json-file
+    options: {max-size: 2m, max-file: '3'}
+  labels: {stella.fixture: live-test-20261019}
+services:
+  node-a:
+    <<: *node
+    container_name: stella-live-test-a
+    networks: {isolated: {ipv4_address: 192.168.160.2}}
+  node-b:
+    <<: *node
+    container_name: stella-live-test-b
+    networks: {isolated: {ipv4_address: 192.168.160.3}}
+networks:
+  isolated:
+    name: stella-live-test-20261019
+    internal: true
+    ipam: {config: [{subnet: 192.168.160.0/28, gateway: 192.168.160.1}]}

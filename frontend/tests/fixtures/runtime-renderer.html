@@ -1,0 +1,6 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body><div id="host"></div><script type="module">
+import {loadMermaid,renderMermaidBlocks} from '../../src/modules/notes/lazyMermaid';
+import {sanitizeNoteSvg,sanitizeNoteHtml} from '../../src/modules/notes/noteHtml';
+import {url} from '@pixi/utils';
+window.fixture={loadMermaid,renderMermaidBlocks,sanitizeNoteSvg,sanitizeNoteHtml,url,loadCubism:()=>import('pixi-live2d-display/cubism4')};
+</script></body></html>
